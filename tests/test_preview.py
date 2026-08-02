@@ -45,7 +45,7 @@ def test_total_reconciles_with_rendered_tokens(tmp_path, monkeypatch, capsys):
 
     # Reconcile against the rendered context via the same path the command uses.
     cfg = perseus.load_config(ws)
-    perseus._merge_pack_mimir_config(cfg, ws)
+    perseus._merge_pack_vault_config(cfg, ws)
     rendered = perseus.render_source(src.read_text(encoding="utf-8"), cfg, ws, max_tier=3)
     assert report["total_tokens"] == perseus.estimate_tokens(rendered)
     assert report["total_tokens"] > 0

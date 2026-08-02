@@ -19,7 +19,7 @@ rendered document.
 
 ## Why
 
-Mnēmē, Agora, Pythia, and the rest of Perseus are first-party agents. Real
+Perseus Vault, Agora, Pythia, and the rest of Perseus are first-party agents. Real
 workspaces have many other local agents — bespoke scripts, AI CLI tools, local
 report generators. `@agent` is the generic adapter that lets any of them
 contribute to a rendered context file without bespoke Perseus integration.

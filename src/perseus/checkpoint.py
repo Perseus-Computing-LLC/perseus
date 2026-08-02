@@ -210,7 +210,7 @@ def cmd_checkpoint(args, cfg):
     if cp.get("next"):
         print(f"   Next:   {cp['next']}")
 
-    # ── Mnēmē auto-update (silent side-effect) ──
+    # ── Perseus Vault auto-update (silent side-effect) ──
     if bool(cfg.get("memory", {}).get("auto_update", True)):
         ws_arg = getattr(args, "workspace", None) or ""
         ws = Path(ws_arg).expanduser().resolve() if ws_arg else Path.cwd().resolve()
@@ -228,7 +228,7 @@ def cmd_checkpoint(args, cfg):
         if identity is not None:
             ws_arg2 = getattr(args, "workspace", None) or ""
             ws2 = Path(ws_arg2).expanduser().resolve() if ws_arg2 else Path.cwd().resolve()
-            mp = _mneme_path(ws2, cfg)
+            mp = _vault_memory_path(ws2, cfg)
             if mp.exists():
                 try:
                     narrative_body = mp.read_text(encoding="utf-8")
@@ -243,7 +243,7 @@ def cmd_checkpoint(args, cfg):
         identity = _load_identity(cfg)
         ws_arg3 = getattr(args, "workspace", None) or ""
         ws3 = Path(ws_arg3).expanduser().resolve() if ws_arg3 else Path.cwd().resolve()
-        mp3 = _mneme_path(ws3, cfg)
+        mp3 = _vault_memory_path(ws3, cfg)
         if mp3.exists():
             try:
                 narrative_body = mp3.read_text(encoding="utf-8")

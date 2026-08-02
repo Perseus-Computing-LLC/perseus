@@ -121,7 +121,7 @@ def _knows_model(hits: list, stats: dict | None, limit: int) -> dict:
     """Build the renderer-agnostic model both the CLI and /knows (#695) use.
 
     Counts come from the Vault's active-only stats fields when the server has
-    them (perseus-vault #493); `mimir_stats.total_entities` is archived-
+    them (perseus-vault #493); `perseus_vault_stats.total_entities` is archived-
     inflated, so with an older server the headline falls back to the listing
     size and archived stays unknown rather than lying.
     """
@@ -246,7 +246,7 @@ def cmd_knows(args, cfg) -> int:
         print("perseus knows is disabled (config: knows.enabled = false)")
         return 1
 
-    connector = MnemeConnector(cfg)
+    connector = VaultConnector(cfg)
     try:
         limit = int(getattr(args, "limit", None) or
                     knows_cfg.get("limit", _KNOWS_DEFAULT_LIMIT))

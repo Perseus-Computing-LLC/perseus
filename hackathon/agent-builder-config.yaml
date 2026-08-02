@@ -38,7 +38,7 @@ agent:
       tools:
         - perseus_services  # Health-check running services
         - perseus_read      # Read config values live
-        - perseus_memory    # Mneme + Engram-rs hybrid recall
+        - perseus_memory    # Perseus Vault + Engram-rs hybrid recall
         - perseus_drift     # Detect configuration drift
 
   # Instructions (injected into every session)

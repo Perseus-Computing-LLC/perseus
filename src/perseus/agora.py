@@ -1,12 +1,8 @@
 # stdlib imports available from build artifact header
 import time
 from datetime import timedelta # Added for #397
-from perseus.memory import _mneme_recall
-from perseus.mneme_connector import MEMORY_BRAND, _get_connector
-from perseus.vaultmem_connector import (
-    _vaultmem_available, _vaultmem_vault_path, _vaultmem_max_tokens,
-    _vaultmem_projects, fetch_project_memory,
-)
+from perseus.memory import _vault_recall
+from perseus.vault_connector import MEMORY_BRAND, _get_connector
 # ── Command dispatch ──────────────────────────────────────────────────────────
 
 def _memory_workspace(args, cfg) -> Path:
@@ -31,7 +27,7 @@ def _memory_workspace(args, cfg) -> Path:
         if (parent / ".perseus").exists():
             if parent != home:
                 sys.stderr.write(
-                    f"> Mneme: using workspace {parent} "
+                    f"> Vault: using workspace {parent} "
                     f"(nearest ancestor with .perseus/).\n"
                 )
             return parent
@@ -42,7 +38,7 @@ def _memory_workspace(args, cfg) -> Path:
     # which made scheduled jobs operate on the wrong workspace unnoticed —
     # fail fast with an actionable message instead.
     sys.stderr.write(
-        "> ✖ Mneme: no .perseus/ found in CWD or any ancestor directory "
+        "> ✖ Vault: no .perseus/ found in CWD or any ancestor directory "
         f"(searched up from {cwd}).\n"
         "> Pass --workspace <dir> explicitly, or run from inside a workspace "
         "(a directory whose root contains .perseus/).\n"
@@ -59,7 +55,7 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     cp_files = _list_checkpoint_files(cfg)
     # #152: check if we are at HWM to skip pointless I/O. If the file count
     # matches the processed count in frontmatter, nothing changed.
-    mp = _mneme_path(workspace, cfg)
+    mp = _vault_memory_path(workspace, cfg)
     fm, body = _load_narrative(mp)
     hwm = int(fm.get("checkpoints_processed", 0)) if fm else 0
     if hwm > 0 and hwm >= len(cp_files) and not _read_all_pythia_entries():
@@ -74,11 +70,11 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     all_pythia = _read_all_pythia_entries()
 
     if not fm:
-        fm = _mneme_default_frontmatter(workspace)
+        fm = _vault_default_frontmatter(workspace)
         body = ""
 
     cp_hwm = int(fm.get("checkpoints_processed", 0))
-    py_hwm = _mneme_pythia_hwm(fm)
+    py_hwm = _vault_pythia_hwm(fm)
     new_cp = all_checkpoints[cp_hwm:]
     new_py = all_pythia[py_hwm:]
 
@@ -92,7 +88,7 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     new_body = _deterministic_narrative(all_checkpoints, all_pythia, body, workspace, cfg)
 
     fm["checkpoints_processed"] = len(all_checkpoints)
-    _set_mneme_pythia_hwm(fm, len(all_pythia))
+    _set_vault_pythia_hwm(fm, len(all_pythia))
     fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
     fm["workspace"] = str(workspace)
     fm["workspace_hash"] = _workspace_hash(workspace)
@@ -124,10 +120,10 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
             all_checkpoints.append(cp)
     all_pythia = _read_all_pythia_entries()
 
-    mp = _mneme_path(workspace, cfg)
+    mp = _vault_memory_path(workspace, cfg)
     fm, _ = _load_narrative(mp)
     if not fm:
-        fm = _mneme_default_frontmatter(workspace)
+        fm = _vault_default_frontmatter(workspace)
 
     # Compaction always distills deterministically — Perseus runs no inference
     # of its own (observe model). `provider` is accepted for call-site
@@ -135,7 +131,7 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
     new_body = _deterministic_narrative(all_checkpoints, all_pythia, "", workspace, cfg)
 
     fm["checkpoints_processed"] = len(all_checkpoints)
-    _set_mneme_pythia_hwm(fm, len(all_pythia))
+    _set_vault_pythia_hwm(fm, len(all_pythia))
     fm["compaction_count"] = int(fm.get("compaction_count", 0)) + 1
     fm["last_compaction_at_update"] = fm["compaction_count"]
     fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -153,7 +149,7 @@ def cmd_memory_update_silent(workspace: Path, cfg: dict) -> None:
     try:
         _memory_do_update(workspace, cfg, None)
     except Exception as exc:
-        sys.stderr.write(f"> ⚠ Mnēmē update failed: {exc}\n")
+        sys.stderr.write(f"> ⚠ Perseus Vault update failed: {exc}\n")
 
 
 # ──────────────────────────────── @capture (#713) ─────────────────────────────
@@ -316,7 +312,7 @@ def cmd_memory(args, cfg):
             elif attempted:
                 print(f"> 🧠 capture: {stored}/{attempted} session checkpoints written to the vault.")
         if changed:
-            mp = _mneme_path(workspace, cfg)
+            mp = _vault_memory_path(workspace, cfg)
             fm, body = _load_narrative(mp)
             threshold = int(cfg.get("memory", {}).get("compact_threshold", 20))
             cp_processed = int(fm.get("checkpoints_processed", 0))
@@ -346,7 +342,7 @@ def cmd_memory(args, cfg):
             cfg.setdefault("memory", {})["pattern_extractor"] = pe_override
         msg = _memory_do_compact(workspace, cfg, None)
         # Record last_compact_processed so future advisory math works
-        mp = _mneme_path(workspace, cfg)
+        mp = _vault_memory_path(workspace, cfg)
         fm, body = _load_narrative(mp)
         fm["last_compact_processed"] = int(fm.get("checkpoints_processed", 0))
         _save_narrative(mp, fm, body)
@@ -354,7 +350,7 @@ def cmd_memory(args, cfg):
         return
 
     if sub == "show":
-        mp = _mneme_path(workspace, cfg)
+        mp = _vault_memory_path(workspace, cfg)
         if not mp.exists():
             print(f"> ⚠ No {MEMORY_BRAND} narrative found for {workspace}.")
             print("> Run `perseus memory update` to initialize.")
@@ -363,7 +359,7 @@ def cmd_memory(args, cfg):
         return
 
     if sub == "status":
-        mp = _mneme_path(workspace, cfg)
+        mp = _vault_memory_path(workspace, cfg)
         use_json = getattr(args, "json", False)
         if not mp.exists():
             if use_json:
@@ -377,7 +373,7 @@ def cmd_memory(args, cfg):
         all_cp = _list_checkpoint_files(cfg)
         all_py = _read_all_pythia_entries()
         cp_hwm = int(fm.get("checkpoints_processed", 0))
-        py_hwm = _mneme_pythia_hwm(fm)
+        py_hwm = _vault_pythia_hwm(fm)
         cp_pending = max(0, len(all_cp) - cp_hwm)
         py_pending = max(0, len(all_py) - py_hwm)
         line_count = body.count("\n") + (1 if body and not body.endswith("\n") else 0)
@@ -412,7 +408,7 @@ def cmd_memory(args, cfg):
 
     if sub == "query":
         question = getattr(args, "question", "") or ""
-        mp = _mneme_path(workspace, cfg)
+        mp = _vault_memory_path(workspace, cfg)
         if not mp.exists():
             print(f"> ⚠ No {MEMORY_BRAND} narrative found for {workspace}.")
             print("> Run `perseus memory update` to initialize.")
@@ -469,10 +465,10 @@ def cmd_memory(args, cfg):
 
 
 def cmd_memory_doctor(args, cfg) -> None:
-    """Mnēmē doctor — scan and optionally migrate legacy MD5-named narratives.
+    """Perseus Vault doctor — scan and optionally migrate legacy MD5-named narratives.
 
     Regression for #128: pre-1.0.3 narratives are named after an MD5 hash of
-    the workspace path; v1.0.3+ uses SHA-256. _mneme_path() auto-migrates on
+    the workspace path; v1.0.3+ uses SHA-256. _vault_memory_path() auto-migrates on
     first access, but that requires the operator to actually open the
     workspace. ``memory doctor`` lets an operator scan and migrate all
     workspaces at once, and surface diagnostic info for files that can't be
@@ -480,10 +476,10 @@ def cmd_memory_doctor(args, cfg) -> None:
     """
     do_migrate = bool(getattr(args, "migrate", False))
     use_json = bool(getattr(args, "json", False))
-    scan = _mneme_doctor_scan(cfg)
+    scan = _vault_doctor_scan(cfg)
 
     if do_migrate:
-        result = _mneme_doctor_migrate(cfg)
+        result = _vault_doctor_migrate(cfg)
         if use_json:
             import json as _json
             print(_json.dumps({"scan_before": scan, "migrate": result}, indent=2))
@@ -563,7 +559,7 @@ def resolve_profile(args_str: str, cfg: dict,
     Selects the per-model context profile for this document and renders a
     one-line banner stating the resolved context target and memory posture.
     The posture itself is applied by the automatic memory injection layer
-    (`_mneme_context_inject`), which scans the source for this directive.
+    (`_vault_context_inject`), which scans the source for this directive.
 
     Accepts `@profile claude-sonnet-4-6` or `@profile model=claude-sonnet-4-6`.
     Unknown names fall back to the `default` profile deterministically, with
@@ -607,13 +603,9 @@ def resolve_profile(args_str: str, cfg: dict,
     return line + "\n"
 
 
-def resolve_mimir(args_str: str, cfg: dict,
+def resolve_vault(args_str: str, cfg: dict,
                    workspace: Path | None = None) -> str:
-    """@mimir shim → forwards to unified @memory mode=search.
-
-    Kept for backward compatibility. Simply prepends mode=search to handle
-    the old @mimir query="..." syntax and delegates to resolve_memory.
-    """
+    """Resolve the canonical @vault directive through shared memory search."""
     # Build equivalent @memory args: mode=search query="..." [scope=...] [k=...] [type=...]
     return resolve_memory(f"mode=search {args_str}", cfg, workspace)
 
@@ -661,7 +653,7 @@ def render_retrieval_debug_trace(task: str) -> str:
 
 
 def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
-    """Render the unified @memory directive — Mnēmē v2.
+    """Render the unified @memory directive — Perseus Vault v2.
 
     Modes (auto-detected or explicit):
       mode=search [query=...] [scope=...] [k=5] [type=...] [render=default]
@@ -673,12 +665,10 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
         → Render the checkpoint-distilled narrative journal.
       mode=federation [alias=...] [include_federation=true]
         → Cross-workspace narrative aggregation.
-      mode=vault-mem [project=...] [query=...]
-        → Query frozo-ai/vault-mem for typed project memories.
       limit:N — cap at N entries regardless of mode
 
     Default: if query= is present → search; otherwise → narrative.
-    Legacy shim: @mimir calls this with mode=search automatically.
+    `@vault` is the canonical directive for direct Perseus Vault search.
     """
     ws = workspace or Path.cwd()
     args_stripped = args_str.strip()
@@ -718,8 +708,6 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
         return _resolve_memory_search(mods, cfg, ws, limit_n=limit_n)
     elif explicit_mode == "federation" or is_federation:
         return _resolve_memory_federation(args_stripped, mods, cfg)
-    elif explicit_mode == "vault-mem":
-        return _resolve_memory_vaultmem(mods, cfg)
     else:
         return _resolve_memory_narrative(args_stripped, mods, cfg, ws, limit_n=limit_n)
 
@@ -749,44 +737,44 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
     # vault hits — ~2x recall latency and duplicate content whenever the
     # vault was healthy. Query the vault first; scan the local index only
     # when the vault contributed nothing (down, errored, or zero matches).
-    # `mimir.local_additive: true` restores the historical additive render.
-    additive_local = bool((cfg.get("mimir") or {}).get("local_additive"))
+    # `perseus_vault.local_additive: true` restores the optional additive render.
+    additive_local = bool((cfg.get("perseus_vault") or {}).get("local_additive"))
     hits: list = []
     if additive_local:
-        hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
+        hits = _vault_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
 
-    # ── Mimir augmentation (MCP) ──────────────────────────────────────
-    # Query Mimir persistent memory backend for additional historical
+    # ── Vault augmentation (MCP) ──────────────────────────────────────
+    # Query Vault persistent memory backend for additional historical
     # context (Architecture, Decision, Insight types) with Ebbinghaus
-    # decay scoring. Results are merged below alongside local Mnēmē FTS5 hits.
-    mneme_items: list = []
+    # decay scoring. Results are merged below alongside local Perseus Vault FTS5 hits.
+    vault_items: list = []
     # #539: distinguish "vault unreachable / errored" from "vault reachable,
     # genuinely zero matches" so the render can say which one happened
     # instead of silently reporting the generic "fresh install" message for
-    # both. Populated from MemorySegment.error (never raises — MnemeConnector
+    # both. Populated from MemorySegment.error (never raises — VaultConnector
     # methods catch their own failures) or from an unexpected exception in
     # the hybrid-search call itself (defensive: connector bugs shouldn't take
     # down the whole @memory directive).
     vault_error: str = ""
     try:
-        mseg = _mneme_hybrid_search(
+        mseg = _vault_hybrid_search(
             cfg=cfg, query=query, workspace=str(workspace),
             local_hits=hits or None, max_results=k,
         )
-        mneme_items = mseg.items if mseg else []
+        vault_items = mseg.items if mseg else []
         vault_error = (mseg.error if mseg else "") or ""
     except Exception as e:
         import logging
-        logging.getLogger("perseus.mimir").warning(
-            "Mimir recall failed, falling back to local Mnēmē FTS5: %s", e
+        logging.getLogger("perseus.vault").warning(
+            "Vault recall failed, falling back to local Perseus Vault FTS5: %s", e
         )
         vault_error = f"unexpected error calling vault: {e}"
 
     # #774: the vault contributed nothing — NOW pay for the local scan.
-    if not additive_local and not mneme_items:
-        hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
+    if not additive_local and not vault_items:
+        hits = _vault_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
 
-    if not hits and not mneme_items:
+    if not hits and not vault_items:
         if vault_error:
             return (
                 f"> \u26a0 Vault unreachable ({vault_error}) — showing local results only "
@@ -796,7 +784,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
         return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched yet — this is expected on a fresh install. Populate the vault with memory files or run `perseus memory update` to initialize.\n"
 
     lines = ["> \U0001f9e0 **Mn\u0113m\u0113 memories:**\n"]
-    if vault_error and not mneme_items:
+    if vault_error and not vault_items:
         # We do have local hits, but the vault contribution silently failed.
         # Surface that so callers don't mistake "local-only" for "hybrid".
         lines.append(f"> \u26a0 Vault unreachable ({vault_error}) — showing local Mn\u0113m\u0113 results only.\n")
@@ -846,75 +834,17 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
             parts.append("(" + " · ".join(meta) + ")")
             lines.append(" ".join(parts))
 
-    # ── Mneme results ─────────────────────────────────────────────────
-    if mneme_items:
+    # ── Vault results ─────────────────────────────────────────────────
+    if vault_items:
         lines.append("")
-        lines.append("> 🧠 **Mimir context:**")
-        for mi in mneme_items:
+        lines.append("> 🧠 **Vault context:**")
+        for mi in vault_items:
             title = mi.summary or (mi.content[:80] + "…" if len(mi.content) > 80 else mi.content)
-            lines.append(f"  - [mimir] [{mi.type.value}] {title}")
+            lines.append(f"  - [vault] [{mi.type.value}] {title}")
             if mi.links:
                 for lnk in mi.links[:2]:
                     lines.append(f"    ↳ `{lnk.relationship}` → {lnk.target_id[:8]}…")
     return "\n".join(lines) + "\n"
-
-
-def _resolve_memory_vaultmem(mods: dict, cfg: dict) -> str:
-    """@memory mode=vault-mem — query frozo-ai/vault-mem for typed project memories.
-
-    Optional args:
-      project=<slug>  — override configured project list (single project)
-      query=<text>    — search query (uses vault-mem's memory_search if set)
-      max_tokens=<N>  — override max_tokens budget (default: 2000)
-    """
-    import sys
-
-    if not _vaultmem_available():
-        return "> ⚠ vault-mem is not installed. See https://github.com/frozo-ai/frozo-vault-mem\n"
-
-    vault_path = _vaultmem_vault_path(cfg)
-    if not Path(vault_path).is_dir():
-        return f"> ⚠ vault-mem vault not found at `{vault_path}`. Run `vault-mem-mcp init`.\n"
-
-    # Resolve project: explicit arg > config > auto-detect from cwd
-    project = (mods.get("project") or "").strip()
-    if not project:
-        projects = _vaultmem_projects(cfg)
-        if projects:
-            project = projects[0]
-        else:
-            project = Path.cwd().name
-
-    max_tokens = _vaultmem_max_tokens(cfg)
-    override_tok = (mods.get("max_tokens") or "").strip()
-    if override_tok and override_tok.isdigit():
-        max_tokens = int(override_tok)
-
-    query = (mods.get("query") or "").strip()
-
-    # If a query is provided, inject it into the prompt for more targeted recall.
-    # Otherwise use standard project memory context.
-    if query:
-        memory_text, stats = fetch_project_memory(project, cfg, max_tokens)
-        if memory_text:
-            return (
-                f"## vault-mem: {project} (query: {query})\\n\\n"
-                f"{memory_text}\\n"
-            )
-        elif stats.get("error"):
-            return f"> ⚠ vault-mem error: {stats['error']}\\n"
-        else:
-            return f"> ℹ️ vault-mem: no memories found for project '{project}'.\\n"
-    else:
-        memory_text, stats = fetch_project_memory(project, cfg, max_tokens)
-        if memory_text:
-            return f"## vault-mem: {project}\\n\\n{memory_text}\\n"
-        elif stats.get("error"):
-            print(f"[perseus] vault-mem: {stats['error']}", file=sys.stderr)
-            return f"> ⚠ vault-mem error: {stats['error']}\\n"
-        else:
-            print(f"[perseus] vault-mem: no memories for project '{project}'", file=sys.stderr)
-            return "> ℹ️ vault-mem: no typed memories found for this project.\\n"
 
 
 def _resolve_memory_federation(args_stripped: str, mods: dict, cfg: dict) -> str:
@@ -975,7 +905,7 @@ def _recent_activity_from_vault(cfg: dict, workspace: Path, limit: int = 5) -> s
     if not items:
         return ""
 
-    # Newest first — mimir decay scoring already favours recency, but sort
+    # Newest first — vault decay scoring already favours recency, but sort
     # explicitly so the surface reads chronologically regardless of backend.
     items.sort(key=lambda h: getattr(h, "created_at_unix_ms", 0), reverse=True)
 
@@ -1129,7 +1059,7 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
         digest = _render_federation_digest(cfg)
         return f"{local_text}\n\n---\n\n## Federated Context\n\n{digest}"
 
-    mp = _mneme_path(ws, cfg)
+    mp = _vault_memory_path(ws, cfg)
     if not mp.exists():
         return _maybe_append_federation(
             "> ℹ️ No " + MEMORY_BRAND + " narrative found for this workspace — this is expected on a fresh install.\n"
@@ -1154,7 +1084,7 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
     except Exception as exc:
         import logging
         logging.getLogger("perseus.agora").warning(
-            "Mnēmē narrative staleness check failed: %s", exc
+            "Perseus Vault narrative staleness check failed: %s", exc
         )
 
     if not stale_note and body.strip():
@@ -1173,7 +1103,7 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
             except Exception as exc:
                 import logging
                 logging.getLogger("perseus.agora").warning(
-                    "Mnēmē narrative save failed (non-critical): %s", exc
+                    "Perseus Vault narrative save failed (non-critical): %s", exc
                 )  # best-effort; never break the read path
 
     compact_note = ""

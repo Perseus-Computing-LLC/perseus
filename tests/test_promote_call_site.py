@@ -1,7 +1,7 @@
 """test_promote_call_site.py — #832 perseus-side promotion call-site.
 
-MnemeConnector.promote() is the perseus-side trigger for the vault's
-mimir_promote primitive (shipped in perseus-vault#731). These tests pin:
+VaultConnector.promote() is the perseus-side trigger for the vault's
+perseus_vault_promote primitive (shipped in perseus-vault#731). These tests pin:
 
 - argument shaping (only non-None target fields are sent)
 - canonical tool-name resolution (perseus_vault_promote preferred)
@@ -13,7 +13,7 @@ import sys
 import types
 from pathlib import Path
 
-# Load mneme_connector by explicit path with a temporary synthetic package
+# Load vault_connector by explicit path with a temporary synthetic package
 # (same pattern as test_composite_ranking.py / test_memory_render_provenance.py)
 # so the repo-root perseus.py artifact keeps shadowing src/perseus for every
 # other test module.
@@ -35,9 +35,9 @@ sys.modules["perseus"] = _pkg
 try:
     _load("perseus.composite_ranking", _SRC / "composite_ranking.py")
     _load("perseus.retrieval_expansion", _SRC / "retrieval_expansion.py")
-    mc = _load("perseus.mneme_connector", _SRC / "mneme_connector.py")
+    mc = _load("perseus.vault_connector", _SRC / "vault_connector.py")
 finally:
-    for k in ("perseus", "perseus.composite_ranking", "perseus.retrieval_expansion", "perseus.mneme_connector"):
+    for k in ("perseus", "perseus.composite_ranking", "perseus.retrieval_expansion", "perseus.vault_connector"):
         sys.modules.pop(k, None)
     sys.modules.update(_saved)
 
@@ -60,12 +60,12 @@ class FakeClient:
 
 
 def make_connector(client, *, connected=True):
-    conn = mc.MnemeConnector({"mneme": {"enabled": False}})
+    conn = mc.VaultConnector({"perseus_vault": {"enabled": False}})
     conn._enabled = True
     conn._client = client
     conn._ensure_connected = lambda: connected  # noqa: E731
     # Simulate the post-handshake canonical-name resolution.
-    conn._tool_names = {"mimir_promote": "perseus_vault_promote"}
+    conn._tool_names = {"perseus_vault_promote": "perseus_vault_promote"}
     return conn
 
 
@@ -93,7 +93,7 @@ def test_promote_sends_only_set_fields_and_returns_result():
     assert ok is True
     assert out["to_id"] == "mem-new00000001"
     name, args = client.calls[0]
-    assert name == "perseus_vault_promote", "legacy name must resolve to canonical"
+    assert name == "perseus_vault_promote", "canonical name must be used"
     assert args == {
         "from_category": "episodes",
         "from_key": "incident-42",
@@ -163,23 +163,12 @@ def test_promote_rejects_malformed_success_response():
     assert "unexpected" in err
 
 
-def test_mimir_promote_registered_for_canonical_resolution():
-    """_check_tool_compatibility must map mimir_promote → perseus_vault_promote."""
+def test_perseus_vault_promote_registered_for_canonical_resolution():
+    """_check_tool_compatibility must map perseus_vault_promote → perseus_vault_promote."""
     client = FakeClient(tools=["perseus_vault_promote", "perseus_vault_recall"])
-    conn = mc.MnemeConnector({"mneme": {"enabled": False}})
+    conn = mc.VaultConnector({"perseus_vault": {"enabled": False}})
     conn._client = client
 
     conn._check_tool_compatibility()
 
-    assert conn._tool_names["mimir_promote"] == "perseus_vault_promote"
-
-
-def test_mimir_promote_falls_back_to_legacy_name_on_old_vault():
-    """A vault without perseus_vault_promote but with the mimir_ alias resolves there."""
-    client = FakeClient(tools=["mimir_promote"])
-    conn = mc.MnemeConnector({"mneme": {"enabled": False}})
-    conn._client = client
-
-    conn._check_tool_compatibility()
-
-    assert conn._tool_names["mimir_promote"] == "mimir_promote"
+    assert conn._tool_names["perseus_vault_promote"] == "perseus_vault_promote"

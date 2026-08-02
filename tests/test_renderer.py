@@ -816,13 +816,13 @@ def test_cache_fingerprint_no_deps_still_caches(tmp_path):
     assert r1 == r2  # cached output matches
 
 
-@pytest.mark.skip(reason="Pre-existing: Mneme→Mimir config key rename")
-def test_cache_fingerprint_memory_changes_with_mneme_config(tmp_path):
-    """Changing the active Mneme connector config invalidates @memory cache keys."""
+@pytest.mark.skip(reason="Pre-existing: Vault→Vault config key rename")
+def test_cache_fingerprint_memory_changes_with_vault_config(tmp_path):
+    """Changing the active Vault connector config invalidates @memory cache keys."""
     c1 = cfg()
-    c1["mimir"]["command"] = ["mimir"]
+    c1["vault"]["command"] = ["vault"]
     c2 = cfg()
-    c2["mimir"]["command"] = ["mneme", "--db", "/tmp/other-mneme.db"]
+    c2["vault"]["command"] = ["vault", "--db", "/tmp/other-vault.db"]
 
     fp1 = perseus._dependency_fingerprint(
         "@memory",

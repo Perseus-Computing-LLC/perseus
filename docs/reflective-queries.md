@@ -57,7 +57,7 @@ invoking question-conditioned synthesis:
 | "how has my understanding changed?" | bitemporal diff | `as_of` / `valid_at` over time windows |
 | "which explanation survived validation?" | efficacy-record query | follow-rate + predictive-validation events (vault#739) |
 | "what did I learn this week?" | time-windowed episode/promotion scan | episodes + consolidation/promotion events in window |
-| "what is still contested?" | live-conflict listing | `mimir_conflicts` pairs |
+| "what is still contested?" | live-conflict listing | `vault_conflicts` pairs |
 
 A question fully answered by a cheap lens returns without an LLM call —
 this is an explicit acceptance criterion: at least one reflective shape is

@@ -81,6 +81,67 @@
       }
     },
     {
+      "name": "perseus_budget",
+      "description": "Declare a token budget for the rendered context (renders as empty text). Enforced by `perseus prompt-size`: an over-budget render warns — or fails with `strict` — with a per-directive byte/token breakdown (#606). Declarations are read from source text before conditionals are evaluated; top-level only — a @budget inside an @include'd file is not enforced (prompt-size warns) (#626). Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "max": {
+            "type": "string",
+            "description": "Value for max parameter"
+          },
+          "strict": {
+            "type": "string",
+            "description": "Value for strict parameter"
+          },
+          "forensic": {
+            "type": "string",
+            "description": "Value for forensic parameter"
+          }
+        },
+        "required": []
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "perseus_capture",
+      "description": "Write recent session checkpoints to Perseus Vault as durable memories (#713) — the write side of the memory loop, symmetric to @memory recall. Idempotent per checkpoint (re-render upserts, never duplicates). Use at session boundaries so lessons persist immediately instead of waiting for a scheduled harvest. WRITES to the vault; never cached.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "string",
+            "description": "Value for limit parameter"
+          }
+        },
+        "required": []
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": true
+      }
+    },
+    {
+      "name": "perseus_context_diff",
+      "description": "Render a compact 'Since last session' delta (#714): git branch/commits, Agora task-board changes, new inbox messages, new checkpoints, and new vault session memories since the last recorded snapshot. Use at the top of a context document so the assistant spends zero turns re-orienting on unchanged state. Maintains its own per-workspace snapshot (refresh debounced by render.context_diff_min_age_s); reset=true forces a new baseline. Never cached.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "reset": {
+            "type": "string",
+            "description": "Value for reset parameter"
+          }
+        },
+        "required": []
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": true
+      }
+    },
+    {
       "name": "perseus_date",
       "description": "Current date/time",
       "inputSchema": {
@@ -88,7 +149,7 @@
         "properties": {
           "format": {
             "type": "string",
-            "description": "strftime format string (default: %Y-%m-%d %H:%M:%S)"
+            "description": "Date format using tokens YYYY, MM, DD, HH, mm, ss, z (default: YYYY-MM-DD HH:mm:ss). strftime-style %Y %m %d %H %M %S tokens are also accepted."
           }
         },
         "required": []
@@ -180,6 +241,51 @@
       },
       "annotations": {
         "readOnlyHint": true
+      }
+    },
+    {
+      "name": "perseus_focus",
+      "description": "The global-workspace tier: a small, capacity-bounded (default 32), salience-ranked set of items Perseus broadcasts into context — the shared 'what I'm working on now' set for the agent and its subagents. With no args, renders the current working set. add=/pin= admit items; the lowest-salience non-pinned items are evicted when it overflows. Distinct from long-term recall (@vault/@memory): bounded and actively maintained, not unbounded memory.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "add": {
+            "type": "string",
+            "description": "Text of an item to admit into the workspace (bounded, salience-ranked)"
+          },
+          "pin": {
+            "type": "string",
+            "description": "Text of an item to pin (floated to top, never evicted)"
+          },
+          "unpin": {
+            "type": "string",
+            "description": "Text of a pinned item to unpin"
+          },
+          "drop": {
+            "type": "string",
+            "description": "Text of an item to remove from the workspace"
+          },
+          "touch": {
+            "type": "string",
+            "description": "Text of an existing item to reinforce (bump frequency/recency)"
+          },
+          "clear": {
+            "type": "string",
+            "description": "If 'true', remove all items from the workspace"
+          },
+          "weight": {
+            "type": "string",
+            "description": "Base salience weight for a newly added item (default 1.0)"
+          },
+          "source": {
+            "type": "string",
+            "description": "Optional label for where a newly added item came from"
+          }
+        },
+        "required": []
+      },
+      "annotations": {
+        "destructiveHint": true
       }
     },
     {
@@ -285,13 +391,25 @@
     },
     {
       "name": "perseus_include",
-      "description": "Include and render another Perseus source file, recursively resolving its directives. Use to compose context from multiple files or share common sections across workspaces. Read-only; resolved directives inherit the parent configuration.",
+      "description": "Include and render another Perseus source file, recursively resolving its directives. Use to compose context from multiple files or share common sections across workspaces. Bound a growing file with last=N (final N lines) or since=14d/2w/24h (recent dated sections only). Use mode=reference (or render.host_loaded_paths) to emit a one-line pointer instead of inlining files the host agent already loads natively. Read-only; resolved directives inherit the parent configuration.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "path": {
             "type": "string",
             "description": "File path to include and render (relative to workspace root)"
+          },
+          "last": {
+            "type": "string",
+            "description": "Keep only the final N lines of the file (bounds a growing log)"
+          },
+          "since": {
+            "type": "string",
+            "description": "Keep only dated sections within a window, e.g. 14d, 2w, 24h"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Value for mode parameter"
           }
         },
         "required": [
@@ -408,7 +526,7 @@
     },
     {
       "name": "perseus_memory",
-      "description": "Search LOCAL project memory (FTS5, zero-network) for past decisions and architecture notes. Use for in-workspace recall. For cross-session persistent facts, use perseus_mimir instead. Read-only; returns results array with mode and count.",
+      "description": "Search LOCAL project memory (FTS5, zero-network) for past decisions and architecture notes. Use for in-workspace recall. For cross-session persistent facts, use perseus_vault instead. Read-only; returns results array with mode and count.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -440,6 +558,14 @@
             "type": "string",
             "description": "Time focus: recent, today, week, or all"
           },
+          "limit": {
+            "type": "string",
+            "description": "Value for limit parameter"
+          },
+          "force": {
+            "type": "string",
+            "description": "Value for force parameter"
+          },
           "federation": {
             "type": "string",
             "description": "Enable cross-workspace federation"
@@ -455,6 +581,14 @@
           "workspace": {
             "type": "string",
             "description": "Target workspace path for scoped queries"
+          },
+          "project": {
+            "type": "string",
+            "description": "Value for project parameter"
+          },
+          "max_tokens": {
+            "type": "string",
+            "description": "Value for max_tokens parameter"
           }
         },
         "required": []
@@ -483,54 +617,8 @@
       }
     },
     {
-      "name": "perseus_mimir",
-      "description": "Query the external Perseus Vault memory server for cross-session, curated facts that survive across workspaces. Use for long-lived knowledge (bug patterns, design decisions). For fast local recall, prefer perseus_memory. Read-only; falls back to local FTS5 if Perseus Vault is unreachable.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "query": {
-            "type": "string",
-            "description": "BM25 FTS5 search query for persistent memory recall"
-          },
-          "scope": {
-            "type": "string",
-            "description": "Memory scope filter"
-          },
-          "k": {
-            "type": "string",
-            "description": "Number of results to return (default: 5)"
-          },
-          "type": {
-            "type": "string",
-            "description": "Memory type filter"
-          }
-        },
-        "required": []
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "results": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          },
-          "query": {
-            "type": "string"
-          },
-          "count": {
-            "type": "integer"
-          }
-        }
-      },
-      "annotations": {
-        "readOnlyHint": true
-      }
-    },
-    {
       "name": "perseus_perseus",
-      "description": "Fetch rendered context from a remote Perseus instance by URL. Use to pull live workspace state from another machine or container. Read-only; caches results \u2014 re-fetch when remote state may have changed.",
+      "description": "Fetch rendered context from a remote Perseus instance by URL. Use to pull live workspace state from another machine or container. Read-only; caches results — re-fetch when remote state may have changed.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -553,6 +641,23 @@
             "description": "URL of the remote Perseus instance"
           }
         }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "perseus_profile",
+      "description": "Select the per-model context profile for this document (#608): sets the context target and memory posture (on_demand/relevant/always) used by the automatic memory injection layer. Use at the top of a context document, e.g. @profile claude-sonnet-4-6. Unknown names fall back to the default profile. First-wins (#627): with multiple @profile lines only the first non-fenced one governs — later banners are marked ignored, and @profile inside a code fence is documentation, never a directive. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Model name (or context-window class) whose profile to resolve, e.g. claude-sonnet-4-6; unknown names fall back to default"
+          }
+        },
+        "required": []
       },
       "annotations": {
         "readOnlyHint": true
@@ -633,8 +738,22 @@
       }
     },
     {
+      "name": "perseus_research",
+      "description": "Search an EXTERNAL paper-search MCP server (BGPT by default) for scientific literature and inject per-paper Methods/Results blocks. Use to ground claims in published studies. Self-gates on research.enabled; degrades gracefully when the provider is unreachable. Read-only; speaks JSON-RPC over stdio (no shell).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "string",
+            "description": "Value for limit parameter"
+          }
+        },
+        "required": []
+      }
+    },
+    {
       "name": "perseus_services",
-      "description": "Health-check all services listed in the workspace context (HTTP endpoints, Docker containers, shell commands). Use to verify the environment is healthy before starting work. May make network calls and execute shell commands per service definition \u2014 side effects depend on configured checks.",
+      "description": "Health-check all services listed in the workspace context (HTTP endpoints, Docker containers, shell commands). Use to verify the environment is healthy before starting work. May make network calls and execute shell commands per service definition — side effects depend on configured checks.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -755,8 +874,25 @@
       }
     },
     {
+      "name": "perseus_tokens",
+      "description": "Embed token budget for rendered context",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "args": {
+            "type": "string",
+            "description": "Arguments for @tokens directive"
+          }
+        },
+        "required": []
+      },
+      "annotations": {
+        "destructiveHint": true
+      }
+    },
+    {
       "name": "perseus_tool",
-      "description": "Run an external tool that has been allowlisted in the Perseus configuration. Use for approved integrations only. Requires the tool name to be present in the allowlist. Destructive \u2014 executes the tool with the user's permissions.",
+      "description": "Run an external tool that has been allowlisted in the Perseus configuration. Use for approved integrations only. Requires the tool name to be present in the allowlist. Destructive — executes the tool with the user's permissions.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -892,8 +1028,54 @@
       }
     },
     {
+      "name": "perseus_vault",
+      "description": "Query Perseus Vault for scoped, durable context. Read-only; falls back to the local Vault FTS5 index when the service is unavailable.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "BM25 FTS5 search query for persistent memory recall"
+          },
+          "scope": {
+            "type": "string",
+            "description": "Memory scope filter"
+          },
+          "k": {
+            "type": "string",
+            "description": "Number of results to return (default: 5)"
+          },
+          "type": {
+            "type": "string",
+            "description": "Memory type filter"
+          }
+        },
+        "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "query": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
       "name": "perseus_waypoint",
-      "description": "Return the most recent session checkpoint: what was being worked on, status, and next steps. Use at session start to resume where you left off. Stale after TTL (default 24h). Read-only; lightweight \u2014 call freely.",
+      "description": "Return the most recent session checkpoint: what was being worked on, status, and next steps. Use at session start to resume where you left off. Stale after TTL (default 24h). Read-only; lightweight — call freely.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -948,6 +1130,10 @@
           "format": {
             "type": "string",
             "description": "Output format used"
+          },
+          "workspace": {
+            "type": "string",
+            "description": "Workspace path the context was rendered for (json format only)"
           }
         }
       },
@@ -957,10 +1143,15 @@
     },
     {
       "name": "perseus_get_health",
-      "description": "Run Daedalus context-maintenance heuristics \u2014 cache health, directive resolution stats, memory integrity check.",
+      "description": "Run Daedalus context-maintenance heuristics — cache health, directive resolution stats, memory integrity check. mode=basic (default) returns the @health maintenance report; mode=doctor returns the same structured payload as `perseus doctor --json` (per-check status + summary), the MCP equivalent of the CLI doctor surface for restart/health verification.",
       "inputSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "mode": {
+            "type": "string",
+            "description": "Health mode: basic (default, maintenance heuristics report) or doctor (full doctor --json equivalent structured diagnostics)"
+          }
+        },
         "required": []
       },
       "outputSchema": {
@@ -968,11 +1159,34 @@
         "properties": {
           "status": {
             "type": "string",
-            "description": "Overall health status"
+            "description": "Overall health status: ok, warning, or critical"
           },
           "report": {
             "type": "string",
-            "description": "Detailed health report"
+            "description": "Detailed health report (basic mode)"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Health mode used: basic or doctor"
+          },
+          "version": {
+            "type": "string",
+            "description": "Perseus version (doctor mode)"
+          },
+          "workspace": {
+            "type": "string",
+            "description": "Workspace path checked (doctor mode)"
+          },
+          "summary": {
+            "type": "object",
+            "description": "Doctor check tally: {ok, warn, error} (doctor mode)"
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Individual doctor check results, identical to `perseus doctor --json` (doctor mode)"
           }
         }
       },

@@ -9,7 +9,7 @@
 # -layer analog: not the model's internal J-space, but an explicit, auditable
 # working set the agent and any subagents share.
 #
-# Distinct from long-term memory (@mimir / @memory / Perseus Vault): the vault is
+# Distinct from long-term memory (@vault / @memory / Perseus Vault): the vault is
 # unbounded recall; @focus is the bounded, actively-maintained "what I'm thinking
 # about right now" set. Items compete for a fixed number of slots by salience;
 # low-salience items are evicted, exactly as the biological workspace is capacity
@@ -133,7 +133,7 @@ def _focus_salience(item: dict, cfg: dict, now: datetime) -> float:
     patterns (i.e. salience = how widely a thing broadcasts). For now salience is a
     local recency+frequency function; the intended extension point is to fold in
     Perseus Vault graph-centrality here (rank by how central an item is to the
-    current task's memory graph) — see mimir_connector / community detection.
+    current task's memory graph) — see vault_connector / community detection.
     """
     try:
         weight = float(item.get("weight", 1.0))

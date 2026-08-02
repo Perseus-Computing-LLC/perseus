@@ -69,10 +69,10 @@ SECTIONS = [
     (2617, 2993, "renderer.py"),           # main render pipeline
     (2994, 3127, "directives/query.py"),   # dep graph helpers
     (3128, 3742, "directives/query.py"),   # prefetch rules
-    (3743, 4094, "memory.py"),             # Mneme narrative
+    (3743, 4094, "memory.py"),             # Vault narrative
     (4095, 4171, "pythia.py"),             # LLM-assisted paths
     (4172, 4519, "agora.py"),
-    (4520, 4872, "memory.py"),             # Mneme federation
+    (4520, 4872, "memory.py"),             # Vault federation
     (4873, 5048, "inbox.py"),
     (5049, 5378, "checkpoint.py"),
     (5379, 5765, "serve.py"),              # cmd_render

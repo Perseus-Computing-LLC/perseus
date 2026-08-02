@@ -1,9 +1,9 @@
 """
 Tests for the #552 grab-bag fixes:
 
-1. mneme_federation._fetch_remote_narrative — read_timeout_s applied +
+1. vault_federation._fetch_remote_narrative — read_timeout_s applied +
    max_fetch_bytes size cap on remote narrative fetches.
-2. mneme_connector — bm25 score normalized to 0.0-1.0 relevance (was
+2. vault_connector — bm25 score normalized to 0.0-1.0 relevance (was
    divided by 100 as if a percentage, producing small negative values).
 
 (The #552 memory_mesh urllib-import tests were removed with the module's
@@ -26,7 +26,7 @@ _SRC = Path(__file__).resolve().parents[1] / "src" / "perseus"
 
 
 # ---------------------------------------------------------------------------
-# 1. mneme_federation: read timeout + size cap on remote narrative fetch
+# 1. vault_federation: read timeout + size cap on remote narrative fetch
 # ---------------------------------------------------------------------------
 
 class _FakeResp:
@@ -108,7 +108,7 @@ def test_federation_fetch_applies_read_timeout(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 2. mneme_connector: bm25 → relevance normalization
+# 2. vault_connector: bm25 → relevance normalization
 # ---------------------------------------------------------------------------
 
 def test_bm25_to_relevance_range_and_monotonicity():

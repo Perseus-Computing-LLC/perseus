@@ -34,16 +34,16 @@ DUMP_HEADER = "## Persistent Memory (Perseus Vault)"  # #662: rebranded injected
 POINTER_HEADER = "## Memory Recall (on demand)"
 
 HOT_MD = (
-    "## Mimir Context\n\n"
+    "## Perseus Vault Context\n\n"
     "- [always-on] [arch] **db** — SQLite + FTS5 (retrievals: 3, decay: 1.00)\n\n"
     "> 1 entities recalled\n"
 )
 
 
-def _cfg(posture: str | None = None, **mimir):
+def _cfg(posture: str | None = None, **vault):
     c = cfg()
     # #665: canonical memory key is now `perseus_vault` in DEFAULT_CONFIG.
-    c["perseus_vault"].update(mimir)
+    c["perseus_vault"].update(vault)
     if posture is not None:
         c["profiles"] = dict(c.get("profiles") or {})
         c["profiles"]["default"] = {"context_target": 200000, "memory": posture}
@@ -61,9 +61,8 @@ def _connector(**kwargs):
 
 
 def _render_md(source, c, ws):
-    """render_output with vault-mem neutralized so only Mnēmē injection runs."""
-    with patch.object(perseus, "inject_vaultmem_context", side_effect=lambda t, _c: t):
-        return perseus.render_output(source, "md", c, ws)
+    """Render using the canonical Perseus Vault injection path."""
+    return perseus.render_output(source, "md", c, ws)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -180,14 +179,14 @@ class TestOnDemandDefault:
         c = _cfg()
         out = _render_md("plain context", c, tmp_path)
         assert "@memory mode=search" in out
-        assert "perseus_mneme" in out
+        assert "perseus_vault" in out
 
     def test_pointer_stable_across_vault_writes(self, tmp_path):
         """Acceptance: the fixed prompt prefix must not change when a memory
         fact changes — same render output regardless of vault contents."""
         c = _cfg()
-        before = _connector(context="## Mimir Context\n\n- [fact] **a** — v1\n")
-        after = _connector(context="## Mimir Context\n\n- [fact] **a** — v2 CHANGED\n")
+        before = _connector(context="## Perseus Vault Context\n\n- [fact] **a** — v1\n")
+        after = _connector(context="## Perseus Vault Context\n\n- [fact] **a** — v2 CHANGED\n")
         with patch.object(perseus, "_get_connector", return_value=before):
             out1 = _render_md("plain context", c, tmp_path)
         with patch.object(perseus, "_get_connector", return_value=after):
@@ -202,14 +201,14 @@ class TestOnDemandDefault:
 
     def test_context_limit_zero_suppresses_pointer(self):
         c = _cfg(context_limit=0)
-        assert perseus._mneme_context_inject(c) is None
+        assert perseus._vault_context_inject(c) is None
 
     def test_pointer_does_not_require_connector(self):
         """on_demand never touches the connector at all (no vault dependency
         in the default render path)."""
         c = _cfg()
         with patch.object(perseus, "_get_connector") as gc:
-            out = perseus._mneme_context_inject(c)
+            out = perseus._vault_context_inject(c)
             gc.assert_not_called()
         assert out is not None and out.startswith(POINTER_HEADER)
 
@@ -243,12 +242,12 @@ class TestLegacyAlwaysOptIn:
 
     def test_always_fallback_recall_respects_profile_budget(self):
         """#608 point 3: a 200k profile clamps the injected-entity budget to
-        the tier-aware limit even when mimir.context_limit is higher."""
+        the tier-aware limit even when vault.context_limit is higher."""
         c = _cfg(posture="always", context_limit=50)
         segment = MagicMock(items=[object()], as_markdown="- a durable memory", error="")
         connector = _connector(recall=segment)
         with patch.object(perseus, "_get_connector", return_value=connector):
-            out = perseus._mneme_context_inject(c)
+            out = perseus._vault_context_inject(c)
         assert out is not None and "a durable memory" in out
         _, kwargs = connector.recall.call_args
         assert kwargs.get("max_results") == 5  # min(50, tier-aware 5)
@@ -258,7 +257,7 @@ class TestLegacyAlwaysOptIn:
         c = _cfg(posture="always")
         connector = _connector(context=HOT_MD)
         with patch.object(perseus, "_get_connector", return_value=connector):
-            out = perseus._mneme_context_inject(c)
+            out = perseus._vault_context_inject(c)
         assert out is not None
         assert "may be stale or tangential" in out
         assert "current conversation" in out
@@ -275,7 +274,7 @@ class TestRelevanceGating:
         seg = MagicMock(items=[object()], as_markdown="- matched: css input quirk", error="")
         connector = _connector(recall_when=seg)
         with patch.object(perseus, "_get_connector", return_value=connector):
-            out = perseus._mneme_context_inject(
+            out = perseus._vault_context_inject(
                 c, source_text="plain", workspace=tmp_path)
         assert out is not None
         assert "matched: css input quirk" in out
@@ -294,7 +293,7 @@ class TestRelevanceGating:
             recall_when=MagicMock(items=[], as_markdown="", error=""),
             context=HOT_MD)
         with patch.object(perseus, "_get_connector", return_value=connector):
-            out = perseus._mneme_context_inject(
+            out = perseus._vault_context_inject(
                 c, source_text="plain", workspace=tmp_path)
         assert out is None
         connector.context.assert_not_called()
@@ -304,7 +303,7 @@ class TestRelevanceGating:
         c = _cfg(posture="relevant")
         connector = _connector(context=HOT_MD)
         with patch.object(perseus, "_get_connector", return_value=connector):
-            out = perseus._mneme_context_inject(c, source_text="", workspace=None)
+            out = perseus._vault_context_inject(c, source_text="", workspace=None)
         assert out is None
         connector.recall_when.assert_not_called()
 
@@ -314,10 +313,10 @@ class TestRelevanceGating:
         c = _cfg(posture="relevant")
         connector = _connector(
             recall_when=MagicMock(items=[], as_markdown="",
-                                  error="mimir_recall_when failed: no such tool"),
+                                  error="perseus_vault_recall_when failed: no such tool"),
             context=HOT_MD)
         with patch.object(perseus, "_get_connector", return_value=connector):
-            out = perseus._mneme_context_inject(
+            out = perseus._vault_context_inject(
                 c, source_text="plain", workspace=tmp_path)
         assert out is not None and "db" in out
         connector.context.assert_called_once()
@@ -334,7 +333,7 @@ class TestWorkspaceScoping:
         segment = MagicMock(items=[object()], as_markdown="- scoped memory", error="")
         connector = _connector(recall=segment)
         with patch.object(perseus, "_get_connector", return_value=connector):
-            out = perseus._mneme_context_inject(c, workspace=tmp_path)
+            out = perseus._vault_context_inject(c, workspace=tmp_path)
         assert out is not None
         _, kwargs = connector.recall.call_args
         assert kwargs.get("workspace_hash") == perseus._workspace_hash(Path(tmp_path))
@@ -344,7 +343,7 @@ class TestWorkspaceScoping:
         segment = MagicMock(items=[object()], as_markdown="- unscoped memory", error="")
         connector = _connector(recall=segment)
         with patch.object(perseus, "_get_connector", return_value=connector):
-            perseus._mneme_context_inject(c, workspace=tmp_path)
+            perseus._vault_context_inject(c, workspace=tmp_path)
         _, kwargs = connector.recall.call_args
         assert kwargs.get("workspace_hash") is None
 
@@ -353,7 +352,7 @@ class TestWorkspaceScoping:
         segment = MagicMock(items=[object()], as_markdown="- memory", error="")
         connector = _connector(recall=segment)
         with patch.object(perseus, "_get_connector", return_value=connector):
-            perseus._mneme_context_inject(c, workspace=None)
+            perseus._vault_context_inject(c, workspace=None)
         _, kwargs = connector.recall.call_args
         assert kwargs.get("workspace_hash") is None
 
@@ -392,34 +391,29 @@ class TestDedupRegression:
         assert second.count(DUMP_HEADER) == 1
 
     @pytest.mark.parametrize("header", [
-        "## Long-Term Memory (Mneme)",
-        "## Mimir — Persistent Cross-Session Memory",
-        "### Mimir -- Persistent Cross-Session Memory",
-        "## Mimir Context",
         "## Perseus Vault Context",
-        "## Persistent Memory (Mneme)",
+        "## Persistent Memory (Perseus Vault)",
     ])
-    def test_known_header_variants_suppress_injection(self, header):
-        """Both section titles observed in the live duplicate (#553) — and the
-        rename-era variants — are recognized as existing memory sections."""
+    def test_current_header_variants_suppress_injection(self, header):
+        """Current Perseus Vault-generated sections are deduplicated."""
         c = _cfg(posture="always")
         connector = _connector(context=HOT_MD)
         rendered = f"# Doc\n\n{header}\n\n- some remembered fact\n"
         with patch.object(perseus, "_get_connector", return_value=connector):
-            assert perseus._mneme_context_inject(c, rendered=rendered) is None
+            assert perseus._vault_context_inject(c, rendered=rendered) is None
         connector.context.assert_not_called()
 
     def test_pointer_not_duplicated(self):
         c = _cfg()  # on_demand
         rendered = f"# Doc\n\n{POINTER_HEADER}\n\nalready pointed\n"
-        assert perseus._mneme_context_inject(c, rendered=rendered) is None
+        assert perseus._vault_context_inject(c, rendered=rendered) is None
 
     def test_unrelated_headers_do_not_suppress(self):
-        """Sections like 'Project Memory (Mnēmē)' (the narrative) or prose
+        """Sections like 'Project Memory (Perseus Vault)' (the narrative) or prose
         mentioning memory must not falsely trip the dedup gate."""
         c = _cfg()  # on_demand → pointer expected
         rendered = "# Doc\n\n## Project Memory\n\nnarrative text about memory\n"
-        out = perseus._mneme_context_inject(c, rendered=rendered)
+        out = perseus._vault_context_inject(c, rendered=rendered)
         assert out is not None and out.startswith(POINTER_HEADER)
 
 
@@ -595,7 +589,7 @@ class TestDedupGateTightened:
         injected memory block — injection proceeds, with a stderr note."""
         c = _cfg()  # on_demand → pointer expected
         rendered = "# Doc\n\n## Persistent Memory Design\n\nour design notes\n"
-        out = perseus._mneme_context_inject(c, rendered=rendered)
+        out = perseus._vault_context_inject(c, rendered=rendered)
         assert out is not None and out.startswith(POINTER_HEADER)
         assert "memory dedup (#627)" in capsys.readouterr().err
 
@@ -611,29 +605,22 @@ class TestDedupGateTightened:
         assert POINTER_HEADER in out
 
     def test_generated_headers_still_suppress_exactly(self):
-        """Every header Perseus itself generates (current + historical) still
-        trips the gate — no warning, no injection."""
+        """Every current header Perseus generates trips the gate."""
         for header in [
-            "## Persistent Memory (Mimir)",
-            "## Persistent Memory (Mneme)",
             "## Persistent Memory (Perseus Vault)",
-            "## Long-Term Memory (Mneme)",
-            "## Mimir — Persistent Cross-Session Memory",
-            "## Mimir Context",
-            "## Mneme Context",
             "## Perseus Vault Context",
             "## Memory Recall (on demand)",
         ]:
             c = _cfg(posture="always")
             rendered = f"# Doc\n\n{header}\n\n- a fact\n"
-            assert perseus._mneme_context_inject(c, rendered=rendered) is None, header
+            assert perseus._vault_context_inject(c, rendered=rendered) is None, header
 
-    def test_vaultmem_project_memory_header_never_suppresses(self):
-        """`## Project Memory (via vault-mem)` is a DIFFERENT memory stream —
-        it must not suppress the Mnēmē section (and emits no warning)."""
+    def test_vault_project_memory_header_never_suppresses(self):
+        """`## Project Memory (via Perseus Vault)` is a DIFFERENT memory stream —
+        it must not suppress the Perseus Vault section (and emits no warning)."""
         c = _cfg()
-        rendered = "# Doc\n\n## Project Memory (via vault-mem)\n\n- vm fact\n"
-        out = perseus._mneme_context_inject(c, rendered=rendered)
+        rendered = "# Doc\n\n## Project Memory (via Perseus Vault)\n\n- vm fact\n"
+        out = perseus._vault_context_inject(c, rendered=rendered)
         assert out is not None and out.startswith(POINTER_HEADER)
 
 
@@ -669,7 +656,7 @@ class TestFramingSoftened:
 # Item 1b — silent-degradation banner (vault unreachable in an active posture)
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _down_connector(reason="mimir binary not found: 'mimir'", enabled=True):
+def _down_connector(reason="vault binary not found: 'vault'", enabled=True):
     """A connector that failed to connect — the launch-hardening degradation
     case. MagicMock auto-creates truthy attrs, so `_enabled`/`_connect_error`
     are set explicitly to exercise `_memory_degraded_block`'s real gating."""
@@ -687,7 +674,7 @@ class TestDegradedFallbackBanner:
         c = _cfg(posture="relevant")
         connector = _down_connector(reason="unavailable: connection refused")
         with patch.object(perseus, "_get_connector", return_value=connector):
-            out = perseus._mneme_context_inject(
+            out = perseus._vault_context_inject(
                 c, source_text="plain", workspace=tmp_path)
         assert out is not None
         assert DUMP_HEADER in out
@@ -702,7 +689,7 @@ class TestDegradedFallbackBanner:
         c = _cfg(posture="always")
         connector = _down_connector()
         with patch.object(perseus, "_get_connector", return_value=connector):
-            out = perseus._mneme_context_inject(c)
+            out = perseus._vault_context_inject(c)
         assert out is not None and DUMP_HEADER in out
         assert "binary not found" in out
 
@@ -712,7 +699,7 @@ class TestDegradedFallbackBanner:
         c = _cfg()  # on_demand
         connector = _down_connector()
         with patch.object(perseus, "_get_connector", return_value=connector):
-            out = perseus._mneme_context_inject(
+            out = perseus._vault_context_inject(
                 c, source_text="plain", workspace=tmp_path)
         assert out is not None and out.startswith(POINTER_HEADER)
         assert "unavailable" not in out.lower()
@@ -723,7 +710,7 @@ class TestDegradedFallbackBanner:
         c = _cfg(posture="always")
         connector = _down_connector(enabled=False)
         with patch.object(perseus, "_get_connector", return_value=connector):
-            out = perseus._mneme_context_inject(c)
+            out = perseus._vault_context_inject(c)
         assert out is None
 
     def test_no_reason_stays_silent(self):
@@ -732,7 +719,7 @@ class TestDegradedFallbackBanner:
         c = _cfg(posture="always")
         connector = _down_connector(reason=None)
         with patch.object(perseus, "_get_connector", return_value=connector):
-            out = perseus._mneme_context_inject(c)
+            out = perseus._vault_context_inject(c)
         assert out is None
 
     def test_recall_error_midrender_shows_banner(self):
@@ -742,14 +729,14 @@ class TestDegradedFallbackBanner:
         connector = _connector(
             context=None,
             recall=MagicMock(items=[], as_markdown="",
-                             error="mimir_recall failed: broken pipe"))
+                             error="perseus_vault_recall failed: broken pipe"))
         connector._enabled = True
         connector._connect_error = None
         with patch.object(perseus, "_get_connector", return_value=connector):
-            out = perseus._mneme_context_inject(c)
+            out = perseus._vault_context_inject(c)
         assert out is not None and DUMP_HEADER in out
         assert "broken pipe" in out
-        assert "mimir_recall failed:" not in out
+        assert "persistent memory skipped this render" in out
 
     def test_reachable_but_empty_stays_silent(self):
         """Vault answered 'nothing found' (no error) → still silent; the banner
@@ -761,5 +748,5 @@ class TestDegradedFallbackBanner:
         connector._enabled = True
         connector._connect_error = None
         with patch.object(perseus, "_get_connector", return_value=connector):
-            out = perseus._mneme_context_inject(c)
+            out = perseus._vault_context_inject(c)
         assert out is None

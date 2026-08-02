@@ -42,8 +42,8 @@
 | Phase 1: Cold P50 <= 500ms | ✅ | 0.31731176376342773 | p50_s <= 0.5 | hard |
 | Phase 2: Warm speedup >= 2% | ✅ | auto-pass: cold P50=317ms below 500ms floor | speedup >= 1.02 | hard |
 | Phase 2: Cache integrity 100% | ✅ | 0 | corrupt == 0 | hard |
-| Phase 3: Mneme recall >= 80% | ✅ | 0.867 | recall >= 0.8 | hard |
-| Phase 3: Mneme cold P50 <= 50ms | ✅ | 0.357 | <= 50ms | hard |
+| Phase 3: Vault recall >= 80% | ✅ | 0.867 | recall >= 0.8 | hard |
+| Phase 3: Vault cold P50 <= 50ms | ✅ | 0.357 | <= 50ms | hard |
 | Phase 4: Task success >= 90% | ✅ | 1.0 | >= 0.9 | hard |
 | Phase 5: Multi-agent success >= 80% | ✅ | 1.0 | >= 0.8 | hard |
 | Phase 6: Enterprise week zero failures | ✅ | 0 | failures == 0 | hard |

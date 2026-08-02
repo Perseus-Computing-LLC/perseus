@@ -1,5 +1,5 @@
 """
-Tests for mneme_narrative._deterministic_narrative — operator-added
+Tests for vault_narrative._deterministic_narrative — operator-added
 section preservation (#549).
 
 Regression guard: standard headings from the existing body must NOT leak

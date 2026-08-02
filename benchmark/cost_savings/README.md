@@ -9,7 +9,7 @@ official judge.
 ## How it works
 
 One run of the vault's signed QA harness
-(`perseus-vault/benchmark/longmemeval/qa.py --systems fullcontext mimir`)
+(`perseus-vault/benchmark/longmemeval/qa.py --systems fullcontext vault`)
 produces both arms under one config — same questions, same pinned
 answerer+judge. This harness then meters every answer/judge call into a fresh
 Plutus ledger (`plutus_agent.metering.record_usage`, one workspace per arm) and

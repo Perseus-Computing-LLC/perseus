@@ -59,7 +59,7 @@ def test_failed_write_skips_audit():
 def test_audit_event_structure():
     """Verify the audit event structure for memory_write_chancery_verified."""
     audit_fields = {
-        "directive": "mimir_remember",
+        "directive": "perseus_vault_remember",
         "category": "decision",
         "key": "mem-abc123",
         "chancery_writ_id": "wid_xyz789",
@@ -69,7 +69,7 @@ def test_audit_event_structure():
     assert audit_fields["chancery_writ_id"] is not None
     assert audit_fields["chancery_xref"].startswith("chancery:")
     assert audit_fields["chancery_writ_id"] in audit_fields["chancery_xref"]
-    assert audit_fields["directive"] == "mimir_remember"
+    assert audit_fields["directive"] == "perseus_vault_remember"
 
 
 def test_xref_deterministic():
@@ -88,7 +88,7 @@ def test_round_trip_audit_json_serializable():
         "event_type": "memory_write_chancery_verified",
         "perseus_version": "1.0.24",
         "pid": 12345,
-        "directive": "mimir_remember",
+        "directive": "perseus_vault_remember",
         "category": "insight",
         "key": "mem-hash123",
         "chancery_writ_id": "wid_ch_test_001",

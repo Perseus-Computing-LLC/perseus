@@ -4,12 +4,12 @@ Perseus CI runs `.github/workflows/vault-quality-gate.yml` on pull requests and 
 
 The gate is **blocking**:
 
-- scorecard version must be `perseus-vault-memory-quality-scorecard/v1`;
+- scorecard version must be `perseus-Perseus Vaultory-quality-scorecard/v1`;
 - verdict must be `release_ready`;
 - accuracy must be 1.0;
 - no failed or missing benchmark categories are allowed.
 
-Raw benchmark reports and scorecards are uploaded as the `vault-memory-quality-scorecard` artifact for diagnosis.
+Raw benchmark reports and scorecards are uploaded as the `Perseus Vaultory-quality-scorecard` artifact for diagnosis.
 
 ## Override
 

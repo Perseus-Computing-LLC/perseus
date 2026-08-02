@@ -1,4 +1,4 @@
-"""#699 — MnemeConnector.recall must send the Vault tool's canonical arg names.
+"""#699 — VaultConnector.recall must send the Vault tool's canonical arg names.
 
 The Vault's RecallArgs is deserialized without deny_unknown_fields, so unknown
 keys are silently dropped. Pre-fix, recall sent `max_results` (tool arg is
@@ -18,7 +18,7 @@ from conftest import PY_VER, cfg, perseus
 
 pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
 
-# Argument names accepted by the Vault's mimir_recall / perseus_vault_recall
+# Argument names accepted by the Vault's perseus_vault_recall / perseus_vault_recall
 # tool (perseus-vault src/tools.rs, struct RecallArgs — serde field names,
 # `entity_type` is exposed as "type").
 RECALL_TOOL_ARG_NAMES = frozenset({
@@ -44,7 +44,7 @@ class _StubClient:
 def _connector_with_stub():
     c = cfg()
     c["perseus_vault"].update(enabled=True)
-    connector = perseus.MnemeConnector(c)
+    connector = perseus.VaultConnector(c)
     stub = _StubClient()
     connector._client = stub
     return connector, stub
@@ -64,7 +64,7 @@ def test_recall_sends_only_tool_schema_args():
     )
     assert len(stub.calls) == 1
     name, sent = stub.calls[0]
-    assert name == "mimir_recall"
+    assert name == "perseus_vault_recall"
     unknown = set(sent) - RECALL_TOOL_ARG_NAMES
     assert not unknown, f"args the Vault tool would silently drop: {unknown}"
 

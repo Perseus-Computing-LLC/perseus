@@ -13,7 +13,7 @@ full-coverage 84% -> 95% (see benchmark/longmemeval). Works on a cheap model
 
 Design constraints:
 * **Optional.** Off by default; when disabled the connector's single-query
-  recall is byte-identical to before. Enable via config `mneme.expansion`.
+  recall is byte-identical to before. Enable via config `vault.expansion`.
 * **Model-agnostic.** Any OpenAI-compatible ``/v1/chat/completions`` endpoint
   (OpenAI, Ollama, vLLM, ...).
 * **No new dependency.** Uses stdlib ``urllib`` — Perseus gains no runtime dep.
@@ -61,7 +61,7 @@ _SYSTEM_PROMPT = (
 
 @dataclass
 class ExpansionConfig:
-    """Config for the optional query-expansion arm (from ``mneme.expansion``)."""
+    """Config for the optional query-expansion arm (from ``vault.expansion``)."""
     enabled: bool = False
     endpoint: str = "https://api.openai.com/v1/chat/completions"
     model: str = "gpt-4o-mini"

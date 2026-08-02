@@ -34,7 +34,7 @@ under load. Hard gates must pass; soft gates surface warnings.
 | 0 | **Pre-Flight** | ~5 min | Environment sanity: Perseus version, vault populated, NFS/lock health |
 | 1 | **Render: Cold Baseline** | ~9 min | Raw render speed across 50+ role profiles. P50 must be ≤ 500 ms. |
 | 2 | **Render: Warm/Cache** | ~3 min | Cache hit rates, warm speedup over cold baseline, cache integrity 100% |
-| 3 | **Memory: Retrieval** | ~10 min | Mnēmē FTS5 precision/recall, P50 cold ≤ 50 ms, P50 warm ≤ 5 ms |
+| 3 | **Memory: Retrieval** | ~10 min | Perseus Vault FTS5 precision/recall, P50 cold ≤ 50 ms, P50 warm ≤ 5 ms |
 | 4 | **Agent: Single Task** | ~20 min | Hermetic coding tasks against a pre-seeded codebase. Success rate ≥ 90%. |
 | 5 | **Agent: Multi-Agent** | ~20 min | Parallel agent coordination (kanban-style). Throughput ≥ 5 tasks/min, success ≥ 80%. |
 | 6 | **Enterprise Week** | ~81 min | 5-day simulation with chaos injection. Zero failures. |
@@ -72,8 +72,8 @@ block the score.
 | Phase 1: Cold P50 ≤ 500ms | Hard | p50_s ≤ 0.5 |
 | Phase 2: Warm speedup ≥ 2% | Hard | speedup ≥ 1.02 |
 | Phase 2: Cache integrity 100% | Hard | corrupt == 0 |
-| Phase 3: Mneme recall ≥ 80% | Hard | recall ≥ 0.8 |
-| Phase 3: Mneme cold P50 ≤ 50ms | Hard | ≤ 50ms |
+| Phase 3: Vault recall ≥ 80% | Hard | recall ≥ 0.8 |
+| Phase 3: Vault cold P50 ≤ 50ms | Hard | ≤ 50ms |
 | Phase 4: Task success ≥ 90% | Hard | ≥ 0.9 |
 | Phase 5: Multi-agent success ≥ 80% | Hard | ≥ 0.8 |
 | Phase 6: Enterprise week zero failures | Hard | failures == 0 |
@@ -126,7 +126,7 @@ value vs. the threshold. Common failures:
 
 - **Cold P50 > 500ms**: Slow filesystem or network-attached storage.
   Re-run on local SSD.
-- **Mneme recall < 80%**: Vault not seeded with enough documents.
+- **Vault recall < 80%**: Vault not seeded with enough documents.
   Run `perseus memory index rebuild` before the Gauntlet.
 - **Adversarial failures**: Security regressions. Check the individual
   scenario output in the telemetry log.
@@ -136,7 +136,7 @@ value vs. the threshold. Common failures:
 | Date | Perseus | Score | Notes |
 |------|---------|-------|-------|
 | 2026-06-15 | v1.0.7 | 100.0 | Initial Gauntlet v2, all 16 gates passed |
-| 2026-06-19 | v1.0.8 | 100.0 | Re-verified with Mimir auto-discovery fix |
+| 2026-06-19 | v1.0.8 | 100.0 | Re-verified with Vault auto-discovery fix |
 
 ## Architecture
 
@@ -145,7 +145,7 @@ The Gauntlet is a single-orchestrator, multi-node design:
 ```
 gauntlet_v2_orchestrator.py    ← Main entry, phase scheduling
 ├── gauntlet_v2_lib.py         ← Metrics, gates, telemetry, scoring
-├── gauntlet_v2_memory.py      ← Mnēmē FTS5 benchmarks (phase 3)
+├── gauntlet_v2_memory.py      ← Perseus Vault FTS5 benchmarks (phase 3)
 ├── gauntlet_v2_agent.py       ← Agent task scaffolding (phases 4-5)
 ├── gauntlet_v2_adversarial.py ← Hostile scenario engine (phase 7)
 └── gauntlet_v2_node.py        ← Multi-node coordination (phases 5-6)

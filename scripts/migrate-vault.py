@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Mnēmē v2 — Bastra → Perseus Vault Migration
+Perseus Vault v2 — schema 1 → schema 2 migration
 =============================================
 
-Migrates Bastra-format memory vault files to the Perseus-native v2 format.
+Migrates legacy schema-1 memory files to the Perseus-native v2 format.
 
 Usage:
-  python scripts/migrate-mneme-vault.py [--from OLD_VAULT] [--to NEW_VAULT] [--dry-run]
+  python scripts/migrate-vault.py [--from LEGACY_VAULT] [--to NEW_VAULT] [--dry-run]
 
 Defaults:
-  --from  ~/.hermes/mneme-vault/memories/projects/
+  --from  ~/.perseus/memory/legacy/
   --to    ~/.perseus/memory/vault/
 """
 
@@ -21,8 +21,8 @@ from pathlib import Path
 import yaml
 
 
-def parse_bastra_frontmatter(text: str) -> tuple[dict, str]:
-    """Parse YAML frontmatter from a markdown file. Returns (fm_dict, body)."""
+def parse_legacy_frontmatter(text: str) -> tuple[dict, str]:
+    """Parse legacy YAML frontmatter from a markdown file. Returns (fm_dict, body)."""
     if not text.startswith("---"):
         return {}, text
     parts = text.split("---", 2)
@@ -36,14 +36,14 @@ def parse_bastra_frontmatter(text: str) -> tuple[dict, str]:
 
 
 def migrate_document(file_path: Path, target_dir: Path, dry_run: bool = False) -> bool:
-    """Migrate a single Bastra-format .md file to v2 format. Returns True on success."""
+    """Migrate a single legacy schema-1 .md file to v2 format. Returns True on success."""
     try:
         text = file_path.read_text(encoding="utf-8", errors="replace")
     except Exception:
         print(f"  ⚠ Cannot read {file_path.name}: permission error")
         return False
 
-    fm, body = parse_bastra_frontmatter(text)
+    fm, body = parse_legacy_frontmatter(text)
     if not fm:
         print(f"  ⚠ {file_path.name}: no valid frontmatter, skipping")
         return False
@@ -54,7 +54,7 @@ def migrate_document(file_path: Path, target_dir: Path, dry_run: bool = False) -
         print(f"  ⚠ {file_path.name}: no title, skipping")
         return False
 
-    # Translate Bastra fields → v2
+    # Translate legacy schema-1 fields → v2
     v2 = {
         "schema": 2,
         "id": doc_id,
@@ -110,16 +110,16 @@ def migrate_document(file_path: Path, target_dir: Path, dry_run: bool = False) -
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Migrate Bastra vault → Mnēmē v2")
+    parser = argparse.ArgumentParser(description="Migrate legacy Vault files → Perseus Vault v2")
     parser.add_argument(
         "--from", dest="old_vault", type=str,
-        default=str(Path.home() / ".hermes" / "mneme-vault" / "memories" / "projects"),
-        help="Source Bastra vault directory"
+        default=str(Path.home() / ".perseus" / "memory" / "legacy"),
+        help="Source legacy Vault directory"
     )
     parser.add_argument(
         "--to", dest="new_vault", type=str,
         default=str(Path.home() / ".perseus" / "memory" / "vault"),
-        help="Target Mnēmē v2 vault directory"
+        help="Target Perseus Vault v2 directory"
     )
     parser.add_argument(
         "--dry-run", action="store_true",
@@ -157,7 +157,7 @@ def main():
     print(f"\nDone. {migrated} migrated, {skipped} skipped.")
     if not args.dry_run and migrated > 0:
         print(f"\nNext: run `perseus memory update` to build the FTS5 index.")
-        print(f"  Index path: {new_vault / 'mneme.index'}")
+        print(f"  Index path: {new_vault / 'vault.index'}")
 
     return 0 if skipped == 0 else 1
 

@@ -21,7 +21,7 @@
       "accuracy": 0.55,
       "n_graded": 60
     },
-    "mimir": {
+    "vault": {
       "workspace": "perseus-vault",
       "ledger_cost_usd": 3.905589,
       "ledger_tokens": 1529807,

@@ -44,7 +44,7 @@ side-by-side diff viewer, and Pythia-assisted merge drafting.
 ```
 
 Detection approach:
-- Extract Mnēmē section headers (## lines) from each federated narrative
+- Extract Perseus Vault section headers (## lines) from each federated narrative
 - Compute pairwise FTS5 similarity on section body text
 - Flag pairs above `federation.conflict_threshold` (default 0.6)
 - Cache results in `~/.perseus/cache/federation/conflicts.json`

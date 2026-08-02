@@ -48,7 +48,7 @@ def _raw(id_suffix, category, key, *, decay=1.0, age_days=0, verified=False,
 
 
 def _connector(responses):
-    c = perseus.MnemeConnector(cfg())
+    c = perseus.VaultConnector(cfg())
     c._client = _StubClient(responses)
     return c
 
@@ -61,47 +61,47 @@ def _ns(**kw):
 
 
 def _knows_cfg(connector, monkeypatch):
-    monkeypatch.setattr(perseus, "MnemeConnector", lambda _cfg: connector)
+    monkeypatch.setattr(perseus, "VaultConnector", lambda _cfg: connector)
     return cfg()
 
 
 # ── connector wrappers ────────────────────────────────────────────────────────
 
 def test_browse_sends_canonical_args_and_omits_workspace_hash():
-    c = _connector({"mimir_recall": ({"items": [_raw("aa11bb22cc33", "user", "k")]}, None)})
+    c = _connector({"perseus_vault_recall": ({"items": [_raw("aa11bb22cc33", "user", "k")]}, None)})
     hits, err = c.browse(limit=25)
     assert err == ""
     name, sent = c._client.calls[0]
-    assert name == "mimir_recall"
+    assert name == "perseus_vault_recall"
     assert sent == {"query": "", "limit": 25}
     # workspace_hash="" would be the Vault's STRICT global scope — must be absent.
     assert "workspace_hash" not in sent
-    # #692: category/key now survive parsing (needed for mimir_forget).
+    # #692: category/key now survive parsing (needed for perseus_vault_forget).
     assert hits[0].category == "user"
     assert hits[0].key == "k"
 
 
 def test_browse_include_archived_flag():
-    c = _connector({"mimir_recall": ({"items": []}, None)})
+    c = _connector({"perseus_vault_recall": ({"items": []}, None)})
     c.browse(limit=10, include_archived=True)
     _, sent = c._client.calls[0]
     assert sent["include_archived"] is True
 
 
 def test_forget_addresses_by_category_and_key():
-    c = _connector({"mimir_forget": ({"archived": True}, None)})
+    c = _connector({"perseus_vault_forget": ({"archived": True}, None)})
     ok, err = c.forget("user", "shoe-size", reason="wrong")
     assert ok and err == ""
-    assert c._client.calls[0] == ("mimir_forget",
+    assert c._client.calls[0] == ("perseus_vault_forget",
         {"category": "user", "key": "shoe-size", "reason": "wrong"})
 
 
 def test_correct_records_wrong_right_pair():
-    c = _connector({"mimir_correct": ({"id": "mem-x"}, None)})
+    c = _connector({"perseus_vault_correct": ({"id": "mem-x"}, None)})
     ok, _ = c.correct("old wrong value", "right value", task_context="ctx", category="user")
     assert ok
     name, sent = c._client.calls[0]
-    assert name == "mimir_correct"
+    assert name == "perseus_vault_correct"
     assert sent["wrong_approach"] == "old wrong value"
     assert sent["user_correction"] == "right value"
     assert sent["task_context"] == "ctx"
@@ -197,8 +197,8 @@ def test_resolve_ambiguous_and_missing():
 # ── cmd_knows flows ───────────────────────────────────────────────────────────
 
 def test_cmd_knows_lists_buckets(monkeypatch, capsys):
-    c = _connector({"mimir_recall": ({"items": [_raw("aa0000000001", "user", "name")]}, None),
-                    "mimir_stats": ({"active_entities": 1, "archived_entities": 0}, None)})
+    c = _connector({"perseus_vault_recall": ({"items": [_raw("aa0000000001", "user", "name")]}, None),
+                    "perseus_vault_stats": ({"active_entities": 1, "archived_entities": 0}, None)})
     rc = perseus.cmd_knows(_ns(), _knows_cfg(c, monkeypatch))
     out = capsys.readouterr().out
     assert rc == 0
@@ -207,7 +207,7 @@ def test_cmd_knows_lists_buckets(monkeypatch, capsys):
 
 
 def test_cmd_knows_unreachable_is_loud_not_empty(monkeypatch, capsys):
-    c = perseus.MnemeConnector(cfg())
+    c = perseus.VaultConnector(cfg())
     c._ensure_connected = lambda: False
     rc = perseus.cmd_knows(_ns(), _knows_cfg(c, monkeypatch))
     out = capsys.readouterr().out
@@ -226,13 +226,13 @@ def test_cmd_knows_disabled_by_config(monkeypatch, capsys):
 
 def test_cmd_knows_forget_confirms_then_archives(monkeypatch, capsys):
     c = _connector({
-        "mimir_recall": ({"items": [_raw("aa0000000001", "user", "shoe-size")]}, None),
-        "mimir_forget": ({"archived": True}, None),
+        "perseus_vault_recall": ({"items": [_raw("aa0000000001", "user", "shoe-size")]}, None),
+        "perseus_vault_forget": ({"archived": True}, None),
     })
     rc = perseus.cmd_knows(_ns(forget="aa00", yes=True), _knows_cfg(c, monkeypatch))
     assert rc == 0
-    forgets = [(n, a) for n, a in c._client.calls if n == "mimir_forget"]
-    assert forgets == [("mimir_forget", {
+    forgets = [(n, a) for n, a in c._client.calls if n == "perseus_vault_forget"]
+    assert forgets == [("perseus_vault_forget", {
         "category": "user", "key": "shoe-size",
         "reason": "user request via `perseus knows --forget`"})]
     out = capsys.readouterr().out
@@ -241,25 +241,25 @@ def test_cmd_knows_forget_confirms_then_archives(monkeypatch, capsys):
 
 def test_cmd_knows_forget_cancelled_writes_nothing(monkeypatch, capsys):
     c = _connector({
-        "mimir_recall": ({"items": [_raw("aa0000000001", "user", "shoe-size")]}, None),
+        "perseus_vault_recall": ({"items": [_raw("aa0000000001", "user", "shoe-size")]}, None),
     })
     monkeypatch.setattr("builtins.input", lambda *_: "n")
     rc = perseus.cmd_knows(_ns(forget="aa00"), _knows_cfg(c, monkeypatch))
     assert rc == 1
-    assert not [n for n, _ in c._client.calls if n == "mimir_forget"]
+    assert not [n for n, _ in c._client.calls if n == "perseus_vault_forget"]
     assert "cancelled" in capsys.readouterr().out
 
 
 def test_cmd_knows_correct_passes_old_content_as_wrong_approach(monkeypatch, capsys):
     c = _connector({
-        "mimir_recall": ({"items": [_raw("aa0000000001", "user", "editor",
+        "perseus_vault_recall": ({"items": [_raw("aa0000000001", "user", "editor",
                                          body="uses emacs")]}, None),
-        "mimir_correct": ({"id": "mem-new"}, None),
+        "perseus_vault_correct": ({"id": "mem-new"}, None),
     })
     rc = perseus.cmd_knows(_ns(correct="aa00", value="uses neovim", yes=True),
                            _knows_cfg(c, monkeypatch))
     assert rc == 0
-    corrections = [a for n, a in c._client.calls if n == "mimir_correct"]
+    corrections = [a for n, a in c._client.calls if n == "perseus_vault_correct"]
     assert corrections and corrections[0]["wrong_approach"] == "uses emacs"
     assert corrections[0]["user_correction"] == "uses neovim"
     assert corrections[0]["category"] == "user"
@@ -267,8 +267,8 @@ def test_cmd_knows_correct_passes_old_content_as_wrong_approach(monkeypatch, cap
 
 def test_cmd_knows_show_prints_full_provenance(monkeypatch, capsys):
     c = _connector({
-        "mimir_recall": ({"items": [_raw("aa0000000001", "user", "name")]}, None),
-        "mimir_get_entity": ({"id": "mem-aa0000000001",
+        "perseus_vault_recall": ({"items": [_raw("aa0000000001", "user", "name")]}, None),
+        "perseus_vault_get_entity": ({"id": "mem-aa0000000001",
                               "body_json": "{\"note\": \"full body\"}",
                               "source": "bridge", "status": "active"}, None),
     })
@@ -278,5 +278,5 @@ def test_cmd_knows_show_prints_full_provenance(monkeypatch, capsys):
     assert detail["short_id"] == "aa000000"
     assert "full body" in detail["body_json"]
     assert detail["source"] == "bridge"
-    gets = [a for n, a in c._client.calls if n == "mimir_get_entity"]
+    gets = [a for n, a in c._client.calls if n == "perseus_vault_get_entity"]
     assert gets == [{"id": "mem-aa0000000001"}]

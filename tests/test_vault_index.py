@@ -1,14 +1,14 @@
 """
-Tests for Mnēmē v2 — SQLite FTS5 persistent index.
+Tests for Perseus Vault v2 — SQLite FTS5 persistent index.
 
 Covers:
-  - _mneme_open_index() — create, WAL mode, table creation
-  - _mneme_build_index() — bulk import from vault .md files
-  - _mneme_search() — BM25 ranking, scope/type filters
-  - _mneme_index_document() — single document insert/update
-  - _mneme_delete_document() — remove by id
-  - _mneme_index_stats() — diagnostic output
-  - _mneme_recall() — end-to-end via FTS5
+  - _vault_open_index() — create, WAL mode, table creation
+  - _vault_build_index() — bulk import from vault .md files
+  - _vault_search() — BM25 ranking, scope/type filters
+  - _vault_index_document() — single document insert/update
+  - _vault_delete_document() — remove by id
+  - _vault_index_stats() — diagnostic output
+  - _vault_recall() — end-to-end via FTS5
   - Persistence across connections
 """
 
@@ -31,7 +31,7 @@ pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Pytho
 def _write_memory(vault_dir: Path, doc_id: str, title: str, summary: str,
                    scope: str = "test", mem_type: str = "decision",
                    body: str = "") -> Path:
-    """Write a Mnēmē v2 memory .md file to the vault directory."""
+    """Write a Perseus Vault v2 memory .md file to the vault directory."""
     vault_dir.mkdir(parents=True, exist_ok=True)
     file_path = vault_dir / f"{doc_id}.md"
     frontmatter = f"""---
@@ -55,8 +55,8 @@ def _index_cfg(tmp_path: Path) -> dict:
     vault = tmp_path / "vault"
     vault.mkdir(parents=True, exist_ok=True)
     c = cfg()
-    c["memory"]["mneme_vault_path"] = str(vault)
-    c["memory"]["mneme_index_path"] = str(vault / "mneme.index")
+    c["memory"]["vault_path"] = str(vault)
+    c["memory"]["vault_index_path"] = str(vault / "vault.index")
     return c
 
 
@@ -67,28 +67,28 @@ def _index_cfg(tmp_path: Path) -> dict:
 class TestIndexOpen:
     def test_open_creates_index_file(self, tmp_path):
         c = _index_cfg(tmp_path)
-        conn = perseus._mneme_open_index(c)
+        conn = perseus._vault_open_index(c)
         assert conn is not None
         conn.close()
 
-        index_path = Path(c["memory"]["mneme_index_path"])
+        index_path = Path(c["memory"]["vault_index_path"])
         assert index_path.exists()
 
     def test_open_creates_tables(self, tmp_path):
         c = _index_cfg(tmp_path)
-        conn = perseus._mneme_open_index(c)
+        conn = perseus._vault_open_index(c)
         tables = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
         ).fetchall()
         table_names = {r[0] for r in tables}
-        assert "mneme_fts" in table_names
-        assert "mneme_files" in table_names
-        assert "mneme_meta" in table_names
+        assert "vault_fts" in table_names
+        assert "vault_files" in table_names
+        assert "vault_meta" in table_names
         conn.close()
 
     def test_open_uses_wal_mode(self, tmp_path):
         c = _index_cfg(tmp_path)
-        conn = perseus._mneme_open_index(c)
+        conn = perseus._vault_open_index(c)
         mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
         assert mode.lower() == "wal"
         conn.close()
@@ -101,96 +101,96 @@ class TestIndexOpen:
 class TestBuildIndex:
     def test_build_empty_vault(self, tmp_path):
         c = _index_cfg(tmp_path)
-        count = perseus._mneme_build_index(c)
+        count = perseus._vault_build_index(c)
         assert count == 0
 
     def test_build_indexes_documents(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         _write_memory(vault, "test-1", "First Memory", "First summary", scope="test", mem_type="lesson")
         _write_memory(vault, "test-2", "Second Memory", "Second summary", scope="test", mem_type="decision")
 
-        count = perseus._mneme_build_index(c)
+        count = perseus._vault_build_index(c)
         assert count == 2
 
     def test_build_is_idempotent(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         _write_memory(vault, "idem", "Idempotent Test", "Summary")
 
-        count1 = perseus._mneme_build_index(c)
-        count2 = perseus._mneme_build_index(c)
+        count1 = perseus._vault_build_index(c)
+        count2 = perseus._vault_build_index(c)
         assert count1 == 1
         assert count2 == 0  # no new files
 
     def test_index_currency_gate_skips_rebuild_when_unchanged(self, tmp_path):
-        """#445: _mneme_index_is_current gates the write-transaction rebuild — it
+        """#445: _vault_index_is_current gates the write-transaction rebuild — it
         reports current after a build and stale on add/delete, matching exactly
         when the builder would write."""
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         _write_memory(vault, "m1", "Title One", "summary one")
-        conn = perseus._mneme_open_index(c)
+        conn = perseus._vault_open_index(c)
 
         # Empty index vs a present file → not current.
-        assert perseus._mneme_index_is_current(conn, vault) is False
-        perseus._mneme_build_index(c)
+        assert perseus._vault_index_is_current(conn, vault) is False
+        perseus._vault_build_index(c)
         # After build, current → a second build is a gated no-op.
-        assert perseus._mneme_index_is_current(conn, vault) is True
-        assert perseus._mneme_build_index(c) == 0
+        assert perseus._vault_index_is_current(conn, vault) is True
+        assert perseus._vault_build_index(c) == 0
 
         # New file → stale → build re-establishes currency.
         _write_memory(vault, "m2", "Title Two", "summary two")
-        assert perseus._mneme_index_is_current(conn, vault) is False
-        perseus._mneme_build_index(c)
-        assert perseus._mneme_index_is_current(conn, vault) is True
+        assert perseus._vault_index_is_current(conn, vault) is False
+        perseus._vault_build_index(c)
+        assert perseus._vault_index_is_current(conn, vault) is True
 
         # Deleted file → stale → build prunes and is current again.
         (vault / "m1.md").unlink()
-        assert perseus._mneme_index_is_current(conn, vault) is False
-        perseus._mneme_build_index(c)
-        assert perseus._mneme_index_is_current(conn, vault) is True
+        assert perseus._vault_index_is_current(conn, vault) is False
+        perseus._vault_build_index(c)
+        assert perseus._vault_index_is_current(conn, vault) is True
 
     def test_build_force_reindexes(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         _write_memory(vault, "force", "Force Test", "Summary")
 
-        count1 = perseus._mneme_build_index(c)
-        count2 = perseus._mneme_build_index(c, force=True)
+        count1 = perseus._vault_build_index(c)
+        count2 = perseus._vault_build_index(c, force=True)
         assert count1 == 1
         assert count2 == 1  # re-indexed same file
 
     def test_build_prunes_deleted_files(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         file_path = _write_memory(vault, "stale", "Stale Memory", "delete-me token")
-        perseus._mneme_build_index(c)
+        perseus._vault_build_index(c)
         file_path.unlink()
 
-        count = perseus._mneme_build_index(c)
-        results = perseus._mneme_recall(c, "delete-me", k=5)
+        count = perseus._vault_build_index(c)
+        results = perseus._vault_recall(c, "delete-me", k=5)
 
         assert count == 0
         assert results == []
 
     def test_build_removes_corrupt_changed_file(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         file_path = _write_memory(vault, "corrupt", "Corrupt Memory", "corrupt-token")
-        perseus._mneme_build_index(c)
+        perseus._vault_build_index(c)
         file_path.write_text("---\nschema: 2\nid:\ntitle:\n---\ncorrupt-token\n", encoding="utf-8")
 
-        perseus._mneme_build_index(c)
-        results = perseus._mneme_recall(c, "corrupt-token", k=5)
+        perseus._vault_build_index(c)
+        results = perseus._vault_recall(c, "corrupt-token", k=5)
 
         assert results == []
 
     def test_build_removes_previous_id_when_frontmatter_id_changes(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         file_path = _write_memory(vault, "old-id", "Old Title", "old-token")
-        perseus._mneme_build_index(c)
+        perseus._vault_build_index(c)
         file_path.write_text("""---
 schema: 2
 id: new-id
@@ -202,9 +202,9 @@ scope: test
 body
 """, encoding="utf-8")
 
-        perseus._mneme_build_index(c)
-        old_results = perseus._mneme_recall(c, "old-token", k=5)
-        new_results = perseus._mneme_recall(c, "new-token", k=5)
+        perseus._vault_build_index(c)
+        old_results = perseus._vault_recall(c, "old-token", k=5)
+        new_results = perseus._vault_recall(c, "new-token", k=5)
 
         assert old_results == []
         assert [r["id"] for r in new_results] == ["new-id"]
@@ -217,14 +217,14 @@ body
 class TestSearch:
     def test_search_returns_results(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         _write_memory(vault, "auth", "OAuth Authentication", "OAuth token refresh strategy", scope="perseus")
         _write_memory(vault, "cache", "Redis Caching", "Redis cache invalidation", scope="perseus")
         _write_memory(vault, "unrelated", "Weather Forecast", "Tomorrow will be sunny", scope="weather")
-        perseus._mneme_build_index(c)
+        perseus._vault_build_index(c)
 
-        conn = perseus._mneme_open_index(c)
-        results = perseus._mneme_search(conn, "oauth token", k=5)
+        conn = perseus._vault_open_index(c)
+        results = perseus._vault_search(conn, "oauth token", k=5)
         conn.close()
 
         assert len(results) >= 1
@@ -233,13 +233,13 @@ class TestSearch:
 
     def test_search_respects_scope_filter(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         _write_memory(vault, "auth", "Auth", "Auth", scope="perseus")
         _write_memory(vault, "weather", "Weather", "Weather", scope="weather")
-        perseus._mneme_build_index(c)
+        perseus._vault_build_index(c)
 
-        conn = perseus._mneme_open_index(c)
-        results = perseus._mneme_search(conn, "auth", k=5, scope="perseus")
+        conn = perseus._vault_open_index(c)
+        results = perseus._vault_search(conn, "auth", k=5, scope="perseus")
         conn.close()
 
         assert len(results) == 1
@@ -247,13 +247,13 @@ class TestSearch:
 
     def test_search_respects_type_filter(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         _write_memory(vault, "dec", "Decision about", "A decision about architecture", mem_type="decision")
         _write_memory(vault, "les", "Lesson learned", "A lesson about architecture", mem_type="lesson")
-        perseus._mneme_build_index(c)
+        perseus._vault_build_index(c)
 
-        conn = perseus._mneme_open_index(c)
-        results = perseus._mneme_search(conn, "architecture", k=5, type_filter="lesson")
+        conn = perseus._vault_open_index(c)
+        results = perseus._vault_search(conn, "architecture", k=5, type_filter="lesson")
         conn.close()
 
         assert len(results) >= 1
@@ -261,24 +261,24 @@ class TestSearch:
 
     def test_search_no_results(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         _write_memory(vault, "one", "One", "Summary one")
-        perseus._mneme_build_index(c)
+        perseus._vault_build_index(c)
 
-        conn = perseus._mneme_open_index(c)
-        results = perseus._mneme_search(conn, "nonexistent_term_xyz", k=5)
+        conn = perseus._vault_open_index(c)
+        results = perseus._vault_search(conn, "nonexistent_term_xyz", k=5)
         conn.close()
 
         assert results == []
 
     def test_search_returns_score(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         _write_memory(vault, "scored", "Scored Memory", "This is scored")
-        perseus._mneme_build_index(c)
+        perseus._vault_build_index(c)
 
-        conn = perseus._mneme_open_index(c)
-        results = perseus._mneme_search(conn, "scored", k=5)
+        conn = perseus._vault_open_index(c)
+        results = perseus._vault_search(conn, "scored", k=5)
         conn.close()
 
         assert len(results) >= 1
@@ -293,40 +293,40 @@ class TestSearch:
 class TestDocumentCRUD:
     def test_index_document_inserts(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         file_path = _write_memory(vault, "insert", "Insert Test", "Inserted")
 
-        success = perseus._mneme_index_document(c, file_path)
+        success = perseus._vault_index_document(c, file_path)
         assert success
 
-        conn = perseus._mneme_open_index(c)
-        results = perseus._mneme_search(conn, "insert", k=5)
+        conn = perseus._vault_open_index(c)
+        results = perseus._vault_search(conn, "insert", k=5)
         conn.close()
         assert len(results) >= 1
         assert results[0]["title"] == "Insert Test"
 
     def test_index_document_updates(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         file_path = _write_memory(vault, "update", "Original Title", "Original summary")
-        perseus._mneme_index_document(c, file_path)
+        perseus._vault_index_document(c, file_path)
 
         # Update the file
         _write_memory(vault, "update", "Updated Title", "Updated summary")
-        success = perseus._mneme_index_document(c, file_path)
+        success = perseus._vault_index_document(c, file_path)
         assert success
 
-        conn = perseus._mneme_open_index(c)
-        results = perseus._mneme_search(conn, "updated", k=5)
+        conn = perseus._vault_open_index(c)
+        results = perseus._vault_search(conn, "updated", k=5)
         conn.close()
         assert len(results) >= 1
         assert results[0]["title"] == "Updated Title"
 
     def test_index_document_prunes_old_id_when_frontmatter_id_changes(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         file_path = _write_memory(vault, "old_id", "Obsolete Title", "Obsolete summary")
-        perseus._mneme_index_document(c, file_path)
+        perseus._vault_index_document(c, file_path)
 
         file_path.write_text("""---
 schema: 2
@@ -340,11 +340,11 @@ tags: [test]
 ---
 New body
 """, encoding="utf-8")
-        assert perseus._mneme_index_document(c, file_path)
+        assert perseus._vault_index_document(c, file_path)
 
-        conn = perseus._mneme_open_index(c)
-        old_results = perseus._mneme_search(conn, "obsolete", k=5)
-        new_results = perseus._mneme_search(conn, "new", k=5)
+        conn = perseus._vault_open_index(c)
+        old_results = perseus._vault_search(conn, "obsolete", k=5)
+        new_results = perseus._vault_search(conn, "new", k=5)
         conn.close()
 
         assert old_results == []
@@ -353,21 +353,21 @@ New body
 
     def test_delete_document_removes(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         _write_memory(vault, "del", "Delete Me", "To be deleted")
-        perseus._mneme_build_index(c)
+        perseus._vault_build_index(c)
 
-        deleted = perseus._mneme_delete_document(c, "del")
+        deleted = perseus._vault_delete_document(c, "del")
         assert deleted
 
-        conn = perseus._mneme_open_index(c)
-        results = perseus._mneme_search(conn, "delete", k=5)
+        conn = perseus._vault_open_index(c)
+        results = perseus._vault_search(conn, "delete", k=5)
         conn.close()
         assert results == []
 
     def test_delete_nonexistent(self, tmp_path):
         c = _index_cfg(tmp_path)
-        deleted = perseus._mneme_delete_document(c, "nonexistent")
+        deleted = perseus._vault_delete_document(c, "nonexistent")
         assert not deleted
 
 
@@ -378,36 +378,36 @@ New body
 class TestStats:
     def test_stats_empty_index(self, tmp_path):
         c = _index_cfg(tmp_path)
-        stats = perseus._mneme_index_stats(c)
+        stats = perseus._vault_index_stats(c)
         assert stats["available"] is True
         assert stats["doc_count"] == 0
         assert stats["indexed_files"] == 0
 
     def test_stats_after_build(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         _write_memory(vault, "s1", "S1", "Summary 1")
         _write_memory(vault, "s2", "S2", "Summary 2")
         _write_memory(vault, "s3", "S3", "Summary 3")
-        perseus._mneme_build_index(c)
+        perseus._vault_build_index(c)
 
-        stats = perseus._mneme_index_stats(c)
+        stats = perseus._vault_index_stats(c)
         assert stats["doc_count"] == 3
         assert stats["indexed_files"] == 3
 
 
 # ---------------------------------------------------------------------------
-# End-to-end via _mneme_recall
+# End-to-end via _vault_recall
 # ---------------------------------------------------------------------------
 
 class TestRecallEndToEnd:
     def test_recall_returns_title_and_score(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         _write_memory(vault, "e2e-1", "End to End", "This is an end-to-end test", scope="test")
-        perseus._mneme_build_index(c)
+        perseus._vault_build_index(c)
 
-        results = perseus._mneme_recall(c, "end to end", k=5)
+        results = perseus._vault_recall(c, "end to end", k=5)
         assert len(results) >= 1
         assert results[0]["title"] == "End to End"
         assert "score" in results[0]
@@ -416,18 +416,18 @@ class TestRecallEndToEnd:
 
     def test_recall_empty_vault(self, tmp_path):
         c = _index_cfg(tmp_path)
-        results = perseus._mneme_recall(c, "anything", k=5)
+        results = perseus._vault_recall(c, "anything", k=5)
         assert results == []
 
     def test_recall_with_scope_and_type(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         _write_memory(vault, "f1", "Project Alpha", "Alpha stuff", scope="alpha", mem_type="decision")
         _write_memory(vault, "f2", "Project Beta", "Beta stuff", scope="beta", mem_type="decision")
         _write_memory(vault, "f3", "Alpha Lesson", "Lesson about alpha", scope="alpha", mem_type="lesson")
-        perseus._mneme_build_index(c)
+        perseus._vault_build_index(c)
 
-        results = perseus._mneme_recall(c, "alpha", k=5, scope="alpha", type_filter="decision")
+        results = perseus._vault_recall(c, "alpha", k=5, scope="alpha", type_filter="decision")
         assert len(results) >= 1
         for r in results:
             assert r["scope"] == "alpha"
@@ -435,12 +435,12 @@ class TestRecallEndToEnd:
 
     def test_recall_refreshes_non_empty_index_for_new_files(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         _write_memory(vault, "existing", "Existing Memory", "existing-token")
-        perseus._mneme_build_index(c)
+        perseus._vault_build_index(c)
         _write_memory(vault, "fresh", "Fresh Memory", "fresh-token")
 
-        results = perseus._mneme_recall(c, "fresh-token", k=5)
+        results = perseus._vault_recall(c, "fresh-token", k=5)
 
         assert [r["id"] for r in results] == ["fresh"]
 
@@ -452,13 +452,13 @@ class TestRecallEndToEnd:
 class TestPersistence:
     def test_data_survives_reopen(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         _write_memory(vault, "persist", "Persistent", "Persists across opens")
-        perseus._mneme_build_index(c)
+        perseus._vault_build_index(c)
 
         # Open a new connection — data should still be there
-        conn = perseus._mneme_open_index(c)
-        results = perseus._mneme_search(conn, "persist", k=5)
+        conn = perseus._vault_open_index(c)
+        results = perseus._vault_search(conn, "persist", k=5)
         conn.close()
         assert len(results) >= 1
         assert results[0]["title"] == "Persistent"
@@ -474,17 +474,17 @@ class TestBm25MetadataWeights:
     updated, ...) silently participates in ranking."""
 
     def test_fts_columns_constant_matches_schema(self, tmp_path):
-        """_MNEME_FTS_COLUMNS (drives the bm25() weight list) must mirror
+        """_VAULT_FTS_COLUMNS (drives the bm25() weight list) must mirror
         the actual FTS5 table so the two can never drift apart."""
         c = _index_cfg(tmp_path)
-        conn = perseus._mneme_open_index(c)
-        cols = [row[1] for row in conn.execute("PRAGMA table_info(mneme_fts)")]
+        conn = perseus._vault_open_index(c)
+        cols = [row[1] for row in conn.execute("PRAGMA table_info(vault_fts)")]
         conn.close()
-        assert cols == perseus._MNEME_FTS_COLUMNS
+        assert cols == perseus._VAULT_FTS_COLUMNS
 
     def test_metadata_match_does_not_outrank_body_match(self, tmp_path):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         # Doc whose BODY contains the query term.
         _write_memory(vault, "body-doc", "Deployment notes", "How we deploy",
                       body="The zebra pattern is used for rollouts.")
@@ -492,10 +492,10 @@ class TestBm25MetadataWeights:
         # source_path (the vault filename) both contain 'zebra'.
         _write_memory(vault, "zebra-metadata-doc", "Unrelated title",
                       "Unrelated summary", body="Nothing relevant here.")
-        perseus._mneme_build_index(c)
+        perseus._vault_build_index(c)
 
-        conn = perseus._mneme_open_index(c)
-        results = perseus._mneme_search(conn, "zebra", k=5)
+        conn = perseus._vault_open_index(c)
+        results = perseus._vault_search(conn, "zebra", k=5)
         conn.close()
 
         assert results, "the body match must be found"
@@ -512,8 +512,8 @@ class TestBm25MetadataWeights:
 
     def test_bm25_weight_list_covers_every_column(self):
         """Weighted content columns + zero-weighted metadata == full schema."""
-        weighted = set(perseus._MNEME_FIELD_WEIGHTS)
-        all_cols = set(perseus._MNEME_FTS_COLUMNS)
+        weighted = set(perseus._VAULT_FIELD_WEIGHTS)
+        all_cols = set(perseus._VAULT_FTS_COLUMNS)
         assert weighted <= all_cols
         # Metadata columns are present in the schema list (weight 0.0).
         for meta in ("id", "type", "scope", "sensitivity", "confidence",
@@ -528,70 +528,70 @@ class TestBm25MetadataWeights:
 
 def _evict_cached_conns():
     """Close and drop every cached index connection (simulates a fresh process)."""
-    for key in list(perseus._MNEME_CONN_CACHE):
+    for key in list(perseus._VAULT_CONN_CACHE):
         try:
-            perseus._MNEME_CONN_CACHE[key].close()
+            perseus._VAULT_CONN_CACHE[key].close()
         except Exception:
             pass
-        del perseus._MNEME_CONN_CACHE[key]
+        del perseus._VAULT_CONN_CACHE[key]
 
 
 class TestCorruptIndexRecovery:
-    """#645: a corrupt mneme.index made every recall silently return []
+    """#645: a corrupt vault.index made every recall silently return []
     forever — no detection, no rebuild, no warning — even though the source
     .md files were intact. Recall must quarantine, rebuild, and warn."""
 
     def test_recall_recovers_from_corrupt_index_file(self, tmp_path, capsys):
         c = _index_cfg(tmp_path)
-        vault = Path(c["memory"]["mneme_vault_path"])
+        vault = Path(c["memory"]["vault_path"])
         _write_memory(vault, "pg-choice", "Postgres choice", "we chose postgres",
                       body="postgres is the primary store")
-        assert perseus._mneme_recall(c, "postgres", k=5), "baseline recall must hit"
+        assert perseus._vault_recall(c, "postgres", k=5), "baseline recall must hit"
 
         # Simulate a fresh process finding a corrupted file: drop the cached
         # connection, then overwrite the index with garbage bytes.
-        index_path = Path(c["memory"]["mneme_index_path"])
+        index_path = Path(c["memory"]["vault_index_path"])
         _evict_cached_conns()
         index_path.write_bytes(b"this is definitely not a sqlite database\x00" * 64)
-        perseus._MNEME_CORRUPT_WARNED.clear()
+        perseus._VAULT_CORRUPT_WARNED.clear()
         capsys.readouterr()  # reset captured output
 
-        results = perseus._mneme_recall(c, "postgres", k=5)
+        results = perseus._vault_recall(c, "postgres", k=5)
         err = capsys.readouterr().err
 
         assert results and results[0]["id"] == "pg-choice", (
             "recall must rebuild from the intact vault .md files, not return []")
         assert "corrupt" in err.lower(), "corruption must warn on stderr"
-        assert list(index_path.parent.glob("mneme.index.corrupt-*")), (
+        assert list(index_path.parent.glob("vault.index.corrupt-*")), (
             "the corrupt file must be quarantined for post-mortem, not destroyed")
 
     def test_corruption_warns_once_per_process(self, tmp_path, capsys):
         c = _index_cfg(tmp_path)
-        index_path = Path(c["memory"]["mneme_index_path"])
-        perseus._MNEME_CORRUPT_WARNED.clear()
+        index_path = Path(c["memory"]["vault_index_path"])
+        perseus._VAULT_CORRUPT_WARNED.clear()
         index_path.write_bytes(b"garbage")
-        perseus._mneme_quarantine_corrupt_index(index_path)
+        perseus._vault_quarantine_corrupt_index(index_path)
         index_path.write_bytes(b"garbage again")
-        perseus._mneme_quarantine_corrupt_index(index_path)
+        perseus._vault_quarantine_corrupt_index(index_path)
         err = capsys.readouterr().err
-        assert err.count("Mnēmē FTS5 index") == 1, "warning must fire once per index"
+        assert err.count("Perseus Vault FTS5 index") == 1, "warning must fire once per index"
 
     def test_undeterminable_vault_dir_stays_silent(self, monkeypatch, capsys):
         # The OTHER None path must stay silent by design: no vault dir is a
         # normal fresh-environment state, not corruption.
         def _boom(cfg_):
             raise RuntimeError("no vault dir")
-        monkeypatch.setattr(perseus, "_mneme_index_path", _boom)
-        assert perseus._mneme_open_index(cfg()) is None
+        monkeypatch.setattr(perseus, "_vault_index_path", _boom)
+        assert perseus._vault_open_index(cfg()) is None
         assert capsys.readouterr().err == ""
 
     def test_search_no_longer_swallows_database_errors(self, tmp_path):
         # #645: query-time errors used to become a silent [] inside
-        # _mneme_search, making the "index may be corrupt" warning in
-        # memory._mneme_recall dead code. They must propagate to the caller.
+        # _vault_search, making the "index may be corrupt" warning in
+        # memory._vault_recall dead code. They must propagate to the caller.
         c = _index_cfg(tmp_path)
-        conn = perseus._mneme_open_index(c)
-        conn.execute("DROP TABLE mneme_fts")
+        conn = perseus._vault_open_index(c)
+        conn.execute("DROP TABLE vault_fts")
         with pytest.raises(perseus.sqlite3.OperationalError):
-            perseus._mneme_search(conn, "anything", k=5)
+            perseus._vault_search(conn, "anything", k=5)
         _evict_cached_conns()

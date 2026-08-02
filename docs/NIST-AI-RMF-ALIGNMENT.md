@@ -78,7 +78,7 @@ and ATO (Authority to Operate) submissions.
 
 | AI RMF Subcategory | How We Address It |
 |---|---|
-| **MANAGE 1.1** — AI risks prioritized and responded to | Public issue trackers for both repos. Security vulnerability reporting process (perseus@perseus.observer, 48-hour response). Correction capture through the Perseus Vault compatibility tool `mimir_correct`. |
+| **MANAGE 1.1** — AI risks prioritized and responded to | Public issue trackers for both repos. Security vulnerability reporting process (perseus@perseus.observer, 48-hour response). Correction capture through the Perseus Vault compatibility tool `perseus_vault_correct`. |
 | **MANAGE 1.2** — AI risks treated, transferred, avoided, or accepted | MIT license: risk transferred to deployer (standard OSS model). SECURITY.md: risks explicitly disclosed. Trust boundaries documented. |
 | **MANAGE 1.3** — Benefits maximized, negative impacts minimized | Context grounding (Perseus) minimizes hallucination risk. Persistent memory (Perseus Vault) enables institutional knowledge. Both are BYO-model — no lock-in to specific LLM. |
 | **MANAGE 2.1** — AI system usage, impacts, and incidents documented | Perseus Vault journal provides append-only, tamper-evident operation log. Perseus context snapshots document operational state. Error reporting in CI. |

@@ -52,8 +52,8 @@ def test_serve_endpoint_narrative_missing(tmp_path):
 def test_serve_endpoint_narrative_present(tmp_path):
     local = cfg()
     local["memory"]["store"] = str(tmp_path / "mem")
-    mp = perseus._mneme_path(tmp_path, local)
-    fm = perseus._mneme_default_frontmatter(tmp_path)
+    mp = perseus._vault_memory_path(tmp_path, local)
+    fm = perseus._vault_default_frontmatter(tmp_path)
     perseus._save_narrative(mp, fm, "## Project Arc\n\nx.\n")
     status, ctype, body = perseus._serve_render_endpoint("/narrative", local, tmp_path, {})
     assert status == 200
@@ -188,7 +188,7 @@ def test_serve_collect_stats_finds_real_data(tmp_path, monkeypatch):
     (tmp_path / "skills" / "ci" / "SKILL.md").write_text("# CI\n", encoding="utf-8")
     # Narrative
     (tmp_path / "memory").mkdir()
-    npath = perseus._mneme_path(tmp_path, local)
+    npath = perseus._vault_memory_path(tmp_path, local)
     npath.write_text("line one\nline two\nline three\n", encoding="utf-8")
     # Context file
     (tmp_path / ".perseus").mkdir()

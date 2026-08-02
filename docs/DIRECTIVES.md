@@ -26,7 +26,7 @@ Source documents start with `@perseus v1.0.8` on line 1. The value after `@perse
 | `@agora [status=...] [scope=...]` | Live task board from `tasks/` — markdown table by status/scope |
 | `@memory [focus="..."] [ttl=N]` | Perseus Vault narrative for the workspace; `focus=` slices a single section (`arc`, `decisions`, `recent`, `patterns`, `history`) |
 | `@memory mode=search query="terms" [k=5] [scope=...] [type=...]` | Perseus Vault v2 FTS5 BM25 search over the vault (`~/.perseus/memory/vault/*.md`). Returns ranked results with snippet highlights. Use single-word queries for best recall — multi-word queries are matched as exact FTS5 phrases. |
-| `@mimir query="terms" [k=5] [scope=...] [type=...]` | Perseus Vault FTS5 recall — same backend as `@memory mode=search`. Shorthand alias for memory search without the narrative/federation modes. |
+| `@vault query="terms" [k=5] [scope=...] [type=...]` | Canonical Perseus Vault FTS5 recall directive. It uses the same backend as `@memory mode=search` without narrative or federation modes. |
 | `@capture [limit=N]` | **Write** side of the memory loop (#713): pushes up to N recent session checkpoints for this workspace to Perseus Vault as durable, provenance-tagged memories. Idempotent (keyed per checkpoint — re-renders upsert, never duplicate). Automatic capture at session boundaries (checkpoint write, `memory update`) is opt-in via `perseus_vault.capture.enabled` |
 | `@health` | Maintenance suggestions (stale checkpoints, near-duplicates, large context, old completed tasks) |
 | `@list <path> [type] [depth] [path] [columns] [as]` | Directory listing OR structured-file table from `path="dot.key"` of JSON/YAML |
@@ -35,7 +35,7 @@ Source documents start with `@perseus v1.0.8` on line 1. The value after `@perse
 | `@inbox [unread=true] [limit=N]` | Render pending point-to-point messages from `perseus inbox send` |
 | `@memory federation [alias=name]` | Render digest of subscribed cross-workspace narratives (see `perseus memory federation`) |
 | `@memory include_federation=true` | Local narrative + appended `## Federated Context` digest |
-| `@mimir  query=\"topic\"` | Recall persistent memories via Perseus Vault (entities, journal, state). Category-filtered, FTS5 keyword search with LIKE fallback. |
+| `@vault  query=\"topic\"` | Recall persistent memories via Perseus Vault (entities, journal, state). Category-filtered, FTS5 keyword search with LIKE fallback. |
 | `@drift` | Daedalus drift report — acceptance rate, recommendation Jaccard, confidence proxy (see `perseus oracle drift`) |
 | `@context-diff [reset=true]` | Compact "Since last session" delta (#714): git branch/commits, Agora task-board changes, new inbox messages, new checkpoints, and new vault session memories since the last recorded snapshot. Put it at the top of a context document so the assistant spends zero turns re-orienting on unchanged state. Baseline refresh is debounced by `render.context_diff_min_age_s` (default 300s); `reset=true` forces a new baseline |
 | `@tool "\"<path>\"" [args...]` | Run an allowlisted external tool. Unlike `@agent` (ad-hoc), `@tool` requires explicit approval in `tools.allowlist` per path, with argument restrictions, timeouts, and output size caps. Accepts `@cache ttl=N`. |

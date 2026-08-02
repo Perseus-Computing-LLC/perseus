@@ -181,7 +181,7 @@ per subscription.
 [
   {
     "alias": "api",
-    "path": "/workspace/api/.perseus/mneme.md",
+    "path": "/workspace/api/.perseus/vault.md",
     "status": "ok",
     "error": null,
     "line_count": 120,

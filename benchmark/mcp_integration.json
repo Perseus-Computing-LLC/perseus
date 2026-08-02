@@ -1,6 +1,6 @@
 {
   "test": "mcp-integration",
-  "description": "MCP-class benchmark simulating expensive knowledge-retrieval operations (Bastra Recall-style: document vault search, memory queries, codebase intelligence). Each block contains 20 directives heavier than real_deltas \u2014 @include of large spec files, @query with rg/find across the repo, git history analysis. COLD: directives resolve from scratch. WARM: same directives with @cache ttl=3600.",
+  "description": "MCP-class benchmark simulating expensive knowledge-retrieval operations (Perseus Vault-style: document vault search, memory queries, codebase intelligence). Each block contains 20 directives heavier than real_deltas \u2014 @include of large spec files, @query with rg/find across the repo, git history analysis. COLD: directives resolve from scratch. WARM: same directives with @cache ttl=3600.",
   "timestamp": "2026-05-26T21:36:36.780201",
   "hostname": "6e22d21c3126",
   "python": "3.12.13",

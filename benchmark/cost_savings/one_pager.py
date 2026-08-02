@@ -37,9 +37,9 @@ def load(p: str) -> dict:
 
 def build_facts(report: dict, qa: dict) -> dict:
     base = report["arms"]["fullcontext"]
-    ours = report["arms"]["mimir"]
+    ours = report["arms"]["vault"]
     by_type = {}
-    for system, key in (("fullcontext", "base"), ("mimir", "ours")):
+    for system, key in (("fullcontext", "base"), ("vault", "ours")):
         for t, row in qa["systems"][system]["by_question_type"].items():
             by_type.setdefault(t, {"n": row["n"]})[key] = row["accuracy"]
     return {

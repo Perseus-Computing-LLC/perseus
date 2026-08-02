@@ -32,7 +32,7 @@ rotation without breaking existing chains.
 
 ### 1. Narrative frontmatter extension
 
-Extend Mnēmē narrative frontmatter (opt-in, behind feature flag):
+Extend Perseus Vault narrative frontmatter (opt-in, behind feature flag):
 
 ```yaml
 ---
@@ -56,7 +56,7 @@ perseus memory verify <hash> --chain
 
 - Verifies the current narrative's signature (task-97)
 - Extracts `prev_signature` from frontmatter
-- Loads the previous narrative version from Mnēmē history
+- Loads the previous narrative version from Perseus Vault history
 - Verifies its signature matches `prev_signature`
 - Repeats until reaching genesis (null `prev_signature`)
 - Reports: number of versions, chain intact (yes/no), first breakpoint if any

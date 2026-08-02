@@ -1,6 +1,6 @@
 # Integrated Perseus → Perseus Vault load harness
 
-Load + resilience tests for the **integrated** path: the Python `MnemeConnector`
+Load + resilience tests for the **integrated** path: the Python `VaultConnector`
 talking to a real `perseus-vault` binary over MCP stdio. The vault's own
 concurrency arc was benchmarked in isolation (~4,242 req/s); this harness closes
 the gap by exercising the *connector* path — transport, `_call_lock`
