@@ -1,0 +1,86 @@
+{
+  "benchmark": "perseus-real-vault-semantic-density",
+  "version": 1,
+  "real_vault": true,
+  "offline": true,
+  "network_calls": 0,
+  "binary": "perseus-vault",
+  "case_results": [
+    {
+      "case_id": "sanitized-corpus",
+      "vault_recalled_ids": [
+        "mem-27795ad5d479",
+        "mem-4204d6907431",
+        "mem-d770b301a77d",
+        "mem-ffb1ff321c6d",
+        "mem-9a6ae3a9c566",
+        "mem-c12abc21a2b8",
+        "mem-0a4b6a1b3437",
+        "mem-250cacdb34b0",
+        "mem-201bc1d485ae",
+        "mem-812f3269cb1a",
+        "mem-72472b0c954d",
+        "mem-a76c351c604b",
+        "mem-a76ac39fb106",
+        "mem-f0fbb9f30ace",
+        "mem-72b5bf9b0917",
+        "mem-3308d7cd3835",
+        "mem-ebdba2b78922",
+        "mem-cdc6da89312e",
+        "mem-de9ebcad4fb2",
+        "mem-769d141e0227",
+        "mem-161aa0731260",
+        "mem-38a399f71707",
+        "mem-fe1dbef05ac9",
+        "mem-0e6d7f42a157"
+      ],
+      "production": {
+        "task_resumption": 1.0,
+        "load_bearing_retention": 1.0,
+        "decoder_recovery": 1.0,
+        "selected_item_fraction": 0.0417,
+        "omitted_item_count": 23,
+        "decoder_coverage": 1.0,
+        "prompt_tokens": 39,
+        "uncompressed_tokens": 5499
+      },
+      "legacy": {
+        "task_resumption": 1.0,
+        "load_bearing_retention": 1.0,
+        "decoder_recovery": 0.0,
+        "selected_item_fraction": 0.0417,
+        "omitted_item_count": 23,
+        "decoder_coverage": 0.0,
+        "prompt_tokens": 39,
+        "uncompressed_tokens": 5499
+      }
+    }
+  ],
+  "methods": {
+    "production": {
+      "task_resumption": 1.0,
+      "load_bearing_retention": 1.0,
+      "decoder_recovery": 1.0,
+      "prompt_tokens": 39.0,
+      "uncompressed_tokens": 5499.0
+    },
+    "legacy": {
+      "task_resumption": 1.0,
+      "load_bearing_retention": 1.0,
+      "decoder_recovery": 0.0,
+      "prompt_tokens": 39.0,
+      "uncompressed_tokens": 5499.0
+    }
+  },
+  "vault": {
+    "cases_replayed": 1
+  },
+  "corpus": {
+    "items": 24,
+    "format": "perseus-sanitized-replay-v1"
+  },
+  "gate": {
+    "pass": true
+  },
+  "signature_sha256": "16248f1517232a6402a7b2727c97bd5f7745a24ca28b230c218e109c96009a38"
+}

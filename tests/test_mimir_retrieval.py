@@ -83,9 +83,9 @@ class TestMergeStrategies:
     @property
     def mimir_items(self):
         return [
-            _make_hit("e-1", "Engram: Database is PostgreSQL in production", "mimir", "architecture", decay=0.95, relevance=0.9),
-            _make_hit("e-2", "Engram: Auth uses OAuth2 + JWT", "mimir", "decision", decay=0.7, relevance=0.7),
-            _make_hit("e-3", "Engram: Deploy strategy is blue-green", "mimir", "insight", decay=0.2, relevance=0.3),
+            _make_hit("e-1", "Engram: Database is PostgreSQL in production", "vault", "architecture", decay=0.95, relevance=0.9),
+            _make_hit("e-2", "Engram: Auth uses OAuth2 + JWT", "vault", "decision", decay=0.7, relevance=0.7),
+            _make_hit("e-3", "Engram: Deploy strategy is blue-green", "vault", "insight", decay=0.2, relevance=0.3),
         ]
 
     def test_local_first_strategy(self):
@@ -100,7 +100,7 @@ class TestMergeStrategies:
         sources = [item.source.value for item in merged.items]
         # All items are unique (different content), so order is: local → mneme
         assert sources[:3] == ["local", "local", "local"]
-        assert sources[3:] == ["mimir", "mimir", "mimir"]
+        assert sources[3:] == ["vault", "vault", "vault"]
 
     def test_remote_first_strategy(self):
         """REMOTE_FIRST: mneme items first, then verified, then local-only."""
@@ -112,7 +112,7 @@ class TestMergeStrategies:
             diagnostics={},
         )
         sources = [item.source.value for item in merged.items]
-        assert sources[:3] == ["mimir", "mimir", "mimir"]
+        assert sources[:3] == ["vault", "vault", "vault"]
         assert sources[3:] == ["local", "local", "local"]
 
     def test_interleave_strategy(self):
@@ -126,7 +126,7 @@ class TestMergeStrategies:
         )
         sources = [item.source.value for item in merged.items]
         # Should alternate: engram, local, engram, local, engram, local
-        expected = ["mimir", "local", "mimir", "local", "mimir", "local"]
+        expected = ["vault", "local", "vault", "local", "vault", "local"]
         assert sources == expected
 
     def test_decay_first_strategy(self):
@@ -153,7 +153,7 @@ class TestMergeStrategies:
             _make_hit("l-mid", "Mid local memory", "local", "insight", decay=0.5),
         ]
         mneme_items = [
-            _make_hit("e-1", "Mneme item", "mimir", "insight", decay=0.8),
+            _make_hit("e-1", "Mneme item", "vault", "insight", decay=0.8),
         ]
         merged = conn._merge_results(
             local_items=local, mimir_items=mneme_items,
@@ -189,7 +189,7 @@ class TestDeduplication:
         conn = self._connector()
         shared_content = "The auth module uses PostgreSQL for production and SQLite for local dev."
         local = [_make_hit("l-auth", shared_content, "local", "architecture", decay=0.5)]
-        mneme_items = [_make_hit("e-auth", shared_content, "mimir", "architecture", decay=0.95)]
+        mneme_items = [_make_hit("e-auth", shared_content, "vault", "architecture", decay=0.95)]
 
         merged = conn._merge_results(
             local_items=local, mimir_items=mneme_items,
@@ -206,7 +206,7 @@ class TestDeduplication:
         """Different content → not deduped, both items preserved."""
         conn = self._connector()
         local = [_make_hit("l-1", "Auth module uses PostgreSQL.", "local", "architecture")]
-        mneme_items = [_make_hit("e-1", "The auth module uses PostgreSQL for production and SQLite for local dev.", "mimir", "architecture")]
+        mneme_items = [_make_hit("e-1", "The auth module uses PostgreSQL for production and SQLite for local dev.", "vault", "architecture")]
 
         merged = conn._merge_results(
             local_items=local, mimir_items=mneme_items,
@@ -225,9 +225,9 @@ class TestDeduplication:
             _make_hit("l-only", "Local-only insight about tooling.", "local", "insight"),
         ]
         mneme_items = [
-            _make_hit("e-mk", shared_1, "mimir", "decision", decay=0.9),
-            _make_hit("e-watch", shared_2, "mimir", "insight", decay=0.8),
-            _make_hit("e-only", "Mneme-only architecture note.", "mimir", "architecture"),
+            _make_hit("e-mk", shared_1, "vault", "decision", decay=0.9),
+            _make_hit("e-watch", shared_2, "vault", "insight", decay=0.8),
+            _make_hit("e-only", "Mneme-only architecture note.", "vault", "architecture"),
         ]
 
         merged = conn._merge_results(
@@ -263,7 +263,7 @@ class TestDeduplication:
 
     def _all_unique_engram(self):
         return [
-            _make_hit("e-c", "Content Gamma", "mimir", "architecture"),
+            _make_hit("e-c", "Content Gamma", "vault", "architecture"),
         ]
 
 
@@ -455,7 +455,7 @@ def _build_needle_haystack(needle_ids: list[str], num_distractors: int = 50) -> 
             _make_hit(
                 f"distractor-{i}",
                 f"Note about {topics[i % len(topics)]} configuration: set the {topics[i % len(topics)]}_TIMEOUT env var to 30s. This was configured on {2020 + (i % 6)}-{1 + (i % 12):02d}-{1 + (i % 28):02d}. No impact on core architecture decisions.",
-                source="mimir" if i % 2 == 0 else "local",
+                source="vault" if i % 2 == 0 else "local",
                 mtype=["insight", "architecture", "decision"][i % 3],
                 decay=0.1 + (i % 10) * 0.08,
             )
@@ -469,7 +469,7 @@ def _build_needle_haystack(needle_ids: list[str], num_distractors: int = 50) -> 
             _make_hit(
                 nid,
                 content,
-                source="mimir",
+                source="vault",
                 mtype="architecture" if "arch" in nid else ("decision" if "decision" in nid else "insight"),
                 decay=0.85,
                 relevance=0.9,
@@ -500,7 +500,7 @@ class TestNeedleInHaystack:
         expected_ids = query_entry["expected_ids"]
         haystack, _ = _build_needle_haystack(expected_ids, num_distractors=50)
 
-        # Simulate: the expected needles + distractors are the "mimir" results,
+        # Simulate: the expected needles + distractors are the "vault" results,
         # local results are an empty list
         conn = self._connector(strategy="decay_first")
 
@@ -628,9 +628,9 @@ class TestDecayPriority:
         """Fresh items (decay=1.0) should appear before stale ones (decay=0.1)."""
         conn = self._connector()
         items = [
-            _make_hit("stale-1", "Very old decision about Python version.", "mimir", "decision", decay=0.05),
-            _make_hit("fresh-1", "Recent architecture change: switched to Rust.", "mimir", "architecture", decay=0.99),
-            _make_hit("mid-1", "Somewhat recent insight about caching.", "mimir", "insight", decay=0.50),
+            _make_hit("stale-1", "Very old decision about Python version.", "vault", "decision", decay=0.05),
+            _make_hit("fresh-1", "Recent architecture change: switched to Rust.", "vault", "architecture", decay=0.99),
+            _make_hit("mid-1", "Somewhat recent insight about caching.", "vault", "insight", decay=0.50),
             _make_hit("stale-2", "Obsolete note about npm packages.", "local", "insight", decay=0.01),
             _make_hit("fresh-2", "Today's hotfix for auth race condition.", "local", "decision", decay=1.0),
         ]
@@ -649,7 +649,7 @@ class TestDecayPriority:
         """Items with high retrieval_count should have higher decay (reinforced)."""
         # This tests that the data model supports the concept — actual decay
         # calculation happens in Mneme, but our connector preserves the values.
-        fresh = _make_hit("r-fresh", "Frequently accessed memory", "mimir", "insight", decay=0.98)
+        fresh = _make_hit("r-fresh", "Frequently accessed memory", "vault", "insight", decay=0.98)
         assert fresh.retrieval_count == 0  # default
         fresh.retrieval_count = 50
         assert fresh.retrieval_count == 50
@@ -701,7 +701,7 @@ class TestConflictResolution:
             _make_hit("l-port", "Service port configured to 8080 (local override)", "local", "architecture", decay=1.0),
         ]
         mneme_items = [
-            _make_hit("e-port", "Service port configured to 3000 (historical default)", "mimir", "architecture", decay=0.5),
+            _make_hit("e-port", "Service port configured to 3000 (historical default)", "vault", "architecture", decay=0.5),
         ]
 
         merged = conn._merge_results(
@@ -723,7 +723,7 @@ class TestConflictResolution:
         conn = self._connector("local_first")
         content = "The API uses port 8080."
         local = [_make_hit("l-api", content, "local", "architecture", decay=0.9)]
-        mneme_items = [_make_hit("e-api", content, "mimir", "architecture", decay=0.7)]
+        mneme_items = [_make_hit("e-api", content, "vault", "architecture", decay=0.7)]
 
         merged = conn._merge_results(
             local_items=local, mimir_items=mneme_items,
@@ -739,7 +739,7 @@ class TestConflictResolution:
             _make_hit("l-new-port", "Current port: 9090 (recent change)", "local", "architecture", decay=0.95),
         ]
         mneme_items = [
-            _make_hit("e-old-port", "Historical port: 3000 (original design)", "mimir", "architecture", decay=0.25),
+            _make_hit("e-old-port", "Historical port: 3000 (original design)", "vault", "architecture", decay=0.25),
         ]
 
         merged = conn._merge_results(
@@ -758,8 +758,8 @@ class TestConflictResolution:
             _make_hit("l-b", "Content B", "local", "insight"),
         ]
         mneme_items = [
-            _make_hit("e-b", "Content B", "mimir", "insight"),  # same as l-b → verified
-            _make_hit("e-c", "Content C", "mimir", "insight"),
+            _make_hit("e-b", "Content B", "vault", "insight"),  # same as l-b → verified
+            _make_hit("e-c", "Content C", "vault", "insight"),
         ]
         diag = {}
         merged = conn._merge_results(
