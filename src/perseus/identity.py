@@ -394,7 +394,7 @@ def cmd_memory_provenance(args, cfg) -> int | None:
     if not hash_arg:
         ws_raw = getattr(args, "workspace", None) or os.getcwd()
         workspace = Path(ws_raw).expanduser().resolve()
-        mp = _mneme_path(workspace, cfg)
+        mp = _vault_memory_path(workspace, cfg)
         hash_arg = mp.stem
 
     output = _render_provenance(hash_arg, cfg)
@@ -747,7 +747,7 @@ def cmd_memory_sign(args, cfg) -> int | None:
 
     ws_raw = getattr(args, "workspace", None) or os.getcwd()
     workspace = Path(ws_raw).expanduser().resolve()
-    mp = _mneme_path(workspace, cfg)
+    mp = _vault_memory_path(workspace, cfg)
     if not mp.exists():
         print(f"No narrative at {mp}. Run `perseus memory update` first.", file=sys.stderr)
         return 1
@@ -782,7 +782,7 @@ def cmd_memory_verify(args, cfg) -> int | None:
         store = Path(cfg.get("memory", {}).get("store", str(PERSEUS_HOME / "memory")))
         mp = store / f"{hash_arg}.md"
     else:
-        mp = _mneme_path(workspace, cfg)
+        mp = _vault_memory_path(workspace, cfg)
 
     if not mp.exists():
         print(f"Narrative not found: {mp}", file=sys.stderr)

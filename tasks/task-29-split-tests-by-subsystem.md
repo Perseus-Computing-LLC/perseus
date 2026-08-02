@@ -25,7 +25,7 @@ Per the 2026-05-18 review:
 
 `tests/test_perseus.py` grew to 272 tests, ~3,300 lines. Finding tests for a
 specific subsystem is grep-driven. New contributors don't know where to add
-a Mnēmē test vs a renderer test.
+a Perseus Vault test vs a renderer test.
 
 The implementation stays as `perseus.py` (single file, non-negotiable).
 Only the tests split.
@@ -39,7 +39,7 @@ tests/
 ├── conftest.py              # shared fixtures (cfg(), _seed_oracle_log, ...)
 ├── test_renderer.py         # _render_lines, directives, blocks, @if/@else,
 │                            #   resolve_*, INLINE_DIRECTIVE_RE
-├── test_memory.py           # Mnēmē narrative, federation, @memory, compact,
+├── test_memory.py           # Perseus Vault narrative, federation, @memory, compact,
 │                            #   pattern_extractor (P9.2)
 ├── test_lsp.py              # serve --lsp, _lsp_*, hover sandbox,
 │                            #   integration tests when task-27 lands

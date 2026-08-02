@@ -53,4 +53,4 @@
 @graph @focus="architecture"
 @synthesize
 
-@mneme query="architect*"
+@vault query="architect*"

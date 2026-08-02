@@ -4,7 +4,7 @@
 # @research "<query>" [limit=N | --limit N]
 #
 # Inject structured paper-search results from an EXTERNAL paper-search MCP
-# server (BGPT by default) into the rendered context. Unlike @memory / @mimir
+# server (BGPT by default) into the rendered context. Unlike @memory / @vault
 # (which recall *our* stored facts), @research reaches out to a scientific
 # literature index and returns per-paper Methods/Results blocks so an agent can
 # ground claims in published studies.
@@ -14,7 +14,7 @@
 # it must never break a render. The directive does NOT execute a shell
 # (executes_shell=False); it speaks JSON-RPC 2.0 over stdio to the configured
 # MCP subprocess via a SELF-CONTAINED client kept inside this module (we do not
-# touch mneme_connector.py).
+# touch vault_connector.py).
 
 import threading
 import queue as _queue
@@ -30,8 +30,8 @@ _RESEARCH_DEFAULT_MAX_TOKENS = 1500
 class _ResearchMCPClient:
     """Minimal JSON-RPC 2.0 MCP client over stdio for paper-search servers.
 
-    Modelled on mneme_connector._MCPStdioClient but kept fully self-contained
-    here (issue #513): we must not import from / edit mneme_connector.py.
+    Modelled on vault_connector._MCPStdioClient but kept fully self-contained
+    here (issue #513): we must not import from / edit vault_connector.py.
 
     Robustness notes:
     - A DAEMON reader thread drains stdout into a Queue so a hung/silent server
@@ -370,7 +370,7 @@ def resolve_research(args_str: str, cfg: dict, workspace: "Path | None" = None) 
             )
 
         try:
-            timeout_s = float(rcfg.get("timeout_s", _resolve_mneme_config(cfg).get("timeout_s", 10.0)
+            timeout_s = float(rcfg.get("timeout_s", _resolve_vault_config(cfg).get("timeout_s", 10.0)
                                        if isinstance(cfg, dict) else 10.0))
         except (ValueError, TypeError):
             timeout_s = 10.0

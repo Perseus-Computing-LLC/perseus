@@ -75,7 +75,7 @@ _INCLUDE_RE = re.compile(r"^@include\s+(.*)$")
 _MEMORY_RE = re.compile(r"^@memory\b")
 _OTHER_DIRECTIVE_RE = re.compile(
     r"@(?:date|env|query|read|waypoint|session|services|health|agora|skills|"
-    r"mimir|mneme|tree|list|agent|tool|capture|drift|context-diff|synthesize|"
+    r"vault|vault|tree|list|agent|tool|capture|drift|context-diff|synthesize|"
     r"if|else|endif|constraint|validate|inbox|research|focus|profile|budget|"
     r"tokens|bandit|auto-skill|perseus\s+http)\b")
 

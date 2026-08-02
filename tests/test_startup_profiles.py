@@ -67,7 +67,7 @@ def test_pointer_block_includes_startup_lead():
 
 def test_inject_on_demand_uses_startup_profile(monkeypatch):
     monkeypatch.setenv("PERSEUS_STARTUP_PROFILE", "ticket_triage")
-    out = perseus._mneme_context_inject(cfg(), rendered="", source_text="", workspace=None)
+    out = perseus._vault_context_inject(cfg(), rendered="", source_text="", workspace=None)
     assert out is not None
     assert perseus._MEMORY_POINTER_HEADER in out
     assert "Startup profile: ticket_triage" in out

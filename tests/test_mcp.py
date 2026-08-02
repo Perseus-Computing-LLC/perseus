@@ -212,7 +212,7 @@ def test_malformed_line_does_not_kill_server():
         # including a non-ASCII argument (UTF-8 stdin, not cp1252).
         list_msg = json.dumps(
             {"jsonrpc": "2.0", "id": 7, "method": "tools/list",
-             "params": {"_note": "café-Mnēmē-📌"}}
+             "params": {"_note": "café-Perseus Vault-📌"}}
         ) + "\n"
         proc.stdin.write(list_msg)
         proc.stdin.flush()

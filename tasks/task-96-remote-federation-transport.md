@@ -20,7 +20,7 @@ closed: null
 ---
 ## Why
 
-Current federation (Phase 8.2) reads Mnēmē narratives from local filesystem paths
+Current federation (Phase 8.2) reads Perseus Vault narratives from local filesystem paths
 via `federation.yaml`. This works when all workspaces share a filesystem. It does
 not work across machines, containers, or networks.
 
@@ -112,7 +112,7 @@ Response (200):
 
 ### 4. Render-time federation
 
-`_render_federation_digest()` in `mneme_federation.py` is extended:
+`_render_federation_digest()` in `vault_federation.py` is extended:
 
 - Local-path subscriptions: existing behavior (unchanged)
 - Remote subscriptions: read from `~/.perseus/cache/federation/{alias}.json`
@@ -188,7 +188,7 @@ Cache directory: `~/.perseus/cache/federation/`
 
 ## Files to change
 
-- `src/perseus/mneme_federation.py` — manifest parsing + `remote:` block,
+- `src/perseus/vault_federation.py` — manifest parsing + `remote:` block,
   pull-from-remote, cache layer, render-time remote path
 - `src/perseus/cli.py` — serve endpoint registration, `--remote-url` arg
   for subscribe

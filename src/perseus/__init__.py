@@ -27,7 +27,7 @@ import subprocess
 import sys
 
 # Windows charset compat: Perseus emits non-cp1252 text in help,
-# prompts, and rendered output (e.g. 'Mnēmē', '📌').
+# prompts, and rendered output (e.g. 'Perseus Vault', '📌').
 # Without this, `perseus --help` itself crashes on a fresh Windows install.
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")

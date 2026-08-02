@@ -1,24 +1,24 @@
 # stdlib imports available from build artifact header
-# ─────────────────────── Mnēmē v2 — SQLite FTS5 Index ────────────────────────
+# ─────────────────────── Perseus Vault v2 — SQLite FTS5 Index ────────────────────────
 # Persistent BM25 index over Perseus-native vault .md files.
 # Uses SQLite FTS5 (stdlib sqlite3) — zero dependencies beyond Python.
 #
 # Architecture:
-#   - One SQLite database per vault: {vault_path}/mneme.index
+#   - One SQLite database per vault: {vault_path}/vault.index
 #   - FTS5 virtual table with 'porter unicode61' tokenizer (stemming)
 #   - Field weighting via FTS5 native per-column bm25() weights
 #   - WAL mode for concurrent readers during writes
-#   - Incremental updates tracked via mneme_files table (path + mtime)
+#   - Incremental updates tracked via vault_files table (path + mtime)
 
-_MNEME_SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS mneme_files (
+_VAULT_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS vault_files (
     path TEXT PRIMARY KEY,
     mtime REAL NOT NULL,
     fingerprint TEXT NOT NULL DEFAULT '',
     indexed_at TEXT NOT NULL
 );
 
-CREATE VIRTUAL TABLE IF NOT EXISTS mneme_fts USING fts5(
+CREATE VIRTUAL TABLE IF NOT EXISTS vault_fts USING fts5(
     id,
     title,
     summary,
@@ -34,33 +34,33 @@ CREATE VIRTUAL TABLE IF NOT EXISTS mneme_fts USING fts5(
     tokenize='porter unicode61'
 );
 
-CREATE TABLE IF NOT EXISTS mneme_meta (
+CREATE TABLE IF NOT EXISTS vault_meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
 """
 
-# Schema migration: add sensitivity column to mneme_files if it doesn't exist.
+# Schema migration: add sensitivity column to vault_files if it doesn't exist.
 # Runs lazily on first index open — idempotent, safe with existing databases.
-_MNEME_MIGRATIONS = [
-    "ALTER TABLE mneme_files ADD COLUMN sensitivity TEXT DEFAULT 'team'",
-    "ALTER TABLE mneme_files ADD COLUMN fingerprint TEXT NOT NULL DEFAULT ''",
+_VAULT_MIGRATIONS = [
+    "ALTER TABLE vault_files ADD COLUMN sensitivity TEXT DEFAULT 'team'",
+    "ALTER TABLE vault_files ADD COLUMN fingerprint TEXT NOT NULL DEFAULT ''",
 ]
 
 # Per-column BM25 weights for FTS5 native weighting (bm25() positional args).
 # #550: SQLite defaults UNSPECIFIED trailing columns to weight 1.0 (not 0.0),
 # so every column must get an explicit weight or metadata columns
 # (source_path, updated, ...) silently participate in ranking at full weight.
-# The bm25() argument list is generated from _MNEME_FTS_COLUMNS +
-# _MNEME_FIELD_WEIGHTS below (see _mneme_search) so they cannot drift apart.
-# Columns absent from _MNEME_FIELD_WEIGHTS get weight 0.0 (excluded from
+# The bm25() argument list is generated from _VAULT_FTS_COLUMNS +
+# _VAULT_FIELD_WEIGHTS below (see _vault_search) so they cannot drift apart.
+# Columns absent from _VAULT_FIELD_WEIGHTS get weight 0.0 (excluded from
 # ranking): id + the metadata columns type, scope, sensitivity, confidence,
 # source_path, updated.
-_MNEME_FTS_COLUMNS = [
+_VAULT_FTS_COLUMNS = [
     "id", "title", "summary", "tags", "topic_path", "body",
     "type", "scope", "sensitivity", "confidence", "source_path", "updated",
 ]
-_MNEME_FIELD_WEIGHTS = {
+_VAULT_FIELD_WEIGHTS = {
     "title": 3,
     "summary": 2,
     "tags": 2,
@@ -72,14 +72,14 @@ _MNEME_FIELD_WEIGHTS = {
 # Process-lifetime connection cache: (index_path, pid) → sqlite3.Connection.
 # Avoids paying connect + PRAGMA roundtrips on every operation.
 # Keyed by pid so forked processes get their own connection.
-_MNEME_CONN_CACHE: dict[tuple[str, int], sqlite3.Connection] = {}
+_VAULT_CONN_CACHE: dict[tuple[str, int], sqlite3.Connection] = {}
 
 # #645: index paths already warned about corruption in this process — the
 # quarantine warning fires once per index, not once per recall.
-_MNEME_CORRUPT_WARNED: set[str] = set()
+_VAULT_CORRUPT_WARNED: set[str] = set()
 
 
-def _mneme_quarantine_corrupt_index(index_path: Path, exc: "Exception | None" = None):
+def _vault_quarantine_corrupt_index(index_path: Path, exc: "Exception | None" = None):
     """Quarantine a corrupt FTS5 index so the next open recreates it (#645).
 
     Closes and evicts any cached connection to the file (Windows cannot
@@ -91,12 +91,12 @@ def _mneme_quarantine_corrupt_index(index_path: Path, exc: "Exception | None" = 
     Returns the quarantine Path when the DB file was renamed, else None.
     """
     index_str = str(index_path)
-    for key in [k for k in _MNEME_CONN_CACHE if k[0] == index_str]:
+    for key in [k for k in _VAULT_CONN_CACHE if k[0] == index_str]:
         try:
-            _MNEME_CONN_CACHE[key].close()
+            _VAULT_CONN_CACHE[key].close()
         except Exception:
             pass
-        del _MNEME_CONN_CACHE[key]
+        del _VAULT_CONN_CACHE[key]
 
     stamp = datetime.now().strftime("%Y%m%dT%H%M%S")
     quarantine = index_path.with_name(f"{index_path.name}.corrupt-{stamp}")
@@ -120,19 +120,19 @@ def _mneme_quarantine_corrupt_index(index_path: Path, exc: "Exception | None" = 
                 sidecar.unlink(missing_ok=True)
             except OSError:
                 pass
-    if index_str not in _MNEME_CORRUPT_WARNED:
-        _MNEME_CORRUPT_WARNED.add(index_str)
+    if index_str not in _VAULT_CORRUPT_WARNED:
+        _VAULT_CORRUPT_WARNED.add(index_str)
         where = f" — quarantined to {renamed.name}" if renamed else " — removed"
         detail = f" ({exc})" if exc else ""
         sys.stderr.write(
-            f"> ⚠ Mnēmē FTS5 index at {index_path} is corrupt{detail}{where}. "
+            f"> ⚠ Perseus Vault FTS5 index at {index_path} is corrupt{detail}{where}. "
             "Recreating; memories are reindexed from the vault .md files on "
             "the next recall.\n"
         )
     return renamed
 
 
-def _mneme_connect(index_path: Path) -> sqlite3.Connection:
+def _vault_connect(index_path: Path) -> sqlite3.Connection:
     """Connect to the index, configure pragmas, and create/migrate the schema.
 
     Raises on failure (``sqlite3.DatabaseError`` for a corrupt DB file),
@@ -147,10 +147,10 @@ def _mneme_connect(index_path: Path) -> sqlite3.Connection:
         conn.row_factory = sqlite3.Row
 
         # Create tables if needed
-        conn.executescript(_MNEME_SCHEMA_SQL)
+        conn.executescript(_VAULT_SCHEMA_SQL)
 
         # Run schema migrations (idempotent)
-        for migration_sql in _MNEME_MIGRATIONS:
+        for migration_sql in _VAULT_MIGRATIONS:
             try:
                 conn.execute(migration_sql)
             except (sqlite3.OperationalError, sqlite3.IntegrityError):
@@ -164,14 +164,14 @@ def _mneme_connect(index_path: Path) -> sqlite3.Connection:
                             "body", "type", "scope", "sensitivity",
                             "confidence", "source_path", "updated"}
         try:
-            cursor = conn.execute("PRAGMA table_info(mneme_fts)")
+            cursor = conn.execute("PRAGMA table_info(vault_fts)")
             actual_columns = {row["name"] for row in cursor.fetchall()}
             if actual_columns and actual_columns != expected_columns:
                 # Schema mismatch — drop and let re-creation happen on next index
-                conn.execute("DROP TABLE IF EXISTS mneme_fts")
-                conn.execute("DELETE FROM mneme_files")
-                conn.execute("DELETE FROM mneme_meta WHERE key LIKE 'schema_%'")
-                conn.executescript(_MNEME_SCHEMA_SQL)
+                conn.execute("DROP TABLE IF EXISTS vault_fts")
+                conn.execute("DELETE FROM vault_files")
+                conn.execute("DELETE FROM vault_meta WHERE key LIKE 'schema_%'")
+                conn.executescript(_VAULT_SCHEMA_SQL)
         except sqlite3.OperationalError:
             pass  # Table doesn't exist yet / transient lock — fine
         except sqlite3.DatabaseError:
@@ -187,7 +187,7 @@ def _mneme_connect(index_path: Path) -> sqlite3.Connection:
         raise
 
 
-def _mneme_open_index(cfg: dict):
+def _vault_open_index(cfg: dict):
     """Open (or create) the SQLite FTS5 index. Returns sqlite3.Connection.
 
     Enables WAL mode for concurrent reads. Creates tables on first open.
@@ -198,15 +198,15 @@ def _mneme_open_index(cfg: dict):
     bytes) is quarantined and recreated — with a one-time stderr warning —
     instead of being swallowed into a silent ``None`` that turned recall off
     forever. The recreated index is empty, so the caller's usual
-    ``_mneme_build_index`` pass performs the full reindex from the vault.
+    ``_vault_build_index`` pass performs the full reindex from the vault.
     """
     try:
-        index_path = _mneme_index_path(cfg)
+        index_path = _vault_index_path(cfg)
     except Exception:
         return None  # vault dir undeterminable — silent by design
 
     cache_key = (str(index_path), os.getpid())
-    cached = _MNEME_CONN_CACHE.get(cache_key)
+    cached = _VAULT_CONN_CACHE.get(cache_key)
     if cached is not None:
         # Check that the cached connection hasn't been closed externally
         # (tests, signal handlers, explicit close). If closed, re-create.
@@ -214,7 +214,7 @@ def _mneme_open_index(cfg: dict):
             cached.execute("SELECT 1")
             return cached
         except (sqlite3.ProgrammingError, sqlite3.OperationalError):
-            del _MNEME_CONN_CACHE[cache_key]
+            del _VAULT_CONN_CACHE[cache_key]
 
     try:
         index_path.parent.mkdir(parents=True, exist_ok=True)
@@ -222,7 +222,7 @@ def _mneme_open_index(cfg: dict):
         return None
 
     try:
-        conn = _mneme_connect(index_path)
+        conn = _vault_connect(index_path)
     except sqlite3.OperationalError:
         # Locked / cannot open / FTS5 unavailable — environment problem, not
         # file corruption. Do NOT quarantine a file another process may hold.
@@ -230,23 +230,23 @@ def _mneme_open_index(cfg: dict):
     except sqlite3.DatabaseError as exc:
         # Corrupt index file (#645): quarantine, recreate, warn once. The
         # source .md files are intact — a rebuild fully recovers.
-        _mneme_quarantine_corrupt_index(index_path, exc)
+        _vault_quarantine_corrupt_index(index_path, exc)
         try:
-            conn = _mneme_connect(index_path)
+            conn = _vault_connect(index_path)
         except Exception:
             return None
     except Exception:
         return None
-    _MNEME_CONN_CACHE[cache_key] = conn
+    _VAULT_CONN_CACHE[cache_key] = conn
     return conn
 
 
-def _mneme_build_field_columns(doc: dict) -> tuple[str, str, str, str, str]:
+def _vault_build_field_columns(doc: dict) -> tuple[str, str, str, str, str]:
     """Return per-field column values for FTS5 native weighting.
 
     Returns (title, summary, tags, topic_path, body) as a tuple for direct
     column insertion. FTS5's bm25() weights each column at query time via
-    _MNEME_FIELD_WEIGHTS, eliminating the need for text repetition.
+    _VAULT_FIELD_WEIGHTS, eliminating the need for text repetition.
     """
     title = str(doc.get("title", "") or "")
     summary = str(doc.get("summary", "") or "")
@@ -256,7 +256,7 @@ def _mneme_build_field_columns(doc: dict) -> tuple[str, str, str, str, str]:
     return (title, summary, tags, topic, body)
 
 
-def _mneme_parse_vault_file(file_path: Path) -> dict | None:
+def _vault_parse_vault_file(file_path: Path) -> dict | None:
     """Parse a single vault .md file and return structured fields.
 
     Returns None on error or missing required fields (id, title).
@@ -300,7 +300,7 @@ def _mneme_parse_vault_file(file_path: Path) -> dict | None:
     }
 
 
-def _mneme_file_fingerprint(file_path: Path) -> str:
+def _vault_file_fingerprint(file_path: Path) -> str:
     """Hash a Vault document so rapid same-size rewrites are detected."""
     import hashlib as _hashlib
     try:
@@ -309,8 +309,8 @@ def _mneme_file_fingerprint(file_path: Path) -> str:
         return ""
 
 
-def _mneme_index_is_current(conn, vault_path) -> bool:
-    """Read-only check: does mneme_files reflect the current Vault files?
+def _vault_index_is_current(conn, vault_path) -> bool:
+    """Read-only check: does vault_files reflect the current Vault files?
 
     The check includes path, mtime, and a content fingerprint. Mtime alone can
     miss rapid same-size rewrites on filesystems with coarse timestamp
@@ -319,7 +319,7 @@ def _mneme_index_is_current(conn, vault_path) -> bool:
     """
     try:
         indexed: dict[str, tuple[float, str]] = {}
-        for row in conn.execute("SELECT path, mtime, fingerprint FROM mneme_files"):
+        for row in conn.execute("SELECT path, mtime, fingerprint FROM vault_files"):
             indexed[row["path"]] = (row["mtime"], row["fingerprint"] or "")
     except Exception:
         return False
@@ -329,7 +329,7 @@ def _mneme_index_is_current(conn, vault_path) -> bool:
         try:
             file_path_str = str(md_file.resolve())
             mtime = md_file.stat().st_mtime
-            fingerprint = _mneme_file_fingerprint(md_file)
+            fingerprint = _vault_file_fingerprint(md_file)
         except Exception:
             return False
         if indexed.get(file_path_str) != (mtime, fingerprint):
@@ -338,17 +338,17 @@ def _mneme_index_is_current(conn, vault_path) -> bool:
     return seen == set(indexed.keys())
 
 
-def _mneme_build_index(cfg: dict, force: bool = False) -> int:
+def _vault_build_index(cfg: dict, force: bool = False) -> int:
     """Build (or rebuild) the FTS5 index from all vault .md files.
 
     Returns the number of documents indexed. Skips already-indexed files
     unless force=True.
     """
-    conn = _mneme_open_index(cfg)
+    conn = _vault_open_index(cfg)
     if conn is None:
         return 0
 
-    vault_path = _mneme_vault_path(cfg)
+    vault_path = _vault_path(cfg)
     if not vault_path.is_dir():
         return 0
 
@@ -357,7 +357,7 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
     # changed — a hidden write on the read path. Skip straight out when the index
     # is already current; this is precisely when the builder below would write
     # nothing, so behaviour (and freshness) is unchanged.
-    if not force and _mneme_index_is_current(conn, vault_path):
+    if not force and _vault_index_is_current(conn, vault_path):
         return 0
 
     try:
@@ -367,12 +367,12 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
         # On forced rebuild, clear existing index state so stale
         # entries for deleted files are not left behind.
         if force:
-            conn.execute("DELETE FROM mneme_fts")
-            conn.execute("DELETE FROM mneme_files")
+            conn.execute("DELETE FROM vault_fts")
+            conn.execute("DELETE FROM vault_files")
 
         # Load currently indexed files (path → mtime + content fingerprint)
         indexed: dict[str, tuple[float, str]] = {}
-        for row in conn.execute("SELECT path, mtime, fingerprint FROM mneme_files"):
+        for row in conn.execute("SELECT path, mtime, fingerprint FROM vault_files"):
             indexed[row["path"]] = (row["mtime"], row["fingerprint"] or "")
 
         count = 0
@@ -382,35 +382,35 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
             current_paths.add(file_path_str)
             try:
                 mtime = md_file.stat().st_mtime
-                fingerprint = _mneme_file_fingerprint(md_file)
+                fingerprint = _vault_file_fingerprint(md_file)
             except Exception:
                 continue
 
             if not force and file_path_str in indexed and indexed[file_path_str] == (mtime, fingerprint):
                 continue
 
-            doc = _mneme_parse_vault_file(md_file)
+            doc = _vault_parse_vault_file(md_file)
             if doc is None:
                 # A previously-valid memory can become corrupt or lose required
                 # fields. Remove rows tied to this path so stale recall cannot
                 # keep returning the old content.
                 if file_path_str in indexed:
-                    conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (file_path_str,))
-                    conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
+                    conn.execute("DELETE FROM vault_fts WHERE source_path = ?", (file_path_str,))
+                    conn.execute("DELETE FROM vault_files WHERE path = ?", (file_path_str,))
                 continue
 
-            field_cols = _mneme_build_field_columns(doc)
+            field_cols = _vault_build_field_columns(doc)
             now = datetime.now().astimezone().isoformat(timespec="seconds")
 
             # Remove old entries. Delete by source_path as well as id so a file
             # whose frontmatter id changes does not leave the previous id behind.
-            conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (file_path_str,))
-            conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc["id"],))
-            conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
+            conn.execute("DELETE FROM vault_fts WHERE source_path = ?", (file_path_str,))
+            conn.execute("DELETE FROM vault_fts WHERE id = ?", (doc["id"],))
+            conn.execute("DELETE FROM vault_files WHERE path = ?", (file_path_str,))
 
             # Insert new entry
             conn.execute(
-                "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, confidence, source_path, updated) "
+                "INSERT INTO vault_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, confidence, source_path, updated) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (doc["id"], field_cols[0], field_cols[1], field_cols[2],
                  field_cols[3], field_cols[4], doc["type"], doc["scope"],
@@ -418,7 +418,7 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
                  file_path_str, doc["updated"]),
             )
             conn.execute(
-                "INSERT INTO mneme_files (path, mtime, fingerprint, indexed_at, sensitivity) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO vault_files (path, mtime, fingerprint, indexed_at, sensitivity) VALUES (?, ?, ?, ?, ?)",
                 (file_path_str, mtime, fingerprint, now, doc.get("sensitivity", "team")),
             )
             count += 1
@@ -426,24 +426,24 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
         # Prune deleted or renamed files during normal incremental builds.
         stale_paths = set(indexed) - current_paths
         for stale_path in sorted(stale_paths):
-            conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (stale_path,))
-            conn.execute("DELETE FROM mneme_files WHERE path = ?", (stale_path,))
+            conn.execute("DELETE FROM vault_fts WHERE source_path = ?", (stale_path,))
+            conn.execute("DELETE FROM vault_files WHERE path = ?", (stale_path,))
 
-        # mneme_fts is a regular (self-maintaining) FTS5 table — the INSERT and
+        # vault_fts is a regular (self-maintaining) FTS5 table — the INSERT and
         # DELETE statements above keep the full-text index consistent on their
         # own. The previous unconditional 'rebuild' reconstructed the ENTIRE
         # index (O(corpus)) on every changed build; dropped. (#447)
         conn.commit()
     except Exception:
         conn.rollback()
-        raise  # Let caller handle (mneme_recall catches and returns [])
+        raise  # Let caller handle (perseus_vault_recall catches and returns [])
     finally:
         pass  # Connection is cached for process lifetime; do not close
 
     return count
 
 
-def _mneme_search(conn, query: str, k: int = 5,
+def _vault_search(conn, query: str, k: int = 5,
                    scope: str | None = None,
                    type_filter: str | None = None,
                    sensitivity: str | None = None) -> list[dict]:
@@ -473,34 +473,34 @@ def _mneme_search(conn, query: str, k: int = 5,
     if sensitivity:
         params.append(sensitivity)
 
-    scope_clause = "AND mneme_fts.scope = ?" if scope else ""
-    type_clause = "AND mneme_fts.type = ?" if type_filter else ""
-    sensitivity_clause = "AND mneme_fts.sensitivity = ?" if sensitivity else ""
+    scope_clause = "AND vault_fts.scope = ?" if scope else ""
+    type_clause = "AND vault_fts.type = ?" if type_filter else ""
+    sensitivity_clause = "AND vault_fts.sensitivity = ?" if sensitivity else ""
 
     # #550: explicit weight for EVERY column — SQLite defaults unspecified
     # trailing bm25() weights to 1.0, which let metadata columns
     # (source_path, updated, ...) influence ranking. Generated from
-    # _MNEME_FIELD_WEIGHTS so the declared weights are the single source
+    # _VAULT_FIELD_WEIGHTS so the declared weights are the single source
     # of truth; unlisted columns are pinned to 0.0.
     bm25_weights = ", ".join(
-        f"{float(_MNEME_FIELD_WEIGHTS.get(col, 0.0))}" for col in _MNEME_FTS_COLUMNS
+        f"{float(_VAULT_FIELD_WEIGHTS.get(col, 0.0))}" for col in _VAULT_FTS_COLUMNS
     )
 
     sql = (
-        "SELECT mneme_fts.id, mneme_fts.title, mneme_fts.type, mneme_fts.scope, "
-        "mneme_fts.summary, mneme_fts.updated, mneme_fts.sensitivity, "
-        "mneme_fts.confidence, mneme_fts.source_path, "
-        "snippet(mneme_fts, 5, '<mark>', '</mark>', '…', 40) AS snippet, "
-        f"bm25(mneme_fts, {bm25_weights}) AS score "
-        "FROM mneme_fts "
-        f"WHERE mneme_fts MATCH ? {scope_clause} {type_clause} {sensitivity_clause} "
+        "SELECT vault_fts.id, vault_fts.title, vault_fts.type, vault_fts.scope, "
+        "vault_fts.summary, vault_fts.updated, vault_fts.sensitivity, "
+        "vault_fts.confidence, vault_fts.source_path, "
+        "snippet(vault_fts, 5, '<mark>', '</mark>', '…', 40) AS snippet, "
+        f"bm25(vault_fts, {bm25_weights}) AS score "
+        "FROM vault_fts "
+        f"WHERE vault_fts MATCH ? {scope_clause} {type_clause} {sensitivity_clause} "
         "ORDER BY score "
         f"LIMIT {max(1, min(k, 100))}"
     )
 
     # #645: do NOT swallow query-time errors here. A corrupt index page or a
     # broken FTS5 table used to become a silent [] — the "index may be
-    # corrupt" warning in memory._mneme_recall was dead code. Let the caller
+    # corrupt" warning in memory._vault_recall was dead code. Let the caller
     # see the failure so it can warn and trigger quarantine/rebuild.
     rows = conn.execute(sql, params).fetchall()
 
@@ -522,28 +522,28 @@ def _mneme_search(conn, query: str, k: int = 5,
     return results
 
 
-def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
+def _vault_index_document(cfg: dict, file_path: Path) -> bool:
     """Index (or re-index) a single vault document. Returns True on success."""
-    conn = _mneme_open_index(cfg)
+    conn = _vault_open_index(cfg)
     if conn is None:
         return False
 
     try:
-        doc = _mneme_parse_vault_file(file_path)
+        doc = _vault_parse_vault_file(file_path)
         if doc is None:
             return False
 
-        field_cols = _mneme_build_field_columns(doc)
+        field_cols = _vault_build_field_columns(doc)
         now = datetime.now().astimezone().isoformat(timespec="seconds")
         file_path_str = str(file_path.resolve())
 
         # Upsert. Delete by source_path as well as id so changing the
         # frontmatter id in-place cannot leave the previous id searchable.
-        conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (file_path_str,))
-        conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc["id"],))
-        conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
+        conn.execute("DELETE FROM vault_fts WHERE source_path = ?", (file_path_str,))
+        conn.execute("DELETE FROM vault_fts WHERE id = ?", (doc["id"],))
+        conn.execute("DELETE FROM vault_files WHERE path = ?", (file_path_str,))
         conn.execute(
-            "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, confidence, source_path, updated) "
+            "INSERT INTO vault_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, confidence, source_path, updated) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (doc["id"], field_cols[0], field_cols[1], field_cols[2],
              field_cols[3], field_cols[4], doc["type"], doc["scope"],
@@ -551,8 +551,8 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
              file_path_str, doc["updated"]),
         )
         conn.execute(
-            "INSERT INTO mneme_files (path, mtime, fingerprint, indexed_at, sensitivity) VALUES (?, ?, ?, ?, ?)",
-            (file_path_str, file_path.stat().st_mtime, _mneme_file_fingerprint(file_path), now, doc.get("sensitivity", "team")),
+            "INSERT INTO vault_files (path, mtime, fingerprint, indexed_at, sensitivity) VALUES (?, ?, ?, ?, ?)",
+            (file_path_str, file_path.stat().st_mtime, _vault_file_fingerprint(file_path), now, doc.get("sensitivity", "team")),
         )
         # Self-maintaining FTS5 table: the DELETE+INSERT above already updated the
         # index. No O(corpus) 'rebuild' needed for a single-doc upsert. (#447)
@@ -565,31 +565,31 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
             pass
         return False
     # Connection is cached for process lifetime; do not close.
-    # (Unlike other mneme_index functions, commit() already happened above.)
+    # (Unlike other vault_index functions, commit() already happened above.)
 
 
-def _mneme_delete_document(cfg: dict, doc_id: str) -> bool:
+def _vault_delete_document(cfg: dict, doc_id: str) -> bool:
     """Remove a document from the index by id. Returns True if deleted."""
-    conn = _mneme_open_index(cfg)
+    conn = _vault_open_index(cfg)
     if conn is None:
         return False
 
     try:
-        # Delete from mneme_fts by document id.
-        # mneme_files stores full resolved paths — we match by the filename
+        # Delete from vault_fts by document id.
+        # vault_files stores full resolved paths — we match by the filename
         # component (the doc_id with .md suffix). The doc_id is validated
-        # to be a safe filesystem name by _mneme_parse_vault_file before
+        # to be a safe filesystem name by _vault_parse_vault_file before
         # it's ever inserted, so a GLOB match with the literal id is safe.
         # We use GLOB (not LIKE) to avoid %/_ metacharacter interpretation.
         escaped_id = doc_id.replace("*", "\\*").replace("?", "\\?").replace("[", "\\[").replace("]", "\\]")
-        cursor = conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc_id,))
+        cursor = conn.execute("DELETE FROM vault_fts WHERE id = ?", (doc_id,))
         deleted = cursor.rowcount > 0
         # M-5: cross-platform path matching — handle both / and \\ separators.
         # GLOB doesn't have an OR operator, so we OR two separate patterns.
         pattern_fwd = f"*/{escaped_id}.md"
         pattern_bwd = f"*\\\\{escaped_id}.md"
         conn.execute(
-            "DELETE FROM mneme_files WHERE path GLOB ? OR path GLOB ?",
+            "DELETE FROM vault_files WHERE path GLOB ? OR path GLOB ?",
             (pattern_fwd, pattern_bwd),
         )
         # Self-maintaining FTS5 table: the DELETE above already updated the index.
@@ -606,16 +606,16 @@ def _mneme_delete_document(cfg: dict, doc_id: str) -> bool:
         pass  # Connection is cached for process lifetime; do not close
 
 
-def _mneme_index_stats(cfg: dict) -> dict:
+def _vault_index_stats(cfg: dict) -> dict:
     """Return diagnostic stats about the index."""
-    conn = _mneme_open_index(cfg)
+    conn = _vault_open_index(cfg)
     if conn is None:
         return {"doc_count": 0, "indexed_files": 0, "index_path": "", "available": False}
 
     try:
-        doc_count = conn.execute("SELECT COUNT(*) FROM mneme_fts").fetchone()[0]
-        file_count = conn.execute("SELECT COUNT(*) FROM mneme_files").fetchone()[0]
-        index_path = str(_mneme_index_path(cfg))
+        doc_count = conn.execute("SELECT COUNT(*) FROM vault_fts").fetchone()[0]
+        file_count = conn.execute("SELECT COUNT(*) FROM vault_files").fetchone()[0]
+        index_path = str(_vault_index_path(cfg))
         return {
             "doc_count": doc_count,
             "indexed_files": file_count,
@@ -636,7 +636,7 @@ def _cmd_memory_index(args, cfg) -> None:
     use_json = getattr(args, "json", False)
 
     if sub == "stats":
-        stats = _mneme_index_stats(cfg)
+        stats = _vault_index_stats(cfg)
         if use_json:
             import json as _json
             try:
@@ -654,7 +654,7 @@ def _cmd_memory_index(args, cfg) -> None:
         print(f"Files tracked: {stats['indexed_files']}")
         try:
             size_bytes = Path(stats["index_path"]).stat().st_size
-            print(f"Index size: {_mneme_fmt_bytes(size_bytes)}")
+            print(f"Index size: {_vault_fmt_bytes(size_bytes)}")
         except Exception:
             pass
         return
@@ -662,9 +662,9 @@ def _cmd_memory_index(args, cfg) -> None:
     if sub == "rebuild":
         force = getattr(args, "force", False)
         if not use_json:
-            print(f"{'Force-rebuilding' if force else 'Rebuilding'} Mnēmē FTS5 index...")
-        count = _mneme_build_index(cfg, force=force)
-        stats = _mneme_index_stats(cfg)
+            print(f"{'Force-rebuilding' if force else 'Rebuilding'} Perseus Vault FTS5 index...")
+        count = _vault_build_index(cfg, force=force)
+        stats = _vault_index_stats(cfg)
         if use_json:
             import json as _json
             print(_json.dumps({
@@ -687,7 +687,7 @@ def _cmd_memory_index(args, cfg) -> None:
         scope = getattr(args, "scope", None) or None
         type_filter = getattr(args, "type", None) or None
         sensitivity = getattr(args, "sensitivity", None) or None
-        results = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
+        results = _vault_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
         if use_json:
             import json as _json
             print(_json.dumps({
@@ -721,7 +721,7 @@ def _cmd_memory_index(args, cfg) -> None:
     sys.exit(2)
 
 
-def _mneme_fmt_bytes(n: int) -> str:
+def _vault_fmt_bytes(n: int) -> str:
     """Format bytes for human display."""
     for unit in ("B", "KB", "MB", "GB"):
         if n < 1024:

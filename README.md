@@ -64,7 +64,7 @@ Perseus is the live context engine. Seven specialized products extend it:
 
 | Product | Description | Page |
 |---|---|---|
-| **Perseus Vault** | Persistent, encrypted memory for AI agents — FTS5, entities, layers, confidence decay. New integrations use `perseus_vault_*`; legacy aliases remain compatible. | [perseus.observer/perseus-vault](https://perseus.observer/perseus-vault/) |
+| **Perseus Vault** | Persistent, encrypted memory for AI agents — FTS5, entities, layers, confidence decay. New integrations use the canonical `perseus_vault_*` surface. | [perseus.observer/perseus-vault](https://perseus.observer/perseus-vault/) |
 | **MCTS** | 31 security analyzers for MCP servers — tool poisoning, prompt injection, credential leaks | [perseus.observer/mcts](https://perseus.observer/mcts/) |
 | **PR Pilot** | 5-agent autonomous PR review pipeline — graduated autonomy L1→L3 | [perseus.observer/pr-pilot](https://perseus.observer/pr-pilot/) |
 | **Blast Radius** | GitLab-native dependency impact analysis — 1 mention, instant risk report | [perseus.observer/blast-radius](https://perseus.observer/blast-radius/) |
@@ -76,7 +76,7 @@ Perseus is the live context engine. Seven specialized products extend it:
 
 ### Perseus Vault — Persistent Memory (MCP)
 
-[Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys. Offline dense/hybrid embeddings are **bundled by default** (the model is compiled into the binary), so semantic recall works zero-config with no external model download. Perseus Vault exposes a broad canonical MCP surface under `perseus_vault_*` names across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management. Legacy `mimir_*` and `mneme_*` aliases remain callable for compatibility but are not counted as separate capabilities: `perseus_vault_remember`, `perseus_vault_recall`, `perseus_vault_context`, `perseus_vault_traverse`, `perseus_vault_decay`, `perseus_vault_stats`, `perseus_vault_health`, and more.
+[Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys. Offline dense/hybrid embeddings are **bundled by default** (the model is compiled into the binary), so semantic recall works zero-config with no external model download. Perseus Vault exposes a broad canonical MCP surface under `perseus_vault_*` names across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management. Representative tools include `perseus_vault_remember`, `perseus_vault_recall`, `perseus_vault_context`, `perseus_vault_traverse`, `perseus_vault_decay`, `perseus_vault_stats`, and `perseus_vault_health`.
 
 📄 [Product page →](https://perseus.observer/perseus-vault/) | ⭐ [Vault on GitHub →](https://github.com/Perseus-Computing-LLC/perseus-vault)
 
@@ -112,7 +112,7 @@ perseus_vault:
   enabled: true
   command: ["perseus-vault", "serve"]
 ```
-The `perseus-vault` binary self-resolves its canonical default DB path, so no `--db` argument is needed (its default is `~/.perseus-vault/data/perseus-vault.db`). Legacy `mimir:` configuration is still accepted for back-compat, so existing configs keep working. Then add `@memory mode=search query="your terms"` to `.perseus/context.md` and Perseus resolves live recall at render time.
+The `perseus-vault` binary self-resolves its canonical default DB path, so no `--db` argument is needed (its default is `~/.perseus-vault/data/perseus-vault.db`). The `perseus_vault:` configuration block is the sole supported memory configuration. Then add `@memory mode=search query="your terms"` to `.perseus/context.md` and Perseus resolves live recall at render time.
 
 Works with any MCP-compatible assistant.
 
@@ -258,43 +258,42 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 
 <!-- test-count: 1944 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
 <!-- The table below documents the current default output of _get_all_mcp_tools({}). Recount before editing. -->
-MCP tools resolve live state at invocation time (including the legacy aliases `perseus_get_context`/`perseus_get_health`). Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
+MCP tools resolve live state at invocation time, including the canonical Perseus Vault tool. Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
 
 | Tool | Description |
 |---|---|
-| `perseus_services` | Health-check running services |
-| `perseus_read` | Read file contents |
-| `perseus_list` | List directory or structured data |
-| `perseus_tree` | Tree view of directory |
-| `perseus_env` | Read environment variables |
+| `perseus_agora` | List tasks from the project task board (tasks/*.md files). Use to see what is open, in progress, or completed. Filter by status. Read-only; returns task array with id, title, status, scope. |
+| `perseus_auto_skill` | Instruct the agent to load a specific skill before starting work. Use at the top of context documents to enforce critical hygiene skills (e.g., memory-hygiene, agent-safety). Renders as a mandatory instruction block. Read-only. |
+| `perseus_budget` | Declare a token budget for the rendered context (renders as empty text). Enforced by `perseus prompt-size`: an over-budget render warns — or fails with `strict` — with a per-directive byte/token breakdown (#606). Declarations are read from source text before conditionals are evaluated; top-level only — a @budget inside an @include'd file is not enforced (prompt-size warns) (#626). Read-only. |
+| `perseus_capture` | Write recent session checkpoints to Perseus Vault as durable memories (#713) — the write side of the memory loop, symmetric to @memory recall. Idempotent per checkpoint (re-render upserts, never duplicates). Use at session boundaries so lessons persist immediately instead of waiting for a scheduled harvest. WRITES to the vault; never cached. |
+| `perseus_context_diff` | Render a compact 'Since last session' delta (#714): git branch/commits, Agora task-board changes, new inbox messages, new checkpoints, and new vault session memories since the last recorded snapshot. Use at the top of a context document so the assistant spends zero turns re-orienting on unchanged state. Maintains its own per-workspace snapshot (refresh debounced by render.context_diff_min_age_s); reset=true forces a new baseline. Never cached. |
 | `perseus_date` | Current date/time |
-| `perseus_waypoint` | Latest checkpoint summary |
-| `perseus_session` | Recent session digests |
-| `perseus_focus` | Bounded, salience-ranked global workspace (focus set) |
-| `perseus_health` | Context maintenance report |
-| `perseus_drift` | Oracle drift report |
-| `perseus_memory` | Local narrative recall + persistent Perseus Vault store |
-| `perseus_mimir` | Recall persistent memories via BM25 (legacy name of `perseus_mneme`) |
-| `perseus_mneme` | Recall persistent memories from Perseus Vault via BM25 (legacy tool name) |
-| `perseus_skills` | List available skills with staleness flags |
-| `perseus_include` | Include and render another file |
-| `perseus_agora` | Task board from tasks/*.md |
-| `perseus_inbox` | Agent message inbox |
-| `perseus_capture` | Write recent session checkpoints to Perseus Vault (idempotent) |
-| `perseus_context_diff` | Compact "since last session" delta (git, tasks, inbox, checkpoints, vault) |
-| `perseus_prompt` | System prompt block |
-| `perseus_validate` | Validate rendered block against schema |
-| `perseus_tool` | Run allowlisted external tool |
-| `perseus_perseus` | Fetch context from remote Perseus instance |
-| `perseus_auto_skill` | Instruct the agent to load a specific skill before starting work |
-| `perseus_profile` | Resolve a per-model context profile (context target + memory posture) |
-| `perseus_mason` | Query the Mason code architecture concept map |
-| `perseus_research` | Per-paper Methods/Results blocks from an external paper-search MCP server (external server is opt-in via config) |
+| `perseus_drift` | Detect drift between predicted and actual tool usage patterns via the Pythia oracle. Use when tool behavior seems off or after config changes. For workspace hygiene checks, prefer perseus_health. Read-only; returns a markdown drift report. |
+| `perseus_env` | Embed environment variable |
+| `perseus_focus` | The global-workspace tier: a small, capacity-bounded (default 32), salience-ranked set of items Perseus broadcasts into context — the shared 'what I'm working on now' set for the agent and its subagents. With no args, renders the current working set. add=/pin= admit items; the lowest-salience non-pinned items are evicted when it overflows. Distinct from long-term recall (@vault/@memory): bounded and actively maintained, not unbounded memory. |
+| `perseus_health` | Audit workspace context health: stale skills, duplicate tasks, oversized output. Use before starting work to catch drift. For deep Daedalus heuristics (cache, directive stats), use perseus_get_health. Read-only; returns status enum and metric counts. |
+| `perseus_inbox` | Read agent-to-agent messages from the workspace inbox. Use to check for coordination messages from other agents. Filter to unread only. Read-only; returns message array with read/unread status. |
+| `perseus_include` | Include and render another Perseus source file, recursively resolving its directives. Use to compose context from multiple files or share common sections across workspaces. Bound a growing file with last=N (final N lines) or since=14d/2w/24h (recent dated sections only). Use mode=reference (or render.host_loaded_paths) to emit a one-line pointer instead of inlining files the host agent already loads natively. Read-only; resolved directives inherit the parent configuration. |
+| `perseus_list` | List directory contents or structured data. Use to discover files before reading with perseus_read. Supports sorting by name, modified time, or size. Read-only; for hierarchical view, prefer perseus_tree. |
+| `perseus_mason` | Query the Mason code architecture concept map to find which files implement a feature. Use before editing code to understand where changes should go. Read-only; returns concept map and mapped file list. |
+| `perseus_memory` | Search LOCAL project memory (FTS5, zero-network) for past decisions and architecture notes. Use for in-workspace recall. For cross-session persistent facts, use perseus_vault instead. Read-only; returns results array with mode and count. |
+| `perseus_perseus` | Fetch rendered context from a remote Perseus instance by URL. Use to pull live workspace state from another machine or container. Read-only; caches results — re-fetch when remote state may have changed. |
+| `perseus_profile` | Select the per-model context profile for this document (#608): sets the context target and memory posture (on_demand/relevant/always) used by the automatic memory injection layer. Use at the top of a context document, e.g. @profile claude-sonnet-4-6. Unknown names fall back to the default profile. First-wins (#627): with multiple @profile lines only the first non-fenced one governs — later banners are marked ignored, and @profile inside a code fence is documentation, never a directive. Read-only. |
+| `perseus_prompt` | Define a system prompt block that instructs the AI assistant about how to use the rendered context. Use to set behavioral rules, memory hygiene gates, or context interpretation guidelines. Read-only; rendered as-is into the output. |
+| `perseus_read` | Read and embed file contents into the rendered context. Use to inject config values, environment files, or any text file. Can extract specific keys from structured files. Read-only; use perseus_list or perseus_tree to browse before reading. |
+| `perseus_research` | Search an EXTERNAL paper-search MCP server (BGPT by default) for scientific literature and inject per-paper Methods/Results blocks. Use to ground claims in published studies. Self-gates on research.enabled; degrades gracefully when the provider is unreachable. Read-only; speaks JSON-RPC over stdio (no shell). |
+| `perseus_services` | Health-check all services listed in the workspace context (HTTP endpoints, Docker containers, shell commands). Use to verify the environment is healthy before starting work. May make network calls and execute shell commands per service definition — side effects depend on configured checks. |
+| `perseus_session` | List recent session digests with task summaries and outcomes. Use to understand what was done recently across sessions. For the single most recent checkpoint, prefer perseus_waypoint. Read-only; returns session array with count. |
+| `perseus_skills` | List available skills with descriptions and freshness status. Use to discover what capabilities are installed. Filter by category for smaller output. Read-only; stale skills flagged automatically. |
 | `perseus_tokens` | Embed token budget for rendered context |
-| `perseus_budget` | Declare a token budget enforced by `perseus prompt-size` |
-| `perseus_tooltrim` | Filtered toolset metadata and usage statistics |
-| `perseus_get_context` | Full rendered workspace context (legacy alias) |
-| `perseus_get_health` | Daedalus context-maintenance heuristics (legacy alias) |
+| `perseus_tool` | Run an external tool that has been allowlisted in the Perseus configuration. Use for approved integrations only. Requires the tool name to be present in the allowlist. Destructive — executes the tool with the user's permissions. |
+| `perseus_tooltrim` | Return filtered toolset metadata and usage statistics. Use to understand what tools are available and how they are being used. For full tool metadata, set full=true. Read-only; stats mode returns aggregated counts. |
+| `perseus_tree` | Display a directory tree with configurable depth. Use to understand project structure at a glance. For flat file listings with metadata, use perseus_list instead. Read-only; depth limits control output size. |
+| `perseus_validate` | Validate a rendered block against a JSON Schema. Use to enforce structure on configuration blocks, task definitions, or any schema-constrained section. Read-only; returns pass/fail with error messages. |
+| `perseus_vault` | Query Perseus Vault for scoped, durable context. Read-only; falls back to the local Vault FTS5 index when the service is unavailable. |
+| `perseus_waypoint` | Return the most recent session checkpoint: what was being worked on, status, and next steps. Use at session start to resume where you left off. Stale after TTL (default 24h). Read-only; lightweight — call freely. |
+| `perseus_get_context` | Return the full rendered Perseus context for the workspace. |
+| `perseus_get_health` | Run Daedalus context-maintenance heuristics — cache health, directive resolution stats, memory integrity check. mode=basic (default) returns the @health maintenance report; mode=doctor returns the same structured payload as `perseus doctor --json` (per-check status + summary), the MCP equivalent of the CLI doctor surface for restart/health verification. |
 
 Opt-in only (excluded from the default set until added to `mcp.tool_allowlist`):
 
@@ -380,12 +379,12 @@ Perseus delivers verified, up-to-date context, eliminating the need for AI assis
 
 ### Performance & Efficiency
 
-- **67% smaller tool schema (each tool advertised once, not 3× aliased)** — with [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault), the memory backend advertises its tools once instead of tripled, so the model carries a smaller tool payload on every call.
+- **67% smaller tool schema (each tool advertised once, without duplicate schema entries)** — with [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault), the memory backend advertises one canonical definition per tool, so the model carries a smaller tool payload on every call.
 - **1.0 semantic equivalence (20/20 A/B pairs)** — a live judge found every A/B pair semantically equivalent: same answers, fewer tokens.
 - **611× cold→warm cache speedup** — measured on the Perseus repo itself: 22,528 varied directives (22 types), cold render **619.1s**, warm render **1.014s**. Real git/tree/query/include/file directives, not synthetic strings. [Raw data →](benchmark/real_deltas.json)
 - **52.63% fewer prompt tokens, measured (naive assembly vs shipped defaults):** on this repo's own corpus, 5 context documents and 14 developer prompts, both arms counted as full requests with tiktoken (cl100k_base), cold cache; render overhead p50 341.5 ms cold / 315.6 ms warm, subprocess-timed inside the window. Scope is context assembly on this single repo, not end-task accuracy. [Artifact →](benchmark/tokenab/report.json)
 - **A retired claim, and its honest re-run:** an earlier "prompt-token reduction" headline came from a harness with asymmetric arms. We retired it ([#803](https://github.com/Perseus-Computing-LLC/perseus/issues/803); the retired entry stays visible in [claims.json](claims.json)) and re-measured with symmetric full-request arms in [#804](https://github.com/Perseus-Computing-LLC/perseus/issues/804), producing the figure above ([benchmark/tokenab/report.json](benchmark/tokenab/report.json)). Every figure we publish traces to a committed artifact via [claims.json](claims.json), and CI fails if a surface drifts.
-- **Perseus Vault persistent memory** — local-first durable memory with hybrid retrieval, temporal history, lifecycle controls, and encrypted storage. Earlier Mimir and Mnēmē names remain compatibility identifiers, not separate products. [Full results →](benchmark/mneme_hardcore.json)
+- **Perseus Vault persistent memory** — local-first durable memory with hybrid retrieval, temporal history, lifecycle controls, and encrypted storage. Perseus Vault is the sole current persistent-memory product. [Full results →](benchmark/perseus_vault_hardcore.json)
 - **Enterprise Ready** — Cost analysis shows that for a 500-developer team, Perseus can save significant token costs per year. [Cost analysis →](benchmark/titan_cost.json)
 
 ![Perseus — Performance Benchmarks](https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus/main/benchmark/infographic/perseus-benchmarks.svg)
@@ -467,7 +466,7 @@ Next: run pytest tests/test_webhook.py
 | ID | Title | Status | Scope |
 |---|---|---|---|
 | task-08 | List and Tree Directives | Complete | medium |
-| task-12 | Mnēmē Narrative Memory | Complete | large |
+| task-12 | Perseus Vault Narrative Memory | Complete | large |
 
 ## Skills Available
 | Skill | Category | Updated |
@@ -848,7 +847,7 @@ value signal.
 
 ## Context Profiles & Recall-First Memory (`@profile`)
 
-**A context engine should retrieve, not pre-load.** As of v1.0.14, Perseus is **recall-first by default**: the automatic long-term-memory dump that used to be stapled into every rendered context is replaced by a short, static retrieval pointer plus the recall tools. On a 200k-context model, a fixed memory blob on every turn is a permanent token tax that poisons prefix-cache stability the moment any fact changes — Perseus already has the retrieval layer (`@memory`, `@mimir`, `perseus_mneme`), so the default context now spends the budget on the task.
+**A context engine should retrieve, not pre-load.** As of v1.0.14, Perseus is **recall-first by default**: the automatic long-term-memory dump that used to be stapled into every rendered context is replaced by a short, static retrieval pointer plus the recall tools. On a 200k-context model, a fixed memory blob on every turn is a permanent token tax that poisons prefix-cache stability the moment any fact changes — Perseus already has the retrieval layer (`@memory`, `@vault`, `perseus_vault`), so the default context now spends the budget on the task.
 
 Per-model **context profiles** make the posture first-class and model-aware:
 
@@ -882,13 +881,13 @@ Injection hygiene (all postures that inject content):
 - **Budgeted per profile** — a 200k-class profile admits at most a handful of entities (`inject_limit`, default 5; 10 for larger windows).
 - **Advisory framing** — injected memory carries a note that it may be stale or tangential and that live workspace state wins on conflict, instead of asserting authority.
 
-To suppress the automatic section entirely (pointer included) set `mimir.auto_inject: false`; to restore the old behavior globally set `profiles.default.memory: always`.
+To suppress the automatic section entirely (pointer included) set `Perseus Vault.auto_inject: false`; to restore the old behavior globally set `profiles.default.memory: always`.
 
 ---
 
-## Project Memory (Mnēmē)
+## Project Memory (Perseus Vault)
 
-Mnēmē (Μνήμη) is Perseus's narrative project memory. It distills checkpoints and Pythia recommendations into a per-workspace narrative — so your assistant knows not just what's running, but *how you got here*.
+Perseus Vault (Μνήμη) is Perseus's narrative project memory. It distills checkpoints and Pythia recommendations into a per-workspace narrative — so your assistant knows not just what's running, but *how you got here*.
 
 ```bash
 # Update the narrative from latest checkpoints
@@ -909,7 +908,7 @@ In your context file:
 @memory focus="recent"     # recent activity
 ```
 
-Mnēmē distills deterministically and zero-dependency — Perseus runs no inference of its own (observe model); the host agent reads and reasons over the narrative with whatever model it already uses. Full docs: [spec/components.md](./spec/components.md) § 4.
+Perseus Vault distills deterministically and zero-dependency — Perseus runs no inference of its own (observe model); the host agent reads and reasons over the narrative with whatever model it already uses. Full docs: [spec/components.md](./spec/components.md) § 4.
 
 ---
 

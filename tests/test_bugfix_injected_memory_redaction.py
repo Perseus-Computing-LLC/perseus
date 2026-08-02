@@ -1,12 +1,9 @@
 """Regression tests: auto-injected memory blocks must be redacted.
 
-The render pipeline redacts render_source output, then appends two blocks
-pulled from external memory stores (vault-mem project memory and the Mnēmē
-`_mneme_context_inject` hot-entity block). Before this fix the appended
-blocks skipped redaction entirely, so a credential stored in a memory note
-was written verbatim into the generated AGENTS.md/CLAUDE.md. The
-/federation/narrative serve endpoint had the same gap relative to its
-redacting sibling /narrative.
+The render pipeline redacts render_source output, then appends the Perseus Vault
+context block. Before this fix the appended block skipped redaction entirely,
+so a credential stored in a memory note was written verbatim into generated
+assistant context files.
 """
 from __future__ import annotations
 
@@ -24,61 +21,55 @@ FAKE_ANTHROPIC_KEY = "sk-ant-" + "Ab1" * 20
 FAKE_GITHUB_TOKEN = "ghp_" + "Cd2" * 15
 
 
-def _cfg_with_mimir(**mimir):
+def _cfg_with_vault(**vault):
     c = cfg()
     # #665: canonical memory key is now `perseus_vault` in DEFAULT_CONFIG.
-    c.setdefault("perseus_vault", {}).update(mimir)
+    c.setdefault("perseus_vault", {}).update(vault)
     return c
 
 
-class TestInjectedMnemeBlockIsRedacted:
+class TestInjectedVaultBlockIsRedacted:
 
-    def test_mneme_block_secret_redacted_in_md(self, tmp_path):
-        """A credential inside the Mnēmē auto-injected block never reaches
+    def test_vault_block_secret_redacted_in_md(self, tmp_path):
+        """A credential inside the Perseus Vault auto-injected block never reaches
         the rendered markdown."""
-        c = _cfg_with_mimir(enabled=True, auto_inject=True)
+        c = _cfg_with_vault(enabled=True, auto_inject=True)
         block = (
-            "## Persistent Memory (Mimir)\n\n"
+            "## Persistent Memory (Perseus Vault)\n\n"
             f"- deploy note — api key is {FAKE_ANTHROPIC_KEY}"
         )
-        with patch.object(perseus, "_mneme_context_inject", return_value=block):
+        with patch.object(perseus, "_vault_context_inject", return_value=block):
             out = perseus.render_output("plain context", "md", c, tmp_path)
         assert FAKE_ANTHROPIC_KEY not in out
         assert "[REDACTED:anthropic_api_key]" in out
         # The rest of the block survives.
         assert "deploy note" in out
 
-    def test_mneme_block_secret_redacted_in_agents_md(self, tmp_path):
+    def test_vault_block_secret_redacted_in_agents_md(self, tmp_path):
         """Same guarantee for the assistant formats (AGENTS.md et al.)."""
-        c = _cfg_with_mimir(enabled=True, auto_inject=True)
-        block = f"## Persistent Memory (Mimir)\n\n- token: {FAKE_GITHUB_TOKEN}"
-        with patch.object(perseus, "_mneme_context_inject", return_value=block):
+        c = _cfg_with_vault(enabled=True, auto_inject=True)
+        block = f"## Persistent Memory (Perseus Vault)\n\n- token: {FAKE_GITHUB_TOKEN}"
+        with patch.object(perseus, "_vault_context_inject", return_value=block):
             out = perseus.render_output("plain context", "agents-md", c, tmp_path)
         assert FAKE_GITHUB_TOKEN not in out
         assert "[REDACTED:github_token]" in out
 
-    def test_vaultmem_block_secret_redacted(self, tmp_path):
-        """A credential inside the vault-mem injected section is redacted."""
+    def test_vault_block_secret_redacted(self, tmp_path):
+        """A credential inside the Vault context is redacted."""
         c = cfg()
-
-        def fake_inject(context, _cfg):
-            return (
-                context.rstrip()
-                + "\n\n## Project Memory (via vault-mem)\n\n"
-                + f"- remembered secret {FAKE_ANTHROPIC_KEY}\n"
-            )
-
-        with patch.object(perseus, "inject_vaultmem_context", side_effect=fake_inject), \
-             patch.object(perseus, "_mneme_context_inject", return_value=None):
+        block = (
+            "## Project Memory (via Perseus Vault)\n\n"
+            f"- remembered secret {FAKE_ANTHROPIC_KEY}\n"
+        )
+        with patch.object(perseus, "_vault_context_inject", return_value=block):
             out = perseus.render_output("plain context", "md", c, tmp_path)
         assert FAKE_ANTHROPIC_KEY not in out
         assert "[REDACTED:anthropic_api_key]" in out
 
     def test_no_injection_no_second_redaction_pass(self, tmp_path):
-        """When nothing is injected the output is unchanged (no double audit)."""
+        """When nothing is injected the output remains unchanged."""
         c = cfg()
-        with patch.object(perseus, "inject_vaultmem_context", side_effect=lambda t, _c: t), \
-             patch.object(perseus, "_mneme_context_inject", return_value=None):
+        with patch.object(perseus, "_vault_context_inject", return_value=None):
             out = perseus.render_output("plain context", "md", c, tmp_path)
         assert "plain context" in out
 

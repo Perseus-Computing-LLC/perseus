@@ -47,7 +47,7 @@ perseus doctor — workspace: /home/user/myproject
 ✓ render: shell execution disabled    allow_query_shell=false
 ✓ render: outside-workspace blocked   allow_outside_workspace=false
 ✓ latest checkpoint                   2h 14m ago
-✓ Mnēmē narrative                     142 lines, 8m ago
+✓ Perseus Vault narrative                     142 lines, 8m ago
 ⚠ federation: stale subscription      sam (narrative 9d old, threshold 7d)
 ✓ oracle log readable                 1,847 entries
 ✓ LSP listens on stdio                perseus serve --lsp --stdio
@@ -88,7 +88,7 @@ perseus doctor — workspace: /home/user/myproject
    - `render_shell_disabled` / `render_outside_workspace_disabled` /
      `render_services_command_disabled` — informational, not pass/fail
    - `latest_checkpoint_age` — warn if > 7 days, error if > 30 days
-   - `mneme_narrative` — exists + line count; warn if > max_narrative_lines
+   - `vault_narrative` — exists + line count; warn if > max_narrative_lines
    - `federation_subscriptions` — each subscription resolves; warn on
      stale, error on missing/unreadable
    - `oracle_log_readable` — file readable + line count

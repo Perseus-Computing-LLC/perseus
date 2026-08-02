@@ -3,10 +3,10 @@
 gauntlet_setup.py — Full environment setup for the Perseus Gauntlet.
 
 1. Creates PERSEUS_HOME configs with allow_query_shell=true and render env opt-in
-2. Seeds Mnēmē vault with 75 synthetic memory records
+2. Seeds Perseus Vault store with 75 synthetic memory records
 3. Creates workspace checkpoints for @memory narrative data
 4. Creates referenced files for @read directives
-5. Builds Mnēmē narrative from seeded data
+5. Builds Perseus Vault narrative from seeded data
 6. Verifies a single render produces real output
 
 Usage:
@@ -52,8 +52,8 @@ render:
     ttl: 86400
 {smoke_timeouts.rstrip()}
 memory:
-  mneme_vault_path: ""
-  mneme_index_path: ""
+  vault_path: ""
+  vault_index_path: ""
 """, encoding="utf-8")
     print(f"  ✓ Config: {config_path}")
 
@@ -61,12 +61,12 @@ memory:
 def seed_vault(home: Path) -> int:
     """Run the seed script."""
     sys.path.insert(0, str(GAUNTLET_DIR))
-    from gauntlet_seed_mneme import generate_memories
+    from gauntlet_seed_vault import generate_memories
     count = generate_memories(75, home)
     print(f"  ✓ Seeded {count} memory records → {home}/memory/vault/")
     # Build FTS5 index so Phase 3 can query seeded vault (#311)
     perseus_py = str(REPO_ROOT / "perseus.py")
-    print("  Building Mneme FTS5 index...")
+    print("  Building Vault FTS5 index...")
     try:
         env = os.environ.copy()
         env["PERSEUS_HOME"] = str(home)
@@ -94,7 +94,7 @@ def create_checkpoints(profile_dir: Path) -> int:
     base_ts = datetime(2026, 5, 20, 9, 0, 0, tzinfo=timezone.utc)
 
     sessions = [
-        {"id": "sess-001", "label": "Mnēmē v2 initial implementation"},
+        {"id": "sess-001", "label": "Perseus Vault v2 initial implementation"},
         {"id": "sess-002", "label": "FTS5 index optimization"},
         {"id": "sess-003", "label": "Build artifact drift fix"},
         {"id": "sess-004", "label": "Gauntlet benchmark design"},
@@ -151,7 +151,7 @@ def create_referenced_files(profile_dir: Path) -> None:
     """Create minimal versions of files referenced by @read directives."""
     refs = {
         "README.md": "# Perseus Gauntlet\n\nSynthetic workspace for benchmarking.\n",
-        "ROADMAP.md": "# Roadmap\n\n- Phase 1: Mnēmē v2\n- Phase 2: Federation\n",
+        "ROADMAP.md": "# Roadmap\n\n- Phase 1: Perseus Vault v2\n- Phase 2: Federation\n",
         "AGENTS.md": "# AI Agent Guide\n\nBuild instructions for AI contributors.\n",
         "CONTRIBUTING.md": "# Contributing\n\nSee docs/CONTRIBUTING.md\n",
         "pyproject.toml": "[project]\nname = \"perseus\"\nversion = \"1.0.5\"\n",
@@ -223,7 +223,7 @@ def verify_render(profile_name: str = "architect") -> bool:
     checks = {
         "@query disabled": "disabled by config" not in output,
         "@query env gate": "PERSEUS_ALLOW_DANGEROUS=1 is not set" not in output,
-        "@memory narrative": "No Mnēmē narrative" not in output,
+        "@memory narrative": "No Perseus Vault narrative" not in output,
         "@read missing": "file not found" not in output,
         "@services": "URLError" not in output if "services" in output.lower() else None,
         "Exit code 0": result.returncode == 0,
@@ -312,7 +312,7 @@ def main():
     create_config(WARM_HOME)
 
     # 2. Seed vaults
-    print("\n2. Seeding Mnēmē vaults...")
+    print("\n2. Seeding Perseus Vault stores...")
     seed_vault(COLD_HOME)
     seed_vault(WARM_HOME)
 

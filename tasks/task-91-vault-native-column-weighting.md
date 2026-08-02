@@ -1,13 +1,13 @@
 ---
 id: task-91
-title: "Mnēmē FTS5 Native Column Weighting — Replace Text Repetition with bm25() Column Weights"
+title: "Perseus Vault FTS5 Native Column Weighting — Replace Text Repetition with bm25() Column Weights"
 status: open
 priority: medium
 scope: medium
 claimed_by: ""
 created: 2026-05-28
 phase: 27
-theme: Mnēmē Performance
+theme: Perseus Vault Performance
 depends_on:
 - task-75
 blocks: []
@@ -17,7 +17,7 @@ closed: ''
 
 ## Why
 
-Mnēmē v2's FTS5 index currently implements field weighting by **text repetition** —
+Perseus Vault v2's FTS5 index currently implements field weighting by **text repetition** —
 the title is concatenated 3×, the summary 2×, and so on into a single `search_text`
 column. This inflates the index size 3–9× and adds unnecessary CPU overhead during
 BM25 ranking. FTS5 supports **native per-column weighting** via `bm25(tbl, w1, w2, …)`,
@@ -35,37 +35,37 @@ update the BM25 query to use native column weights.
 
 ### Changes
 
-1. **Schema migration** (`src/perseus/mneme_index.py`):
-   - Change `CREATE VIRTUAL TABLE … mneme_fts` from a single `search_text` column to
+1. **Schema migration** (`src/perseus/vault_index.py`):
+   - Change `CREATE VIRTUAL TABLE … vault_fts` from a single `search_text` column to
      five content columns: `title`, `summary`, `tags`, `topic_path`, `body`.
    - Keep `id`, `type`, `scope`, `summary` (as metadata, the existing column), and
      `updated` as-is — those are for SELECT filtering, not content ranking.
-   - Add a `PRAGMA user_version` or `mneme_meta` schema version key to detect old
-     vs. new schema. On mismatch, drop old FTS5 table, clear `mneme_files`, rebuild
+   - Add a `PRAGMA user_version` or `vault_meta` schema version key to detect old
+     vs. new schema. On mismatch, drop old FTS5 table, clear `vault_files`, rebuild
      from scratch. **No data migration needed** — the vault `.md` files are the
      source of truth; the index is always rebuildable.
 
-2. **Build field text** (`_mneme_build_field_text`):
+2. **Build field text** (`_vault_build_field_text`):
    - Delete the text-repetition logic (lines 94–137).
    - Replace with a function that returns a tuple of field values for direct column
-     insertion. Signature: `def _mneme_build_field_columns(doc: dict) -> tuple[str, str, str, str, str]`
+     insertion. Signature: `def _vault_build_field_columns(doc: dict) -> tuple[str, str, str, str, str]`
 
-3. **Insert path** (`_mneme_index_document` around line 303–340):
+3. **Insert path** (`_vault_index_document` around line 303–340):
    - Update the INSERT statement to match the new schema:
      ```sql
-     INSERT INTO mneme_fts(id, title, tags, topic_path, body, type, scope, summary, updated)
+     INSERT INTO vault_fts(id, title, tags, topic_path, body, type, scope, summary, updated)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ```
    - The `search_text` column no longer exists.
 
-4. **Search** (`_mneme_search` around line 275–283):
-   - Update `bm25(mneme_fts)` to `bm25(mneme_fts, 0.0, 3.0, 2.0, 2.0, 1.0)`.
+4. **Search** (`_vault_search` around line 275–283):
+   - Update `bm25(vault_fts)` to `bm25(vault_fts, 0.0, 3.0, 2.0, 2.0, 1.0)`.
      The first `0.0` weights the `id` column (FTS5 includes non-content columns in
      bm25; weight them at 0). The remaining weights map: title=3.0, summary=2.0,
      tags=2.0, topic_path=1.0, body=1.0.
    - The phrase-wrapping from C4/C5 fix must be preserved.
 
-5. **Field weight constants** (`_MNEME_FIELD_WEIGHTS`):
+5. **Field weight constants** (`_VAULT_FIELD_WEIGHTS`):
    - Repurpose as tuple order documentation rather than repetition multipliers.
    - Map: `{"title": 3, "summary": 2, "tags": 2, "topic_path": 1, "body": 1}`
 
@@ -76,26 +76,26 @@ update the BM25 query to use native column weights.
   weighting happens at query time instead of content-time) but document ordering
   will be equivalent.
 - **No config change.** No new config keys.
-- **No public API change.** `@mneme`, `@memory`, and `perseus memory search` all
+- **No public API change.** `@vault`, `@memory`, and `perseus memory search` all
   work identically from the caller's perspective.
 
 ## Files to touch
 
 | File | What changes |
 |------|-------------|
-| `src/perseus/mneme_index.py` | Schema SQL, `_mneme_build_field_text` → `_mneme_build_field_columns`, INSERT, `_mneme_search` bm25 call, weight constants |
-| `tests/test_mneme_index.py` or equivalent | Update tests that reference `search_text` column; add separate-column coverage |
-| `spec/components.md` | Update Mnēmē schema documentation if it mentions `search_text` |
+| `src/perseus/vault_index.py` | Schema SQL, `_vault_build_field_text` → `_vault_build_field_columns`, INSERT, `_vault_search` bm25 call, weight constants |
+| `tests/test_vault_index.py` or equivalent | Update tests that reference `search_text` column; add separate-column coverage |
+| `spec/components.md` | Update Perseus Vault schema documentation if it mentions `search_text` |
 
 ## Acceptance criteria
 
 1. `python scripts/build.py` succeeds and produces a working `perseus.py`.
-2. Existing Mnēmē tests pass (update them for the new column layout).
+2. Existing Perseus Vault tests pass (update them for the new column layout).
 3. Search results for a known query (`cat`, `decision`, `pipeline`) return the
    same top-3 document ordering as the text-repetition version.
 4. Index size (bytes on disk) is measurably smaller — at minimum, the old
    `search_text` blob with 3–9× repetition is no longer stored.
-5. Schema migration works: deleting the old `mneme.index` file and running
+5. Schema migration works: deleting the old `vault.index` file and running
    `perseus memory index build` re-creates the correct schema.
 6. An index built by an old version is detected (via PRAGMA mismatch) and
    auto-rebuilt on first open. No crash, no silent wrong results.
@@ -109,12 +109,12 @@ update the BM25 query to use native column weights.
 **Status: Completed** (retroactive — implemented prior to task creation)
 
 On audit (2026-05-28), the full implementation was already present in both
-`src/perseus/mneme_index.py` and the built `perseus.py`:
+`src/perseus/vault_index.py` and the built `perseus.py`:
 
 - ✅ Separate FTS5 columns: `id, title, summary, tags, topic_path, body, type, scope, updated`
-- ✅ `_mneme_build_field_columns()` — no text repetition
-- ✅ `bm25(mneme_fts, 0.0, 3.0, 2.0, 2.0, 1.0, 1.0)` native column weights
+- ✅ `_vault_build_field_columns()` — no text repetition
+- ✅ `bm25(vault_fts, 0.0, 3.0, 2.0, 2.0, 1.0, 1.0)` native column weights
 - ✅ Schema migration via column detection (v1 `search_text` → v2 multi-column)
-- ✅ 35/35 Mnēmē tests pass
+- ✅ 35/35 Perseus Vault tests pass
 
 Closed GitHub issue #39 as completed.

@@ -1,9 +1,9 @@
 """
-Tests for Mnēmē — in-process BM25 persistent memory.
+Tests for Perseus Vault — in-process BM25 persistent memory.
 
 Covers:
-  - resolve_mimir() directive (missing query, results, no hits)
-  - resolve_memory() backend routing (file vs mneme)
+  - resolve_vault() directive (missing query, results, no hits)
+  - resolve_memory() backend routing (file vs vault)
 """
 
 import json
@@ -21,10 +21,10 @@ from conftest import PY_VER, cfg, perseus
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _mneme_cfg() -> dict:
-    """Minimal config with mneme backend enabled."""
+def _vault_cfg() -> dict:
+    """Minimal config with vault backend enabled."""
     c = cfg()
-    c["memory"]["backend"] = "mimir"
+    c["memory"]["backend"] = "vault"
     return c
 
 
@@ -36,18 +36,18 @@ def _file_cfg() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# resolve_mimir() — @mimir directive
+# resolve_vault() — @vault directive
 # ---------------------------------------------------------------------------
 
-class TestResolveMneme:
+class TestResolveVault:
     def test_missing_query_returns_warning(self):
-        result = perseus.resolve_mimir("", cfg())
+        result = perseus.resolve_vault("", cfg())
         assert "@memory search requires" in result
         assert "query=" in result
 
     def test_no_hits_reports_vault_unavailability_distinctly(self):
-        with patch.object(perseus, "_mneme_recall", return_value=[]):
-            result = perseus.resolve_mimir('query="test search"', cfg())
+        with patch.object(perseus, "_vault_recall", return_value=[]):
+            result = perseus.resolve_vault('query="test search"', cfg())
         assert "Vault unreachable" in result
         assert "NOT the same as \"no memories exist\"" in result
 
@@ -56,8 +56,8 @@ class TestResolveMneme:
             {"title": "Use Redis", "summary": "Cache sessions in Redis.", "score": 88, "type": "decision"},
             {"title": "Auth lesson", "summary": "JWT tokens expire in 1h.", "score": 75, "type": "lesson"},
         ]
-        with patch.object(perseus, "_mneme_recall", return_value=hits):
-            result = perseus.resolve_mimir('query="caching"', cfg())
+        with patch.object(perseus, "_vault_recall", return_value=hits):
+            result = perseus.resolve_vault('query="caching"', cfg())
 
         assert "Use Redis" in result
         assert "Cache sessions in Redis" in result
@@ -72,12 +72,12 @@ class TestResolveMneme:
             captured["k"] = k
             return []
 
-        with patch.object(perseus, "_mneme_recall", side_effect=fake_recall):
-            perseus.resolve_mimir('query="x" k=50', cfg())
+        with patch.object(perseus, "_vault_recall", side_effect=fake_recall):
+            perseus.resolve_vault('query="x" k=50', cfg())
         assert captured["k"] == 20
 
-        with patch.object(perseus, "_mneme_recall", side_effect=fake_recall):
-            perseus.resolve_mimir('query="x" k=0', cfg())
+        with patch.object(perseus, "_vault_recall", side_effect=fake_recall):
+            perseus.resolve_vault('query="x" k=0', cfg())
         assert captured["k"] == 1
 
     def test_scope_and_type_forwarded(self):
@@ -89,8 +89,8 @@ class TestResolveMneme:
             captured["sensitivity"] = sensitivity
             return []
 
-        with patch.object(perseus, "_mneme_recall", side_effect=fake_recall):
-            perseus.resolve_mimir('query="x" scope="myproject" type="lesson" sensitivity="private"', cfg())
+        with patch.object(perseus, "_vault_recall", side_effect=fake_recall):
+            perseus.resolve_vault('query="x" scope="myproject" type="lesson" sensitivity="private"', cfg())
 
         assert captured["scope"] == "myproject"
         assert captured["type_filter"] == "lesson"
@@ -98,55 +98,55 @@ class TestResolveMneme:
 
     def test_score_rendered_when_present(self):
         hits = [{"title": "T", "summary": "S", "score": 99}]
-        with patch.object(perseus, "_mneme_recall", return_value=hits):
-            result = perseus.resolve_mimir('query="x"', cfg())
+        with patch.object(perseus, "_vault_recall", return_value=hits):
+            result = perseus.resolve_vault('query="x"', cfg())
         assert "99" in result
 
     def test_optional_fields_absent_does_not_crash(self):
         hits = [{"title": "MinimalHit"}]
-        with patch.object(perseus, "_mneme_recall", return_value=hits):
-            result = perseus.resolve_mimir('query="x"', cfg())
+        with patch.object(perseus, "_vault_recall", return_value=hits):
+            result = perseus.resolve_vault('query="x"', cfg())
         assert "MinimalHit" in result
 
 
 # ---------------------------------------------------------------------------
-# resolve_memory() — unified mode dispatch (Mnēmē v2)
+# resolve_memory() — unified mode dispatch (Perseus Vault v2)
 # ---------------------------------------------------------------------------
 
 class TestResolveMemoryUnified:
     def test_no_query_uses_narrative_mode(self, tmp_path, monkeypatch):
-        """Plain @memory with no query → narrative mode, does not call _mneme_recall."""
+        """Plain @memory with no query → narrative mode, does not call _vault_recall."""
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".perseus").mkdir()
         called = []
 
-        def fake_mneme(*a, **kw):
+        def fake_vault(*a, **kw):
             called.append(True)
             return []
 
-        with patch.object(perseus, "_mneme_recall", side_effect=fake_mneme):
+        with patch.object(perseus, "_vault_recall", side_effect=fake_vault):
             result = perseus.resolve_memory("", cfg(), workspace=tmp_path)
 
-        assert not called, "_mneme_recall should not be called for narrative mode"
+        assert not called, "_vault_recall should not be called for narrative mode"
 
     def test_query_triggers_search_mode(self, tmp_path):
-        """@memory query=... → search mode, calls _mneme_recall."""
+        """@memory query=... → search mode, calls _vault_recall."""
         called = []
 
-        def fake_mneme(cfg_, query, k=5, scope=None, type_filter=None, sensitivity=None):
+        def fake_vault(cfg_, query, k=5, scope=None, type_filter=None, sensitivity=None):
             called.append({"query": query, "scope": scope})
             return []
 
-        with patch.object(perseus, "_mneme_recall", side_effect=fake_mneme):
+        with patch.object(perseus, "_vault_recall", side_effect=fake_vault):
             result = perseus.resolve_memory('query="test"', cfg(), workspace=tmp_path)
 
-        assert called, "_mneme_recall should be called for search mode"
+        assert called, "_vault_recall should be called for search mode"
         assert "Vault unreachable" in result
 
     def test_search_renders_hits(self, tmp_path):
         hits = [{"title": "Arch decision", "summary": "Chose monorepo.", "score": 80, "type": "decision"}]
 
-        with patch.object(perseus, "_mneme_recall", return_value=hits):
+        with patch.object(perseus, "_vault_recall", return_value=hits):
             result = perseus.resolve_memory('query="arch"', cfg(), workspace=tmp_path)
 
         assert "Arch decision" in result
@@ -155,11 +155,11 @@ class TestResolveMemoryUnified:
     def test_search_forwards_type_filter(self, tmp_path):
         captured = {}
 
-        def fake_mneme(cfg_, query, k=5, scope=None, type_filter=None, sensitivity=None):
+        def fake_vault(cfg_, query, k=5, scope=None, type_filter=None, sensitivity=None):
             captured["type_filter"] = type_filter
             return []
 
-        with patch.object(perseus, "_mneme_recall", side_effect=fake_mneme):
+        with patch.object(perseus, "_vault_recall", side_effect=fake_vault):
             perseus.resolve_memory('query="x" type="decision"', cfg(), workspace=tmp_path)
 
         assert captured.get("type_filter") == "decision"
@@ -167,11 +167,11 @@ class TestResolveMemoryUnified:
     def test_search_forwards_scope(self, tmp_path):
         captured = {}
 
-        def fake_mneme(cfg_, query, k=5, scope=None, type_filter=None, sensitivity=None):
+        def fake_vault(cfg_, query, k=5, scope=None, type_filter=None, sensitivity=None):
             captured["scope"] = scope
             return []
 
-        with patch.object(perseus, "_mneme_recall", side_effect=fake_mneme):
+        with patch.object(perseus, "_vault_recall", side_effect=fake_vault):
             perseus.resolve_memory('query="x" scope="myproject"', cfg(), workspace=tmp_path)
 
         assert captured.get("scope") == "myproject"
@@ -179,11 +179,11 @@ class TestResolveMemoryUnified:
     def test_explicit_mode_search(self, tmp_path):
         called = []
 
-        def fake_mneme(cfg_, query, k=5, scope=None, type_filter=None, sensitivity=None):
+        def fake_vault(cfg_, query, k=5, scope=None, type_filter=None, sensitivity=None):
             called.append(True)
             return []
 
-        with patch.object(perseus, "_mneme_recall", side_effect=fake_mneme):
+        with patch.object(perseus, "_vault_recall", side_effect=fake_vault):
             perseus.resolve_memory('mode=search query="x"', cfg(), workspace=tmp_path)
 
         assert called
@@ -204,12 +204,12 @@ def _legacy_md5_name(workspace: Path) -> str:
         return _h.md5(canonical).hexdigest()[:16]
 
 
-def test_mneme_path_auto_migrates_legacy_md5_file(tmp_path):
+def test_vault_memory_path_auto_migrates_legacy_md5_file(tmp_path):
     """Regression for #128 — opening a workspace with only a legacy MD5
     narrative on disk renames it transparently to the SHA-256 path.
 
     Without this fix, every pre-1.0.3 user lost their narrative silently
-    on the v1.0.3 upgrade (the SHA-256 path didn't exist; Mnēmē reported
+    on the v1.0.3 upgrade (the SHA-256 path didn't exist; Perseus Vault reported
     "No narrative yet" and started over, leaving the MD5 file orphaned).
     """
     store = tmp_path / "store"
@@ -227,7 +227,7 @@ def test_mneme_path_auto_migrates_legacy_md5_file(tmp_path):
     )
 
     # First call should migrate.
-    new_fp = perseus._mneme_path(workspace, cfg_)
+    new_fp = perseus._vault_memory_path(workspace, cfg_)
     assert new_fp.exists(), "SHA-256 path must exist after migration"
     assert not legacy_fp.exists(), "Legacy MD5 file must be renamed away"
     body = new_fp.read_text(encoding="utf-8")
@@ -236,7 +236,7 @@ def test_mneme_path_auto_migrates_legacy_md5_file(tmp_path):
     )
 
 
-def test_mneme_path_no_migration_when_sha256_already_exists(tmp_path):
+def test_vault_memory_path_no_migration_when_sha256_already_exists(tmp_path):
     """If both files exist, prefer SHA-256 and leave the legacy file alone.
 
     This protects against double-migration races and ensures we never
@@ -256,14 +256,14 @@ def test_mneme_path_no_migration_when_sha256_already_exists(tmp_path):
     sha_fp = store / f"{sha_name}.md"
     sha_fp.write_text("current\n", encoding="utf-8")
 
-    result = perseus._mneme_path(workspace, cfg_)
+    result = perseus._vault_memory_path(workspace, cfg_)
     assert result == sha_fp
     assert sha_fp.read_text(encoding="utf-8") == "current\n", "Current file must be untouched"
     assert legacy_fp.exists(), "Legacy file must NOT be removed in this case"
 
 
-def test_mneme_path_is_idempotent_after_migration(tmp_path):
-    """Calling _mneme_path twice in a row after a migration is a no-op."""
+def test_vault_memory_path_is_idempotent_after_migration(tmp_path):
+    """Calling _vault_memory_path twice in a row after a migration is a no-op."""
     store = tmp_path / "store"
     store.mkdir()
     workspace = tmp_path / "ws"
@@ -273,8 +273,8 @@ def test_mneme_path_is_idempotent_after_migration(tmp_path):
     legacy_fp = store / f"{_legacy_md5_name(workspace)}.md"
     legacy_fp.write_text(f"---\nworkspace: {workspace}\n---\n\ndata\n", encoding="utf-8")
 
-    p1 = perseus._mneme_path(workspace, cfg_)
-    p2 = perseus._mneme_path(workspace, cfg_)
+    p1 = perseus._vault_memory_path(workspace, cfg_)
+    p2 = perseus._vault_memory_path(workspace, cfg_)
     assert p1 == p2
     assert p1.exists()
     assert p1.read_text(encoding="utf-8").endswith("data\n")
@@ -296,10 +296,10 @@ def test_memory_doctor_scan_classifies_files(tmp_path):
     (store / f"{_legacy_md5_name(ws2)}.md").write_text(
         f"---\nworkspace: {ws2}\n---\n\nmd5 file\n", encoding="utf-8"
     )
-    # A pre-Mnēmē README that should be classified as "unknown stem".
+    # A pre-Perseus Vault README that should be classified as "unknown stem".
     (store / "README.md").write_text("# notes\n", encoding="utf-8")
 
-    scan = perseus._mneme_doctor_scan(cfg_)
+    scan = perseus._vault_doctor_scan(cfg_)
     assert len(scan["narrative_files"]) == 3
     assert len(scan["sha256_files"]) == 1
     assert len(scan["legacy_md5_files"]) == 1
@@ -321,7 +321,7 @@ def test_memory_doctor_migrate_renames_legacy_files(tmp_path):
     legacyA.write_text(f"---\nworkspace: {wsA}\n---\n\nA content\n", encoding="utf-8")
     legacyB.write_text(f"---\nworkspace: {wsB}\n---\n\nB content\n", encoding="utf-8")
 
-    result = perseus._mneme_doctor_migrate(cfg_)
+    result = perseus._vault_doctor_migrate(cfg_)
     assert len(result["migrated"]) == 2
     assert not legacyA.exists()
     assert not legacyB.exists()
@@ -332,7 +332,7 @@ def test_memory_doctor_migrate_renames_legacy_files(tmp_path):
     assert new_B.exists() and new_B.read_text(encoding="utf-8").endswith("B content\n")
 
     # Idempotent: re-running is a no-op.
-    second = perseus._mneme_doctor_migrate(cfg_)
+    second = perseus._vault_doctor_migrate(cfg_)
     assert second == {"migrated": [], "skipped": [], "errors": []}
 
 
@@ -351,7 +351,7 @@ def test_memory_doctor_migrate_skips_when_destination_exists(tmp_path):
     sha_fp.write_text(f"---\nworkspace: {workspace}\n---\n\ncurrent\n",
                       encoding="utf-8")
 
-    result = perseus._mneme_doctor_migrate(cfg_)
+    result = perseus._vault_doctor_migrate(cfg_)
     assert result["migrated"] == []
     assert len(result["skipped"]) == 1
     old, new, reason = result["skipped"][0]

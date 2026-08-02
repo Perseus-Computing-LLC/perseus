@@ -3,7 +3,7 @@ name: memory-cleanup
 description: >-
   Audits all memory systems in a Perseus environment, identifies stale or
   superseded stores (Mem0, Mempalace, old vector DBs, garbled federation
-  artifacts), and deletes them. Keeps Perseus Mneme (the live system) as the
+  artifacts), and deletes them. Keeps Perseus Vault (the live system) as the
   single source of truth. Run periodically or when upgrading Perseus versions.
 tags: [maintenance, memory, cleanup, housekeeping]
 requires: []
@@ -12,7 +12,7 @@ requires: []
 # Memory Cleanup Skill
 
 Audits and purges stale memory systems from a Perseus environment, keeping
-Perseus Mneme as the single source of truth. Run after upgrading Perseus,
+Perseus Vault as the single source of truth. Run after upgrading Perseus,
 after switching memory backends, or whenever memory feels noisy.
 
 ---
@@ -23,7 +23,7 @@ after switching memory backends, or whenever memory feels noisy.
 > tooling and pushing the envelope.** Old memory systems accumulate noise,
 > cause federation artifacts, and slow down recall. When in doubt, delete.
 
-The live Perseus Mneme index (`~/.perseus/memory/`) is always the source of
+The live Perseus Vault index (`~/.perseus/memory/`) is always the source of
 truth. Everything else is a candidate for removal.
 
 ---
@@ -46,7 +46,7 @@ Check for the following known memory system locations:
 
 ```bash
 # Perseus (live — keep)
-ls -lht ~/.perseus/memory/        # Mneme BM25 index files
+ls -lht ~/.perseus/memory/        # Perseus Vault BM25 index files
 ls -lht ~/.perseus/checkpoints/   # Session waypoints
 
 # Rovo Dev sessions (live — keep)
@@ -54,8 +54,8 @@ ls ~/.rovodev/sessions/
 ls ~/.codex/memories/
 
 # Stale systems (candidates for deletion)
-ls ~/.mem0/                       # Mem0 library (superseded by Mneme)
-ls ~/.mempalace/                  # Mempalace (superseded by Mneme)
+ls ~/.mem0/                       # Mem0 library (superseded by Perseus Vault)
+ls ~/.mempalace/                  # Mempalace (superseded by Perseus Vault)
 ls ~/.cache/chroma/               # Orphaned Chroma vector stores
 ls ~/.cache/code-nemo/            # Nemo memory (if present)
 ls ~/.local/share/perseus/        # Old single-file perseus installs
@@ -120,8 +120,8 @@ Use `delete_file` for each stale file identified. Do not use bash `rm` — use
 the `delete_file` tool to maintain audit trail.
 
 **Always delete:**
-- `~/.mem0/` — entire contents (Mem0 library, superseded by Perseus Mneme)
-- `~/.mempalace/` — entire contents (Mempalace, superseded by Perseus Mneme)
+- `~/.mem0/` — entire contents (Mem0 library, superseded by Perseus Vault)
+- `~/.mempalace/` — entire contents (Mempalace, superseded by Perseus Vault)
 - Any garbled federation artifacts in `~/.perseus/memory/`
 - Stale `perseus.py` in venv site-packages (see Step 3)
 
@@ -130,7 +130,7 @@ the `delete_file` tool to maintain audit trail.
 - `~/.local/share/perseus/` — used by launchd watchdog scripts; update rather than delete
 
 **Never delete:**
-- `~/.perseus/memory/` — live Mneme index
+- `~/.perseus/memory/` — live Perseus Vault index
 - `~/.perseus/checkpoints/` — session waypoints
 - `~/.perseus/config.yaml` — configuration
 - `~/.rovodev/AGENTS.md` — rendered context
@@ -153,13 +153,13 @@ Report final state:
 ```
 Memory Cleanup Complete
 ═══════════════════════
-✅ ~/.perseus/memory/    — {N} files (live Mneme index)
+✅ ~/.perseus/memory/    — {N} files (live Perseus Vault index)
 ✅ ~/.perseus/checkpoints/ — {N} files (session waypoints)
 🗑️  ~/.mem0/             — deleted ({N} files)
 🗑️  ~/.mempalace/        — deleted ({N} files)
 🗑️  {garbled files}     — deleted ({N} files)
 
-Single source of truth: Perseus Mneme ✅
+Single source of truth: Perseus Vault ✅
 ```
 
 ---
@@ -201,10 +201,10 @@ memories are never auto-archived, and hard deletion is never scheduled.
 
 | System | Location | Status | Superseded By |
 |---|---|---|---|
-| Mem0 | `~/.mem0/` | Deprecated | Perseus Mneme |
-| Mempalace | `~/.mempalace/` | Deprecated | Perseus Mneme |
-| Chroma (standalone) | `~/.cache/chroma/` | Check context | Perseus Mneme |
-| Code-Nemo | `~/.cache/code-nemo/` | Check context | Perseus Mneme |
+| Mem0 | `~/.mem0/` | Deprecated | Perseus Vault |
+| Mempalace | `~/.mempalace/` | Deprecated | Perseus Vault |
+| Chroma (standalone) | `~/.cache/chroma/` | Check context | Perseus Vault |
+| Code-Nemo | `~/.cache/code-nemo/` | Check context | Perseus Vault |
 | Old single-file perseus | `~/.local/share/perseus/` | Update, don't delete | pip install |
 
 ---

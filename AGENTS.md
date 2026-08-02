@@ -17,7 +17,7 @@ rendered output and skip orientation. Start work immediately.
 **Status:** completed
 **Next:** Decide whether to keep the regenerated perseus.py artifact diff and separately handle existing benchmark/gauntlet worktree changes.
 **Workspace:** /Users/tconnally/Documents/perseus
-**Notes:** Fast-forwarded main to origin/main c4b26d1. Smoke check reports perseus v1.0.6. Full suite passed outside sandbox: 1,032 passed in 69.14s. Sandbox-only pytest run failed on localhost socket binds. Regenerated perseus.py from src; artifact now removes stale generated prefetch/Mneme index snippets absent from source. Pre-existing benchmark and gauntlet changes were not touched.
+**Notes:** Fast-forwarded main to origin/main c4b26d1. Smoke check reports perseus v1.0.6. Full suite passed outside sandbox: 1,032 passed in 69.14s. Sandbox-only pytest run failed on localhost socket binds. Regenerated perseus.py from src; artifact now removes stale generated prefetch/Perseus Vault index snippets absent from source. Pre-existing benchmark and gauntlet changes were not touched.
 
 ---
 
@@ -27,8 +27,8 @@ rendered output and skip orientation. Start work immediately.
 86371c5 chore: commit gauntlet results, benchmark artifacts, and regenerated perseus.py
 98eb66f feat: add memory-cleanup skill
 96bebc1 feat: add pir-action-tracker skill
-5fcf16f fix(mneme): port prefetch resource hints and index warming to canonical source
-1094ea8 fix(mneme): resolve FTS5 search escaping and stale-index bugs
+5fcf16f fix(Perseus Vault): port prefetch resource hints and index warming to canonical source
+1094ea8 fix(Perseus Vault): resolve FTS5 search escaping and stale-index bugs
 ```
 ```text
  M .perseus/context.md

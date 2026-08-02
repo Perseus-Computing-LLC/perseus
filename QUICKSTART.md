@@ -126,7 +126,7 @@ Edit `.perseus/config.yaml` manually, or re-run `perseus quickstart` later.
 | `perseus synthesize "What's the auth flow?" --source src/auth.py` | Draft cited synthesis claims |
 | `perseus doctor` | Health check — config, LLM, cache, sessions, directives |
 | `perseus checkpoint --task "my work" --status "in progress"` | Save a session checkpoint |
-| `perseus memory update` | Update Mnēmē project narrative |
+| `perseus memory update` | Update Perseus Vault project narrative |
 | `perseus trust` | Show effective permission profile |
 | `perseus --help` | Full command reference |
 

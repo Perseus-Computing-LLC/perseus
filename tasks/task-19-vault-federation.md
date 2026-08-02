@@ -1,6 +1,6 @@
 ---
 id: task-19
-title: Task 19 — Mnēmē Federation (cross-workspace narrative aggregation)
+title: Task 19 — Perseus Vault Federation (cross-workspace narrative aggregation)
 status: completed
 scope: large
 depends_on:
@@ -11,14 +11,14 @@ closed: '2026-05-18'
 phase: 8.2
 ---
 
-# Task 19 — Mnēmē Federation
+# Task 19 — Perseus Vault Federation
 
 ## Context
 
 Phase 8 shipped four of five planned sub-tasks for "Live Agent Orchestration."
-The deferred fifth is **P8.2 — Cross-workspace Mnēmē federation**.
+The deferred fifth is **P8.2 — Cross-workspace Perseus Vault federation**.
 
-Mnēmē today is rigorously **single-workspace**: every narrative lives at
+Perseus Vault today is rigorously **single-workspace**: every narrative lives at
 `~/.perseus/memory/<workspace-hash>.md` and never touches another workspace's
 file. That works for a developer with one or two projects. It breaks down
 in three real situations:
@@ -28,7 +28,7 @@ in three real situations:
    one repo (e.g. "we standardised on `_workspace_hash` for keying") apply to
    the others, but the narratives don't know that.
 2. **Same team, many workspaces.** Multiple developers each have their own
-   Mnēmē store; the team has no shared "what's the project arc" view.
+   Perseus Vault store; the team has no shared "what's the project arc" view.
 3. **Same workspace, multiple machines.** A laptop and a workstation each
    maintain their own checkpoint streams for the same git remote. The two
    narratives drift unless one machine is the "source of truth."
@@ -57,7 +57,7 @@ real deliverable — the implementation phase only starts once those are answere
 ## Non-goals
 
 - Cloud sync. Federation is filesystem-local (or mounted FS). No HTTP push.
-- Multi-writer conflict resolution at the line level. Mnēmē is append-mostly
+- Multi-writer conflict resolution at the line level. Perseus Vault is append-mostly
   and section-structured; the federation primitive treats other narratives
   as black boxes, not editable artifacts.
 - Encryption. If two workspaces are mounted on the same FS by the same user,
@@ -109,7 +109,7 @@ When workspace A subscribes to workspace B, what data does A get to see?
   list.
 
 **Recommendation:** (a) narrative-only by default, with optional (d) per-sub
-opt-in once primitives are stable. Mnēmē narratives are already curated
+opt-in once primitives are stable. Perseus Vault narratives are already curated
 (deterministic distillation + LLM compression); they're the right unit of
 sharing.
 
@@ -163,7 +163,7 @@ or stale?
 
 **Options:**
 - (a) **Skip silently.** Render proceeds without that subscription.
-- (b) **Surface a warning block.** Like the existing Mnēmē "no narrative
+- (b) **Surface a warning block.** Like the existing Perseus Vault "no narrative
   found" warning.
 - (c) **Hard fail.** Refuse to render. Reasonable for tightly-coupled teams.
 
@@ -176,13 +176,13 @@ render. Mirrors how `@waypoint` handles stale checkpoints.
 
 ### Q6 — Privacy escape hatch
 
-The strict Mnēmē privacy guarantee today is: a workspace's narrative never
+The strict Perseus Vault privacy guarantee today is: a workspace's narrative never
 appears in any other workspace's rendered output unless the workspace owner
 explicitly subscribes. After federation, what is the analogous guarantee?
 
 **Options:**
 - (a) **Subscriber-side only.** B doesn't know who's subscribed to its
-  narrative. (Current Mnēmē posture, extended naturally.)
+  narrative. (Current Perseus Vault posture, extended naturally.)
 - (b) **Publisher opt-in.** B writes `memory.federation.allow_subscribers: true`
   in its config. A's subscription to B fails unless that flag is set.
 - (c) **Per-narrative.** B can mark individual sections of its narrative as
@@ -224,7 +224,7 @@ Once decisions are committed, the implementation should:
 5. Honor Q5 failure mode (surface but don't fail).
 6. Tests: subscription CRUD, render-with-federation, stale-subscription
    warning, missing-file fallback, alias collision handling.
-7. Update spec/components.md § 4 (Mnēmē) and spec/data-model.md config schema.
+7. Update spec/components.md § 4 (Perseus Vault) and spec/data-model.md config schema.
 
 **Estimated effort once design is locked:** medium (1 implementation session,
 ~150 LoC + ~10 tests). The hard part is the design choices above.

@@ -1,6 +1,6 @@
 """Shared setup for the integrated Perseus -> Perseus Vault load harness.
 
-These scripts exercise the *integrated* path — the Python `MnemeConnector`
+These scripts exercise the *integrated* path — the Python `VaultConnector`
 talking to a real vault binary over MCP stdio — not the vault in isolation.
 They are opt-in (not run in CI): they require a built `perseus-vault` binary and
 spawn real subprocesses against temp databases.
@@ -18,7 +18,7 @@ sys.path.insert(0, str(REPO_ROOT))
 import perseus  # noqa: E402  (the single-file built artifact at repo root)
 
 MemoryTypeEnum = perseus.MemoryTypeEnum
-MnemeConnector = perseus.MnemeConnector
+VaultConnector = perseus.VaultConnector
 
 
 def find_vault_binary(argv: list[str] | None = None) -> str:
@@ -49,7 +49,7 @@ def find_vault_binary(argv: list[str] | None = None) -> str:
 
 def make_connector(vault_exe: str, db_path: Path, *, timeout_s: float = 30.0,
                    retry_attempts: int = 2, breaker_threshold: int = 50,
-                   breaker_cooldown: int = 5) -> "perseus.MnemeConnector":
+                   breaker_cooldown: int = 5) -> "perseus.VaultConnector":
     cfg = {"perseus_vault": {
         "enabled": True,
         "transport": "stdio",
@@ -59,7 +59,7 @@ def make_connector(vault_exe: str, db_path: Path, *, timeout_s: float = 30.0,
         "retry_policy": {"max_attempts": retry_attempts, "backoff_base": 1.2},
         "circuit_breaker": {"threshold": breaker_threshold, "cooldown": breaker_cooldown},
     }}
-    return MnemeConnector(cfg)
+    return VaultConnector(cfg)
 
 
 def pct(vals, p):

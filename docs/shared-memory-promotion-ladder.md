@@ -21,7 +21,7 @@ happened)     episodes agree)  served by default)      operator-pinned)
 
 - **episode → observation**: consolidation folds repeated/overlapping
   episodes into one observation with `proof_count` and evidence links
-  (`mimir_consolidate`; cold-first pass in `mimir_autocohere`).
+  (`vault_consolidate`; cold-first pass in `vault_autocohere`).
 - **observation → convention/belief**: when support is broad (support_count
   above a workspace-tuned threshold) and the claim is scope-general, it is
   promoted to convention class and becomes eligible for default serving in
@@ -44,8 +44,8 @@ personal → workspace → team → org
   visible to the workspace when written with the workspace_hash (the
   default shared path today).
 - **workspace → team/org**: cross-scope promotion. Existing machinery:
-  `mimir_share` (controlled copy) and cross-scope promotion in
-  `mimir_cohere` — a fact independently observed in ≥ k distinct
+  `vault_share` (controlled copy) and cross-scope promotion in
+  `vault_cohere` — a fact independently observed in ≥ k distinct
   workspaces is promoted to one global entity with `promoted_from` links
   back to the per-scope evidence (k defaults to 3).
 - **Demotion exists**: a convention contradicted at org scope is superseded
@@ -70,7 +70,7 @@ personal → workspace → team → org
 ## 4. Implementation slice (tracks #832)
 
 - Surface `support_count`/promotion state in recall explanations.
-- Add `mimir_promote(entity, to_class|to_scope)` performing the journaled,
+- Add `perseus_vault_promote(entity, to_class|to_scope)` performing the journaled,
   evidence-preserving transition (today: manual remember + supersede).
 - Threshold config block (support count, workspace count k) with the
   documented defaults above.

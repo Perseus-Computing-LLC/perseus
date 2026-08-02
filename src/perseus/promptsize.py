@@ -550,7 +550,7 @@ def cmd_prompt_size(args, cfg):
 
     workspace = _infer_workspace(source_path)
     cfg = load_config(workspace)
-    _merge_pack_mimir_config(cfg, workspace)
+    _merge_pack_vault_config(cfg, workspace)
     text = source_path.read_text(errors="replace", encoding="utf-8")
 
     max_tier = getattr(args, "tier", None)

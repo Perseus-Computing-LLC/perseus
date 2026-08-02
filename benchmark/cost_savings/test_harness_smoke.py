@@ -56,7 +56,7 @@ def test_mock_mode_meters_both_arms(tmp_path):
     assert (outdir / "plutus_ledger.db").exists(), "ledger must ship with the report"
 
     base = report["arms"]["fullcontext"]
-    ours = report["arms"]["mimir"]
+    ours = report["arms"]["vault"]
     for arm in (base, ours):
         assert arm["ledger_events"] == 3, f"every question metered once: {arm}"
         assert arm["ledger_cost_usd"] > 0

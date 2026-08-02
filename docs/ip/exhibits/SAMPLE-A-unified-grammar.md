@@ -12,7 +12,7 @@ included-ok
 ## shell
 perseus-query-ok
 ## memory
-> ℹ️ No Mnēmē memories matched yet — this is expected on a fresh install. Populate the vault with memory files or run `perseus memory update` to initialize.
+> ℹ️ No Perseus Vault memories matched yet — this is expected on a fresh install. Populate the vault with memory files or run `perseus memory update` to initialize.
 
 ## sub-agent
 perseus-agent-ok

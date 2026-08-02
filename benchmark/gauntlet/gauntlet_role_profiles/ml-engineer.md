@@ -67,4 +67,4 @@
 @prefetch
 @synthesize
 
-@mneme query="model training benchmark"
+@vault query="model training benchmark"

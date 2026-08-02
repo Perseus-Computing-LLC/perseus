@@ -49,7 +49,7 @@ See the patent disclosure for how this unification reads on claim element (a):
 | `@agora` | `resolve_agora` | inline | `acw` | 2 | filesystem / workspace |  |
 | `@drift` | `resolve_drift` | inline | `ac` | 2 | filesystem / workspace |  |
 | `@inbox` | `resolve_inbox` | inline | `acw` | 2 | filesystem / workspace |  |
-| `@mimir` | `resolve_mimir` | inline | `acw` | 2 | semantic memory (FTS5/Perseus Vault) |  |
+| `@vault` | `resolve_vault` | inline | `acw` | 2 | semantic memory (FTS5/Perseus Vault) |  |
 | `@perseus` | `resolve_perseus` | inline | `acw` | 2 | in-process / computed |  |
 | `@services` | `resolve_services` | block | `block` | 2 | shell / live system |  |
 | `@session` | `resolve_session` | inline | `ac` | 2 | filesystem / workspace |  |

@@ -9,7 +9,7 @@ Companion: [trust-signal-rendering.md](trust-signal-rendering.md) (hypothesis ba
 [reflective-queries.md](reflective-queries.md) (efficacy-record lens),
 [retrieval-orchestration-policy.md](retrieval-orchestration-policy.md) (pipeline stages)
 
-Vault's existing efficacy signal (`mimir_follow`: was the recalled insight
+Vault's existing efficacy signal (`vault_follow`: was the recalled insight
 followed?) measures **usefulness**. The stronger test — *did this insight
 correctly predict what happened next?* — is only observable at the
 orchestration layer, where the agent's actions and their real-world outcomes
@@ -22,7 +22,7 @@ certainty.
 
 | Signal | Observable | Cadence | Cost | Status |
 |---|---|---|---|---|
-| usefulness | in-band, at recall time | continuous | cheap | captured today (`mimir_follow`) |
+| usefulness | in-band, at recall time | continuous | cheap | captured today (`vault_follow`) |
 | predictive validity | only when the environment produces the test case | sparse | decisive | **captured nowhere — this spec** |
 
 Consequences that shape the design:

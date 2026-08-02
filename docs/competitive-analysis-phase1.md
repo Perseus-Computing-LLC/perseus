@@ -26,9 +26,9 @@ A local MCP context engine that combines memory persistence, code intelligence, 
 | Perseus Vault persistent memory | `store_memory`, `retrieve_memory`, BM25 + vector | **HIGH** |
 | `@agent` directive (task board) | `prime_session` (session init) | Medium |
 | `@skills` directive | N/A | None |
-| `mimir_remember` / `mimir_recall` | `store_memory` / `retrieve_memory` | **HIGH** |
-| `mimir_decay` (Ebbinghaus) | `cron/prune_memory.py` | Medium |
-| `mimir_cohere` (grooming) | None observed | None |
+| `perseus_vault_remember` / `perseus_vault_recall` | `store_memory` / `retrieve_memory` | **HIGH** |
+| `vault_decay` (Ebbinghaus) | `cron/prune_memory.py` | Medium |
+| `vault_cohere` (grooming) | None observed | None |
 | Perseus `@tools` directive | None | None |
 | Cross-agent handoff | `last_context.json` shared | **HIGH** |
 | User profiling | `get_user_profile()` | None |

@@ -22,7 +22,7 @@ _FRONTDOOR_SPEC.loader.exec_module(frontdoor)
 def test_direct_request_keeps_capabilities_backstage():
     route = frontdoor.route_front_door(
         "direct",
-        available_capabilities={"vault_recall", "ledger_verify", "evidence_claim_gate"},
+        available_capabilities={"perseus_vault_recall", "ledger_verify", "evidence_claim_gate"},
         integrations={"vault": "active", "ledger": "active"},
     )
     assert route["request_class"] == "direct"
@@ -34,7 +34,7 @@ def test_direct_request_keeps_capabilities_backstage():
 def test_verify_request_selects_active_ledger_and_returns_one_result():
     route = frontdoor.route_front_door(
         "verify",
-        available_capabilities={"ledger_verify", "evidence_claim_gate", "vault_recall"},
+        available_capabilities={"ledger_verify", "evidence_claim_gate", "perseus_vault_recall"},
         integrations={"vault": "active", "ledger": "active"},
     )
     response = frontdoor.front_door_response(route, "Verified result")
@@ -47,7 +47,7 @@ def test_verify_request_selects_active_ledger_and_returns_one_result():
 def test_unavailable_integrations_are_explicit_and_cannot_overclaim():
     route = frontdoor.route_front_door(
         "act",
-        available_capabilities={"vault_recall", "ledger_verify", "aar_authorize"},
+        available_capabilities={"perseus_vault_recall", "ledger_verify", "aar_authorize"},
         integrations={"vault": "unavailable", "ledger": "not_configured"},
     )
     assert route["capabilities"] == []
@@ -59,7 +59,7 @@ def test_unavailable_integrations_are_explicit_and_cannot_overclaim():
 def test_route_trace_is_hashable_and_excludes_request_and_secrets():
     route = frontdoor.route_front_door(
         "retrieve",
-        available_capabilities={"vault_recall"},
+        available_capabilities={"perseus_vault_recall"},
         integrations={"vault": "active", "ledger": "not_configured"},
         request_metadata={"prompt": "secret prompt", "token": "do-not-record"},
     )
@@ -80,7 +80,7 @@ def test_invalid_class_or_integration_state_fails_closed():
 def test_missing_optional_integration_is_not_claimed_active():
     route = frontdoor.route_front_door(
         "retrieve",
-        available_capabilities={"vault_recall"},
+        available_capabilities={"perseus_vault_recall"},
         integrations={"vault": "not_configured"},
     )
     assert route["capabilities"] == []

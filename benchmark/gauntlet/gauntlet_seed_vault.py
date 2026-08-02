@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-gauntlet_seed_mneme.py — Pre-populate Mnēmē v2 vault with synthetic memory records
+gauntlet_seed_vault.py — Pre-populate Perseus Vault v2 vault with synthetic memory records
 for the Perseus Gauntlet benchmark.
 
 Generates 75 memory records across 5 types (decision, lesson, preference, workflow, meta-working)
 with varied scopes, tags, and topic paths. These files are placed in the vault directory
-so @memory, @mneme, and the narrative engine have real data to work with during benchmarking.
+so @memory, @vault, and the narrative engine have real data to work with during benchmarking.
 
 Usage:
-    python3 benchmark/gauntlet/gauntlet_seed_mneme.py \
+    python3 benchmark/gauntlet/gauntlet_seed_vault.py \
         --perseus-home /tmp/perseus-gauntlet/cold \
         --count 75
 
     # For warm home (same data, pre-built index)
-    python3 benchmark/gauntlet/gauntlet_seed_mneme.py \
+    python3 benchmark/gauntlet/gauntlet_seed_vault.py \
         --perseus-home /tmp/perseus-gauntlet/warm \
         --count 75
 """
@@ -37,7 +37,7 @@ except ImportError:
 
 DECISIONS = [
     {
-        "title": "Adopt SQLite FTS5 for Mnēmē v2 search",
+        "title": "Adopt SQLite FTS5 for Perseus Vault v2 search",
         "summary": "Decided to use SQLite FTS5 with BM25 scoring instead of external search backends. Zero-dependency, portable, WAL-mode concurrency.",
         "body": "After evaluating Milvus, Meilisearch, and SQLite FTS5, we chose FTS5 for several reasons:\n\n"
                 "1. **Zero runtime dependencies** — sqlite3 is stdlib, no pip install required\n"
@@ -45,8 +45,8 @@ DECISIONS = [
                 "3. **Porter stemming + unicode61** — multilingual search out of the box\n"
                 "4. **Single-file deployment** — the index lives alongside the vault, cp-able\n\n"
                 "Trade-off: BM25 is not a neural ranker. For 75+ documents it's fine; at 10K+ we may need hybrid retrieval.",
-        "tags": ["mneme", "search", "architecture", "sqlite"],
-        "topic_path": ["mneme-v2", "search-backend"],
+        "tags": ["vault", "search", "architecture", "sqlite"],
+        "topic_path": ["vault-v2", "search-backend"],
         "scope": "perseus",
     },
     {
@@ -59,8 +59,8 @@ DECISIONS = [
                 "- Writers don't block readers (within single-writer constraint)\n"
                 "- WAL file stays small with regular checkpointing\n\n"
                 "Added PRAGMA wal_autocheckpoint=1000 to keep the WAL file bounded.",
-        "tags": ["mneme", "sqlite", "concurrency", "bug-fix"],
-        "topic_path": ["mneme-v2", "concurrency"],
+        "tags": ["vault", "sqlite", "concurrency", "bug-fix"],
+        "topic_path": ["vault-v2", "concurrency"],
         "scope": "perseus",
     },
     {
@@ -144,8 +144,8 @@ DECISIONS = [
     },
     {
         "title": "Narrative engine uses LLM-optional design",
-        "summary": "Mnēmē narrative assembly is deterministic by default. Optional LLM provider enables richer distillation. Works zero-dependency without API keys.",
-        "body": "The narrative engine (`mneme_narrative.py`) assembles memory narratives using two modes:\n\n"
+        "summary": "Perseus Vault narrative assembly is deterministic by default. Optional LLM provider enables richer distillation. Works zero-dependency without API keys.",
+        "body": "The narrative engine (`vault_narrative.py`) assembles memory narratives using two modes:\n\n"
                 "**Deterministic mode** (default, no LLM):\n"
                 "- Chronological grouping of checkpoint sessions\n"
                 "- Activity summarization via simple heuristics (file counts, directive types)\n"
@@ -156,8 +156,8 @@ DECISIONS = [
                 "- Extracts themes, patterns, and decisions across sessions\n"
                 "- Higher quality but requires API key and adds latency\n\n"
                 "This dual-mode design means the narrative always works — LLM is a quality upgrade, not a requirement.",
-        "tags": ["mneme", "narrative", "llm", "architecture"],
-        "topic_path": ["mneme-v2", "narrative"],
+        "tags": ["vault", "narrative", "llm", "architecture"],
+        "topic_path": ["vault-v2", "narrative"],
         "scope": "perseus",
     },
 ]
@@ -194,7 +194,7 @@ LESSONS = [
     {
         "title": "Always check git diff HEAD before asserting a file's committed state",
         "summary": "read_file shows the working tree, not HEAD. Uncommitted local changes can make you think a bug is fixed or a feature exists. CI disproves it.",
-        "body": "Embarrassing failure: read src/perseus/directives/query.py, saw Mneme prefetch blocks, "
+        "body": "Embarrassing failure: read src/perseus/directives/query.py, saw Vault prefetch blocks, "
                 "concluded issue #22 was resolved, closed it. CI failed because the committed source at HEAD "
                 "did NOT have those blocks — they were local uncommitted changes.\n\n"
                 "Rule: after reading a file and drawing a conclusion about its committed state, "
@@ -403,9 +403,9 @@ WORKFLOWS = [
                 "4. directives/*.py (resolver functions)\n"
                 "5. renderer.py (depends on directives)\n"
                 "6. memory.py (depends on config, hooks)\n"
-                "7. mneme_index.py (depends on memory.py)\n"
-                "8. mneme_narrative.py (depends on memory.py)\n"
-                "9. mneme_federation.py (depends on narrative)\n"
+                "7. vault_index.py (depends on memory.py)\n"
+                "8. vault_narrative.py (depends on memory.py)\n"
+                "9. vault_federation.py (depends on narrative)\n"
                 "10. cli.py (depends on everything)\n\n"
                 "When adding a new module, insert it AFTER all its dependencies.",
         "tags": ["build", "modules", "dependency-order", "workflow"],
@@ -575,7 +575,7 @@ def generate_memories(count: int, perseus_home: Path, seed: int | None = None) -
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Seed Mnēmē v2 vault with synthetic memory records for gauntlet benchmarking"
+        description="Seed Perseus Vault v2 vault with synthetic memory records for gauntlet benchmarking"
     )
     parser.add_argument("--perseus-home", required=True,
                         help="PERSEUS_HOME directory (e.g., /tmp/perseus-gauntlet/cold)")

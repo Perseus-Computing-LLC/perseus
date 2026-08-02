@@ -17,12 +17,12 @@ opened: '2026-05-19'
 ## Why
 
 After static graphing and explicit rules exist, Perseus can use accumulated
-oracle and Mnēmē patterns to recommend or run likely useful prefetches without
+oracle and Perseus Vault patterns to recommend or run likely useful prefetches without
 requiring users to hand-write every rule.
 
 ## What
 
-- Score candidate prefetches from recent oracle/Mnēmē patterns.
+- Score candidate prefetches from recent oracle/Perseus Vault patterns.
 - Keep deterministic fallback behavior when no Daedalus model is configured.
 - Make adaptive prefetching opt-in.
 - Preserve Phase 14's resolver-vs-generator decision gate; this task may score
@@ -49,7 +49,7 @@ requiring users to hand-write every rule.
   backends.
 - Scored only predeclared cache-warming candidates; adaptive prefetch does not
   invent directives or generate context prose.
-- Deterministic scoring uses recent accepted oracle entries and Mnēmē narrative
+- Deterministic scoring uses recent accepted oracle entries and Perseus Vault narrative
   text as pattern evidence.
 - Daedalus scoring routes through `run_llm("daedalus", ...)`, parses candidate
   scores, and falls back to deterministic scoring on provider or parse failure.

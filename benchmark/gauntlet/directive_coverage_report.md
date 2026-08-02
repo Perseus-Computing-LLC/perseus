@@ -25,7 +25,7 @@
 | `@env` | 1 | ✗ | 8 | Embed environment variable |
 | `@prefetch` | 3 | ✗ | 7 | Prefetch warming |
 | `@synthesize` | 3 | ✗ | 6 | LLM synthesis block |
-| `@mneme` | 2 | ✗ | 5 | Memory recall (BM25) |
+| `@vault` | 2 | ✗ | 5 | Memory recall (BM25) |
 | `@endif` | 1 | ✗ | 4 | Conditional block end |
 | `@end` | 1 | ✗ | 4 | Block directive end |
 | `@if` | 1 | ✗ | 4 | Conditional block start |
