@@ -1,0 +1,82 @@
+{
+  "benchmark": "perseus-semantic-density",
+  "version": 1,
+  "offline": true,
+  "cases": [
+    {
+      "id": "deployment-handoff",
+      "query": "Resume the deployment handoff and state the next safe action.",
+      "budget_chars": 110,
+      "items": [
+        {
+          "id": "mem-ordinary-deploy",
+          "category": "observation",
+          "key": "deploy-status",
+          "relevance": 0.99,
+          "content": "The staging deployment is green and the service is responding to health checks."
+        },
+        {
+          "id": "mem-deploy-correction",
+          "category": "correction",
+          "key": "deploy-boundary",
+          "relevance": 0.05,
+          "content": "Do not deploy from this workspace until the signed release artifact has passed the quality gate.",
+          "source_evidence_ids": ["mem-release-evidence"],
+          "external_refs": [{"ref_type": "repo", "ref_value": "github:Perseus-Computing-LLC/perseus"}]
+        }
+      ],
+      "required_facts": ["signed release artifact", "quality gate"],
+      "load_bearing_ids": ["mem-deploy-correction"]
+    },
+    {
+      "id": "private-evidence",
+      "query": "Prepare a short handoff without exposing private evidence.",
+      "budget_chars": 120,
+      "items": [
+        {
+          "id": "mem-private-context",
+          "category": "insight",
+          "key": "context-summary",
+          "relevance": 0.98,
+          "content": "The investigation concerns the current release candidate and its test results."
+        },
+        {
+          "id": "mem-private-prohibition",
+          "category": "prohibition",
+          "key": "private-evidence-boundary",
+          "relevance": 0.02,
+          "content": "Never expose private evidence or credential values in a handoff.",
+          "source_evidence_ids": ["mem-private-source"],
+          "external_refs": [{"ref_type": "repo", "ref_value": "github:Perseus-Computing-LLC/perseus"}]
+        }
+      ],
+      "required_facts": ["Never expose private evidence"],
+      "load_bearing_ids": ["mem-private-prohibition"]
+    },
+    {
+      "id": "operator-policy",
+      "query": "Apply the release policy and identify the governing rule.",
+      "budget_chars": 125,
+      "items": [
+        {
+          "id": "mem-release-note",
+          "category": "observation",
+          "key": "release-note",
+          "relevance": 0.97,
+          "content": "The release notes summarize the changes in the latest candidate."
+        },
+        {
+          "id": "mem-release-keystone",
+          "category": "keystone",
+          "key": "release-quality-gate",
+          "relevance": 0.03,
+          "content": "Every release requires a passing quality gate before publication.",
+          "source_evidence_ids": ["mem-quality-source"],
+          "external_refs": [{"ref_type": "repo", "ref_value": "github:Perseus-Computing-LLC/perseus"}]
+        }
+      ],
+      "required_facts": ["passing quality gate"],
+      "load_bearing_ids": ["mem-release-keystone"]
+    }
+  ]
+}
