@@ -1,0 +1,240 @@
+{
+  "format": "perseus-sanitized-replay-v1",
+  "offline": true,
+  "source": "Vault scan; operational metadata removed",
+  "redaction_policy": [
+    "absolute_path",
+    "aws_access_key",
+    "email",
+    "github_token",
+    "phone",
+    "private_key",
+    "secret_assignment",
+    "signed_url_query"
+  ],
+  "items": [
+    {
+      "content": "### Where it would be useful\n\nI would use the local model for:\n\n- private documents and sensitive drafts;\n- summarization and classification;\n- quick coding helpers;\n- local-repository exploration;\n- background workers and cheap repetitive tasks;\n- offline use;\n- image/VLM experiments with a suitable 8B-class model.\n\nI would continue using a cloud frontier model for:\n\n- difficult multi-step reasoning;\n- high-stakes proposal or compliance review;\n- current factual research;\n- complex coding changes;\n- subtle judgment calls;\n- tasks where tool-call reliability matters more than cost or privacy.\n\nA fast local 8B model can feel excellent, but it will not have the same reasoning reliability as the model running this conversation.",
+      "summary": "Where it would be useful",
+      "category": "capture",
+      "key": "where-it-would-be-useful",
+      "type": "takeaway",
+      "id": "sanitized-e6444ea9b008",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "### Why I\u2019m cautious\n\n1. **It is not yet an SBIR opportunity.**  \n   The post gives no agency, solicitation/topic number, official link, deadline, legal company name, award mechanism, or technical objective. SBIR applications must respond to a specific agency solicitation and topic; unsolicited proposals are not accepted. Phase I is intended to establish technical merit and feasibility\u2014not simply fund a consumer-product build.  \n   Sources: [SBIR eligibility FAQ](https://www.sbir.gov/faq/eligibility-requirements), [SBA Policy Directive](https://www.sbir.gov/about/policies).\n\n2. **The requested skills describe an entire product team.**  \n   Embedded firmware, DSP, PCB/low-power design, TinyML, sensor synchronization, RF/cellular/GPS integration, battery safety, enclosure testing, mobile/cloud interfaces, and child-data/privacy issues are not one generic \u201celectrical/computer engineer\u201d role. The phrase \u201cany or all\u201d suggests the founder may be assembling a proposal team before defining the actual technical hypothesis.\n\n3. **A kids\u2019 watch can mean very different funding regimes.**  \n   A consumer location/safety watch, a physiological-monitoring device, and a pediatric medical device would map to different agencies, topics, regulatory paths, validation plans, and personnel requirements. There have been legitimate pediatric wearable SBIR/STTR topics\u2014for example, NIH/NIDA\u2019s **RFA-DA-26-017**\u2014but that was a specific, now-closed Phase I STTR opportunity for FDA-regulated pediatric medical devices, not a generic watch proposal.  \n   Official topic: [RFA-DA-26-017](https://grants.nih.gov/grants/guide/rfa-files/RFA-DA-26-017.html).\n\n4. **The citizenship language is oversimplified.**  \n   For the applicant company, SBIR eligibility generally concerns U.S. place of business, for-profit status, ownership/control, and the 500-employee limit. SBA also generally requires an SBIR PI to be primarily employed by the applicant during the award. But PI citizenship and personnel restrictions vary by agency and solicitation. NIH, for example, states that its PI need not be a U.S. citizen if they legally reside in the U.S. and are available to perform the work. So \u201ccitizen or permanent resident\u201d may reflect a particular agency, export-control concern, or the founder\u2019s misunderstanding\u2014not a universal SBIR rule.\n\n5. **The NDA-before-any-detail sequence is backwards for initial screening.**  \n   They should be able to provide the agency/topic, non-confidential problem statement, schedule, role, and compensation before disclosing the invention. An NDA can be normal later, but I would avoid:\n   - broad invention-assignment language;\n   - noncompete or non-solicitation provisions;\n   - claims over your pre-existing software, methods, or know-how;\n   - being named as key personnel or PI without a real written commitment;\n   - unpaid proposal labor with no award-period agreement.",
+      "summary": "Why I\u2019m cautious",
+      "category": "capture",
+      "key": "why-i-m-cautious",
+      "type": "takeaway",
+      "id": "sanitized-3106d6f59732",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "1. Screening Verdict\nWould this be eliminated at compliance? YES.",
+      "summary": "1. Screening Verdict",
+      "category": "capture",
+      "key": "1-screening-verdict",
+      "type": "takeaway",
+      "id": "sanitized-6310f4963d67",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "SECURITY.md asks for private reports, so this email is the primary channel. I\nhave also opened PR #819 with the fix and both reproductions:",
+      "summary": "SECURITY.md asks for private reports, so this email is the primary channel. I",
+      "category": "capture",
+      "key": "security-md-asks-for-private-reports-so-this-email-is-the-primar",
+      "type": "takeaway",
+      "id": "sanitized-128dddf41856",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "## Highest-priority additional papers\n\nI would pull these next, in roughly this order:\n\n1. **[TRACE: State-Aware Query Processing over Temporal Evidence Graphs for Conversational Data \u2014 arXiv:2607.00339](https://arxiv.org/abs/2607.00339)**  \n   The strongest companion to 2607.26520. It combines event/session/topic hierarchy with temporal, causal, update, contradiction, and supersession relations. This is directly relevant to improving Vault\u2019s state-aware retrieval and evidence reconstruction.\n\n2. **[Temporal Validity in Retrieval Memory \u2014 arXiv:2606.26511](https://arxiv.org/abs/2606.26511)**  \n   Very relevant to stale-fact handling. MemStrata uses deterministic subject\u2013relation\u2013object supersession and a bitemporal ledger rather than asking an LLM to decide which fact is current. The paper reports large gains on evolving-knowledge tasks, but those claims need full-method review.\n\n3. **[MOSS: An Auditable Agentic Memory Architecture \u2014 arXiv:2607.04391](https://arxiv.org/abs/2607.04391)**  \n   Especially useful for the product side: structured relational memory, symbolic/reproducible retrieval, model/storage/provider independence, and inspectable logging. Its reported deployment is unusually long-running, though it is still a single-researcher case study.\n\n4. **[Presentation, Not Mechanism: A Render Confound in Deprecation-Aware Memory Evaluation \u2014 arXiv:2607.16019](https://arxiv.org/abs/2607.16019)**  \n   I consider this essential for our benchmark methodology. It argues that apparent gains from structured memory can come from easier context presentation rather than the underlying mechanism. That is directly relevant to fair Vault comparisons and acceptance-contract evidence.\n\n5. **[CAGE-1: Control, Assurance, and Governance Evaluation for Enterprise Agentic AI \u2014 arXiv:2607.03510](https://arxiv.org/abs/2607.03510)**  \n   Closely aligned with the NSF thesis: authorization, current evidence, memory validity, tool permission, replayability, pre-action control, escalation, and safe failure. It is an independent technical report rather than a peer-reviewed paper, so I would use it as landscape material, not validation.\n\n6. **[Token-Flow Firewall \u2014 arXiv:2607.08395](https://arxiv.org/abs/2607.08395)**  \n   Relevant to the proposed runtime control layer: source\u2013sink audit records, pre-execution semantic inspection, and escalation of ambiguous cases. It provides a useful comparison point for online intervention around memory updates, retrieved files, and tool arguments.\n\n7. **[When Agents Remember Too Much: Memory Poisoning Attacks \u2014 arXiv:2607.06595](https://arxiv.org/abs/2607.06595)**  \n   Important threat-model material for Vault. The paper\u2019s GhostWriter attack targets memory ingestion and later retrieval, which maps directly onto untrusted-context and memory-poisoning scenarios.",
+      "summary": "Highest-priority additional papers",
+      "category": "capture",
+      "key": "highest-priority-additional-papers",
+      "type": "pitfall",
+      "id": "sanitized-9615383ec121",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "Reporting two related issues in Perseus Vault v2.22.0 (a9524e9), found while\ndeploying it on a Fedora 44 workstation across Claude Code, Claude Desktop and\nCodex CLI.",
+      "summary": "Reporting two related issues in Perseus Vault v2.22.0 (a9524e9), found while",
+      "category": "capture",
+      "key": "reporting-two-related-issues-in-perseus-vault-v2-22-0-a9524e9-fo",
+      "type": "takeaway",
+      "id": "sanitized-87dd637cc445",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "## Strong second wave\n\n- **[IFCMemoryBench \u2014 arXiv:2607.26072](https://arxiv.org/abs/2607.26072)** \u2014 domain-specific professional memory over conversational context plus live structured BIM data. Useful precedent for testing whether generic memory transfers to engineering/government workflows.\n- **[Beyond Memory Leaderboards \u2014 arXiv:2607.16848](https://arxiv.org/abs/2607.16848)** \u2014 budgeted, modality-aware evaluation of scientific memory; particularly useful for controlling retrieval volume, ingestion scope, judge effects, and context cost.\n- **[EvoAgentBench \u2014 arXiv:2607.05202](https://arxiv.org/abs/2607.05202)** \u2014 evaluates procedural memory and transfer of reusable abilities rather than simple fact recall. Relevant if Vault eventually stores verified skills or repair procedures.\n- **[MRMS: A Multi-Resolution Memory Substrate \u2014 arXiv:2607.04617](https://arxiv.org/abs/2607.04617)** \u2014 a useful architectural comparison across structured, vector, graph, and temporal memory, with explicit evidence attribution and boundary enforcement.",
+      "summary": "Strong second wave",
+      "category": "capture",
+      "key": "strong-second-wave",
+      "type": "pattern",
+      "id": "sanitized-7d260698c4d1",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "### My verdict\n\n- **$700:** very good buy  \n- **$725:** reasonable friend price  \n- **$750:** acceptable if everything is authentic, clean, and fits  \n- **Above $750:** I\u2019d pass or negotiate  \n\nThe **moleskin pants and cargo pants are doing most of the value work**. The flannel at $200 is the weakest individual price, while the jacket is reasonable.\n\nThe photos show no obvious major damage, and the branding looks consistent, but they **do not prove authenticity**. Before paying $750, get close-ups of the neck/wash tags, stitching, buttons/zippers, and measurements. The images also show extra Supreme tees; I\u2019m assuming those **aren\u2019t included** in the four-piece deal.\n\nI\u2019d say: **offer $700 cash and be willing to settle at $725. Pay $750 only if you\u2019ve already verified the tags and condition.**\n\nUSER: Maybe drop the flannel, honestly\n\nASSISTANT: Yeah, I\u2019d **drop the flannel** unless you specifically love it. At $200, it\u2019s the least compelling piece of the group.\n\nThe remaining three total **$600**:\n\n- Burgundy cargo pant: $100\n- FW23 camo double-knee pant: $300\n- Sea-foam raglan jacket: $200\n\nFor those three, I\u2019d offer:\n\n- **$525:** strong friend price\n- **$550:** fair and reasonable\n- **$575:** maximum I\u2019d want to pay\n- **$600:** only if condition, tags, and fit are all perfect\n\nI\u2019d message:\n\n> \u201cI\u2019m probably going to pass on the flannel. Would you do $550 for the burgundy cargos, camo double knees, and sea-foam raglan?\u201d\n\nIf they counter at **$575**, I\u2019d probably take it.",
+      "summary": "My verdict",
+      "category": "capture",
+      "key": "my-verdict",
+      "type": "takeaway",
+      "id": "sanitized-a6be80d79095",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "## Where it helps DICE\n\n| Paper result | Relevance to DICE |\n|---|---|\n| Full self-attention gives constant sequential path length but **O(L\u00b2d)** per layer, where `L` is sequence length (PDF p. 6, Table 1) | Supports treating context size and retrieval scope as explicit PBCC calibration variables. Global context is not free. |\n| Restricted/local attention reduces computation to approximately **O(rLd)** but increases dependency path length (pp. 6\u20137) | Provides a useful analogy for SET-RBM: sparse/local coordination can reduce communication cost but may impair long-range dependency propagation. DICE should measure that tradeoff rather than assume sparsity is uniformly beneficial. |\n| Decoder masking prevents access to future positions (p. 5) | Supports strict causal evaluation in DICE: an agent must not receive future messages, later-validating evidence, or post-intervention context when evaluating role coherence. |\n| Multi-head attention attends to different representation subspaces (pp. 4\u20135) | Gives background motivation for the bounded open-weight activation-steering subtask, but does **not** establish that any head or subspace represents \u201crole,\u201d \u201cmission,\u201d or \u201calignment.\u201d |\n| Positional encoding is required because the architecture has no recurrence (p. 6) | Reinforces an important PBCC distinction: temporal validity and authority must be explicit provenance metadata, not inferred from token order or context position. Your bi-temporal assertions are the stronger mechanism. |\n\nThis maps particularly well to the current proposal sections on:\n\n- TA1\u2194TA2 coupling and `C_L(d; A)` \u2014 `dice/DICE-Volume-I-DRAFT.md:118-145`\n- PBCC context assembly and monitoring \u2014 `dice/DICE-Volume-I-DRAFT.md:148-163`\n- Distinguishing inter-agent messages from model inference steps \u2014 `dice/DICE-Volume-I-DRAFT.md:180-189`\n- The existing sparsification and calibration strategy \u2014 `dice/DICE-evidence-and-strategy-memo.md:60-85`",
+      "summary": "Where it helps DICE",
+      "category": "capture",
+      "key": "where-it-helps-dice",
+      "type": "root-cause",
+      "id": "sanitized-a96c4225237f",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "### Expected speed\n\nApproximate warm-model decode speeds:\n\n| Model class | Expected speed | Practical verdict |\n|---|---:|---|\n| 7\u20139B, Q4/Q5 | **80\u2013180 tokens/sec** | Very responsive |\n| 12\u201314B, Q4 | **40\u201370 tokens/sec** | Good daily local assistant |\n| 20\u201324B, Q4 | **15\u201335 tokens/sec** | Usable, but memory/context gets tight |\n| 30\u201332B with CPU offload | **3\u201310 tokens/sec** | Usually frustrating |\n\nThese are planning ranges, not guarantees. A llama.cpp benchmark reports roughly **182 tokens/sec** on a 5070 Ti for a 7B Q4 workload, while other reported 5070 Ti tests put a 14B Q4 model around **50\u201360 tokens/sec**. ([llama.cpp benchmark discussion](https://github.com/ggml-org/llama.cpp/discussions/15013), [RTX 5070 Ti model estimates](https://modelfit.io/gpu/rtx-5070-ti/))\n\nFor perspective:\n\n- At **90 tokens/sec**, an 800-token answer takes about **9 seconds**.\n- At **50 tokens/sec**, it takes about **16 seconds**.\n- At **5 tokens/sec**, it takes about **160 seconds**.\n\nThe network connection would usually add only a small amount compared with generation time. The bigger delay is often the model loading from disk, processing a large prompt, or running several agent/tool-call turns.",
+      "summary": "Expected speed",
+      "category": "capture",
+      "key": "expected-speed",
+      "type": "takeaway",
+      "id": "sanitized-5ecb1b244999",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "USER: @file:.hermes/desktop-attachments/1706.03762v7.pdf",
+      "summary": "USER: @file:.hermes/desktop-attachments/1706.03762v7.pdf",
+      "category": "capture",
+      "key": "user-file-hermes-desktop-attachments-1706-03762v7-pdf",
+      "type": "takeaway",
+      "id": "sanitized-189949d3a37a",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "--- Attached Context ---",
+      "summary": "Attached Context ---",
+      "category": "capture",
+      "key": "attached-context",
+      "type": "takeaway",
+      "id": "sanitized-567465e7a634",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "### Reply I would send\n\n> Thanks\u2014potentially interested, but before signing an NDA could you share a few non-confidential details?\n>\n> 1. Sponsoring agency and exact SBIR/STTR solicitation or topic number/link  \n> 2. Submission deadline and whether this is SBIR or STTR  \n> 3. Legal company name and website  \n> 4. One-paragraph non-confidential technical objective and intended use of the watch  \n> 5. Whether this is a consumer product, diagnostic, therapeutic, or FDA-regulated device  \n> 6. Exact role sought, expected proposal and post-award effort, and compensation  \n> 7. Whether you need a PI/key-person commitment, employee, consultant, or subcontractor  \n> 8. Current prototype, test data, and identified hardware/clinical partners  \n> 9. Expected IP ownership and whether the NDA assigns any inventions\n>\n> I do not allow my credentials or r\u00e9sum\u00e9 to be used in an application until the solicitation, company, role, effort, and compensation are confirmed in writing.\n\nIf they cannot provide the **topic number and legal entity** before asking for an NDA, I would drop it.",
+      "summary": "Reply I would send",
+      "category": "capture",
+      "key": "reply-i-would-send",
+      "type": "takeaway",
+      "id": "sanitized-fefa3bebe299",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "Session transcript to distill into durable memories (facts, decisions, corrections, lessons only; skip chit-chat; never include secret values):",
+      "summary": "Session transcript to distill into durable memories (facts, decisions, corrections, lessons only; skip chit-chat; never include secret values):",
+      "category": "capture",
+      "key": "session-transcript-to-distill-into-durable-memories-facts-decisi",
+      "type": "decision",
+      "id": "sanitized-a1225fb2db74",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "Reason: Non-conforming Administrative Volumes. The \"Biographical Sketch\" and \"Other Support\" artifacts for Mark Thrailkill are submitted as blank official forms followed by an internal \"Review Record\" continuation. DARPA requires these forms to be completed directly in the provided templates. Submitting a \"draft review record\" with internal instructions like \"Mark should correct it only if it is inaccurate\" signals an incomplete, unreviewed package.\nReason: Missing Required Section. The Proposal Volume I (Technical) lacks a Table of Contents, which is explicitly listed as a required element in the BAA and template instructions (Template p1, line 15).\n2. Fatal Flaws (Kills the Proposal)\nTechnical Thesis Contradiction: The proposal claims a fully decentralized, P2P coordination mechanism with \"no synchronized shared world model\" (Vol I, p5). However, the \"SET-RBM\" discovery mechanism (Vol I, p7) requires a \"current membership epoch\" to rank peers. In a contested environment with agent loss, membership is global state. Without a synchronization mechanism (which you disclaim), the discovery will fail as agents disagree on the epoch, leading to market clearance failure.\nQualifications / Role Mismatch: You have proposed Mark Thrailkill as a \"Distinguished Engineer\" to perform \"independent technical review of algorithm down-selection\" (Vol I, p13). His submitted Biosketch reveals a B.S. in Psychology and a product list consisting of four placeholder-titled Tableau workbooks (e.g., \"Book1Tsdfrtrhtrh\") from 2018. He lacks the technical credentials to review DARPA-level decentralized AI algorithms. This makes the \"Technical Qualifications\" section (a primary evaluation criterion) a 1/5.\n3. Major Flaws (Score-Lowering)\nTemplate Carry-overs (Sloppiness): Volume I contains multiple template instructions and placeholders, including \"target: 2 pages\" in section headers (pp. 2, 3, 12, 13, 14) and \"Completed draft: [file name]\" (p. 18). This demonstrates a lack of basic QA.\nEvolutionary vs. Revolutionary: The lead TA2 method (PBCC) is framed as applying \"bi-temporal provenance\" to inference context. Bi-temporal logic and provenance are mature, 30-year-old database concepts. Applying them as a wrapper for LLM memory is an engineering refinement, not the \"fundamental science\" DICE seeks. A hostile reviewer will flag this as \"Evolutionary\" (BAA \u00a72.1).\nUnsubstantiated Control Claims: The \"anytime-valid monitor\" for role drift (Vol I, p9) relies on \"calibrated semantic role margins.\" Calibration requires knowing the attack distribution. Since the adversary (TA3) is unknown, your \"anytime-valid\" claim is mathematically unsound\u2014you cannot provide a lower confidence bound without a valid prior or a non-parametric stabilization you haven't described.\nAdministrative False Statement: The FINAL_PACKAGE_AUDIT.json (03_ADMIN) reports mark_biosketch_completed_signed: true. Visual inspection confirms the form is blank, and the signature is a \"conformed\" typed name on a continuation page labeled \"Review Record.\" This audit is factually incorrect.\n4. Minor Flaws (Polish)\nFont Size / Density: Tables in Volume I (e.g., p11) use 8.5pt font. While the BAA allows 8-10pt for tables, the high text density and narrow columns make the five-column \"Threat Model\" table nearly illegible on a standard printout.\nPagination: The cover sheet is labeled \"Page 1,\" but contains text saying it is \"not counted against page limit.\" This creates confusion for the automated or human reviewer tracking the 25-page limit.\nPI Concentration: The PI (Thomas Connally) is the architect/author of both core pillars and carries 800 hours/yr. With a \"planned post-award hire\" doing the actual implementation, the program has a single-point-of-failure risk (Vol I, \u00a74.6).\n5. Top 3 Fixes\nRank\tFix\tExact Rewrite / Action\n1\tForm Compliance\tACTION: Delete the \"Review Record\" pages. Fill the actual PDF fields on pages 1-3 of the CF_Biographical_Sketch and CF_Other_Support templates. Sign them with a certified digital signature or wet-ink scan, not a typed /Name/.\n2\tTechnical Coherence\tREWRITE (Vol I, p7): \"SET-RBM discovery utilizes a Byzantine-tolerant membership gossip protocol to maintain a loose, eventually consistent view of the collective, enabling rendezvous ranking without global synchronization.\"\n3\tCleanup\tACTION: Remove all \"target:\" text from headers. Delete the internal drafting note on Page 18: [Completed draft: OT-Certifications-Perseus-DICE-filled.docx.]. Add a formal Table of Contents after the Transmittal Letter.\n6. Competitor Threat Assessment\nThe \"Academic Powerhouse\" Profile: A team led by a PI from a top-tier Multi-Agent Systems lab (e.g., CMU/Safe AI, MIT/CSAIL) partnered with a formal-methods startup.",
+      "summary": "Reason: Non-conforming Administrative Volumes. The \"Biographical Sketch\" and \"Other Support\" artifacts for Mark Thrailkill are submitted as blank official forms",
+      "category": "capture",
+      "key": "reason-non-conforming-administrative-volumes-the-biographical-sk",
+      "type": "pitfall",
+      "id": "sanitized-f35ce5f6f48d",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "## Important limitation\n\nDo **not** use this paper to imply that Transformers establish:\n\n- decentralized coordination;\n- multi-agent self-organization;\n- Byzantine resilience;\n- provenance-based control;\n- role coherence;\n- inference-time assurance; or\n- DICE\u2019s proposed `O(n)` inter-agent communication target.\n\nThe paper\u2019s `O(n\u00b2d)` result concerns **token-level attention inside one model**. DICE\u2019s `O(n\u00b2) \u2192 O(n log n) \u2192 O(n)` target concerns **inter-agent coordination messages**. Those are different units and different complexity claims. A reviewer could penalize us for conflating them.\n\nAlso, the paper\u2019s empirical results are machine translation and parsing results\u2014not contested multi-agent missions. Its attention visualizations show that some heads *appear* to track syntactic relationships, but they are not a role-alignment or safety certificate.",
+      "summary": "Important limitation",
+      "category": "capture",
+      "key": "important-limitation",
+      "type": "takeaway",
+      "id": "sanitized-50c479139c8a",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "This adversarial review identifies significant risks and non-compliance issues that would likely lead to this proposal being screened out or scored below the awardable threshold.",
+      "summary": "This adversarial review identifies significant risks and non-compliance issues that would likely lead to this proposal being screened out or scored below the aw",
+      "category": "capture",
+      "key": "this-adversarial-review-identifies-significant-risks-and-non-com",
+      "type": "takeaway",
+      "id": "sanitized-b9acb21b7261",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "\ud83d\udcce @file:`.hermes/desktop-attachments/context engineering.pdf` (application/pdf, 1.1 MB) \u2014 binary file, not inlined as text. It is available on disk at `[REDACTED:absolute_path] engineering.pdf`. Use your tools to work with it (read or convert it, extract its text, or view/render it as needed); do not tell the user the file type is unsupported.",
+      "summary": "\ud83d\udcce @file:`.hermes/desktop-attachments/context engineering.pdf` (application/pdf, 1.1 MB) \u2014 binary file, not inlined as text. It is available on disk at `[REDACTED:absolute_path]",
+      "category": "capture",
+      "key": "file-hermes-desktop-attachments-context-engineering-pdf-applicat",
+      "type": "takeaway",
+      "id": "sanitized-a740b4b803fc",
+      "source_kind": "sanitized-local-vault-replay",
+      "redactions": [
+        "content:absolute_path",
+        "summary:absolute_path"
+      ]
+    },
+    {
+      "content": "USER: somebody is actually using our shit! let's fix it",
+      "summary": "USER: somebody is actually using our shit! let's fix it",
+      "category": "capture",
+      "key": "user-somebody-is-actually-using-our-shit-let-s-fix-it",
+      "type": "takeaway",
+      "id": "sanitized-ab2cd2a8ae4e",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "Which of these papers should I download for you? Give me any and all that could be relevent to/for Perseus Computing or any of our products.",
+      "summary": "Which of these papers should I download for you? Give me any and all that could be relevent to/for Perseus Computing or any of our products.",
+      "category": "capture",
+      "key": "which-of-these-papers-should-i-download-for-you-give-me-any-and",
+      "type": "takeaway",
+      "id": "sanitized-a9957999d277",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "### Our fit\n\nThe evidence we have supports Perseus as a **software, distributed-AI, context, and simulation company**, not as an embedded-hardware shop:\n\n- Perseus is documented as a local context/MCP software product: `[REDACTED:absolute_path]`.\n- Our counter-swarm work explicitly identifies SWaP-C and platform integration as gaps, with simulation rather than payload-constrained hardware evidence: `[REDACTED:absolute_path]`.\n- That work also states that Phase I needs no special tooling and defers hardware demonstration to Phase II: `...counter-swarm-proposal-plan.md:45-46`.\n\nSo the honest posture is:\n\n- **As hardware/embedded prime:** no-go.\n- **As the named electrical/computer engineer covering the whole list:** no-go unless there is actual, documented experience we have not yet seen.\n- **As a bounded software/edge-AI/data-evaluation contributor:** possible, but only with a real hardware lead, a specific responsive topic, defined compensation, and a written scope.",
+      "summary": "Our fit",
+      "category": "capture",
+      "key": "our-fit",
+      "type": "takeaway",
+      "id": "sanitized-b3f2decb3907",
+      "source_kind": "sanitized-local-vault-replay",
+      "redactions": [
+        "content:absolute_path"
+      ]
+    },
+    {
+      "content": "## If \u201cComputing\u201d also means the runtime/accelerator side\n\nI would separately pull:\n\n- **[Agentic CPU-GPU Scheduling for Heterogeneous AI Workloads \u2014 arXiv:2607.22242](https://arxiv.org/abs/2607.22242)**\n- **[ArchEval: Measuring AI Agents as Computer Architects \u2014 arXiv:2607.03601](https://arxiv.org/abs/2607.03601)**\n\nThose are less central to Vault today, but potentially relevant to a future Perseus runtime that schedules heterogeneous model and tool workloads.\n\n**If you only want to pull five more PDFs:** TRACE, MemStrata, MOSS, Presentation/Not Mechanism, and CAGE-1. For the security-heavy NSF/control path, substitute Token-Flow Firewall or Memory Poisoning for MOSS.",
+      "summary": "If \u201cComputing\u201d also means the runtime/accelerator side",
+      "category": "capture",
+      "key": "if-computing-also-means-the-runtime-accelerator-side",
+      "type": "takeaway",
+      "id": "sanitized-f9ed89da45b5",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "USER: @file:`.hermes/desktop-attachments/context engineering.pdf`",
+      "summary": "USER: @file:`.hermes/desktop-attachments/context engineering.pdf`",
+      "category": "capture",
+      "key": "user-file-hermes-desktop-attachments-context-engineering-pdf",
+      "type": "takeaway",
+      "id": "sanitized-6db748186ce8",
+      "source_kind": "sanitized-local-vault-replay"
+    },
+    {
+      "content": "@url:`https://www.google.com/url?q=https://github.com/Perseus-Computing-LLC/perseus-vault/pull/819&source=gmail&ust=1785755311971000&sa=E`",
+      "summary": "@url:`https://www.google.com/url?q=https://github.com/Perseus-Computing-LLC/perseus-vault/pull/819&source=gmail&ust=1785755311971000&sa=E`",
+      "category": "capture",
+      "key": "url-https-www-google-com-url-q-https-github-com-perseus-computin",
+      "type": "takeaway",
+      "id": "sanitized-1da9c697cd75",
+      "source_kind": "sanitized-local-vault-replay"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+[
+  {"id":"p01","category":"capture","key":"where-it-would-be-useful","query":"local-repository","required_terms":["private documents","local-repository exploration"]},
+  {"id":"p02","category":"capture","key":"why-i-m-cautious","query":"solicitation/topic","required_terms":["not yet an SBIR opportunity","solicitation"]},
+  {"id":"p03","category":"capture","key":"where-it-helps-dice","query":"self-attention","required_terms":["context size","retrieval scope"]},
+  {"id":"p04","category":"capture","key":"our-fit","query":"distributed-ai","required_terms":["context/MCP software","software"]},
+  {"id":"p05","category":"capture","key":"important-limitation","query":"byzantine resilience","required_terms":["Do not use this paper","decentralized coordination"]},
+  {"id":"p06","category":"capture","key":"expected-speed","query":"warm-model","required_terms":["tokens/sec","warm-model"]}
+]

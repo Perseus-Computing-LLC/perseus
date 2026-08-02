@@ -23,6 +23,7 @@ Key features:
   - Source-tagged memory items (local vs Vault)
 """
 # stdlib imports available from build artifact header
+import copy
 import hashlib
 import json
 import os
@@ -260,12 +261,67 @@ def apply_serving_profile(items: list[MemoryHit], profile: str, workspace_hash: 
     return selected, {"profile": profile, "included_ids": [i.id for i in selected], "excluded_ids": [i.id for i in excluded]}
 
 
-def apply_recall_budget(items: list[MemoryHit], max_chars: int) -> tuple[list[MemoryHit], dict[str, object]]:
-    """Select high-signal recall hits under a character budget (#863).
+_LOAD_BEARING_MEMORY_CATEGORIES = frozenset({
+    "constraint",
+    "contradiction",
+    "correction",
+    "keystone",
+    "policy",
+    "prohibition",
+})
 
-    Lower-relevance content is trimmed first. A single oversized leading hit is
-    retained as a concise explanation rather than discarded, preserving a
-    drill-down-capable identifier while preventing bulk injection.
+
+def _is_load_bearing_memory(item: MemoryHit) -> bool:
+    """Return whether a memory must outrank ordinary relevance under pressure.
+
+    These categories encode the details most dangerous to lose during a lossy
+    context reduction pass: corrections, prohibitions, constraints, policy,
+    explicit contradictions, and operator-pinned keystones. This is a serving
+    policy only; it never changes Vault ranking or stored memory.
+    """
+    return item.category in _LOAD_BEARING_MEMORY_CATEGORIES
+
+
+def _decoder_ref(item: MemoryHit) -> dict[str, object]:
+    """Build a content-free drill-down reference for omitted memory content.
+
+    The reference intentionally carries identifiers and source metadata only.
+    It is safe to place in a budget diagnostic and lets a consumer fetch the
+    original entity instead of treating a compact explanation as the whole
+    memory.
+    """
+    refs = []
+    for ref in item.external_refs or []:
+        if not isinstance(ref, dict):
+            continue
+        projected = {
+            key: ref[key]
+            for key in ("ref_type", "ref_value", "relationship")
+            if isinstance(ref.get(key), str) and ref[key]
+        }
+        if projected:
+            refs.append(projected)
+    source_ids = (item.why_served or {}).get("source_evidence_ids", [])
+    if not isinstance(source_ids, list):
+        source_ids = []
+    return {
+        "id": item.id,
+        "category": item.category,
+        "key": item.key,
+        "external_refs": refs,
+        "source_evidence_ids": [value for value in source_ids if isinstance(value, str)],
+    }
+
+
+def apply_recall_budget(items: list[MemoryHit], max_chars: int) -> tuple[list[MemoryHit], dict[str, object]]:
+    """Select served memory under a character budget without losing the decoder.
+
+    Ordinary memories are ranked by relevance. Load-bearing categories are
+    considered first so a low-relevance correction or keystone is not displaced
+    by a more topical but disposable memory. Entries that do not fit are kept
+    in a content-free ``decoder_refs`` diagnostic, and an oversized leading hit
+    is shortened on a shallow copy so the source hit remains unchanged for
+    later drill-down.
     """
     budget = max(1, int(max_chars))
     # Connector integration tests and third-party connectors may provide
@@ -276,13 +332,34 @@ def apply_recall_budget(items: list[MemoryHit], max_chars: int) -> tuple[list[Me
             "budget_chars": budget, "spent_chars": 0,
             "included_ids": [], "trimmed_ids": [],
             "demoted_to_explanation_ids": [], "budget_exhausted": False,
+            "load_bearing_ids": [], "decoder_refs": [],
         }
     selected: list[MemoryHit] = []
     included_ids: list[str] = []
     trimmed_ids: list[str] = []
     demoted_ids: list[str] = []
+    load_bearing_ids = [item.id for item in items if _is_load_bearing_memory(item)]
+    decoder_refs: list[dict[str, object]] = []
     spent = 0
-    for item in sorted(items, key=lambda hit: hit.relevance, reverse=True):
+    load_bearing = [
+        (index, item) for index, item in enumerate(items)
+        if _is_load_bearing_memory(item)
+    ]
+    ordinary = [
+        (index, item) for index, item in enumerate(items)
+        if not _is_load_bearing_memory(item)
+    ]
+    # Preserve the existing relevance ordering in the normal, no-pressure
+    # case. Only when the budget cannot fit every item do load-bearing entries
+    # move ahead of ordinary candidates.
+    if sum(len(item.content or item.summary) for item in items) <= budget:
+        ordered_items = sorted(items, key=lambda item: item.relevance, reverse=True)
+    else:
+        ordered_items = [item for _index, item in sorted(
+            load_bearing + ordinary,
+            key=lambda pair: (not _is_load_bearing_memory(pair[1]), -pair[1].relevance, pair[0]),
+        )]
+    for item in ordered_items:
         text = item.content or item.summary
         size = len(text)
         if spent + size <= budget:
@@ -292,14 +369,17 @@ def apply_recall_budget(items: list[MemoryHit], max_chars: int) -> tuple[list[Me
             continue
         if not selected:
             concise = (item.summary or item.content)[: max(1, budget - 2)].rstrip() + "…"
-            item.content = concise
-            item.summary = concise
-            selected.append(item)
+            explanation = copy.copy(item)
+            explanation.content = concise
+            explanation.summary = concise
+            selected.append(explanation)
             included_ids.append(item.id)
             demoted_ids.append(item.id)
+            decoder_refs.append(_decoder_ref(item))
             spent += len(concise)
         else:
             trimmed_ids.append(item.id)
+            decoder_refs.append(_decoder_ref(item))
     return selected, {
         "budget_chars": budget,
         "spent_chars": spent,
@@ -307,6 +387,8 @@ def apply_recall_budget(items: list[MemoryHit], max_chars: int) -> tuple[list[Me
         "trimmed_ids": trimmed_ids,
         "demoted_to_explanation_ids": demoted_ids,
         "budget_exhausted": bool(trimmed_ids or demoted_ids),
+        "load_bearing_ids": load_bearing_ids,
+        "decoder_refs": decoder_refs,
     }
 
 
@@ -2650,10 +2732,16 @@ def _recall_budget_diagnostic(diagnostics: dict[str, object]) -> str:
     """Compact, debug-safe budget trace appended only when pressure occurred."""
     if not diagnostics.get("budget_exhausted"):
         return ""
+    decoder_ids = [
+        str(ref.get("id"))
+        for ref in diagnostics.get("decoder_refs", [])
+        if isinstance(ref, dict) and ref.get("id")
+    ]
     return (
         "\n<!-- recall-budget: included=" + ",".join(diagnostics["included_ids"])
         + " trimmed=" + ",".join(diagnostics["trimmed_ids"])
         + " demoted=" + ",".join(diagnostics["demoted_to_explanation_ids"])
+        + " decoder_ids=" + ",".join(decoder_ids)
         + " -->"
     )
 

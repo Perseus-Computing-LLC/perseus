@@ -1,0 +1,162 @@
+{
+  "benchmark": "perseus-real-vault-semantic-probes",
+  "version": 1,
+  "real_vault": true,
+  "offline": true,
+  "network_calls": 0,
+  "measurement_only": true,
+  "binary": "perseus-vault",
+  "budget_chars": 640,
+  "corpus": {
+    "items": 24
+  },
+  "probes": {
+    "count": 6,
+    "summary": {
+      "count": 6,
+      "hit_at_5": 1.0,
+      "mrr": 1.0,
+      "production_task_resumption": 0.8333,
+      "production_decoder_coverage": 0.0,
+      "legacy_task_resumption": 0.8333,
+      "legacy_decoder_coverage": 0.0
+    },
+    "rows": [
+      {
+        "probe_id": "p01",
+        "target": "capture/where-it-would-be-useful",
+        "rank": 1,
+        "hit_at_5": true,
+        "production": {
+          "task_resumption": 1.0,
+          "decoder_coverage": 0.0,
+          "selected_item_fraction": 1.0,
+          "prompt_tokens": 159,
+          "uncompressed_tokens": 183
+        },
+        "legacy": {
+          "task_resumption": 1.0,
+          "decoder_coverage": 0.0,
+          "selected_item_fraction": 1.0,
+          "prompt_tokens": 159,
+          "uncompressed_tokens": 183
+        }
+      },
+      {
+        "probe_id": "p02",
+        "target": "capture/why-i-m-cautious",
+        "rank": 1,
+        "hit_at_5": true,
+        "production": {
+          "task_resumption": 1.0,
+          "decoder_coverage": 0.0,
+          "selected_item_fraction": 1.0,
+          "prompt_tokens": 159,
+          "uncompressed_tokens": 724
+        },
+        "legacy": {
+          "task_resumption": 1.0,
+          "decoder_coverage": 0.0,
+          "selected_item_fraction": 1.0,
+          "prompt_tokens": 159,
+          "uncompressed_tokens": 724
+        }
+      },
+      {
+        "probe_id": "p03",
+        "target": "capture/where-it-helps-dice",
+        "rank": 1,
+        "hit_at_5": true,
+        "production": {
+          "task_resumption": 1.0,
+          "decoder_coverage": 0.0,
+          "selected_item_fraction": 1.0,
+          "prompt_tokens": 159,
+          "uncompressed_tokens": 483
+        },
+        "legacy": {
+          "task_resumption": 1.0,
+          "decoder_coverage": 0.0,
+          "selected_item_fraction": 1.0,
+          "prompt_tokens": 159,
+          "uncompressed_tokens": 483
+        }
+      },
+      {
+        "probe_id": "p04",
+        "target": "capture/our-fit",
+        "rank": 1,
+        "hit_at_5": true,
+        "production": {
+          "task_resumption": 1.0,
+          "decoder_coverage": 0.0,
+          "selected_item_fraction": 1.0,
+          "prompt_tokens": 159,
+          "uncompressed_tokens": 245
+        },
+        "legacy": {
+          "task_resumption": 1.0,
+          "decoder_coverage": 0.0,
+          "selected_item_fraction": 1.0,
+          "prompt_tokens": 159,
+          "uncompressed_tokens": 245
+        }
+      },
+      {
+        "probe_id": "p05",
+        "target": "capture/important-limitation",
+        "rank": 1,
+        "hit_at_5": true,
+        "production": {
+          "task_resumption": 0.0,
+          "decoder_coverage": 0.0,
+          "selected_item_fraction": 0.5,
+          "prompt_tokens": 159,
+          "uncompressed_tokens": 1398
+        },
+        "legacy": {
+          "task_resumption": 0.0,
+          "decoder_coverage": 0.0,
+          "selected_item_fraction": 0.5,
+          "prompt_tokens": 159,
+          "uncompressed_tokens": 1398
+        }
+      },
+      {
+        "probe_id": "p06",
+        "target": "capture/expected-speed",
+        "rank": 1,
+        "hit_at_5": true,
+        "production": {
+          "task_resumption": 1.0,
+          "decoder_coverage": 0.0,
+          "selected_item_fraction": 1.0,
+          "prompt_tokens": 159,
+          "uncompressed_tokens": 299
+        },
+        "legacy": {
+          "task_resumption": 1.0,
+          "decoder_coverage": 0.0,
+          "selected_item_fraction": 1.0,
+          "prompt_tokens": 159,
+          "uncompressed_tokens": 299
+        }
+      }
+    ]
+  },
+  "methods": {
+    "production": {
+      "task_resumption": 0.8333,
+      "decoder_coverage": 0.0
+    },
+    "legacy": {
+      "task_resumption": 0.8333,
+      "decoder_coverage": 0.0
+    }
+  },
+  "gate": {
+    "pass": null
+  },
+  "probe_replay_signature": "54ce766e9910e60c78e788b5947f6219f577a26d8536ea610a8b268a280b51a6",
+  "signature_sha256": "7e48b95fd23677b07c61f9939070cc13b23c78089920f9c9aa5eb7a7f5c3e915"
+}

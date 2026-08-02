@@ -1,0 +1,40 @@
+{
+  "benchmark": "perseus-real-vault-semantic-density",
+  "version": 1,
+  "offline": true,
+  "cases": [
+    {
+      "id": "deployment-handoff",
+      "query": "",
+      "budget_chars": 110,
+      "items": [
+        {"category":"observation","key":"deploy-status","content":"The staging deployment is green and the service is responding to health checks.","relevance":0.99},
+        {"category":"correction","key":"deploy-boundary","content":"Do not deploy from this workspace until the signed release artifact has passed the quality gate.","relevance":0.05,"source_evidence_ids":["mem-release-evidence"],"external_refs":[{"ref_type":"repo","ref_value":"github:Perseus-Computing-LLC/perseus"}]}
+      ],
+      "required_facts":["signed release artifact","quality gate"],
+      "load_bearing_ids":["correction/deploy-boundary"]
+    },
+    {
+      "id": "private-evidence",
+      "query": "",
+      "budget_chars": 120,
+      "items": [
+        {"category":"insight","key":"context-summary","content":"The investigation concerns the current release candidate and its test results.","relevance":0.98},
+        {"category":"prohibition","key":"private-evidence-boundary","content":"Never expose private evidence or credential values in a handoff.","relevance":0.02,"source_evidence_ids":["mem-private-source"],"external_refs":[{"ref_type":"repo","ref_value":"github:Perseus-Computing-LLC/perseus"}]}
+      ],
+      "required_facts":["Never expose private evidence"],
+      "load_bearing_ids":["prohibition/private-evidence-boundary"]
+    },
+    {
+      "id": "operator-policy",
+      "query": "",
+      "budget_chars": 125,
+      "items": [
+        {"category":"observation","key":"release-note","content":"The release notes summarize the changes in the latest candidate.","relevance":0.97},
+        {"category":"keystone","key":"release-quality-gate","content":"Every release requires a passing quality gate before publication.","relevance":0.03,"source_evidence_ids":["mem-quality-source"],"external_refs":[{"ref_type":"repo","ref_value":"github:Perseus-Computing-LLC/perseus"}]}
+      ],
+      "required_facts":["passing quality gate"],
+      "load_bearing_ids":["keystone/release-quality-gate"]
+    }
+  ]
+}
