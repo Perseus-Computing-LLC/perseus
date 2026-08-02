@@ -3,7 +3,7 @@
 import argparse, json
 from pathlib import Path
 
-EXPECTED = "perseus-Perseus Vaultory-quality-scorecard/v1"
+EXPECTED = "perseus-vault-memory-quality-scorecard/v1"
 
 def validate(scorecard: dict) -> list[str]:
     errors=[]
