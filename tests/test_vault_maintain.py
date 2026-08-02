@@ -16,7 +16,7 @@ class _FakeProc:
 
 def test_vault_maintain_builds_argv_and_propagates_rc(monkeypatch):
     calls = {}
-    monkeypatch.setattr(perseus, "_find_mimir_binary", lambda cmd: "/fake/perseus-vault")
+    monkeypatch.setattr(perseus, "_find_vault_binary", lambda cmd: "/fake/perseus-vault")
 
     def fake_run(argv, check=False):
         calls["argv"] = argv
@@ -33,7 +33,7 @@ def test_vault_maintain_builds_argv_and_propagates_rc(monkeypatch):
 
 def test_vault_maintain_vacuum_flag_and_default_db(monkeypatch):
     calls = {}
-    monkeypatch.setattr(perseus, "_find_mimir_binary", lambda cmd: "/fake/perseus-vault")
+    monkeypatch.setattr(perseus, "_find_vault_binary", lambda cmd: "/fake/perseus-vault")
     monkeypatch.setattr(
         perseus.subprocess, "run", lambda argv, check=False: calls.setdefault("argv", argv) and _FakeProc() or _FakeProc()
     )
@@ -45,7 +45,7 @@ def test_vault_maintain_vacuum_flag_and_default_db(monkeypatch):
 
 
 def test_vault_maintain_missing_binary_errors_cleanly(monkeypatch, capsys):
-    monkeypatch.setattr(perseus, "_find_mimir_binary", lambda cmd: None)
+    monkeypatch.setattr(perseus, "_find_vault_binary", lambda cmd: None)
     args = SimpleNamespace(dry_run=False, vacuum=False)
     rc = perseus.cmd_vault_maintain(args, {})
     assert rc == 1

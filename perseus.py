@@ -32,7 +32,7 @@ import subprocess
 import sys
 
 # Windows charset compat: Perseus emits non-cp1252 text in help,
-# prompts, and rendered output (e.g. 'Mnēmē', '📌').
+# prompts, and rendered output (e.g. 'Perseus Vault', '📌').
 # Without this, `perseus --help` itself crashes on a fresh Windows install.
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "2815f6f-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "dcba5c0-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -288,9 +288,9 @@ DEFAULT_CONFIG = {
         "auto_update": True,        # update narrative on every checkpoint write
         "compact_threshold": 20,    # advisory: compact after this many incremental updates
         "max_narrative_lines": 300, # warn (not error) if narrative grows beyond this
-        # Mnēmē v2 — Perseus-native vault (SQLite FTS5, no Mneme v2 dependency)
-        "mneme_vault_path": "",     # empty = auto-detect ($PERSEUS_HOME/memory/vault/)
-        "mneme_index_path": "",     # empty = vault_path / "mneme.index"
+        # Perseus Vault v2 — Perseus-native vault (SQLite FTS5, no Vault v2 dependency)
+        "vault_path": "",     # empty = auto-detect ($PERSEUS_HOME/memory/vault/)
+        "vault_index_path": "",     # empty = vault_path / "vault.index"
         # task-19 (Phase 8.2) — federation manifest path
         "federation_manifest": str(PERSEUS_HOME / "memory" / "federation.yaml"),
         # Pattern extraction is always deterministic (rule-based, no model) —
@@ -325,16 +325,12 @@ DEFAULT_CONFIG = {
         "claude-sonnet-4-6": {"context_target": 200000,  "memory": "on_demand"},
         "claude-opus-4-8":   {"context_target": 1000000, "memory": "on_demand"},  # big window is not an excuse to bloat
     },
-    # Perseus Vault persistent memory (MCP binary; formerly "Mimir"/"Mneme").
-    # #662/#665: the canonical config key is now `perseus_vault:` and this
-    # default is emitted under it (legacy `mimir:`/`mneme:` keys are still
-    # ACCEPTED on read — see _resolve_mneme_config, which checks perseus_vault
-    # first). The default command carries NO `--db` argument: the perseus-vault
-    # binary self-resolves its canonical default DB path, so omitting it avoids
-    # path drift. The install ships only a `perseus-vault` binary (no `mimir`).
+    # Perseus Vault persistent memory (MCP binary).
+    # The canonical configuration key is `perseus_vault:` and the default
+    # command is the `perseus-vault` executable.
     "perseus_vault": {
         "enabled": True,
-        "auto_inject": True,             # Allow the automatic memory section (pointer or dump per profile posture); set False to require an explicit @memory/@mimir directive (#442). NOTE (#608): whether a pre-materialized dump is injected is now governed by the active profile's `memory` posture — on_demand (default) injects only a retrieval pointer.
+        "auto_inject": True,             # Allow the automatic memory section (pointer or dump per profile posture); set False to require an explicit @memory/@vault directive (#442). NOTE (#608): whether a pre-materialized dump is injected is now governed by the active profile's `memory` posture — on_demand (default) injects only a retrieval pointer.
         "workspace_scope": True,         # #553: pass the workspace hash to vault recall calls that support it, so unrelated workspaces don't share one undifferentiated memory pool at the render layer
         "transport": "stdio",            # "stdio" (local binary) or "sse" (remote endpoint)
         "command": ["perseus-vault", "serve"],
@@ -342,7 +338,7 @@ DEFAULT_CONFIG = {
         "timeout_s": 10.0,
         "merge_strategy": "local_first", # local_first | remote_first | interleave | decay_first
         "decay_priority_weight": 0.4,    # weight of decay_score in merge ordering (0.0–1.0)
-        "fallback_to_local": True,       # Use Mnēmē FTS5 when Mimir is unreachable
+        "fallback_to_local": True,       # Use Perseus Vault FTS5 when Vault is unreachable
         "circuit_breaker": {
             "threshold": 3,              # Consecutive failures before opening
             "cooldown": 120,             # Seconds before attempting recovery
@@ -1379,7 +1375,7 @@ class DirectiveSpec(NamedTuple):
     diagnostic_fn: "Callable | None" = None  # Optional per-directive LSP diagnostic (task-25)
     source: str = "builtin"             # task-65: "builtin" for shipped specs, "plugin" for ~/.perseus/plugins/*.py
     tier: int = 1                       # Context tier: 1=always, 2=conditional, 3=on-demand
-    is_semantic_hint: bool = False       # If True, the directive's value is a valid search hint for Mneme
+    is_semantic_hint: bool = False       # If True, the directive's value is a valid search hint for Vault
 
 
 # NOTE: resolver references are forward-declared as strings and bound after
@@ -1394,7 +1390,7 @@ def _bind_registry() -> None:
         # Tier 1 — Always (lightweight, core context)
         DirectiveSpec("@date",      resolve_date,      ["format="],                "inline",  "a",   cacheable=False, safe_for_hover=True, summary="Current date/time", output_schema={"type": "str", "pattern": ".+"}, tier=1),
         DirectiveSpec("@waypoint",  resolve_waypoint,  ["ttl="],                   "inline",  "ac",  reads_files=True, cacheable=True, summary="Return the most recent session checkpoint: what was being worked on, status, and next steps. Use at session start to resume where you left off. Stale after TTL (default 24h). Read-only; lightweight — call freely.", tier=1),
-        DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "limit=", "force=", "federation", "include_federation=", "alias=", "workspace=", "project=", "max_tokens="], "inline", "acw", reads_files=True, cacheable=True, summary="Search LOCAL project memory (FTS5, zero-network) for past decisions and architecture notes. Use for in-workspace recall. For cross-session persistent facts, use perseus_mneme instead. Read-only; returns results array with mode and count.", tier=1, is_semantic_hint=True),
+        DirectiveSpec("@memory",    resolve_memory,    ["mode=", "query=", "scope=", "k=", "type=", "render=", "focus=", "limit=", "force=", "federation", "include_federation=", "alias=", "workspace=", "project=", "max_tokens="], "inline", "acw", reads_files=True, cacheable=True, summary="Search LOCAL project memory (FTS5, zero-network) for past decisions and architecture notes. Use for in-workspace recall. For cross-session persistent facts, use perseus_vault instead. Read-only; returns results array with mode and count.", tier=1, is_semantic_hint=True),
         DirectiveSpec("@auto-skill", resolve_auto_skill, ["skill="],              "inline",  "ac",  cacheable=True,  safe_for_hover=True, summary="Instruct the agent to load a specific skill before starting work. Use at the top of context documents to enforce critical hygiene skills (e.g., memory-hygiene, agent-safety). Renders as a mandatory instruction block. Read-only.", tier=1),
         DirectiveSpec("@profile",   resolve_profile,   ["model="],                 "inline",  "acw", cacheable=False, safe_for_hover=True, summary="Select the per-model context profile for this document (#608): sets the context target and memory posture (on_demand/relevant/always) used by the automatic memory injection layer. Use at the top of a context document, e.g. @profile claude-sonnet-4-6. Unknown names fall back to the default profile. First-wins (#627): with multiple @profile lines only the first non-fenced one governs — later banners are marked ignored, and @profile inside a code fence is documentation, never a directive. Read-only.", tier=1),
         DirectiveSpec("@health",    resolve_health,    [],                         "inline",  "acw", reads_files=True, summary="Audit workspace context health: stale skills, duplicate tasks, oversized output. Use before starting work to catch drift. For deep Daedalus heuristics (cache, directive stats), use perseus_get_health. Read-only; returns status enum and metric counts.", tier=1),
@@ -1406,14 +1402,14 @@ def _bind_registry() -> None:
         DirectiveSpec("@services",  resolve_services,  [],                         "block",   "block", executes_shell=True, safe_for_hover=False, summary="Health-check all services listed in the workspace context (HTTP endpoints, Docker containers, shell commands). Use to verify the environment is healthy before starting work. May make network calls and execute shell commands per service definition — side effects depend on configured checks.", tier=2),
         DirectiveSpec("@skills",    resolve_skills,    ["flag_stale=", "category=", "limit="], "inline", "ac", reads_files=True, cacheable=True, summary="List available skills with descriptions and freshness status. Use to discover what capabilities are installed. Filter by category for smaller output. Read-only; stale skills flagged automatically.", tier=2),
         DirectiveSpec("@session",   resolve_session,   ["count="],                 "inline",  "ac",  reads_files=True, cacheable=True, summary="List recent session digests with task summaries and outcomes. Use to understand what was done recently across sessions. For the single most recent checkpoint, prefer perseus_waypoint. Read-only; returns session array with count.", tier=2),
-        DirectiveSpec("@focus",     resolve_focus,     ["add=", "pin=", "unpin=", "drop=", "touch=", "clear=", "weight=", "source="], "inline", "acw", mutates_state=True, cacheable=False, summary="The global-workspace tier: a small, capacity-bounded (default 32), salience-ranked set of items Perseus broadcasts into context — the shared 'what I'm working on now' set for the agent and its subagents. With no args, renders the current working set. add=/pin= admit items; the lowest-salience non-pinned items are evicted when it overflows. Distinct from long-term recall (@mimir/@memory): bounded and actively maintained, not unbounded memory.", tier=1),
+        DirectiveSpec("@focus",     resolve_focus,     ["add=", "pin=", "unpin=", "drop=", "touch=", "clear=", "weight=", "source="], "inline", "acw", mutates_state=True, cacheable=False, summary="The global-workspace tier: a small, capacity-bounded (default 32), salience-ranked set of items Perseus broadcasts into context — the shared 'what I'm working on now' set for the agent and its subagents. With no args, renders the current working set. add=/pin= admit items; the lowest-salience non-pinned items are evicted when it overflows. Distinct from long-term recall (@vault/@memory): bounded and actively maintained, not unbounded memory.", tier=1),
         DirectiveSpec("@agora",     resolve_agora,     ["status="],                "inline",  "acw", reads_files=True, cacheable=True, summary="List tasks from the project task board (tasks/*.md files). Use to see what is open, in progress, or completed. Filter by status. Read-only; returns task array with id, title, status, scope.", tier=2),
         DirectiveSpec("@inbox",     resolve_inbox,     ["unread=", "limit="],      "inline",  "acw", reads_files=True, cacheable=True, summary="Read agent-to-agent messages from the workspace inbox. Use to check for coordination messages from other agents. Filter to unread only. Read-only; returns message array with read/unread status.", tier=2),
         DirectiveSpec("@capture",   resolve_capture,   ["limit="],                 "inline",  "acw", reads_files=True, mutates_state=True, cacheable=False, safe_for_hover=False, summary="Write recent session checkpoints to Perseus Vault as durable memories (#713) — the write side of the memory loop, symmetric to @memory recall. Idempotent per checkpoint (re-render upserts, never duplicates). Use at session boundaries so lessons persist immediately instead of waiting for a scheduled harvest. WRITES to the vault; never cached.", tier=2),
         DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Detect drift between predicted and actual tool usage patterns via the Pythia oracle. Use when tool behavior seems off or after config changes. For workspace hygiene checks, prefer perseus_health. Read-only; returns a markdown drift report.", tier=2),
         DirectiveSpec("@context-diff", resolve_context_diff, ["reset="],          "inline",  "acw", reads_files=True, mutates_state=True, cacheable=False, safe_for_hover=False, summary="Render a compact 'Since last session' delta (#714): git branch/commits, Agora task-board changes, new inbox messages, new checkpoints, and new vault session memories since the last recorded snapshot. Use at the top of a context document so the assistant spends zero turns re-orienting on unchanged state. Maintains its own per-workspace snapshot (refresh debounced by render.context_diff_min_age_s); reset=true forces a new baseline. Never cached.", tier=1),
         DirectiveSpec("@perseus",   resolve_perseus,   ["url="],                         "inline",  "acw", cacheable=True, safe_for_hover=False, summary="Fetch rendered context from a remote Perseus instance by URL. Use to pull live workspace state from another machine or container. Read-only; caches results — re-fetch when remote state may have changed.", tier=2),
-        DirectiveSpec("@mimir",    resolve_mimir,    ["query=", "scope=", "k=", "type="], "inline", "acw", safe_for_hover=True, summary="Query the EXTERNAL Mneme memory server for cross-session, curated facts that survive across workspaces. Use for long-lived knowledge (bug patterns, design decisions). For fast local recall, prefer perseus_memory. Read-only; falls back to local FTS5 if Mneme is unreachable. (Also exposed as perseus_mneme; perseus_mimir is a deprecated alias.)", tier=2, is_semantic_hint=True),
+        DirectiveSpec("@vault",    resolve_vault,    ["query=", "scope=", "k=", "type="], "inline", "acw", safe_for_hover=True, summary="Query Perseus Vault for scoped, durable context. Read-only; falls back to the local Vault FTS5 index when the service is unavailable.", tier=2, is_semantic_hint=True),
 
         # Tier 3 — On-demand (bulky, expensive)
         DirectiveSpec("@query",     resolve_query,     ["command=", "fallback=", "schema="],   "inline",  "acw", executes_shell=True,  safe_for_hover=False, cacheable=True,  summary="Run a shell command in the workspace and embed its stdout into the rendered context. Use for dynamic facts: git status, docker ps, system info. REQUIRES allow_query_shell=true and PERSEUS_ALLOW_DANGEROUS=1. Destructive — executes arbitrary commands with the user's permissions.", tier=3),
@@ -2905,35 +2901,8 @@ def _normalize_loaded_config(loaded: dict, warn_legacy: bool = False) -> dict:
     elif isinstance(loaded.get("pythia"), dict):
         loaded["pythia"] = _normalize_pythia_section(loaded["pythia"])
 
-    # #704: fold legacy memory-bridge aliases into the canonical key BEFORE
-    # merge precedence is applied. DEFAULT_CONFIG materializes a full
-    # (non-empty) `perseus_vault:` block, so a user block left under a legacy
-    # `mneme:`/`mimir:` key would be permanently shadowed by that default in
-    # _resolve_mneme_config — the user's `command:` (etc.) never applies and
-    # the bridge silently falls back to a bare `perseus-vault` PATH lookup,
-    # masked by fallback_to_local. Fold order mimir → mneme → perseus_vault so
-    # an explicit canonical block still wins key-by-key when several are
-    # present (matches the _MEMORY_CONFIG_KEYS alias precedence).
-    legacy_memory_keys = [
-        k for k in ("mneme", "mimir")
-        if isinstance(loaded.get(k), dict) and loaded[k]
-    ]
-    if legacy_memory_keys:
-        folded: dict = {}
-        for key in ("mimir", "mneme", _MEMORY_CONFIG_CANONICAL):
-            block = loaded.get(key)
-            if isinstance(block, dict) and block:
-                _deep_merge_dicts(folded, block)
-                del loaded[key]
-        loaded[_MEMORY_CONFIG_CANONICAL] = folded
-        if warn_legacy:
-            for key in legacy_memory_keys:
-                if key not in _warned_legacy_config_keys:
-                    sys.stderr.write(
-                        f"perseus: config.yaml `{key}:` block is deprecated, please rename "
-                        f"to `{_MEMORY_CONFIG_CANONICAL}:` (settings still applied)\n"
-                    )
-                    _warned_legacy_config_keys.add(key)
+    # Only the canonical Perseus Vault configuration block is active. Unknown
+    # top-level memory keys remain untouched and are not interpreted as aliases.
 
     return loaded
 
@@ -5651,9 +5620,9 @@ def _directive_resource_hints(directive: str, args_str: str) -> list[dict]:
         if cmd:
             resources.append({"kind": "shell", "value": cmd})
 
-    if directive in {"@memory", "@mimir"}:
+    if directive in {"@memory", "@vault"}:
         try:
-            index_path = str(_mneme_index_path({}))
+            index_path = str(_vault_index_path({}))
             resources.append({"kind": "index", "value": index_path})
         except Exception:
             pass
@@ -6100,7 +6069,7 @@ def _adaptive_pattern_corpus(cfg: dict, workspace: Path | None) -> str:
             parts.append(str(entry.get("response", "") or ""))
     if workspace is not None:
         try:
-            _, body = _load_narrative(_mneme_path(workspace, cfg))
+            _, body = _load_narrative(_vault_memory_path(workspace, cfg))
             parts.append(body)
         except Exception:
             pass
@@ -6262,11 +6231,11 @@ def prefetch_source(
 ) -> dict:
     graph = directive_dependency_graph(source_text, source_name=source_name, workspace=workspace)
 
-    # Mnēmē v2 — warm the SQLite FTS5 index if any @memory directives present.
+    # Perseus Vault v2 — warm the SQLite FTS5 index if any @memory directives present.
     # Build is idempotent (skips already-indexed files) and fast when unchanged.
     memory_nodes = [n for n in graph["nodes"] if n["directive"] == "@memory"]
     if memory_nodes:
-        _mneme_build_index(cfg)
+        _vault_build_index(cfg)
 
     rules = cfg.get("prefetch", {}).get("rules", [])
     if not isinstance(rules, list):
@@ -7257,7 +7226,7 @@ def resolve_session(args_str: str, cfg: dict) -> str:
 # -layer analog: not the model's internal J-space, but an explicit, auditable
 # working set the agent and any subagents share.
 #
-# Distinct from long-term memory (@mimir / @memory / Perseus Vault): the vault is
+# Distinct from long-term memory (@vault / @memory / Perseus Vault): the vault is
 # unbounded recall; @focus is the bounded, actively-maintained "what I'm thinking
 # about right now" set. Items compete for a fixed number of slots by salience;
 # low-salience items are evicted, exactly as the biological workspace is capacity
@@ -7381,7 +7350,7 @@ def _focus_salience(item: dict, cfg: dict, now: datetime) -> float:
     patterns (i.e. salience = how widely a thing broadcasts). For now salience is a
     local recency+frequency function; the intended extension point is to fold in
     Perseus Vault graph-centrality here (rank by how central an item is to the
-    current task's memory graph) — see mimir_connector / community detection.
+    current task's memory graph) — see vault_connector / community detection.
     """
     try:
         weight = float(item.get("weight", 1.0))
@@ -8230,7 +8199,7 @@ def resolve_tokens(context: str) -> str:
 # @research "<query>" [limit=N | --limit N]
 #
 # Inject structured paper-search results from an EXTERNAL paper-search MCP
-# server (BGPT by default) into the rendered context. Unlike @memory / @mimir
+# server (BGPT by default) into the rendered context. Unlike @memory / @vault
 # (which recall *our* stored facts), @research reaches out to a scientific
 # literature index and returns per-paper Methods/Results blocks so an agent can
 # ground claims in published studies.
@@ -8240,7 +8209,7 @@ def resolve_tokens(context: str) -> str:
 # it must never break a render. The directive does NOT execute a shell
 # (executes_shell=False); it speaks JSON-RPC 2.0 over stdio to the configured
 # MCP subprocess via a SELF-CONTAINED client kept inside this module (we do not
-# touch mneme_connector.py).
+# touch vault_connector.py).
 
 import threading
 import queue as _queue
@@ -8256,8 +8225,8 @@ _RESEARCH_DEFAULT_MAX_TOKENS = 1500
 class _ResearchMCPClient:
     """Minimal JSON-RPC 2.0 MCP client over stdio for paper-search servers.
 
-    Modelled on mneme_connector._MCPStdioClient but kept fully self-contained
-    here (issue #513): we must not import from / edit mneme_connector.py.
+    Modelled on vault_connector._MCPStdioClient but kept fully self-contained
+    here (issue #513): we must not import from / edit vault_connector.py.
 
     Robustness notes:
     - A DAEMON reader thread drains stdout into a Queue so a hung/silent server
@@ -8596,7 +8565,7 @@ def resolve_research(args_str: str, cfg: dict, workspace: "Path | None" = None) 
             )
 
         try:
-            timeout_s = float(rcfg.get("timeout_s", _resolve_mneme_config(cfg).get("timeout_s", 10.0)
+            timeout_s = float(rcfg.get("timeout_s", _resolve_vault_config(cfg).get("timeout_s", 10.0)
                                        if isinstance(cfg, dict) else 10.0))
         except (ValueError, TypeError):
             timeout_s = 10.0
@@ -9266,7 +9235,7 @@ _PARAM_DESCRIPTIONS: dict[str, dict[str, str]] = {
                      "include_federation": "Include federation results in output",
                      "alias": "Workspace alias for federation targeting",
                      "workspace": "Target workspace path for scoped queries"},
-    "@mimir":       {"query": "BM25 FTS5 search query for persistent memory recall",
+    "@vault":       {"query": "BM25 FTS5 search query for persistent memory recall",
                      "scope": "Memory scope filter",
                      "k": "Number of results to return (default: 5)",
                      "type": "Memory type filter"},
@@ -9408,7 +9377,7 @@ def _build_output_schema(tool_name: str, spec) -> dict | None:
                 "count": {"type": "integer", "description": "Number of results returned"}
             }
         }
-    if tool_name in ("perseus_mimir", "perseus_mneme"):
+    if tool_name == "perseus_vault":
         return {
             "type": "object",
             "properties": {
@@ -9603,7 +9572,7 @@ def _build_annotations(tool_name: str, spec) -> dict | None:
     if tool_name in ("perseus_date", "perseus_drift", "perseus_env"):
         hints["readOnlyHint"] = True
     # Read-only tools that escape the reads_files / executes_shell checks
-    if tool_name in ("perseus_auto_skill", "perseus_profile", "perseus_perseus", "perseus_mimir", "perseus_mneme", "perseus_mason",
+    if tool_name in ("perseus_auto_skill", "perseus_profile", "perseus_perseus", "perseus_vault", "perseus_mason",
                       "perseus_skills", "perseus_inbox", "perseus_include", "perseus_read",
                       "perseus_list", "perseus_tree", "perseus_tooltrim", "perseus_validate",
                       "perseus_prompt", "perseus_budget"):
@@ -9723,33 +9692,6 @@ LEGACY_MCP_TOOLS: list[dict] = [
     # this list — it was advertised in tools/list but had no @trace directive
     # or special-case handler, so every call errored "directive @trace not
     # registered". Re-add it here only once a real trace implementation exists.
-    # Mneme is the new primary name for the @mimir directive's MCP tool;
-    # perseus_mimir is kept as a deprecated alias (same underlying
-    # directive/resolver — see _TOOL_TO_DIRECTIVE below). Props/output_schema
-    # mirror what _generate_directive_tools() would auto-generate for @mimir.
-    _tool_schema(
-        "perseus_mneme",
-        "Query the EXTERNAL Mneme memory server for cross-session, curated facts that survive across workspaces. "
-        "Use for long-lived knowledge (bug patterns, design decisions). For fast local recall, prefer perseus_memory. "
-        "Read-only; falls back to local FTS5 if Mneme is unreachable. This is the primary name for this tool; "
-        "perseus_mimir is a deprecated alias kept for backward compatibility.",
-        {
-            "query": {"type": "string", "description": "BM25 FTS5 search query for persistent memory recall"},
-            "scope": {"type": "string", "description": "Memory scope filter"},
-            "k": {"type": "string", "description": "Number of results to return (default: 5)"},
-            "type": {"type": "string", "description": "Memory type filter"},
-        },
-        required=[],
-        output_schema={
-            "type": "object",
-            "properties": {
-                "results": {"type": "array", "items": {"type": "object"}},
-                "query": {"type": "string"},
-                "count": {"type": "integer"}
-            }
-        },
-        annotations={"readOnlyHint": True},
-    ),
 ]
 
 # Sensitive tools — require explicit config opt-in
@@ -9758,7 +9700,7 @@ _MCP_SENSITIVE_TOOLS = {"perseus_query", "perseus_agent"}
 # Reverse mapping: MCP tool name → directive name (normalizes hyphen→underscore)
 _TOOL_TO_DIRECTIVE = {
     "perseus_auto_skill": "@auto-skill",
-    "perseus_mneme": "@mimir",
+    "perseus_vault": "@vault",
 }
 
 
@@ -10745,7 +10687,7 @@ has a team at corbenic.ai; Perseus integration is ~80 lines with tests).
 User-facing value: Invisible infrastructure. The user's session starts faster
 and uses fewer tokens. Savings appear in Perseus debug logs.
 
-Overlap: Zero. Perseus has mneme for long-term memory and Mneme vault
+Overlap: Zero. Perseus has vault for long-term memory and Perseus Vault
 for markdown storage. Merlin does deterministic chunk-level dedup on the
 pre-injection context string — a completely orthogonal layer.
 
@@ -11482,314 +11424,6 @@ def resolve_tooltrim(
         token_savings=token_savings,
     )
 """
-Perseus → Vault-Mem integration hook.
-
-Plugs into Perseus's render_output() pipeline. After resolve+redact,
-optionally queries vault-mem for project-specific memories and injects
-them into the rendered context as a "Project Memory" section.
-
-Integration design:
-  - **Subprocess CLI**: Calls vault-mem's CLI (`vault-mem-mcp`) via
-    subprocess, using `memory_context` or `export-skill --target=generic`
-    to fetch structured project memories.
-  - **Graceful degradation**: If vault-mem is not installed, the vault
-    doesn't exist, or the CLI fails, returns the original context unchanged.
-    Perseus works identically without vault-mem.
-  - **Opt-in**: Controlled by `VAULTMEM_ENABLED=1` env var and/or Perseus
-    config setting. Off by default.
-  - **Token-aware**: vault-mem's `memory_context` tool already respects
-    `max_tokens` budgets. We pass a sensible default and let vault-mem
-    truncate appropriately.
-
-Architecture fit: Vault-mem is a "company brain" memory layer with typed
-memories (decisions, observations, learnings, todos, entities, questions).
-Complementary to Perseus's pre-session context resolution — Perseus
-resolves environment state (services, sessions, skills), vault-mem adds
-project knowledge (past decisions, accumulated learnings). Together,
-they give the agent a complete picture.
-
-Integration surface: Single Python module (~180 lines). Subprocess
-call to `node .../vault-mem-mcp`. No SDK dependency, no sidecar process.
-No new Python dependencies.
-
-Token efficiency: ADDS tokens but HIGH VALUE. User controls with
-max_tokens config. Typical injection: 1-3KB of curated project context.
-
-Maintenance: One-time integration. Vault-mem is MIT-licensed, actively
-maintained by frozo-ai (YC S26 applicant). Bus factor: 2 (founder +
-open-source community). If vault-mem disappears, Perseus continues
-unchanged.
-
-User-facing value: HIGH. Agents get project-specific decisions, learnings,
-and context without manual copy-paste. The "skill export" feature means
-agents get a curated, structured knowledge bundle.
-
-Overlap: COMPLEMENTARY. Perseus has mneme (semantic search memory)
-and Mneme vault (markdown storage + narrative). Vault-mem adds typed
-memory (decisions vs observations vs learnings), automatic keeper hygiene,
-and the skill-export feature that Perseus doesn't have.
-
-Verdict: INTEGRATE. High-value, low-risk, clean complement to Perseus.
-Follow the merlin_dedup pattern: subprocess call, graceful degradation,
-opt-in via config.
-"""
-
-import json
-import os
-import subprocess
-import time
-from pathlib import Path
-from typing import Optional
-
-
-# ── Configuration resolution ─────────────────────────────────────────────────
-
-
-# #448: cache the resolved binary for the process. The npx fallback below runs
-# `npx -y vault-mem-mcp --version`, which can hit the npm registry (10s timeout),
-# and was re-run on the availability check AND once per project per render
-# (≥ 1 + N probes). Non-empty list = already probed; element is the result.
-_VAULTMEM_BIN_CACHE: list = []
-
-
-def _vaultmem_binary() -> Optional[str]:
-    """Resolve the vault-mem-mcp binary/script path.
-
-    Memoized per process (#448), including the not-found result, so the
-    npm-registry-hitting `npx --version` probe runs at most once per process.
-    """
-    if _VAULTMEM_BIN_CACHE:
-        return _VAULTMEM_BIN_CACHE[0]
-
-    found = _vaultmem_binary_uncached()
-    _VAULTMEM_BIN_CACHE.append(found)
-    return found
-
-
-def _vaultmem_binary_uncached() -> Optional[str]:
-    """Probe for the vault-mem-mcp binary (see _vaultmem_binary for caching)."""
-    explicit = os.environ.get("VAULTMEM_BINARY")
-    if explicit and os.path.exists(explicit):
-        return explicit
-
-    # Check common locations
-    candidates = [
-        # If cloned alongside perseus
-        Path(os.environ.get("PERSEUS_REPO_ROOT", "")) / ".." / "frozo-vault-mem"
-        / "packages" / "mcp" / "bin" / "vault-mem-mcp",
-        # Standard dev clone
-        Path.home() / "frozo-vault-mem" / "packages" / "mcp" / "bin" / "vault-mem-mcp",
-        # Installed via npm/pnpm
-        Path.home() / ".local" / "share" / "pnpm" / "vault-mem-mcp",
-    ]
-
-    for candidate in candidates:
-        resolved = candidate.expanduser().resolve()
-        if resolved.exists():
-            return str(resolved)
-
-    # Fallback: try `npx vault-mem-mcp`
-    try:
-        r = subprocess.run(
-            ["npx", "-y", "vault-mem-mcp", "--version"],
-            capture_output=True,
-            timeout=10,
-        )
-        if r.returncode == 0:
-            return "npx"
-    except Exception:
-        pass
-
-    return None
-
-
-def _vaultmem_available() -> bool:
-    """Check if vault-mem is installed and usable."""
-    return _vaultmem_binary() is not None
-
-
-def _vaultmem_enabled(cfg: dict) -> bool:
-    """Check if vault-mem integration is enabled via env or config."""
-    if os.environ.get("VAULTMEM_ENABLED", "").strip() in ("1", "true", "yes"):
-        return True
-    return cfg.get("vaultmem", {}).get("enabled", False)
-
-
-def _vaultmem_vault_path(cfg: dict) -> str:
-    """Resolve vault-mem vault path."""
-    return os.environ.get(
-        "VAULT_MEM_PATH",
-        cfg.get("vaultmem", {}).get("vault_path", str(Path.home() / "vault-mem")),
-    )
-
-
-def _vaultmem_projects(cfg: dict) -> list[str]:
-    """Get project slugs to query for context."""
-    env_projects = os.environ.get("VAULTMEM_PROJECTS", "")
-    if env_projects:
-        return [p.strip() for p in env_projects.split(",") if p.strip()]
-    return cfg.get("vaultmem", {}).get("projects", [])
-
-
-def _vaultmem_max_tokens(cfg: dict) -> int:
-    """Max tokens for memory context injection."""
-    env_val = os.environ.get("VAULTMEM_MAX_TOKENS", "")
-    if env_val and env_val.isdigit():
-        return int(env_val)
-    return cfg.get("vaultmem", {}).get("max_tokens", 2000)
-
-
-# ── Core integration ─────────────────────────────────────────────────────────
-
-
-def fetch_project_memory(
-    project: str, cfg: dict, max_tokens: int = 2000
-) -> tuple[Optional[str], dict]:
-    """
-    Fetch curated project context from vault-mem for a single project.
-
-    Returns (memory_text, stats). On any failure or if vault-mem is
-    unavailable, returns (None, stats_with_skip_reason).
-    """
-    stats: dict = {
-        "ok": True,
-        "project": project,
-        "output_bytes": 0,
-        "duration_ms": 0,
-        "skipped_reason": None,
-        "error": None,
-    }
-
-    binary = _vaultmem_binary()
-    if not binary:
-        stats["skipped_reason"] = "vault-mem binary not found"
-        stats["ok"] = False
-        return None, stats
-
-    vault_path = _vaultmem_vault_path(cfg)
-    if not os.path.isdir(vault_path):
-        stats["skipped_reason"] = f"vault path not found: {vault_path}"
-        stats["ok"] = False
-        return None, stats
-
-    # Strategy: use export-skill --target=generic to get structured output
-    # This gives us decisions, learnings, entities, and questions as
-    # structured markdown, which is perfect for AGENTS.md injection.
-    env = os.environ.copy()
-    env["VAULT_MEM_PATH"] = vault_path
-
-    t0 = time.perf_counter_ns()
-
-    try:
-        if binary == "npx":
-            cmd = ["npx", "-y", "vault-mem-mcp", "export-skill",
-                   project, "--target=generic", "--max-tokens", str(max_tokens)]
-        else:
-            cmd = ["node", binary, "export-skill",
-                   project, "--target=generic", "--max-tokens", str(max_tokens)]
-
-        r = subprocess.run(
-            cmd,
-            capture_output=True,
-            timeout=30,
-            env=env,
-            text=True,
-            # Decode as UTF-8, not the locale codec (cp1252 on Windows), so
-            # non-ASCII project memory isn't mojibaked or crashed on decode.
-            encoding="utf-8",
-            errors="replace",
-        )
-
-        t1 = time.perf_counter_ns()
-        stats["duration_ms"] = (t1 - t0) // 1_000_000
-
-        if r.returncode != 0:
-            stats["error"] = f"export-skill exit {r.returncode}: {r.stderr[:200]}"
-            stats["ok"] = False
-            return None, stats
-
-        output = r.stdout.strip()
-        if not output:
-            stats["skipped_reason"] = f"no memories for project '{project}'"
-            return None, stats
-
-        stats["output_bytes"] = len(output.encode("utf-8"))
-        return output, stats
-
-    except subprocess.TimeoutExpired:
-        stats["error"] = "vault-mem timed out after 30s"
-        stats["ok"] = False
-        return None, stats
-    except Exception as e:
-        stats["error"] = f"{type(e).__name__}: {e}"
-        stats["ok"] = False
-        return None, stats
-
-
-def inject_vaultmem_context(context: str, cfg: dict) -> str:
-    """
-    Inject vault-mem project memories into rendered Perseus context.
-
-    Concatenates memory sections after the rendered context.
-    Gracefully degrades if vault-mem is unavailable.
-    """
-    if not _vaultmem_enabled(cfg):
-        return context
-
-    if not _vaultmem_available():
-        import sys
-
-        print("[perseus] vault-mem: not available, skipping", file=sys.stderr)
-        return context
-
-    projects = _vaultmem_projects(cfg)
-    if not projects:
-        print("[perseus] vault-mem: enabled but no projects configured", file=sys.stderr)
-        return context
-
-    max_tokens = _vaultmem_max_tokens(cfg)
-    all_memories = []
-    total_bytes = 0
-    projects_found = 0
-
-    for project in projects:
-        memory_text, stats = fetch_project_memory(project, cfg, max_tokens)
-        if memory_text:
-            all_memories.append(
-                f"### vault-mem: {project}\n{memory_text}"
-            )
-            total_bytes += stats.get("output_bytes", 0)
-            projects_found += 1
-
-    if not all_memories:
-        return context
-
-    import sys
-
-    print(
-        f"[perseus] vault-mem: injected {total_bytes} bytes from "
-        f"{projects_found}/{len(projects)} projects",
-        file=sys.stderr,
-    )
-
-    section = "## Project Memory (via vault-mem)\n\n" + "\n\n---\n\n".join(all_memories)
-    return context.rstrip() + "\n\n" + section + "\n"
-
-
-def vaultmem_health() -> dict:
-    """Quick health check for vault-mem integration."""
-    binary = _vaultmem_binary()
-    vault_path = os.environ.get(
-        "VAULT_MEM_PATH", str(Path.home() / "vault-mem")
-    )
-
-    return {
-        "available": binary is not None,
-        "binary": binary,
-        "vault_exists": os.path.isdir(vault_path),
-        "vault_path": vault_path,
-    }
-"""
 Perseus → Kondukt integration hook.
 
 Plugs into Perseus's render_output() pipeline. After resolve+redact,
@@ -12026,8 +11660,8 @@ impact analysis) saves 3-10 turns of filesystem exploration per session.
 This is the kind of efficiency boost Perseus exists to deliver.
 
 Overlap: Minimal direct overlap. Perseus has no code-structure analysis layer.
-mneme stores semantic memories about code (architecture decisions, bug fixes),
-but doesn't parse ASTs or build call graphs. Mneme vault stores markdown,
+vault stores semantic memories about code (architecture decisions, bug fixes),
+but doesn't parse ASTs or build call graphs. Perseus Vault stores markdown,
 not code structure. This is genuinely complementary — Perseus is a context
 engine, Memtrace is a code knowledge graph. Together they'd give the agent
 both environmental context AND structural code awareness at session start.
@@ -13275,12 +12909,12 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
             except (OSError, PermissionError):
                 pass  # can't read → no fingerprint (cache miss is safe)
 
-    if directive in ("@memory", "@mimir"):
-        mcfg = _resolve_mneme_config(cfg)
+    if directive in ("@memory", "@vault"):
+        mcfg = _resolve_vault_config(cfg)
         import json as _json
         try:
             mcfg_str = _json.dumps(mcfg, sort_keys=True)
-            parts.append(f"config:mimir={mcfg_str}")
+            parts.append(f"config:vault={mcfg_str}")
         except Exception:
             pass
 
@@ -13601,7 +13235,7 @@ def _collect_until_end(lines: list[str], i: int, end_re: "re.Pattern[str] | None
 
 
 # ── @profile first-wins banner marking (#627 fix 2) ─────────────────────────
-# `_scan_profile_name` (mneme_connector) applies the FIRST non-fenced
+# `_scan_profile_name` (vault_connector) applies the FIRST non-fenced
 # `@profile` in the source; every subsequent directive still renders a banner
 # but does not govern. Mark those banners so the non-governing directives are
 # visible instead of silently confusing.
@@ -14085,7 +13719,7 @@ def _uses_preflight_sensitive_directive(lines: list[str]) -> bool:
     """
     if not INLINE_DIRECTIVE_RE:
         return False
-    sensitive = {"@waypoint", "@inbox", "@memory", "@mimir"}
+    sensitive = {"@waypoint", "@inbox", "@memory", "@vault"}
     for raw in lines:
         m = INLINE_DIRECTIVE_RE.match(raw.strip())
         if m and m.group(1).lower() in sensitive:
@@ -15018,7 +14652,7 @@ def _render_lines(
 
 
 _SOURCE_CATEGORY = {
-    "memory": "mimir", "mimir": "mimir",
+    "memory": "perseus_vault", "vault": "perseus_vault",
     "read": "files", "include": "files", "tree": "files",
     "services": "services", "query": "query", "tool": "tools",
     "agent": "agents", "env": "env", "git": "git", "session": "session",
@@ -15412,7 +15046,7 @@ def render_source_html(
 
 
 def _derive_query_hints(source_text: str, workspace) -> list[str]:
-    """Extract contextual hints for Mimir FTS5 search.
+    """Extract contextual hints for Vault FTS5 search.
 
     Uses DIRECTIVE_REGISTRY's is_semantic_hint flag to discover which
     directives carry project-level search terms — no hardcoded lists.
@@ -15445,9 +15079,9 @@ def _derive_query_hints(source_text: str, workspace) -> list[str]:
 
     return hints
 
-def _inject_external_memory(rendered: str, cfg: dict,
-                            source_text: str = "", workspace=None) -> str:
-    """Append the vault-mem and Mnēmē auto-injected memory blocks, redacted.
+def _inject_vault_context(rendered: str, cfg: dict,
+                          source_text: str = "", workspace=None) -> str:
+    """Append the Perseus Vault auto-injected memory block, redacted.
 
     These blocks are pulled from external memory stores and appended AFTER the
     render_source redaction pass, so they must go through their own redaction
@@ -15455,17 +15089,17 @@ def _inject_external_memory(rendered: str, cfg: dict,
     and skipping this wrote them verbatim into AGENTS.md/CLAUDE.md.
 
     #553/#608 hook: `source_text` and `workspace` are threaded through to
-    `_mneme_context_inject` so it can (a) skip injection when the rendered
+    `_vault_context_inject` so it can (a) skip injection when the rendered
     output already carries a memory section (de-dup), (b) resolve the active
     `@profile` posture, and (c) relevance-gate / workspace-scope the recall.
     """
     rendered = dedup_context_if_available(rendered, cfg)
-    injected = inject_vaultmem_context(rendered, cfg)
-    mneme_block = _mneme_context_inject(
+    injected = rendered
+    vault_block = _vault_context_inject(
         cfg, rendered=injected, source_text=source_text, workspace=workspace,
     )
-    if mneme_block:
-        injected = injected + "\n\n" + mneme_block
+    if vault_block:
+        injected = injected + "\n\n" + vault_block
     if injected != rendered:
         # Only the appended blocks are new, but redaction placeholders are
         # inert so re-running over the full text is idempotent and keeps the
@@ -15490,7 +15124,7 @@ def render_output(
         rendered = render_source(source_text, cfg, workspace, max_tier=max_tier, no_cache=no_cache)
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
-        rendered = _inject_external_memory(rendered, cfg, source_text, workspace)
+        rendered = _inject_vault_context(rendered, cfg, source_text, workspace)
         return rendered
     elif fmt == "html":
         t = title or "Workspace Context"
@@ -15505,7 +15139,7 @@ def render_output(
         rendered = render_source(source_text, cfg, workspace, max_tier=max_tier, no_cache=no_cache)
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
-        rendered = _inject_external_memory(rendered, cfg, source_text, workspace)
+        rendered = _inject_vault_context(rendered, cfg, source_text, workspace)
         return wrap_rendered(rendered, fmt, _PERSEUS_VERSION)
 
     # Custom formats (task-68)
@@ -15847,7 +15481,7 @@ def cmd_checkpoint(args, cfg):
     if cp.get("next"):
         print(f"   Next:   {cp['next']}")
 
-    # ── Mnēmē auto-update (silent side-effect) ──
+    # ── Perseus Vault auto-update (silent side-effect) ──
     if bool(cfg.get("memory", {}).get("auto_update", True)):
         ws_arg = getattr(args, "workspace", None) or ""
         ws = Path(ws_arg).expanduser().resolve() if ws_arg else Path.cwd().resolve()
@@ -15865,7 +15499,7 @@ def cmd_checkpoint(args, cfg):
         if identity is not None:
             ws_arg2 = getattr(args, "workspace", None) or ""
             ws2 = Path(ws_arg2).expanduser().resolve() if ws_arg2 else Path.cwd().resolve()
-            mp = _mneme_path(ws2, cfg)
+            mp = _vault_memory_path(ws2, cfg)
             if mp.exists():
                 try:
                     narrative_body = mp.read_text(encoding="utf-8")
@@ -15880,7 +15514,7 @@ def cmd_checkpoint(args, cfg):
         identity = _load_identity(cfg)
         ws_arg3 = getattr(args, "workspace", None) or ""
         ws3 = Path(ws_arg3).expanduser().resolve() if ws_arg3 else Path.cwd().resolve()
-        mp3 = _mneme_path(ws3, cfg)
+        mp3 = _vault_memory_path(ws3, cfg)
         if mp3.exists():
             try:
                 narrative_body = mp3.read_text(encoding="utf-8")
@@ -16147,13 +15781,13 @@ def cmd_recover(args, cfg):
 
 
 
-def _mneme_vault_path(cfg: dict) -> Path:
-    """Resolve the Mnēmē v2 vault directory the FTS5 indexer scans.
+def _vault_path(cfg: dict) -> Path:
+    """Resolve the Perseus Vault v2 vault directory the FTS5 indexer scans.
 
     Resolution order:
-      1. memory.mneme_vault_path from config (if set)
+      1. memory.vault_path from config (if set)
       2. memory.store — the directory where per-workspace narrative .md files
-         are actually written (see _mneme_path / mneme_narrative.py)
+         are actually written (see _vault_memory_path / vault_narrative.py)
       3. $PERSEUS_HOME/memory as a final fallback
 
     The default deliberately tracks ``memory.store`` rather than a ``vault/``
@@ -16162,7 +15796,7 @@ def _mneme_vault_path(cfg: dict) -> Path:
     vault`` instead, ``rglob("*.md")`` would find no narratives and recall
     would silently return nothing on a stock install.
     """
-    raw = cfg.get("memory", {}).get("mneme_vault_path", "").strip()
+    raw = cfg.get("memory", {}).get("vault_path", "").strip()
     if raw:
         return Path(raw).expanduser()
 
@@ -16173,15 +15807,15 @@ def _mneme_vault_path(cfg: dict) -> Path:
     return PERSEUS_HOME / "memory"
 
 
-def _mneme_index_path(cfg: dict) -> Path:
+def _vault_index_path(cfg: dict) -> Path:
     """Resolve the SQLite FTS5 index path."""
-    raw = cfg.get("memory", {}).get("mneme_index_path", "").strip()
+    raw = cfg.get("memory", {}).get("vault_index_path", "").strip()
     if raw:
         return Path(raw).expanduser()
-    return _mneme_vault_path(cfg) / "mneme.index"
+    return _vault_path(cfg) / "vault.index"
 
 
-def _mneme_recall(cfg: dict, query: str, k: int = 5,
+def _vault_recall(cfg: dict, query: str, k: int = 5,
                    scope: str | None = None,
                    type_filter: str | None = None,
                    sensitivity: str | None = None) -> list[dict]:
@@ -16192,49 +15826,49 @@ def _mneme_recall(cfg: dict, query: str, k: int = 5,
     corrupt, renamed, or deleted vault files cannot leave recall stale.
     Falls back to empty list on any failure.
     """
-    conn = _mneme_open_index(cfg)
+    conn = _vault_open_index(cfg)
     if conn is None:
         return []
     try:
-        _mneme_build_index(cfg)
-        count = conn.execute("SELECT COUNT(*) FROM mneme_fts").fetchone()[0]
+        _vault_build_index(cfg)
+        count = conn.execute("SELECT COUNT(*) FROM vault_fts").fetchone()[0]
         if count == 0:
             return []
 
-        return _mneme_search(conn, query, k, scope, type_filter, sensitivity)
+        return _vault_search(conn, query, k, scope, type_filter, sensitivity)
     except Exception as exc:
-        sys.stderr.write(f"> ⚠ Mnēmē recall failed (FTS5 index may be corrupt): {exc}\n")
+        sys.stderr.write(f"> ⚠ Perseus Vault recall failed (FTS5 index may be corrupt): {exc}\n")
         # #645: page-level corruption that surfaces at query time (the file
-        # header still parses, so _mneme_open_index succeeded). Quarantine so
+        # header still parses, so _vault_open_index succeeded). Quarantine so
         # the NEXT recall recreates + reindexes instead of failing forever.
         # OperationalError (locks, missing FTS5 module) is transient/
         # environmental — never quarantine for it.
         if isinstance(exc, sqlite3.DatabaseError) and not isinstance(exc, sqlite3.OperationalError):
             try:
-                _mneme_quarantine_corrupt_index(_mneme_index_path(cfg), exc)
+                _vault_quarantine_corrupt_index(_vault_index_path(cfg), exc)
             except Exception:
                 pass
         return []
-# ─────────────────────── Mnēmē v2 — SQLite FTS5 Index ────────────────────────
+# ─────────────────────── Perseus Vault v2 — SQLite FTS5 Index ────────────────────────
 # Persistent BM25 index over Perseus-native vault .md files.
 # Uses SQLite FTS5 (stdlib sqlite3) — zero dependencies beyond Python.
 #
 # Architecture:
-#   - One SQLite database per vault: {vault_path}/mneme.index
+#   - One SQLite database per vault: {vault_path}/vault.index
 #   - FTS5 virtual table with 'porter unicode61' tokenizer (stemming)
 #   - Field weighting via FTS5 native per-column bm25() weights
 #   - WAL mode for concurrent readers during writes
-#   - Incremental updates tracked via mneme_files table (path + mtime)
+#   - Incremental updates tracked via vault_files table (path + mtime)
 
-_MNEME_SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS mneme_files (
+_VAULT_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS vault_files (
     path TEXT PRIMARY KEY,
     mtime REAL NOT NULL,
     fingerprint TEXT NOT NULL DEFAULT '',
     indexed_at TEXT NOT NULL
 );
 
-CREATE VIRTUAL TABLE IF NOT EXISTS mneme_fts USING fts5(
+CREATE VIRTUAL TABLE IF NOT EXISTS vault_fts USING fts5(
     id,
     title,
     summary,
@@ -16250,33 +15884,33 @@ CREATE VIRTUAL TABLE IF NOT EXISTS mneme_fts USING fts5(
     tokenize='porter unicode61'
 );
 
-CREATE TABLE IF NOT EXISTS mneme_meta (
+CREATE TABLE IF NOT EXISTS vault_meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
 """
 
-# Schema migration: add sensitivity column to mneme_files if it doesn't exist.
+# Schema migration: add sensitivity column to vault_files if it doesn't exist.
 # Runs lazily on first index open — idempotent, safe with existing databases.
-_MNEME_MIGRATIONS = [
-    "ALTER TABLE mneme_files ADD COLUMN sensitivity TEXT DEFAULT 'team'",
-    "ALTER TABLE mneme_files ADD COLUMN fingerprint TEXT NOT NULL DEFAULT ''",
+_VAULT_MIGRATIONS = [
+    "ALTER TABLE vault_files ADD COLUMN sensitivity TEXT DEFAULT 'team'",
+    "ALTER TABLE vault_files ADD COLUMN fingerprint TEXT NOT NULL DEFAULT ''",
 ]
 
 # Per-column BM25 weights for FTS5 native weighting (bm25() positional args).
 # #550: SQLite defaults UNSPECIFIED trailing columns to weight 1.0 (not 0.0),
 # so every column must get an explicit weight or metadata columns
 # (source_path, updated, ...) silently participate in ranking at full weight.
-# The bm25() argument list is generated from _MNEME_FTS_COLUMNS +
-# _MNEME_FIELD_WEIGHTS below (see _mneme_search) so they cannot drift apart.
-# Columns absent from _MNEME_FIELD_WEIGHTS get weight 0.0 (excluded from
+# The bm25() argument list is generated from _VAULT_FTS_COLUMNS +
+# _VAULT_FIELD_WEIGHTS below (see _vault_search) so they cannot drift apart.
+# Columns absent from _VAULT_FIELD_WEIGHTS get weight 0.0 (excluded from
 # ranking): id + the metadata columns type, scope, sensitivity, confidence,
 # source_path, updated.
-_MNEME_FTS_COLUMNS = [
+_VAULT_FTS_COLUMNS = [
     "id", "title", "summary", "tags", "topic_path", "body",
     "type", "scope", "sensitivity", "confidence", "source_path", "updated",
 ]
-_MNEME_FIELD_WEIGHTS = {
+_VAULT_FIELD_WEIGHTS = {
     "title": 3,
     "summary": 2,
     "tags": 2,
@@ -16288,14 +15922,14 @@ _MNEME_FIELD_WEIGHTS = {
 # Process-lifetime connection cache: (index_path, pid) → sqlite3.Connection.
 # Avoids paying connect + PRAGMA roundtrips on every operation.
 # Keyed by pid so forked processes get their own connection.
-_MNEME_CONN_CACHE: dict[tuple[str, int], sqlite3.Connection] = {}
+_VAULT_CONN_CACHE: dict[tuple[str, int], sqlite3.Connection] = {}
 
 # #645: index paths already warned about corruption in this process — the
 # quarantine warning fires once per index, not once per recall.
-_MNEME_CORRUPT_WARNED: set[str] = set()
+_VAULT_CORRUPT_WARNED: set[str] = set()
 
 
-def _mneme_quarantine_corrupt_index(index_path: Path, exc: "Exception | None" = None):
+def _vault_quarantine_corrupt_index(index_path: Path, exc: "Exception | None" = None):
     """Quarantine a corrupt FTS5 index so the next open recreates it (#645).
 
     Closes and evicts any cached connection to the file (Windows cannot
@@ -16307,12 +15941,12 @@ def _mneme_quarantine_corrupt_index(index_path: Path, exc: "Exception | None" = 
     Returns the quarantine Path when the DB file was renamed, else None.
     """
     index_str = str(index_path)
-    for key in [k for k in _MNEME_CONN_CACHE if k[0] == index_str]:
+    for key in [k for k in _VAULT_CONN_CACHE if k[0] == index_str]:
         try:
-            _MNEME_CONN_CACHE[key].close()
+            _VAULT_CONN_CACHE[key].close()
         except Exception:
             pass
-        del _MNEME_CONN_CACHE[key]
+        del _VAULT_CONN_CACHE[key]
 
     stamp = datetime.now().strftime("%Y%m%dT%H%M%S")
     quarantine = index_path.with_name(f"{index_path.name}.corrupt-{stamp}")
@@ -16336,19 +15970,19 @@ def _mneme_quarantine_corrupt_index(index_path: Path, exc: "Exception | None" = 
                 sidecar.unlink(missing_ok=True)
             except OSError:
                 pass
-    if index_str not in _MNEME_CORRUPT_WARNED:
-        _MNEME_CORRUPT_WARNED.add(index_str)
+    if index_str not in _VAULT_CORRUPT_WARNED:
+        _VAULT_CORRUPT_WARNED.add(index_str)
         where = f" — quarantined to {renamed.name}" if renamed else " — removed"
         detail = f" ({exc})" if exc else ""
         sys.stderr.write(
-            f"> ⚠ Mnēmē FTS5 index at {index_path} is corrupt{detail}{where}. "
+            f"> ⚠ Perseus Vault FTS5 index at {index_path} is corrupt{detail}{where}. "
             "Recreating; memories are reindexed from the vault .md files on "
             "the next recall.\n"
         )
     return renamed
 
 
-def _mneme_connect(index_path: Path) -> sqlite3.Connection:
+def _vault_connect(index_path: Path) -> sqlite3.Connection:
     """Connect to the index, configure pragmas, and create/migrate the schema.
 
     Raises on failure (``sqlite3.DatabaseError`` for a corrupt DB file),
@@ -16363,10 +15997,10 @@ def _mneme_connect(index_path: Path) -> sqlite3.Connection:
         conn.row_factory = sqlite3.Row
 
         # Create tables if needed
-        conn.executescript(_MNEME_SCHEMA_SQL)
+        conn.executescript(_VAULT_SCHEMA_SQL)
 
         # Run schema migrations (idempotent)
-        for migration_sql in _MNEME_MIGRATIONS:
+        for migration_sql in _VAULT_MIGRATIONS:
             try:
                 conn.execute(migration_sql)
             except (sqlite3.OperationalError, sqlite3.IntegrityError):
@@ -16380,14 +16014,14 @@ def _mneme_connect(index_path: Path) -> sqlite3.Connection:
                             "body", "type", "scope", "sensitivity",
                             "confidence", "source_path", "updated"}
         try:
-            cursor = conn.execute("PRAGMA table_info(mneme_fts)")
+            cursor = conn.execute("PRAGMA table_info(vault_fts)")
             actual_columns = {row["name"] for row in cursor.fetchall()}
             if actual_columns and actual_columns != expected_columns:
                 # Schema mismatch — drop and let re-creation happen on next index
-                conn.execute("DROP TABLE IF EXISTS mneme_fts")
-                conn.execute("DELETE FROM mneme_files")
-                conn.execute("DELETE FROM mneme_meta WHERE key LIKE 'schema_%'")
-                conn.executescript(_MNEME_SCHEMA_SQL)
+                conn.execute("DROP TABLE IF EXISTS vault_fts")
+                conn.execute("DELETE FROM vault_files")
+                conn.execute("DELETE FROM vault_meta WHERE key LIKE 'schema_%'")
+                conn.executescript(_VAULT_SCHEMA_SQL)
         except sqlite3.OperationalError:
             pass  # Table doesn't exist yet / transient lock — fine
         except sqlite3.DatabaseError:
@@ -16403,7 +16037,7 @@ def _mneme_connect(index_path: Path) -> sqlite3.Connection:
         raise
 
 
-def _mneme_open_index(cfg: dict):
+def _vault_open_index(cfg: dict):
     """Open (or create) the SQLite FTS5 index. Returns sqlite3.Connection.
 
     Enables WAL mode for concurrent reads. Creates tables on first open.
@@ -16414,15 +16048,15 @@ def _mneme_open_index(cfg: dict):
     bytes) is quarantined and recreated — with a one-time stderr warning —
     instead of being swallowed into a silent ``None`` that turned recall off
     forever. The recreated index is empty, so the caller's usual
-    ``_mneme_build_index`` pass performs the full reindex from the vault.
+    ``_vault_build_index`` pass performs the full reindex from the vault.
     """
     try:
-        index_path = _mneme_index_path(cfg)
+        index_path = _vault_index_path(cfg)
     except Exception:
         return None  # vault dir undeterminable — silent by design
 
     cache_key = (str(index_path), os.getpid())
-    cached = _MNEME_CONN_CACHE.get(cache_key)
+    cached = _VAULT_CONN_CACHE.get(cache_key)
     if cached is not None:
         # Check that the cached connection hasn't been closed externally
         # (tests, signal handlers, explicit close). If closed, re-create.
@@ -16430,7 +16064,7 @@ def _mneme_open_index(cfg: dict):
             cached.execute("SELECT 1")
             return cached
         except (sqlite3.ProgrammingError, sqlite3.OperationalError):
-            del _MNEME_CONN_CACHE[cache_key]
+            del _VAULT_CONN_CACHE[cache_key]
 
     try:
         index_path.parent.mkdir(parents=True, exist_ok=True)
@@ -16438,7 +16072,7 @@ def _mneme_open_index(cfg: dict):
         return None
 
     try:
-        conn = _mneme_connect(index_path)
+        conn = _vault_connect(index_path)
     except sqlite3.OperationalError:
         # Locked / cannot open / FTS5 unavailable — environment problem, not
         # file corruption. Do NOT quarantine a file another process may hold.
@@ -16446,23 +16080,23 @@ def _mneme_open_index(cfg: dict):
     except sqlite3.DatabaseError as exc:
         # Corrupt index file (#645): quarantine, recreate, warn once. The
         # source .md files are intact — a rebuild fully recovers.
-        _mneme_quarantine_corrupt_index(index_path, exc)
+        _vault_quarantine_corrupt_index(index_path, exc)
         try:
-            conn = _mneme_connect(index_path)
+            conn = _vault_connect(index_path)
         except Exception:
             return None
     except Exception:
         return None
-    _MNEME_CONN_CACHE[cache_key] = conn
+    _VAULT_CONN_CACHE[cache_key] = conn
     return conn
 
 
-def _mneme_build_field_columns(doc: dict) -> tuple[str, str, str, str, str]:
+def _vault_build_field_columns(doc: dict) -> tuple[str, str, str, str, str]:
     """Return per-field column values for FTS5 native weighting.
 
     Returns (title, summary, tags, topic_path, body) as a tuple for direct
     column insertion. FTS5's bm25() weights each column at query time via
-    _MNEME_FIELD_WEIGHTS, eliminating the need for text repetition.
+    _VAULT_FIELD_WEIGHTS, eliminating the need for text repetition.
     """
     title = str(doc.get("title", "") or "")
     summary = str(doc.get("summary", "") or "")
@@ -16472,7 +16106,7 @@ def _mneme_build_field_columns(doc: dict) -> tuple[str, str, str, str, str]:
     return (title, summary, tags, topic, body)
 
 
-def _mneme_parse_vault_file(file_path: Path) -> dict | None:
+def _vault_parse_vault_file(file_path: Path) -> dict | None:
     """Parse a single vault .md file and return structured fields.
 
     Returns None on error or missing required fields (id, title).
@@ -16516,7 +16150,7 @@ def _mneme_parse_vault_file(file_path: Path) -> dict | None:
     }
 
 
-def _mneme_file_fingerprint(file_path: Path) -> str:
+def _vault_file_fingerprint(file_path: Path) -> str:
     """Hash a Vault document so rapid same-size rewrites are detected."""
     import hashlib as _hashlib
     try:
@@ -16525,8 +16159,8 @@ def _mneme_file_fingerprint(file_path: Path) -> str:
         return ""
 
 
-def _mneme_index_is_current(conn, vault_path) -> bool:
-    """Read-only check: does mneme_files reflect the current Vault files?
+def _vault_index_is_current(conn, vault_path) -> bool:
+    """Read-only check: does vault_files reflect the current Vault files?
 
     The check includes path, mtime, and a content fingerprint. Mtime alone can
     miss rapid same-size rewrites on filesystems with coarse timestamp
@@ -16535,7 +16169,7 @@ def _mneme_index_is_current(conn, vault_path) -> bool:
     """
     try:
         indexed: dict[str, tuple[float, str]] = {}
-        for row in conn.execute("SELECT path, mtime, fingerprint FROM mneme_files"):
+        for row in conn.execute("SELECT path, mtime, fingerprint FROM vault_files"):
             indexed[row["path"]] = (row["mtime"], row["fingerprint"] or "")
     except Exception:
         return False
@@ -16545,7 +16179,7 @@ def _mneme_index_is_current(conn, vault_path) -> bool:
         try:
             file_path_str = str(md_file.resolve())
             mtime = md_file.stat().st_mtime
-            fingerprint = _mneme_file_fingerprint(md_file)
+            fingerprint = _vault_file_fingerprint(md_file)
         except Exception:
             return False
         if indexed.get(file_path_str) != (mtime, fingerprint):
@@ -16554,17 +16188,17 @@ def _mneme_index_is_current(conn, vault_path) -> bool:
     return seen == set(indexed.keys())
 
 
-def _mneme_build_index(cfg: dict, force: bool = False) -> int:
+def _vault_build_index(cfg: dict, force: bool = False) -> int:
     """Build (or rebuild) the FTS5 index from all vault .md files.
 
     Returns the number of documents indexed. Skips already-indexed files
     unless force=True.
     """
-    conn = _mneme_open_index(cfg)
+    conn = _vault_open_index(cfg)
     if conn is None:
         return 0
 
-    vault_path = _mneme_vault_path(cfg)
+    vault_path = _vault_path(cfg)
     if not vault_path.is_dir():
         return 0
 
@@ -16573,7 +16207,7 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
     # changed — a hidden write on the read path. Skip straight out when the index
     # is already current; this is precisely when the builder below would write
     # nothing, so behaviour (and freshness) is unchanged.
-    if not force and _mneme_index_is_current(conn, vault_path):
+    if not force and _vault_index_is_current(conn, vault_path):
         return 0
 
     try:
@@ -16583,12 +16217,12 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
         # On forced rebuild, clear existing index state so stale
         # entries for deleted files are not left behind.
         if force:
-            conn.execute("DELETE FROM mneme_fts")
-            conn.execute("DELETE FROM mneme_files")
+            conn.execute("DELETE FROM vault_fts")
+            conn.execute("DELETE FROM vault_files")
 
         # Load currently indexed files (path → mtime + content fingerprint)
         indexed: dict[str, tuple[float, str]] = {}
-        for row in conn.execute("SELECT path, mtime, fingerprint FROM mneme_files"):
+        for row in conn.execute("SELECT path, mtime, fingerprint FROM vault_files"):
             indexed[row["path"]] = (row["mtime"], row["fingerprint"] or "")
 
         count = 0
@@ -16598,35 +16232,35 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
             current_paths.add(file_path_str)
             try:
                 mtime = md_file.stat().st_mtime
-                fingerprint = _mneme_file_fingerprint(md_file)
+                fingerprint = _vault_file_fingerprint(md_file)
             except Exception:
                 continue
 
             if not force and file_path_str in indexed and indexed[file_path_str] == (mtime, fingerprint):
                 continue
 
-            doc = _mneme_parse_vault_file(md_file)
+            doc = _vault_parse_vault_file(md_file)
             if doc is None:
                 # A previously-valid memory can become corrupt or lose required
                 # fields. Remove rows tied to this path so stale recall cannot
                 # keep returning the old content.
                 if file_path_str in indexed:
-                    conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (file_path_str,))
-                    conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
+                    conn.execute("DELETE FROM vault_fts WHERE source_path = ?", (file_path_str,))
+                    conn.execute("DELETE FROM vault_files WHERE path = ?", (file_path_str,))
                 continue
 
-            field_cols = _mneme_build_field_columns(doc)
+            field_cols = _vault_build_field_columns(doc)
             now = datetime.now().astimezone().isoformat(timespec="seconds")
 
             # Remove old entries. Delete by source_path as well as id so a file
             # whose frontmatter id changes does not leave the previous id behind.
-            conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (file_path_str,))
-            conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc["id"],))
-            conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
+            conn.execute("DELETE FROM vault_fts WHERE source_path = ?", (file_path_str,))
+            conn.execute("DELETE FROM vault_fts WHERE id = ?", (doc["id"],))
+            conn.execute("DELETE FROM vault_files WHERE path = ?", (file_path_str,))
 
             # Insert new entry
             conn.execute(
-                "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, confidence, source_path, updated) "
+                "INSERT INTO vault_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, confidence, source_path, updated) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (doc["id"], field_cols[0], field_cols[1], field_cols[2],
                  field_cols[3], field_cols[4], doc["type"], doc["scope"],
@@ -16634,7 +16268,7 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
                  file_path_str, doc["updated"]),
             )
             conn.execute(
-                "INSERT INTO mneme_files (path, mtime, fingerprint, indexed_at, sensitivity) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO vault_files (path, mtime, fingerprint, indexed_at, sensitivity) VALUES (?, ?, ?, ?, ?)",
                 (file_path_str, mtime, fingerprint, now, doc.get("sensitivity", "team")),
             )
             count += 1
@@ -16642,24 +16276,24 @@ def _mneme_build_index(cfg: dict, force: bool = False) -> int:
         # Prune deleted or renamed files during normal incremental builds.
         stale_paths = set(indexed) - current_paths
         for stale_path in sorted(stale_paths):
-            conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (stale_path,))
-            conn.execute("DELETE FROM mneme_files WHERE path = ?", (stale_path,))
+            conn.execute("DELETE FROM vault_fts WHERE source_path = ?", (stale_path,))
+            conn.execute("DELETE FROM vault_files WHERE path = ?", (stale_path,))
 
-        # mneme_fts is a regular (self-maintaining) FTS5 table — the INSERT and
+        # vault_fts is a regular (self-maintaining) FTS5 table — the INSERT and
         # DELETE statements above keep the full-text index consistent on their
         # own. The previous unconditional 'rebuild' reconstructed the ENTIRE
         # index (O(corpus)) on every changed build; dropped. (#447)
         conn.commit()
     except Exception:
         conn.rollback()
-        raise  # Let caller handle (mneme_recall catches and returns [])
+        raise  # Let caller handle (perseus_vault_recall catches and returns [])
     finally:
         pass  # Connection is cached for process lifetime; do not close
 
     return count
 
 
-def _mneme_search(conn, query: str, k: int = 5,
+def _vault_search(conn, query: str, k: int = 5,
                    scope: str | None = None,
                    type_filter: str | None = None,
                    sensitivity: str | None = None) -> list[dict]:
@@ -16689,34 +16323,34 @@ def _mneme_search(conn, query: str, k: int = 5,
     if sensitivity:
         params.append(sensitivity)
 
-    scope_clause = "AND mneme_fts.scope = ?" if scope else ""
-    type_clause = "AND mneme_fts.type = ?" if type_filter else ""
-    sensitivity_clause = "AND mneme_fts.sensitivity = ?" if sensitivity else ""
+    scope_clause = "AND vault_fts.scope = ?" if scope else ""
+    type_clause = "AND vault_fts.type = ?" if type_filter else ""
+    sensitivity_clause = "AND vault_fts.sensitivity = ?" if sensitivity else ""
 
     # #550: explicit weight for EVERY column — SQLite defaults unspecified
     # trailing bm25() weights to 1.0, which let metadata columns
     # (source_path, updated, ...) influence ranking. Generated from
-    # _MNEME_FIELD_WEIGHTS so the declared weights are the single source
+    # _VAULT_FIELD_WEIGHTS so the declared weights are the single source
     # of truth; unlisted columns are pinned to 0.0.
     bm25_weights = ", ".join(
-        f"{float(_MNEME_FIELD_WEIGHTS.get(col, 0.0))}" for col in _MNEME_FTS_COLUMNS
+        f"{float(_VAULT_FIELD_WEIGHTS.get(col, 0.0))}" for col in _VAULT_FTS_COLUMNS
     )
 
     sql = (
-        "SELECT mneme_fts.id, mneme_fts.title, mneme_fts.type, mneme_fts.scope, "
-        "mneme_fts.summary, mneme_fts.updated, mneme_fts.sensitivity, "
-        "mneme_fts.confidence, mneme_fts.source_path, "
-        "snippet(mneme_fts, 5, '<mark>', '</mark>', '…', 40) AS snippet, "
-        f"bm25(mneme_fts, {bm25_weights}) AS score "
-        "FROM mneme_fts "
-        f"WHERE mneme_fts MATCH ? {scope_clause} {type_clause} {sensitivity_clause} "
+        "SELECT vault_fts.id, vault_fts.title, vault_fts.type, vault_fts.scope, "
+        "vault_fts.summary, vault_fts.updated, vault_fts.sensitivity, "
+        "vault_fts.confidence, vault_fts.source_path, "
+        "snippet(vault_fts, 5, '<mark>', '</mark>', '…', 40) AS snippet, "
+        f"bm25(vault_fts, {bm25_weights}) AS score "
+        "FROM vault_fts "
+        f"WHERE vault_fts MATCH ? {scope_clause} {type_clause} {sensitivity_clause} "
         "ORDER BY score "
         f"LIMIT {max(1, min(k, 100))}"
     )
 
     # #645: do NOT swallow query-time errors here. A corrupt index page or a
     # broken FTS5 table used to become a silent [] — the "index may be
-    # corrupt" warning in memory._mneme_recall was dead code. Let the caller
+    # corrupt" warning in memory._vault_recall was dead code. Let the caller
     # see the failure so it can warn and trigger quarantine/rebuild.
     rows = conn.execute(sql, params).fetchall()
 
@@ -16738,28 +16372,28 @@ def _mneme_search(conn, query: str, k: int = 5,
     return results
 
 
-def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
+def _vault_index_document(cfg: dict, file_path: Path) -> bool:
     """Index (or re-index) a single vault document. Returns True on success."""
-    conn = _mneme_open_index(cfg)
+    conn = _vault_open_index(cfg)
     if conn is None:
         return False
 
     try:
-        doc = _mneme_parse_vault_file(file_path)
+        doc = _vault_parse_vault_file(file_path)
         if doc is None:
             return False
 
-        field_cols = _mneme_build_field_columns(doc)
+        field_cols = _vault_build_field_columns(doc)
         now = datetime.now().astimezone().isoformat(timespec="seconds")
         file_path_str = str(file_path.resolve())
 
         # Upsert. Delete by source_path as well as id so changing the
         # frontmatter id in-place cannot leave the previous id searchable.
-        conn.execute("DELETE FROM mneme_fts WHERE source_path = ?", (file_path_str,))
-        conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc["id"],))
-        conn.execute("DELETE FROM mneme_files WHERE path = ?", (file_path_str,))
+        conn.execute("DELETE FROM vault_fts WHERE source_path = ?", (file_path_str,))
+        conn.execute("DELETE FROM vault_fts WHERE id = ?", (doc["id"],))
+        conn.execute("DELETE FROM vault_files WHERE path = ?", (file_path_str,))
         conn.execute(
-            "INSERT INTO mneme_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, confidence, source_path, updated) "
+            "INSERT INTO vault_fts (id, title, summary, tags, topic_path, body, type, scope, sensitivity, confidence, source_path, updated) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (doc["id"], field_cols[0], field_cols[1], field_cols[2],
              field_cols[3], field_cols[4], doc["type"], doc["scope"],
@@ -16767,8 +16401,8 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
              file_path_str, doc["updated"]),
         )
         conn.execute(
-            "INSERT INTO mneme_files (path, mtime, fingerprint, indexed_at, sensitivity) VALUES (?, ?, ?, ?, ?)",
-            (file_path_str, file_path.stat().st_mtime, _mneme_file_fingerprint(file_path), now, doc.get("sensitivity", "team")),
+            "INSERT INTO vault_files (path, mtime, fingerprint, indexed_at, sensitivity) VALUES (?, ?, ?, ?, ?)",
+            (file_path_str, file_path.stat().st_mtime, _vault_file_fingerprint(file_path), now, doc.get("sensitivity", "team")),
         )
         # Self-maintaining FTS5 table: the DELETE+INSERT above already updated the
         # index. No O(corpus) 'rebuild' needed for a single-doc upsert. (#447)
@@ -16781,31 +16415,31 @@ def _mneme_index_document(cfg: dict, file_path: Path) -> bool:
             pass
         return False
     # Connection is cached for process lifetime; do not close.
-    # (Unlike other mneme_index functions, commit() already happened above.)
+    # (Unlike other vault_index functions, commit() already happened above.)
 
 
-def _mneme_delete_document(cfg: dict, doc_id: str) -> bool:
+def _vault_delete_document(cfg: dict, doc_id: str) -> bool:
     """Remove a document from the index by id. Returns True if deleted."""
-    conn = _mneme_open_index(cfg)
+    conn = _vault_open_index(cfg)
     if conn is None:
         return False
 
     try:
-        # Delete from mneme_fts by document id.
-        # mneme_files stores full resolved paths — we match by the filename
+        # Delete from vault_fts by document id.
+        # vault_files stores full resolved paths — we match by the filename
         # component (the doc_id with .md suffix). The doc_id is validated
-        # to be a safe filesystem name by _mneme_parse_vault_file before
+        # to be a safe filesystem name by _vault_parse_vault_file before
         # it's ever inserted, so a GLOB match with the literal id is safe.
         # We use GLOB (not LIKE) to avoid %/_ metacharacter interpretation.
         escaped_id = doc_id.replace("*", "\\*").replace("?", "\\?").replace("[", "\\[").replace("]", "\\]")
-        cursor = conn.execute("DELETE FROM mneme_fts WHERE id = ?", (doc_id,))
+        cursor = conn.execute("DELETE FROM vault_fts WHERE id = ?", (doc_id,))
         deleted = cursor.rowcount > 0
         # M-5: cross-platform path matching — handle both / and \\ separators.
         # GLOB doesn't have an OR operator, so we OR two separate patterns.
         pattern_fwd = f"*/{escaped_id}.md"
         pattern_bwd = f"*\\\\{escaped_id}.md"
         conn.execute(
-            "DELETE FROM mneme_files WHERE path GLOB ? OR path GLOB ?",
+            "DELETE FROM vault_files WHERE path GLOB ? OR path GLOB ?",
             (pattern_fwd, pattern_bwd),
         )
         # Self-maintaining FTS5 table: the DELETE above already updated the index.
@@ -16822,16 +16456,16 @@ def _mneme_delete_document(cfg: dict, doc_id: str) -> bool:
         pass  # Connection is cached for process lifetime; do not close
 
 
-def _mneme_index_stats(cfg: dict) -> dict:
+def _vault_index_stats(cfg: dict) -> dict:
     """Return diagnostic stats about the index."""
-    conn = _mneme_open_index(cfg)
+    conn = _vault_open_index(cfg)
     if conn is None:
         return {"doc_count": 0, "indexed_files": 0, "index_path": "", "available": False}
 
     try:
-        doc_count = conn.execute("SELECT COUNT(*) FROM mneme_fts").fetchone()[0]
-        file_count = conn.execute("SELECT COUNT(*) FROM mneme_files").fetchone()[0]
-        index_path = str(_mneme_index_path(cfg))
+        doc_count = conn.execute("SELECT COUNT(*) FROM vault_fts").fetchone()[0]
+        file_count = conn.execute("SELECT COUNT(*) FROM vault_files").fetchone()[0]
+        index_path = str(_vault_index_path(cfg))
         return {
             "doc_count": doc_count,
             "indexed_files": file_count,
@@ -16852,7 +16486,7 @@ def _cmd_memory_index(args, cfg) -> None:
     use_json = getattr(args, "json", False)
 
     if sub == "stats":
-        stats = _mneme_index_stats(cfg)
+        stats = _vault_index_stats(cfg)
         if use_json:
             import json as _json
             try:
@@ -16870,7 +16504,7 @@ def _cmd_memory_index(args, cfg) -> None:
         print(f"Files tracked: {stats['indexed_files']}")
         try:
             size_bytes = Path(stats["index_path"]).stat().st_size
-            print(f"Index size: {_mneme_fmt_bytes(size_bytes)}")
+            print(f"Index size: {_vault_fmt_bytes(size_bytes)}")
         except Exception:
             pass
         return
@@ -16878,9 +16512,9 @@ def _cmd_memory_index(args, cfg) -> None:
     if sub == "rebuild":
         force = getattr(args, "force", False)
         if not use_json:
-            print(f"{'Force-rebuilding' if force else 'Rebuilding'} Mnēmē FTS5 index...")
-        count = _mneme_build_index(cfg, force=force)
-        stats = _mneme_index_stats(cfg)
+            print(f"{'Force-rebuilding' if force else 'Rebuilding'} Perseus Vault FTS5 index...")
+        count = _vault_build_index(cfg, force=force)
+        stats = _vault_index_stats(cfg)
         if use_json:
             import json as _json
             print(_json.dumps({
@@ -16903,7 +16537,7 @@ def _cmd_memory_index(args, cfg) -> None:
         scope = getattr(args, "scope", None) or None
         type_filter = getattr(args, "type", None) or None
         sensitivity = getattr(args, "sensitivity", None) or None
-        results = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
+        results = _vault_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
         if use_json:
             import json as _json
             print(_json.dumps({
@@ -16937,16 +16571,16 @@ def _cmd_memory_index(args, cfg) -> None:
     sys.exit(2)
 
 
-def _mneme_fmt_bytes(n: int) -> str:
+def _vault_fmt_bytes(n: int) -> str:
     """Format bytes for human display."""
     for unit in ("B", "KB", "MB", "GB"):
         if n < 1024:
             return f"{n:.0f} {unit}"
         n /= 1024
     return f"{n:.1f} TB"
-# ─────────────────────────────── Mnēmē Memory ────────────────────────────────
+# ─────────────────────────────── Perseus Vault Memory ────────────────────────────────
 #
-# Mnēmē — narrative project memory. Distills checkpoints + Pythia log into a
+# Perseus Vault — narrative project memory. Distills checkpoints + Pythia log into a
 # per-workspace narrative file at ~/.perseus/memory/<workspace-hash>.md.
 #
 # Distillation is deterministic (rule-based extraction; no LLM) — Perseus runs
@@ -16987,10 +16621,10 @@ def _workspace_hash(workspace: Path) -> str:
 def _workspace_hash_legacy_md5(workspace: Path) -> str:
     """12-char MD5 hex digest — the pre-1.0.3 narrative file name scheme.
 
-    Regression for #128: prior to v1.0.3, Mnēmē derived narrative file names
+    Regression for #128: prior to v1.0.3, Perseus Vault derived narrative file names
     from an MD5 hash. v1.0.3+ switched to SHA-256. Without an explicit
     migration, every existing narrative file on disk was silently orphaned
-    on upgrade. ``_mneme_path`` calls this function as a one-shot fallback
+    on upgrade. ``_vault_memory_path`` calls this function as a one-shot fallback
     to locate and rename legacy files. Once migrated, this code path is
     never re-entered for that workspace.
 
@@ -17006,7 +16640,7 @@ def _workspace_hash_legacy_md5(workspace: Path) -> str:
         return hashlib.md5(canonical).hexdigest()[:16]
 
 
-def _mneme_path(workspace: Path, cfg: dict) -> Path:
+def _vault_memory_path(workspace: Path, cfg: dict) -> Path:
     """Return the per-workspace narrative file path.
 
     Regression for #128: if a SHA-256 path doesn't exist but a legacy MD5
@@ -17037,7 +16671,7 @@ def _mneme_path(workspace: Path, cfg: dict) -> Path:
     return new_path
 
 
-def _mneme_doctor_scan(cfg: dict) -> dict:
+def _vault_doctor_scan(cfg: dict) -> dict:
     """Scan the memory store and report on narrative file inventory.
 
     Returns a dict with:
@@ -17103,7 +16737,7 @@ def _mneme_doctor_scan(cfg: dict) -> dict:
     return out
 
 
-def _mneme_doctor_migrate(cfg: dict) -> dict:
+def _vault_doctor_migrate(cfg: dict) -> dict:
     """Rename legacy MD5-named narrative files to their SHA-256 names.
 
     Returns a dict:
@@ -17116,7 +16750,7 @@ def _mneme_doctor_migrate(cfg: dict) -> dict:
     Idempotent: re-running after a successful migration is a no-op.
     """
     report: dict = {"migrated": [], "skipped": [], "errors": []}
-    scan = _mneme_doctor_scan(cfg)
+    scan = _vault_doctor_scan(cfg)
     store = Path(scan["store"])
     for legacy_fp_str in scan["legacy_md5_files"]:
         legacy_fp = Path(legacy_fp_str)
@@ -17178,7 +16812,7 @@ def _save_narrative(path: Path, frontmatter: dict, body: str) -> None:
     os.replace(tmp, path)
 
 
-def _mneme_default_frontmatter(workspace: Path) -> dict:
+def _vault_default_frontmatter(workspace: Path) -> dict:
     return {
         "schema": 1,
         "workspace": str(workspace),
@@ -17192,11 +16826,11 @@ def _mneme_default_frontmatter(workspace: Path) -> dict:
 
 
 def _enrich_narrative_frontmatter(fm: dict, body: str, workspace: Path) -> None:
-    """Add the vault-index fields the Mnēmē FTS5 indexer requires, in place.
+    """Add the vault-index fields the Perseus Vault FTS5 indexer requires, in place.
 
-    The indexer's parser (``_mneme_parse_vault_file``) skips any .md file that
+    The indexer's parser (``_vault_parse_vault_file``) skips any .md file that
     lacks an ``id`` and ``title``. Without these, a narrative is written to the
-    store but never becomes searchable via ``perseus_memory`` / ``perseus_mimir``
+    store but never becomes searchable via ``perseus_memory`` / ``perseus_vault``
     recall. This mirrors the schema-2 narrative frontmatter Perseus emits so a
     stock install indexes its own narratives out of the box.
 
@@ -17234,12 +16868,12 @@ def _enrich_narrative_frontmatter(fm: dict, body: str, workspace: Path) -> None:
         fm["schema"] = 2
 
 
-def _mneme_pythia_hwm(frontmatter: dict) -> int:
-    """Read the Pythia high-water mark, accepting legacy Mnēmē frontmatter."""
+def _vault_pythia_hwm(frontmatter: dict) -> int:
+    """Read the Pythia high-water mark, accepting legacy Perseus Vault frontmatter."""
     return int(frontmatter.get(PYTHIA_HWM_KEY, frontmatter.get(LEGACY_PYTHIA_HWM_KEY, 0)))
 
 
-def _set_mneme_pythia_hwm(frontmatter: dict, value: int) -> None:
+def _set_vault_pythia_hwm(frontmatter: dict, value: int) -> None:
     """Write the canonical Pythia high-water mark and drop the legacy key."""
     frontmatter[PYTHIA_HWM_KEY] = int(value)
     frontmatter.pop(LEGACY_PYTHIA_HWM_KEY, None)
@@ -17462,7 +17096,7 @@ def _deterministic_narrative(
         import re as _re
         _std_headings = {
             "project arc", "key decisions", "task history",
-            "patterns & anti-patterns", "recent activity", "mnēmē",
+            "patterns & anti-patterns", "recent activity", "perseus vault",
             "project arc:", "key decisions:", "task history:",
             "patterns & anti-patterns:", "recent activity:",
         }
@@ -17489,7 +17123,7 @@ def _deterministic_narrative(
 
     return result
 
-# ───────────────────────── Mnēmē Federation (task-19) ────────────────────────
+# ───────────────────────── Perseus Vault Federation (task-19) ────────────────────────
 #
 # Phase 8.2 — Cross-workspace narrative aggregation.
 #
@@ -17710,7 +17344,7 @@ def _resolve_subscription_narrative(entry: dict, cfg: dict) -> tuple[Path | None
     if not ws.exists():
         return (None, f"workspace path does not exist: {ws}")
     try:
-        narrative = _mneme_path(ws, cfg)
+        narrative = _vault_memory_path(ws, cfg)
     except Exception as e:
         return (None, f"cannot compute narrative path: {e}")
     if not narrative.exists():
@@ -17811,7 +17445,7 @@ def _fetch_remote_narrative(entry: dict, cfg: dict) -> tuple[str | None, str | N
         fetch_timeout = int(cfg.get("federation", {}).get("fetch_timeout_s", 10))
         read_timeout = int(cfg.get("federation", {}).get("read_timeout_s", 30))
         # #552: cap how much a remote peer may send. The local vault parser
-        # caps documents at 1 MB (mneme_index); remote narratives get a
+        # caps documents at 1 MB (vault_index); remote narratives get a
         # slightly more generous default, config-overridable.
         max_bytes = int(cfg.get("federation", {}).get("max_fetch_bytes", 4 * 1024 * 1024))
 
@@ -17993,7 +17627,7 @@ def cmd_memory_federation_push(args, cfg) -> int | None:
     
     ws_raw = getattr(args, "workspace", None) or os.getcwd()
     workspace = Path(ws_raw).expanduser().resolve()
-    mp = _mneme_path(workspace, cfg)
+    mp = _vault_memory_path(workspace, cfg)
     if not mp.exists():
         print(f"No narrative at {mp}.", file=sys.stderr)
         return 1
@@ -19036,7 +18670,7 @@ def cmd_memory_provenance(args, cfg) -> int | None:
     if not hash_arg:
         ws_raw = getattr(args, "workspace", None) or os.getcwd()
         workspace = Path(ws_raw).expanduser().resolve()
-        mp = _mneme_path(workspace, cfg)
+        mp = _vault_memory_path(workspace, cfg)
         hash_arg = mp.stem
 
     output = _render_provenance(hash_arg, cfg)
@@ -19389,7 +19023,7 @@ def cmd_memory_sign(args, cfg) -> int | None:
 
     ws_raw = getattr(args, "workspace", None) or os.getcwd()
     workspace = Path(ws_raw).expanduser().resolve()
-    mp = _mneme_path(workspace, cfg)
+    mp = _vault_memory_path(workspace, cfg)
     if not mp.exists():
         print(f"No narrative at {mp}. Run `perseus memory update` first.", file=sys.stderr)
         return 1
@@ -19424,7 +19058,7 @@ def cmd_memory_verify(args, cfg) -> int | None:
         store = Path(cfg.get("memory", {}).get("store", str(PERSEUS_HOME / "memory")))
         mp = store / f"{hash_arg}.md"
     else:
-        mp = _mneme_path(workspace, cfg)
+        mp = _vault_memory_path(workspace, cfg)
 
     if not mp.exists():
         print(f"Narrative not found: {mp}", file=sys.stderr)
@@ -19480,7 +19114,7 @@ full-coverage 84% -> 95% (see benchmark/longmemeval). Works on a cheap model
 
 Design constraints:
 * **Optional.** Off by default; when disabled the connector's single-query
-  recall is byte-identical to before. Enable via config `mneme.expansion`.
+  recall is byte-identical to before. Enable via config `vault.expansion`.
 * **Model-agnostic.** Any OpenAI-compatible ``/v1/chat/completions`` endpoint
   (OpenAI, Ollama, vLLM, ...).
 * **No new dependency.** Uses stdlib ``urllib`` — Perseus gains no runtime dep.
@@ -19527,7 +19161,7 @@ _SYSTEM_PROMPT = (
 
 @dataclass
 class ExpansionConfig:
-    """Config for the optional query-expansion arm (from ``mneme.expansion``)."""
+    """Config for the optional query-expansion arm (from ``vault.expansion``)."""
     enabled: bool = False
     endpoint: str = "https://api.openai.com/v1/chat/completions"
     model: str = "gpt-4o-mini"
@@ -19631,7 +19265,7 @@ fixed at 0 and documented; everything else is computed from MemoryHit
 fields already returned by the vault. Every re-ranked hit carries
 `composite_score` and per-component `score_components` for debugging.
 
-Off by default (`mneme.composite_ranking.enabled`); weights live in one
+Off by default (`vault.composite_ranking.enabled`); weights live in one
 config block so ranking can be tuned without code changes.
 """
 
@@ -19826,7 +19460,7 @@ def composite_rerank(
         scored.append((idx, score, hit))
     scored.sort(key=lambda t: (-t[1], t[0]))
     return [h for _, _, h in scored]
-"""src/perseus/mneme_connector.py — Perseus × Vault Bridge (Project Synapse v2)
+"""src/perseus/vault_connector.py — Perseus × Vault Bridge (Project Synapse v2)
 
 Hybrid context resolution: Perseus live state (Sense) + Vault persistent
 memory (Memory) → unified ContextPackage for LLM injection.
@@ -19840,9 +19474,7 @@ Vault is a high-performance Rust memory engine using:
 Protocol: MCP (Model Context Protocol) — JSON-RPC 2.0 over stdio or SSE.
 Fallback: local SQLite FTS5 when Vault is unreachable.
 
-Config back-compat: reads the `mneme:` config block (preferred); falls back
-to the legacy `mimir:` block when `mneme:` is absent so existing config.yaml
-files keep working unchanged (see _resolve_mneme_config()).
+Configuration is read from the canonical `perseus_vault:` block.
 
 Key features:
   - Circuit Breaker with configurable threshold/cooldown
@@ -19866,16 +19498,8 @@ from typing import Any, Optional, Callable
 
 
 
-# The heading emitted above every injected persistent-memory block. Rebranded
-# for #662 (Mimir → Mneme → Perseus Vault): the generator used to emit
-# ``## Persistent Memory (Mneme)`` / ``(Mimir)`` even though the memory layer
-# is now "Perseus Vault". The backward-compatible matcher
-# (_MEMORY_SECTION_HEADER_RE below) still recognises the historical
-# ``(Mimir)`` / ``(Mneme)`` variants, so a doc rendered under an old header is
-# still found and replaced with this one on the next render.
-# The single user-facing brand for the persistent memory layer. Route ALL
-# user-visible labels (injected header, doctor check labels, ...) through this
-# so a future rename is one edit (#665).
+# The single user-facing brand for the persistent memory layer. Route all
+# user-visible labels through this constant so a future rename is one edit.
 MEMORY_BRAND = "Perseus Vault"
 PERSISTENT_MEMORY_HEADER = f"## Persistent Memory ({MEMORY_BRAND})"
 
@@ -19889,8 +19513,7 @@ class MemorySource(str, Enum):
     LOCAL = "local"          # Local FTS5 (Perseus)
     VAULT = "vault"          # Perseus Vault persistent store
     FEDERATED = "federated"  # Cross-workspace federation
-    MIMIR = "vault"          # legacy Python name
-    MNEME = "vault"          # legacy Python name
+
 
 class MemoryLayer(str, Enum):
     """Vault time-based memory layer.
@@ -19903,10 +19526,10 @@ class MemoryLayer(str, Enum):
     CORE = "core"        # Consolidated long-term memory, low decay
 
 class MemoryTypeEnum(str, Enum):
-    """Friendly labels mapped from Mneme topic tags.
+    """Friendly labels mapped from Vault topic tags.
 
     Retained for backward compatibility with agora.py rendering.
-    Maps to Mneme topics rather than strict type categories.
+    Maps to Vault topics rather than strict type categories.
     """
     INSIGHT = "insight"
     ARCHITECTURE = "architecture"
@@ -19916,13 +19539,13 @@ class MergeStrategy(str, Enum):
     LOCAL_FIRST = "local_first"
     REMOTE_FIRST = "remote_first"
     INTERLEAVE = "interleave"
-    DECAY_FIRST = "decay_first"     # Mneme-native: sort by freshness
+    DECAY_FIRST = "decay_first"     # Vault-native: sort by freshness
 
 @dataclass
 class MemoryLink:
     """A topic-tree edge between two memory items.
 
-    In Mneme, links form a topic hierarchy rather than a general graph.
+    In Vault, links form a topic hierarchy rather than a general graph.
     """
     target_id: str
     relationship: str       # parent_of | related_to | refines | contradicts
@@ -19938,7 +19561,7 @@ class MemoryHit:
     id: str
     type: MemoryTypeEnum
     content: str
-    source: MemorySource = MemorySource.MIMIR
+    source: MemorySource = MemorySource.VAULT
     summary: str = ""
     relevance: float = 0.0
 
@@ -19953,9 +19576,9 @@ class MemoryHit:
     links: list[MemoryLink] = field(default_factory=list)
     workspace_hash: str = ""
     tags: dict[str, str] = field(default_factory=dict)
-    verified: bool = False   # True when memory exists in both local + mimir
+    verified: bool = False   # True when memory exists in both local + vault
     # #692: the Vault's (category, key) address — required for curation
-    # (mimir_forget takes category+key, not id). Previously discarded by
+    # (perseus_vault_forget takes category+key, not id). Previously discarded by
     # _parse_memory_hits except as a display fallback.
     category: str = ""
     key: str = ""
@@ -19970,7 +19593,7 @@ class MemoryHit:
         id: str,
         type: MemoryTypeEnum = MemoryTypeEnum.INSIGHT,
         content: str = "",
-        source: MemorySource = MemorySource.MIMIR,
+        source: MemorySource = MemorySource.VAULT,
         summary: str = "",
         relevance: float = 0.0,
         decay_score: float = 1.0,
@@ -20019,7 +19642,7 @@ class MemoryHit:
         self.promoted_from = promoted_from or {}
         self.evidence = evidence or {}
 
-        # Handle aliases / alternate names
+        # Normalize alternate wire-field names from the canonical Vault schema.
         resolved_content = content
         if not resolved_content:
             resolved_content = kwargs.get("body_json", "")
@@ -20228,7 +19851,7 @@ class MemorySegment:
     # origin/provenance detail and the full external_refs list per item.
     render_mode: str = "compact"
     # #539: human-readable reason the vault produced zero items via MCP, e.g.
-    # "unavailable: mimir binary not found" or "mimir_recall error: <msg>".
+    # "unavailable: vault binary not found" or "perseus_vault_recall error: <msg>".
     # Empty string means "no error — query genuinely ran and returned N items
     # (possibly 0)". Distinguishes "vault unreachable" from "no matches" so
     # callers (agora._resolve_memory_search, --explain) can render the right
@@ -20396,11 +20019,11 @@ class ContextPackage:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class CircuitBreaker:
-    """Prevents cascading failures when Mneme is unreachable.
+    """Prevents cascading failures when Vault is unreachable.
 
     States: closed → open (after threshold failures) → half_open (after cooldown)
 
-    Config keys (from mneme.circuit_breaker, or legacy mimir.circuit_breaker):
+    Config keys (from `perseus_vault.circuit_breaker`):
         threshold: int = 3   — consecutive failures before opening
         cooldown: int = 120  — seconds before attempting recovery
     """
@@ -20518,7 +20141,7 @@ def _retry_with_backoff(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class _MCPStdioClient:
-    """MCP client over stdio — spawns Mneme as a subprocess.
+    """MCP client over stdio — spawns Vault as a subprocess.
 
     JSON-RPC 2.0 messages are sent via stdin and received via stdout.
     """
@@ -20527,7 +20150,7 @@ class _MCPStdioClient:
         self, command: list[str], timeout_s: float = 10.0, init_timeout_s: float = 30.0
     ):
         # Copy the command list: connect() rewrites command[0] to an absolute
-        # path, and this list is the SAME object as cfg["mimir"]["command"]. In
+        # path, and this list is the SAME object as cfg["perseus_vault"]["command"]. In
         # place mutation changed the config subtree the singleton is hashed on,
         # so the next directive saw a different hash and needlessly killed and
         # respawned a healthy vault process.
@@ -20557,7 +20180,7 @@ class _MCPStdioClient:
         self._reader = None  # threading.Thread
 
         # Parse --db <path> from command to record the intended subprocess CWD.
-        # Mimir may ignore the --db flag and write to CWD/mimir.db; setting CWD to
+        # Vault may ignore the --db flag and write to CWD/vault.db; setting CWD to
         # the DB directory works around this so auto-backfill lands in the right
         # place. The directory is created lazily in connect() — constructing the
         # client must have no filesystem side effects (it may be built just to read
@@ -20573,20 +20196,20 @@ class _MCPStdioClient:
             pass
 
     def connect(self) -> bool:
-        """Spawn the Mneme MCP subprocess and perform handshake."""
+        """Spawn the Vault MCP subprocess and perform handshake."""
         try:
             # Resolve binary path if not fully qualified (#302). Use os.path.isabs
             # so Windows absolute paths (C:\...) are recognized too — startswith
             # ("/") missed them, re-running doctor discovery on every connect.
             if self._command and not os.path.isabs(self._command[0]):
                 try:
-                    binary_path = _find_mimir_binary(self._command)
+                    binary_path = _find_vault_binary(self._command)
                     if binary_path:
                         self._command[0] = binary_path
                 except Exception:
                     pass
 
-            # Extract --db path to set cwd so Mneme writes DB to correct directory (#203)
+            # Extract --db path to set cwd so Vault writes DB to correct directory (#203)
             cwd = self._cwd
             cmd_iter = iter(self._command)
             for arg in cmd_iter:
@@ -20642,7 +20265,7 @@ class _MCPStdioClient:
             # the connection spuriously on launch day.
             init_result, err = self._call("initialize", {
                 "protocolVersion": "2025-06-18",
-                "clientInfo": {"name": "perseus-mimir-connector", "version": "1.0.0"},
+                "clientInfo": {"name": "perseus-vault-connector", "version": "1.0.0"},
                 "capabilities": {},
             }, timeout=self._init_timeout)
             if err or not init_result:
@@ -20899,58 +20522,28 @@ class _MCPSseClient:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MnemeConnector — MCP client with circuit breaker, backoff, and fallback
+# VaultConnector — MCP client with circuit breaker, backoff, and fallback
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Set of deprecated config keys already warned about this process — avoids
-# spamming stderr on every directive resolution / singleton rebuild. Tracked
-# per-key so renaming `mimir:` → `mneme:` still surfaces the next-hop notice.
-_warned_legacy_config_keys: set[str] = set()
-
-# Canonical → deprecated-alias precedence for the memory connector's config
-# block. #662 completes the Mimir → Mneme → Perseus Vault rename on the Perseus
-# side: `perseus_vault:` is the canonical key; `mneme:` and `mimir:` remain
-# accepted aliases (canonical wins when several are present). Order matters —
-# the first non-empty block in this list is used.
-_MEMORY_CONFIG_KEYS = ("perseus_vault", "mneme", "mimir")
-_MEMORY_CONFIG_CANONICAL = _MEMORY_CONFIG_KEYS[0]
+# Canonical Perseus Vault configuration.
+_MEMORY_CONFIG_CANONICAL = "perseus_vault"
 
 
-def _resolve_mneme_config(cfg: dict) -> dict:
-    """Resolve the connector's config block across the rename aliases (#662).
-
-    Lookup order (first non-empty dict wins):
-      1. `cfg["perseus_vault"]` — the current, canonical key.
-      2. `cfg["mneme"]`         — deprecated alias (former product name).
-      3. `cfg["mimir"]`         — deprecated alias (original product name).
-      4. `{}` otherwise, so every `.get(...)` call downstream keeps working
-         with its existing defaults.
-
-    When a deprecated key is used it emits a one-time (per-key, per-process)
-    deprecation notice to stderr pointing at the canonical key.
-    """
+def _resolve_vault_config(cfg: dict) -> dict:
+    """Resolve the canonical Perseus Vault connector configuration."""
     if not isinstance(cfg, dict):
         return {}
-    for key in _MEMORY_CONFIG_KEYS:
-        block = cfg.get(key)
-        if isinstance(block, dict) and block:
-            if key != _MEMORY_CONFIG_CANONICAL and key not in _warned_legacy_config_keys:
-                sys.stderr.write(
-                    f"perseus: config.yaml `{key}:` block is deprecated, please rename "
-                    f"to `{_MEMORY_CONFIG_CANONICAL}:` (legacy key still supported)\n"
-                )
-                _warned_legacy_config_keys.add(key)
-            return block
-    return {}
+    block = cfg.get(_MEMORY_CONFIG_CANONICAL)
+    return block if isinstance(block, dict) else {}
 
 
-class MnemeConnector:
-    """Bridge between Perseus (Python) and Mneme (MCP/JSON-RPC).
+class VaultConnector:
+    """Bridge between Perseus (Python) and Perseus Vault (MCP/JSON-RPC).
 
-    Configuration (from `config.yaml` → `mneme`, with legacy `mimir` fallback):
+    Configuration (from `config.yaml` → `perseus_vault`):
         enabled: bool              = true
         transport: str             = "stdio"  — "stdio" or "sse"
-        command: list[str]         = ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"]
+        command: list[str]         = ["perseus-vault", "serve"]
         endpoint: str              = "http://localhost:50052/sse"  (for sse)
         timeout_s: float           = 10.0   # per tool call
         init_timeout_s: float      = 30.0   # initialize handshake (first-open/migration)
@@ -20965,14 +20558,14 @@ class MnemeConnector:
         fallback_to_local: bool    = True
 
     Usage:
-        connector = MnemeConnector(cfg)
+        connector = VaultConnector(cfg)
         package = connector.hybrid_recall("project architecture", workspace="/opt/...")
         print(package.assemble())
     """
 
     def __init__(self, cfg: dict):
         self._cfg = cfg
-        mcfg = _resolve_mneme_config(cfg)
+        mcfg = _resolve_vault_config(cfg)
         self._enabled = bool(mcfg.get("enabled", True))
         self._transport = mcfg.get("transport", "stdio")
         self._timeout = float(mcfg.get("timeout_s", 10.0))
@@ -20980,7 +20573,7 @@ class MnemeConnector:
         # first-open / schema migration on a large vault doesn't spuriously fail
         # the connection (and trip the breaker) on the first render.
         self._init_timeout = float(mcfg.get("init_timeout_s", 30.0))
-        self._command = mcfg.get("command", ["mimir", "serve", "--db", "~/.mimir/data/mimir.db"])
+        self._command = mcfg.get("command", ["vault", "serve", "--db", "~/.vault/data/vault.db"])
         self._endpoint = mcfg.get("endpoint", "http://localhost:50052/sse")
         self._fallback_to_local = bool(mcfg.get("fallback_to_local", True))
         self._decay_priority_weight = float(mcfg.get("decay_priority_weight", 0.4))
@@ -21026,15 +20619,14 @@ class MnemeConnector:
         # Set when the vault connects but doesn't expose the tools this connector
         # calls (version skew) — see _check_tool_compatibility.
         self._tool_warning: str | None = None
-        # Maps legacy tool names to resolved canonical names (e.g. mimir_recall →
-        # perseus_vault_recall). Populated by _check_tool_compatibility.
+        # Populate only canonical names from the server's tools/list response.
         self._tool_names: dict[str, str] = {}
 
         if self._enabled:
             self._try_connect()
 
     def _try_connect(self) -> bool:
-        """Establish MCP connection to Mneme. Returns True on success."""
+        """Establish MCP connection to Vault. Returns True on success."""
         if self._breaker.is_open:
             self._connect_error = f"circuit breaker open ({self._breaker.stats()})"
             return False
@@ -21042,20 +20634,20 @@ class MnemeConnector:
         # Check binary exists before attempting connection (#378)
         if self._transport == "stdio":
             import shutil as _shutil
-            binary_name = self._command[0] if self._command else "mimir"
+            binary_name = self._command[0] if self._command else "perseus-vault"
             resolved = _shutil.which(binary_name)
             if not resolved and os.path.isabs(binary_name):
                 resolved = binary_name if os.path.isfile(binary_name) else None
             if not resolved:
                 # Try known paths before giving up
                 try:
-                    resolved = _find_mimir_binary(self._command)
+                    resolved = _find_vault_binary(self._command)
                 except Exception:
                     pass
             if not resolved:
                 self._connect_error = (
-                    f"mimir binary not found: '{binary_name}' "
-                    "(install mimir or set mimir.command in config.yaml)"
+                    f"Perseus Vault binary not found: '{binary_name}' "
+                    "(install Perseus Vault or set perseus_vault.command in config.yaml)"
                 )
                 self._breaker.failure()
                 return False
@@ -21068,10 +20660,7 @@ class MnemeConnector:
 
             if self._client.connect():
                 self._connect_error = None
-                # Version-skew guard: resolve canonical Vault tool names before
-                # calls. A Vault that drops legacy aliases must still work.
-                # a perseus_vault_*-only build) would otherwise fail every recall
-                # SILENTLY and degrade to local with no signal. Surface it once.
+                # Resolve the canonical Vault tool names before making calls.
                 self._check_tool_compatibility()
                 self._breaker.success()
                 return True
@@ -21093,29 +20682,15 @@ class MnemeConnector:
             return False
 
     def _check_tool_compatibility(self) -> None:
-        """Resolve tool names and warn if any are unavailable on the connected vault.
-
-        The connector historically hardcoded ``mimir_*`` names, but Perseus Vault
-        2.x uses canonical ``perseus_vault_*`` names.  This function resolves each
-        legacy name against the server-advertised tool list and stores the resolved
-        name so call sites don't hardcode.  Falls back to the legacy name when the
-        server isn't reachable yet (the _call helper will surface the real error at
-        call time).
-
-        Resolution order per tool (first match wins):
-          1. ``perseus_vault_<name>``  (canonical)
-          2. ``mneme_<name>``          (deprecated alias)
-          3. ``mimir_<name>``          (legacy alias)
-          4. legacy name unchanged     (will error at call time)
-        """
-        _LEGACY_TOOLS = [
-            "mimir_recall", "mimir_recall_when", "mimir_as_of", "mimir_context",
-            "mimir_stats", "mimir_get_entity", "mimir_forget", "mimir_correct",
-            "mimir_remember", "mimir_health", "mimir_recall_batch",
-            "mimir_promote",
-        ]
-        _PREFIXES = ["perseus_vault_", "mneme_", "mimir_"]
-
+        """Verify that the connected server advertises canonical Vault tools."""
+        tools = (
+            "perseus_vault_recall", "perseus_vault_recall_when",
+            "perseus_vault_as_of", "perseus_vault_context",
+            "perseus_vault_stats", "perseus_vault_get_entity",
+            "perseus_vault_forget", "perseus_vault_correct",
+            "perseus_vault_remember", "perseus_vault_health",
+            "perseus_vault_recall_batch", "perseus_vault_promote",
+        )
         self._tool_warning = None
         try:
             names = {
@@ -21123,41 +20698,22 @@ class MnemeConnector:
                 for t in (self._client.list_tools() if self._client else [])
             }
         except Exception:
-            # Can't reach the server yet — fall back to legacy names.
-            for lt in _LEGACY_TOOLS:
-                self._tool_names[lt] = lt
+            names = set()
+
+        self._tool_names = {name: name for name in tools}
+        if not names:
             return
-
-        missing: list[str] = []
-        for lt in _LEGACY_TOOLS:
-            # Strip the mimir_ prefix to get the base name
-            base = lt[6:]  # len("mimir_") == 6
-            resolved = lt  # fallback
-            for prefix in _PREFIXES:
-                candidate = prefix + base
-                if candidate in names:
-                    resolved = candidate
-                    break
-            else:
-                missing.append(lt)
-            self._tool_names[lt] = resolved
-
+        missing = [name for name in tools if name not in names]
         if missing:
-            alt = sorted(
-                n for n in names if isinstance(n, str) and n.endswith("_recall")
-            )
-            hint = f" (server has: {', '.join(alt[:3])})" if alt else ""
             self._tool_warning = (
-                f"vault connected but {len(missing)} tool(s) missing: "
-                f"{', '.join(missing)}{hint} — "
-                "likely a version mismatch; memory calls may fail or silently "
-                "return nothing"
+                f"Perseus Vault connected but {len(missing)} canonical tool(s) "
+                f"are missing: {', '.join(missing)}"
             )
             print(f"[perseus] Perseus Vault: {self._tool_warning}", file=sys.stderr)
 
-    def _call(self, legacy_tool: str, args: dict) -> tuple:
-        """Call a tool via MCP, resolving the legacy name to the vault's canonical name."""
-        resolved = self._tool_names.get(legacy_tool, legacy_tool)
+    def _call(self, tool_name: str, args: dict) -> tuple:
+        """Call one canonical Perseus Vault MCP tool."""
+        resolved = self._tool_names.get(tool_name, tool_name)
         return self._client.call_tool(resolved, args)
 
     def _ensure_connected(self) -> bool:
@@ -21182,7 +20738,7 @@ class MnemeConnector:
 
     @property
     def available(self) -> bool:
-        """Is Mneme reachable via MCP?"""
+        """Is Vault reachable via MCP?"""
         return self._client is not None and self._client.is_connected
 
     def _transport_gone(self) -> bool:
@@ -21215,7 +20771,7 @@ class MnemeConnector:
     def breaker_stats(self) -> dict:
         return self._breaker.stats()
 
-    # ── Core MCP tool wrappers (Mneme API) ────────────────────────────────
+    # ── Core MCP tool wrappers (Vault API) ────────────────────────────────
 
     def recall(
         self,
@@ -21228,9 +20784,9 @@ class MnemeConnector:
         min_decay_score: float = 0.0,
         topic_path: str | None = None,
     ) -> MemorySegment:
-        """Query Mimir for historical context via MCP 'mimir_recall' tool.
+        """Query Vault for historical context via MCP 'perseus_vault_recall' tool.
 
-        Mneme uses hybrid search (semantic vector + BM25 keyword) with
+        Vault uses hybrid search (semantic vector + BM25 keyword) with
         Ebbinghaus decay scoring.
 
         Args:
@@ -21266,7 +20822,7 @@ class MnemeConnector:
         # expanded sub-queries, recall each, and RRF-fuse the hits — this lifts
         # weak-category recall (multi-session / temporal / preference) where a
         # single verbatim query misses the relevant session. Off unless
-        # `mneme.expansion.enabled`; any planner failure falls through to the
+        # `vault.expansion.enabled`; any planner failure falls through to the
         # unchanged single-query recall below, so retrieval never breaks.
         if self._expansion.enabled and query and query.strip():
             seg = self._recall_expanded(
@@ -21284,21 +20840,21 @@ class MnemeConnector:
         if err:
             return MemorySegment(
                 query_time_ms=int((time.time() - t0) * 1000),
-                strategy_used="mimir_recall_error",
-                error=f"mimir_recall failed: {err}",
+                strategy_used="perseus_vault_recall_error",
+                error=f"perseus_vault_recall failed: {err}",
             )
         if self._composite.enabled:
             hits = composite_rerank(hits, query, workspace_hash, self._composite)
         return MemorySegment(
             items=hits,
-            strategy_used="mimir_recall",
+            strategy_used="perseus_vault_recall",
             total_available=len(hits),
             query_time_ms=int((time.time() - t0) * 1000),
         )
 
     def _recall_once(self, query, limit, min_decay, workspace_hash, topic_path,
                      type_filter):
-        """One `mimir_recall` call (retry + parse). Returns ``(hits, err)``. The
+        """One `perseus_vault_recall` call (retry + parse). Returns ``(hits, err)``. The
         single-query primitive shared by plain recall and the expansion arms.
 
         #699: RecallArgs is deserialized without deny_unknown_fields, so misnamed
@@ -21314,7 +20870,7 @@ class MnemeConnector:
             recall_args["type"] = type_filter
 
         def _do_recall():
-            result, e = self._call("mimir_recall", recall_args)
+            result, e = self._call("perseus_vault_recall", recall_args)
             if e:
                 raise RuntimeError(e)
             return result
@@ -21336,7 +20892,7 @@ class MnemeConnector:
         or None to signal the caller to fall back to single-query recall (planner
         unavailable / returned nothing).
 
-        Uses mimir_recall_batch (#641) when available — server-side RRF fusion
+        Uses perseus_vault_recall_batch (#641) when available — server-side RRF fusion
         in a single MCP round-trip instead of N sequential calls. Falls back to
         sequential _recall_once + client-side RRF for older vaults.
         """
@@ -21349,8 +20905,8 @@ class MnemeConnector:
         per = max(max_results, max_results * self._expansion.per_query_limit_factor)
 
         # Prefer server-side batch fusion (#641) — single round-trip
-        resolved_batch = self._tool_names.get("mimir_recall_batch", "mimir_recall_batch")
-        if resolved_batch != "mimir_recall_batch":
+        resolved_batch = self._tool_names.get("perseus_vault_recall_batch", "perseus_vault_recall_batch")
+        if resolved_batch != "perseus_vault_recall_batch":
             # Batch tool is available on the vault — use it
             try:
                 return self._recall_expanded_batch(
@@ -21375,14 +20931,14 @@ class MnemeConnector:
         items = [by_id[i] for i in fused if i in by_id]
         return MemorySegment(
             items=items,
-            strategy_used="mimir_recall_expanded",
+            strategy_used="perseus_vault_recall_expanded",
             total_available=len(by_id),
             query_time_ms=int((time.time() - t0) * 1000),
         )
 
     def _recall_expanded_batch(self, queries, per, min_decay, workspace_hash,
                                 topic_path, type_filter, max_results, t0):
-        """Server-side batch recall via mimir_recall_batch (#641)."""
+        """Server-side batch recall via perseus_vault_recall_batch (#641)."""
         batch_args = {
             "queries": [
                 {
@@ -21400,7 +20956,7 @@ class MnemeConnector:
                 ba["type"] = type_filter
 
         def _do_batch():
-            result, e = self._call("mimir_recall_batch", batch_args)
+            result, e = self._call("perseus_vault_recall_batch", batch_args)
             if e:
                 raise RuntimeError(e)
             return result
@@ -21418,7 +20974,7 @@ class MnemeConnector:
         hits = _parse_memory_hits(raw_result or {})
         return MemorySegment(
             items=hits[:max_results],
-            strategy_used="mimir_recall_batch",
+            strategy_used="perseus_vault_recall_batch",
             total_available=len(hits),
             query_time_ms=int((time.time() - t0) * 1000),
         )
@@ -21430,7 +20986,7 @@ class MnemeConnector:
     ) -> MemorySegment:
         """Proactive recall: find entities whose recall_when triggers match context.
 
-        Calls mimir_recall_when to search for entities that declared they should
+        Calls perseus_vault_recall_when to search for entities that declared they should
         be recalled in similar situations. Use this before tool calls, at session
         start, or when context shifts — it surfaces memories the agent would
         otherwise forget to ask about.
@@ -21449,7 +21005,7 @@ class MnemeConnector:
             )
 
         def _do_recall_when():
-            result, err = self._call("mimir_recall_when", {
+            result, err = self._call("perseus_vault_recall_when", {
                 "context": context,
                 "limit": min(limit, 100),
             })
@@ -21469,13 +21025,13 @@ class MnemeConnector:
             return MemorySegment(
                 query_time_ms=int((time.time() - t0) * 1000),
                 strategy_used="recall_when_error",
-                error=f"mimir_recall_when failed: {err}",
+                error=f"perseus_vault_recall_when failed: {err}",
             )
 
         items = _parse_memory_hits(raw_result or {})
         return MemorySegment(
             items=items,
-            strategy_used="mimir_recall_when",
+            strategy_used="perseus_vault_recall_when",
             total_available=len(items),
             query_time_ms=int((time.time() - t0) * 1000),
         )
@@ -21486,15 +21042,15 @@ class MnemeConnector:
         key: str,
         as_of_unix_ms: int,
     ) -> dict | None:
-        """Bi-temporal time-travel via Mimir's ``mimir_as_of`` tool.
+        """Bi-temporal time-travel via Vault's ``perseus_vault_as_of`` tool.
 
-        Returns the version of a fact (``category`` + ``key``) that Mimir
+        Returns the version of a fact (``category`` + ``key``) that Vault
         believed at the transaction-time instant ``as_of_unix_ms`` — the content
         as it was then, even after later overwrites — or ``None`` if the fact had
-        not been recorded yet at that instant, or if Mimir is unavailable.
+        not been recorded yet at that instant, or if Vault is unavailable.
 
         Fail-safe like :meth:`recall`: never raises and never blocks a render, so
-        a context can surface "what we believed at time T" without making Mimir a
+        a context can surface "what we believed at time T" without making Vault a
         hard dependency. The returned dict carries ``found`` plus the entity
         fields (``id``, ``category``, ``key``, ``body_json``, ``status``,
         ``entity_type``, ``as_of_unix_ms``).
@@ -21508,7 +21064,7 @@ class MnemeConnector:
             return None
 
         def _do_as_of():
-            result, err = self._call("mimir_as_of", {
+            result, err = self._call("perseus_vault_as_of", {
                 "category": category,
                 "key": key,
                 "as_of_unix_ms": int(as_of_unix_ms),
@@ -21533,9 +21089,9 @@ class MnemeConnector:
         categories: list[str] | None = None,
         limit: int = 10,
     ) -> str | None:
-        """Fetch Mimir's pre-formatted hot-entity context block via 'mimir_context'.
+        """Fetch Vault's pre-formatted hot-entity context block via 'perseus_vault_context'.
 
-        Unlike recall(), this calls Mimir's purpose-built context tool, which
+        Unlike recall(), this calls Vault's purpose-built context tool, which
         injects always_on ("hot") entities first, then the top entities by
         decay/recency ranking — exactly what Perseus wants to pre-load before
         work begins (the Memory+Context "compose, don't replace" pre-resolution).
@@ -21545,14 +21101,14 @@ class MnemeConnector:
             limit: Max non-always-on entities to include in the block.
 
         Returns:
-            The raw markdown block from Mimir, or None when Mimir is unavailable,
+            The raw markdown block from Vault, or None when Vault is unavailable,
             errors, or returns no markdown. Fails safe so a render is never broken.
         """
         if not self._ensure_connected():
             return None
 
         def _do_context():
-            result, err = self._call("mimir_context", {
+            result, err = self._call("perseus_vault_context", {
                 "categories": categories or [],
                 "limit": limit,
             })
@@ -21585,7 +21141,7 @@ class MnemeConnector:
     ) -> tuple[list[MemoryHit], str]:
         """List the most recent entities across ALL workspaces (#692).
 
-        An empty-query ``mimir_recall`` returns entities by the Vault's
+        An empty-query ``perseus_vault_recall`` returns entities by the Vault's
         decay/recency ranking (active-only unless ``include_archived``).
         Unlike :meth:`recall`, ``workspace_hash`` is omitted entirely —
         sending ``""`` would be the Vault's STRICT global scope, hiding every
@@ -21601,7 +21157,7 @@ class MnemeConnector:
             args["include_archived"] = True
 
         def _do_browse():
-            result, err = self._call("mimir_recall", args)
+            result, err = self._call("perseus_vault_recall", args)
             if err:
                 raise RuntimeError(err)
             return result
@@ -21614,11 +21170,11 @@ class MnemeConnector:
             abort_check=self._transport_gone,
         )
         if err:
-            return [], f"mimir_recall failed: {err}"
+            return [], f"perseus_vault_recall failed: {err}"
         return _parse_memory_hits(raw or {}), ""
 
     def stats(self) -> dict | None:
-        """Raw ``mimir_stats`` payload, or None when unavailable (#692).
+        """Raw ``perseus_vault_stats`` payload, or None when unavailable (#692).
 
         Consumers should prefer the active-only fields (``active_entities``,
         ``archived_entities`` — perseus-vault #493) and treat their absence
@@ -21626,7 +21182,7 @@ class MnemeConnector:
         """
         if not self._ensure_connected():
             return None
-        result, err = self._call("mimir_stats", {})
+        result, err = self._call("perseus_vault_stats", {})
         if err or not isinstance(result, dict):
             return None
         return result
@@ -21635,7 +21191,7 @@ class MnemeConnector:
         """Fetch one entity (full body_json + provenance) by id (#692)."""
         if not self._ensure_connected():
             return None
-        result, err = self._call("mimir_get_entity", {"id": entity_id})
+        result, err = self._call("perseus_vault_get_entity", {"id": entity_id})
         if err or not isinstance(result, dict):
             return None
         if result.get("found") is False or result.get("error"):
@@ -21643,14 +21199,14 @@ class MnemeConnector:
         return result
 
     def forget(self, category: str, key: str, reason: str = "") -> tuple[bool, str]:
-        """Soft-archive an entity via ``mimir_forget`` (#692).
+        """Soft-archive an entity via ``perseus_vault_forget`` (#692).
 
         The Vault addresses forget by (category, key) — not id — and the
         operation is a reversible archive, not a delete.
         """
         if not self._ensure_connected():
             return False, self.status
-        result, err = self._call("mimir_forget", {
+        result, err = self._call("perseus_vault_forget", {
             "category": category,
             "key": key,
             "reason": reason,
@@ -21668,9 +21224,9 @@ class MnemeConnector:
         task_context: str = "",
         category: str = "",
     ) -> tuple[bool, str]:
-        """Record a wrong→right pair via ``mimir_correct`` (#692).
+        """Record a wrong→right pair via ``perseus_vault_correct`` (#692).
 
-        ``mimir_correct`` does not edit an entity in place — it records the
+        ``perseus_vault_correct`` does not edit an entity in place — it records the
         superseding correction bitemporally. Callers pass the old item's
         content as ``wrong_approach``.
         """
@@ -21683,7 +21239,7 @@ class MnemeConnector:
         }
         if category:
             args["category"] = category
-        result, err = self._call("mimir_correct", args)
+        result, err = self._call("perseus_vault_correct", args)
         if err:
             return False, err
         if isinstance(result, dict) and result.get("error"):
@@ -21699,7 +21255,7 @@ class MnemeConnector:
         to_key: str | None = None,
         reason: str = "",
     ) -> tuple[bool, "dict | str"]:
-        """Promote a memory across the class/scope ladder via ``mimir_promote`` (#832).
+        """Promote a memory across the class/scope ladder via ``perseus_vault_promote`` (#832).
 
         The promotion ladder (docs/shared-memory-promotion-ladder.md) moves a
         memory up the class ladder (``to_category``, e.g. episodes → convention)
@@ -21711,7 +21267,7 @@ class MnemeConnector:
 
         Returns ``(True, result_dict)`` on success (the vault's response,
         including ``to_id`` and ``to_workspace_hash``), ``(False, error)``
-        otherwise. On a vault older than the primitive (no ``mimir_promote``
+        otherwise. On a vault older than the primitive (no ``perseus_vault_promote``
         tool), the unresolved-name error is surfaced verbatim.
         """
         if not self._ensure_connected():
@@ -21725,13 +21281,13 @@ class MnemeConnector:
             args["to_key"] = to_key
         if reason:
             args["reason"] = reason
-        result, err = self._call("mimir_promote", args)
+        result, err = self._call("perseus_vault_promote", args)
         if err:
             return False, err
         if isinstance(result, dict) and result.get("error"):
             return False, str(result["error"])
         if not isinstance(result, dict) or not result.get("promoted"):
-            return False, f"unexpected mimir_promote response: {result!r}"
+            return False, f"unexpected perseus_vault_promote response: {result!r}"
         return True, result
 
     def store(
@@ -21757,8 +21313,7 @@ class MnemeConnector:
         writes of the same fact dedupe rather than pile up. The body is stored
         as a JSON object — a plain string is wrapped as ``{"content": ...}``.
 
-        The canonical Vault tool is ``perseus_vault_remember``; legacy aliases
-        remain accepted by the server during the rename transition.
+        The connector uses the canonical ``perseus_vault_remember`` tool.
 
         Returns (success, memory_id_or_error).
         """
@@ -21839,7 +21394,7 @@ class MnemeConnector:
                 audit_event(
                     cfg,
                     "memory_write_chancery_verified",
-                    directive="mimir_remember",
+                    directive="perseus_vault_remember",
                     category=cat,
                     key=ent_key,
                     chancery_writ_id=chancery_wid,
@@ -21852,12 +21407,12 @@ class MnemeConnector:
         return success, mem_id
 
     def health_check(self) -> tuple[bool, str]:
-        """Check Mimir server health via MCP 'mimir_health' tool."""
+        """Check Vault server health via MCP 'perseus_vault_health' tool."""
         if not self.available:
-            return False, "Mneme unavailable"
+            return False, "Vault unavailable"
 
         def _do_health():
-            result, err = self._call("mimir_health", {})
+            result, err = self._call("perseus_vault_health", {})
             if err:
                 raise RuntimeError(err)
             return result
@@ -21888,7 +21443,7 @@ class MnemeConnector:
 
         Three-Step Flow (per Synapse spec):
           Step A (Sense):  Resolve current environment (live state).
-          Step B (Memory): Query Mimir for historical context.
+          Step B (Memory): Query Vault for historical context.
           Step C (Merge):  Combine both into a ContextPackage using configured
                            merge_strategy, with decay-aware ordering and
                            source tagging + verification.
@@ -21897,7 +21452,7 @@ class MnemeConnector:
             query: Natural language query for memory recall
             cfg: Perseus config dict (for local fallback)
             workspace: Current workspace path
-            local_recall_fn: Fallback function for local Mnēmē FTS5:
+            local_recall_fn: Fallback function for local Perseus Vault FTS5:
                 fn(cfg, query, k, scope, type_filter, sensitivity) -> list[dict]
             **kwargs: Forwarded to self.recall()
 
@@ -21924,28 +21479,28 @@ class MnemeConnector:
         live_state = LiveStateSegment(
             workspace_path=workspace,
             entries=live_entries,
-            metadata={"connector": "mimir_synapse.v2"},
+            metadata={"connector": "vault_synapse.v2"},
         )
         diagnostics["live_state_ms"] = str(int((time.time() - t_live) * 1000))
 
         # ── Step B: Historical Context Resolution ──
         t_memory = time.time()
-        mimir_segment = MemorySegment()
+        vault_segment = MemorySegment()
 
         if self.available:
-            mimir_segment = self.recall(query=query, **kwargs)
-            diagnostics["mimir"] = (
-                f"{len(mimir_segment.items)} results via MCP/{self._transport}"
+            vault_segment = self.recall(query=query, **kwargs)
+            diagnostics["vault"] = (
+                f"{len(vault_segment.items)} results via MCP/{self._transport}"
             )
         else:
-            diagnostics["mimir"] = f"unavailable: {self._connect_error or 'disabled'}"
+            diagnostics["vault"] = f"unavailable: {self._connect_error or 'disabled'}"
 
-        # ── Local Mnēmē FTS5 fallback ──
+        # ── Local Perseus Vault FTS5 fallback ──
         # #774: fallback, not additive — scan the local index only when the
         # vault contributed nothing. The unconditional scan doubled recall
         # latency and injected duplicate hits whenever the vault was healthy.
         local_items: list[MemoryHit] = []
-        if local_recall_fn and cfg and not mimir_segment.items:
+        if local_recall_fn and cfg and not vault_segment.items:
             try:
                 local_results = local_recall_fn(cfg, query, k=kwargs.get("max_results", 10))
                 local_items = _local_hits_to_memory_hits(local_results)
@@ -21960,7 +21515,7 @@ class MnemeConnector:
         # ── Step C: Merge — apply configured strategy (decay-aware) ──
         merged_segment = self._merge_results(
             local_items=local_items,
-            mimir_items=mimir_segment.items,
+            vault_items=vault_segment.items,
             strategy=self._merge_strategy,
             diagnostics=diagnostics,
         )
@@ -21980,94 +21535,93 @@ class MnemeConnector:
     def _merge_results(
         self,
         local_items: list[MemoryHit],
-        mimir_items: list[MemoryHit],
+        vault_items: list[MemoryHit],
         strategy: MergeStrategy,
         diagnostics: dict[str, str],
     ) -> MemorySegment:
-        """Merge local and Mneme results per the configured strategy.
+        """Merge local and Vault results per the configured strategy.
 
         Decay-aware ordering: when decay_first strategy is used, or as a
         secondary sort within other strategies, items with higher decay_score
         (fresher) are prioritized.
 
-        Verification: if a memory exists in both sources, the Mneme version
+        Verification: if a memory exists in both sources, the Vault version
         is preferred but flagged as verified=True.
         """
-        if not local_items and not mimir_items:
+        if not local_items and not vault_items:
             return MemorySegment(strategy_used=strategy.value)
 
         # Build lookup by content hash for dedup
-        mimir_by_hash: dict[str, MemoryHit] = {}
-        for ei in mimir_items:
+        vault_by_hash: dict[str, MemoryHit] = {}
+        for ei in vault_items:
             h = hashlib.md5(ei.content.encode()).hexdigest()[:12]
-            mimir_by_hash[h] = ei
+            vault_by_hash[h] = ei
 
         local_by_hash: dict[str, MemoryHit] = {}
         for li in local_items:
             h = hashlib.md5(li.content.encode()).hexdigest()[:12]
             local_by_hash[h] = li
 
-        mimir_hashes = set(mimir_by_hash.keys())
+        vault_hashes = set(vault_by_hash.keys())
         local_hashes = set(local_by_hash.keys())
 
-        # Items in both — mark as verified, prefer Mneme version
-        both_hashes = mimir_hashes & local_hashes
+        # Items in both — mark as verified, prefer Vault version
+        both_hashes = vault_hashes & local_hashes
         verified_items: list[MemoryHit] = []
         for h in both_hashes:
-            ei = mimir_by_hash[h]
+            ei = vault_by_hash[h]
             ei.verified = True
             verified_items.append(ei)
 
-        # Mneme-only items
-        mimir_only = [mimir_by_hash[h] for h in (mimir_hashes - local_hashes)]
+        # Vault-only items
+        vault_only = [vault_by_hash[h] for h in (vault_hashes - local_hashes)]
 
         # Local-only items
-        local_only = [local_by_hash[h] for h in (local_hashes - mimir_hashes)]
+        local_only = [local_by_hash[h] for h in (local_hashes - vault_hashes)]
 
         diagnostics["merge_verified"] = str(len(verified_items))
-        diagnostics["merge_mimir_only"] = str(len(mimir_only))
-        diagnostics["merge_mneme_only"] = str(len(local_only))
+        diagnostics["merge_vault_only"] = str(len(vault_only))
         diagnostics["merge_local_only"] = str(len(local_only))
 
         if strategy == MergeStrategy.DECAY_FIRST:
             # Pure decay ordering: sort all by decay_score descending
-            all_items = verified_items + mimir_only + local_only
+            all_items = verified_items + vault_only + local_only
             all_items.sort(key=lambda i: i.decay_score, reverse=True)
             return MemorySegment(
                 items=all_items,
-                strategy_used=f"mimir_{strategy.value}",
+                strategy_used=f"vault_{strategy.value}",
                 total_available=len(all_items),
             )
 
         if strategy == MergeStrategy.REMOTE_FIRST:
             # Sort within groups by decay_score desc (fresh → stale)
-            mimir_only.sort(key=lambda i: i.decay_score, reverse=True)
+            vault_only.sort(key=lambda i: i.decay_score, reverse=True)
             local_only.sort(key=lambda i: i.decay_score, reverse=True)
             verified_items.sort(key=lambda i: i.decay_score, reverse=True)
-            merged = mimir_only + verified_items + local_only
+            merged = vault_only + verified_items + local_only
         elif strategy == MergeStrategy.INTERLEAVE:
-            # Alternate: mimir, local, local — sorted by decay within each
-            mimir_only.sort(key=lambda i: i.decay_score, reverse=True)
+            # Alternate: vault, local, local — sorted by decay within each
+            vault_only.sort(key=lambda i: i.decay_score, reverse=True)
             local_only.sort(key=lambda i: i.decay_score, reverse=True)
             verified_items.sort(key=lambda i: i.decay_score, reverse=True)
             interleaved = []
-            max_len = max(len(mimir_only), len(local_only))
+            max_len = max(len(vault_only), len(local_only))
             for i in range(max_len):
-                if i < len(mimir_only):
-                    interleaved.append(mimir_only[i])
+                if i < len(vault_only):
+                    interleaved.append(vault_only[i])
                 if i < len(local_only):
                     interleaved.append(local_only[i])
             merged = interleaved + verified_items
         else:
-            # LOCAL_FIRST (default): local results first, Mneme augments
+            # LOCAL_FIRST (default): local results first, Vault augments
             local_only.sort(key=lambda i: i.decay_score, reverse=True)
             verified_items.sort(key=lambda i: i.decay_score, reverse=True)
-            mimir_only.sort(key=lambda i: i.decay_score, reverse=True)
-            merged = local_only + verified_items + mimir_only
+            vault_only.sort(key=lambda i: i.decay_score, reverse=True)
+            merged = local_only + verified_items + vault_only
 
         return MemorySegment(
             items=merged,
-            strategy_used=f"mimir_{strategy.value}",
+            strategy_used=f"vault_{strategy.value}",
             total_available=len(merged),
         )
 
@@ -22103,9 +21657,9 @@ def _parse_memory_hits(data: dict) -> list[MemoryHit]:
             mem_type = MemoryTypeEnum(raw.get("type", "insight"))
         except ValueError:
             pass
-        mem_source = MemorySource.MIMIR
+        mem_source = MemorySource.VAULT
         try:
-            mem_source = MemorySource(raw.get("source", "mimir"))
+            mem_source = MemorySource(raw.get("source", "vault"))
         except ValueError:
             pass
         mem_layer = MemoryLayer.WORKING
@@ -22120,7 +21674,7 @@ def _parse_memory_hits(data: dict) -> list[MemoryHit]:
                 relationship=lraw.get("relationship", ""),
                 weight=lraw.get("weight", 0.5),
             ))
-        # Mimir v0.2.0 entities expose their payload in `body_json` and have no
+        # Vault v0.2.0 entities expose their payload in `body_json` and have no
         # top-level `content`/`summary` fields. Derive display text from
         # body_json (preferring an inner `summary`, then `content`/`text`),
         # falling back to the entity key/category so titles never render blank.
@@ -22208,9 +21762,9 @@ def _bm25_to_relevance(score) -> float:
 
 
 def _local_hits_to_memory_hits(local_results: list[dict]) -> list[MemoryHit]:
-    """Convert local Mnēmē FTS5 recall results to MemoryHit format.
+    """Convert local Perseus Vault FTS5 recall results to MemoryHit format.
 
-    Local items have no Mneme decay data — they default to decay_score=1.0
+    Local items have no Vault decay data — they default to decay_score=1.0
     (treated as fresh) and layer=WORKING.
 
     Items with empty or whitespace-only content are skipped — these occur
@@ -22242,7 +21796,7 @@ def _local_hits_to_memory_hits(local_results: list[dict]) -> list[MemoryHit]:
     return hits
 
 
-# Alias / compatibility layer for Mimir v0.2.0 entity model renames (#23d4e76/bf15140)
+# Alias / compatibility layer for Vault v0.2.0 entity model renames (#23d4e76/bf15140)
 EntityHit = MemoryHit
 _parse_entity_hits = _parse_memory_hits
 _local_hits_to_entity_hits = _local_hits_to_memory_hits
@@ -22252,7 +21806,7 @@ _local_hits_to_entity_hits = _local_hits_to_memory_hits
 # Singleton connector — initialized lazily, reused across directive resolutions
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_connector: MnemeConnector | None = None
+_connector: VaultConnector | None = None
 _connector_cfg_hash: str = ""
 # Guards the check-then-create below: under `perseus mcp serve`, concurrent
 # requests could both see a stale/None singleton and each spawn a vault
@@ -22260,28 +21814,27 @@ _connector_cfg_hash: str = ""
 _connector_lock = threading.Lock()
 
 
-def _get_connector(cfg: dict) -> MnemeConnector:
-    """Get or create the singleton MnemeConnector.
+def _get_connector(cfg: dict) -> VaultConnector:
+    """Get or create the singleton VaultConnector.
 
-    Re-creates if config changed. Used by resolve_memory / resolve_mimir.
+    Re-creates if config changed. Used by resolve_memory / resolve_vault.
     Thread-safe: the create/replace is serialized under `_connector_lock` so
     concurrent callers can't spawn duplicate vault subprocesses.
     """
     global _connector, _connector_cfg_hash
-    # Hash only the resolved mneme/mimir subtree — the sole config the connector
+    # Hash only the resolved vault/vault subtree — the sole config the connector
     # reads. Stringifying+hashing the whole (potentially large) Perseus config on
     # every directive was wasteful, and rebuilt the connector on unrelated config
     # changes; keying on the resolved subtree is both cheaper and more correct.
-    # Uses _resolve_mneme_config() (not a raw cfg.get("mimir")) so configs that
-    # only set `mneme:` still invalidate the singleton when that block changes.
-    cfg_bytes = json.dumps(_resolve_mneme_config(cfg), sort_keys=True, default=str).encode()
+    # Uses _resolve_vault_config() so the canonical connector subtree
+    cfg_bytes = json.dumps(_resolve_vault_config(cfg), sort_keys=True, default=str).encode()
     cfg_hash = hashlib.sha256(cfg_bytes).hexdigest()
 
     with _connector_lock:
         if _connector is None or cfg_hash != _connector_cfg_hash:
             if _connector:
                 _connector.close()
-            _connector = MnemeConnector(cfg)
+            _connector = VaultConnector(cfg)
             _connector_cfg_hash = cfg_hash
 
         return _connector
@@ -22289,10 +21842,10 @@ def _get_connector(cfg: dict) -> MnemeConnector:
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Resolver stubs — wired into DIRECTIVE_REGISTRY via _bind_registry()
-# These are the functions agora.py calls to augment @memory / @mimir directives
+# These are the functions agora.py calls to augment @memory / @vault directives
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _mneme_hybrid_search(
+def _vault_hybrid_search(
     cfg: dict,
     query: str,
     workspace: str = "",
@@ -22302,7 +21855,7 @@ def _mneme_hybrid_search(
     include_federation: bool = False,
     **kwargs,
 ) -> MemorySegment:
-    """Query Mimir for historical context alongside local Mnēmē FTS5 hits.
+    """Query Vault for historical context alongside local Perseus Vault FTS5 hits.
 
     Called by resolve_memory/search in agora.py after local FTS5 recall.
     Returns a MemorySegment that agora.py can render alongside local results.
@@ -22311,9 +21864,9 @@ def _mneme_hybrid_search(
         cfg: Perseus config dict
         query: Natural language query
         workspace: Current workspace path
-        local_hits: Results from _mneme_recall (local FTS5), used for dedup/merge
-        memory_types: Mneme memory types to query (None = all)
-        max_results: Max results from Mneme
+        local_hits: Results from _vault_recall (local FTS5), used for dedup/merge
+        memory_types: Vault memory types to query (None = all)
+        max_results: Max results from Vault
         include_federation: Query cross-workspace memories
     """
     connector = _get_connector(cfg)
@@ -22324,8 +21877,8 @@ def _mneme_hybrid_search(
         # can't distinguish "vault down" from "vault up, zero matches" and the
         # rendered output silently claims "no memories" when the real story is
         # "the vault never got queried." Exception: a deliberately disabled
-        # vault (mimir.enabled=false) is not an error — it's a configuration
-        # choice — so we don't surface "disabled" as if it were a failure.
+        # Perseus Vault (perseus_vault.enabled=false) is not an error — it is a
+        # configuration choice — so we don't surface "disabled" as a failure.
         vault_error = "" if connector.status == "disabled" else connector.status
         if local_hits:
             return MemorySegment(
@@ -22336,7 +21889,7 @@ def _mneme_hybrid_search(
             )
         return MemorySegment(strategy_used="local_only", error=vault_error)
 
-    # Query Mneme via MCP
+    # Query Vault via MCP
     segment = connector.recall(
         query=query,
         memory_types=memory_types,
@@ -22344,8 +21897,8 @@ def _mneme_hybrid_search(
         include_federation=include_federation,
     )
 
-    # If Mneme returned nothing, use local hits as fallback. Preserve any
-    # error the vault query hit (e.g. mimir_recall_error) so it's still
+    # If Vault returned nothing, use local hits as fallback. Preserve any
+    # error the vault query hit (e.g. perseus_vault_recall_error) so it's still
     # surfaced even though local results paper over the failure.
     if not segment.items and local_hits:
         segment = MemorySegment(
@@ -22358,7 +21911,7 @@ def _mneme_hybrid_search(
     return segment
 
 
-def _mneme_hybrid_recall(
+def _vault_hybrid_recall(
     cfg: dict,
     query: str,
     scope: str | None = None,
@@ -22366,12 +21919,12 @@ def _mneme_hybrid_recall(
     type_filter: str | None = None,
     **kwargs,
 ) -> MemorySegment:
-    """Resolve @mimir directive — BM25 recall with optional Mneme augmentation.
+    """Resolve @vault directive — BM25 recall with optional Vault augmentation.
 
-    This is the lightweight cousin of @memory: local FTS5 first, Mneme
+    This is the lightweight cousin of @memory: local FTS5 first, Vault
     augmentation if available.
 
-    Called by resolve_mimir (agora.py) which prepends mode=search and delegates
+    Called by resolve_vault (agora.py) which prepends mode=search and delegates
     to resolve_memory.
     """
     connector = _get_connector(cfg)
@@ -22389,7 +21942,7 @@ def _mneme_hybrid_recall(
     return MemorySegment(strategy_used="local_only")
 
 
-def _mneme_recall_when(
+def _vault_recall_when(
     cfg: dict,
     context: str,
     limit: int = 10,
@@ -22414,21 +21967,21 @@ def _mneme_recall_when(
     return connector.recall_when(context=context, limit=limit)
 
 
-def _mneme_hot_block(markdown: str) -> str | None:
-    """Normalize Mimir's `mimir_context` markdown for Perseus injection.
+def _vault_hot_block(markdown: str) -> str | None:
+    """Normalize Vault's `perseus_vault_context` markdown for Perseus injection.
 
-    The server block is wrapped in its own ``## Mimir Context`` header and a
+    The server block is wrapped in its own ``## Vault Context`` header and a
     trailing ``> N entities recalled`` footer. Strip both so the entities sit
     cleanly under Perseus's own ``## Persistent Memory (Perseus Vault)`` header, and
     return None when the block carries no actual entities — so the caller can
     fall back to a generic recall.
     """
-    # The server header changed across the rename (Mimir → Mneme → Perseus
+    # The server header changed across the rename (Vault → Vault → Perseus
     # Vault); strip whichever variant this server emits so it never leaks into
     # the briefing under Perseus's own header.
     _server_headers = {
-        "## Mimir Context",
-        "## Mneme Context",
+        "## Vault Context",
+        "## Vault Context",
         "## Perseus Vault Context",
     }
     kept: list[str] = []
@@ -22465,36 +22018,21 @@ _PROFILE_DIRECTIVE_RE = re.compile(
 )
 
 # #553 fix 1 — memory-section headers that mean "this render already carries a
-# memory block". If any of these is present in the rendered output (from an
-# explicit @memory/@mimir directive in the source, a template section, or a
-# previous injection pass over an already-rendered file), the automatic block
-# is skipped so AGENTS.md content can never carry the same memory dump twice.
-#
-# #627 fix 3 — the pattern is EXACT: it matches only headers Perseus itself
-# generates (current + every historical variant the dedup was built to catch),
-# never memory-like user-authored headings. The pre-#627 pattern matched any
-# `persistent memory` / `long-term memory` prefix, so a user writing docs with
-# a section like "## Persistent Memory Design" silently lost injection.
+# Exact headers emitted by the current Perseus Vault renderer. User-authored
+# headings such as "## Persistent Memory Design" must not suppress injection.
 _MEMORY_SECTION_HEADER_RE = re.compile(
     r"(?im)^\s{0,3}#{1,6}\s+(?:"
-    r"persistent\s+memory\s*\((?:mimir|mneme|mnēmē|perseus\s+vault)\)"   # ## Persistent Memory (Mimir) — injector/templates; (Mneme) — hybrid context
-    r"|long-term\s+memory\s*\((?:mimir|mneme|mnēmē|perseus\s+vault)\)"  # ## Long-Term Memory (Mneme) — historical
-    r"|(?:mimir|mneme|mnēmē|perseus\s+vault)\s*(?:—|--|-)?\s*persistent\s+cross-session\s+memory"
-    r"|(?:mimir|mneme|mnēmē|perseus\s+vault)\s+context\b"       # server-emitted block headers
-    r"|memory\s+recall\s+\(on\s+demand\)"                       # our own pointer (idempotency)
+    r"persistent\s+memory\s*\(perseus\s+vault\)"
+    r"|perseus\s+vault\s+context\b"
+    r"|memory\s+recall\s+\(on\s+demand\)"
     r")"
 )
 
-# #627 fix 3 — the pre-#627 loose pattern, kept ONLY for the warning path:
-# when this would have suppressed but the exact pattern above does not, the
-# heading is user-authored (e.g. "## Persistent Memory Design"). Injection
-# proceeds normally, with a stderr note so the near-miss is visible.
 _MEMORY_SECTION_HEADER_LOOSE_RE = re.compile(
     r"(?im)^\s{0,3}#{1,6}\s+(?:"
     r"persistent\s+memory\b"
     r"|long-term\s+memory\b"
-    r"|(?:mimir|mneme|perseus\s+vault)\s*(?:—|--|-)?\s*persistent\s+cross-session\s+memory"
-    r"|(?:mimir|mneme|perseus\s+vault)\s+context\b"
+    r"|perseus\s+vault\s+context\b"
     r"|memory\s+recall\s+\(on\s+demand\)"
     r")"
 )
@@ -22755,7 +22293,7 @@ def _memory_pointer_block(profile_name: str, profile: dict, startup: tuple[str, 
         "Retrieve exactly what a task needs, when it needs it:\n\n"
         "- `@memory mode=search query=\"<topic>\" k=5` — local project memory (FTS5)\n"
         "- `@memory mode=narrative` — the distilled project narrative\n"
-        "- MCP tools: `perseus_memory` (local recall), `perseus_mneme` (cross-session vault)\n\n"
+        "- MCP tools: `perseus_memory` (local recall), `perseus_vault` (cross-session vault)\n\n"
         "Query the vault when a past decision, architecture note, or prior-session\n"
         "fact would change your answer; otherwise proceed without it.\n\n"
         "_Persistent cross-session memory (Perseus Vault) is optional. If recall returns\n"
@@ -22775,10 +22313,10 @@ _MEMORY_DUMP_ADVISORY = (
 
 def _clean_degraded_reason(reason: str) -> str:
     """Trim the internal status/error prefixes off a connector failure string so
-    the rendered one-liner reads cleanly (e.g. 'unavailable: X' / 'mimir_recall
+    the rendered one-liner reads cleanly (e.g. 'unavailable: X' / 'perseus_vault_recall
     failed: X' → 'X')."""
     reason = (reason or "").strip()
-    for prefix in ("unavailable:", "mimir_recall failed:", "mimir_recall_error:"):
+    for prefix in ("unavailable:", "perseus_vault_recall failed:", "perseus_vault_recall_error:"):
         if reason.lower().startswith(prefix.lower()):
             reason = reason[len(prefix):].strip()
     return reason or "vault not reachable"
@@ -22832,7 +22370,7 @@ def _measure_always_dump(connector, mcfg: dict, limit: int, ws_hash) -> str | No
         except Exception:
             hot_md = None
         if isinstance(hot_md, str):
-            hot_body = _mneme_hot_block(hot_md)
+            hot_body = _vault_hot_block(hot_md)
             if hot_body:
                 return (PERSISTENT_MEMORY_HEADER + "\n\n"
                         + _MEMORY_DUMP_ADVISORY + "\n" + hot_body)
@@ -22889,7 +22427,7 @@ def _maybe_meter_posture_reduction(cfg: dict, actual_block: str | None,
         pass
 
 
-def _mneme_context_inject(
+def _vault_context_inject(
     cfg: dict,
     rendered: str = "",
     source_text: str = "",
@@ -22899,7 +22437,7 @@ def _mneme_context_inject(
 
     Called by the renderer (markdown / agents-md / claude-md formats) to append
     an automatic memory section to a rendered context, without requiring an
-    explicit @mimir directive in the source.
+    explicit @vault directive in the source.
 
     Behavior is governed by the active context profile (#608):
       - ``memory: on_demand`` (DEFAULT) — a short, static retrieval pointer
@@ -22909,8 +22447,8 @@ def _mneme_context_inject(
         render context (#553 fix 2); only entities whose triggers match are
         injected. No match → no dump.
       - ``memory: always`` — LEGACY opt-in: the pre-#608 unconditional dump.
-        Hot-entity injection (#473) prefers Mimir's purpose-built
-        ``mimir_context`` tool, falling back to a generic recent-memory recall.
+        Hot-entity injection (#473) prefers Vault's purpose-built
+        ``perseus_vault_context`` tool, falling back to a generic recent-memory recall.
 
     De-duplication (#553 fix 1): when the rendered output already contains a
     persistent/long-term memory section (explicit @memory directive, template
@@ -22927,12 +22465,12 @@ def _mneme_context_inject(
     Fails safe: any error returns None so a rendering can never be broken by
     the memory layer.
     """
-    mcfg = _resolve_mneme_config(cfg) if isinstance(cfg, dict) else {}
+    mcfg = _resolve_vault_config(cfg) if isinstance(cfg, dict) else {}
     if not mcfg.get("enabled", True):
         return None
     # #442: auto_inject=False suppresses the automatic section entirely
     # (pointer AND dump) so memories are only included via an explicit
-    # @memory/@mimir directive in the source.
+    # @memory/@vault directive in the source.
     if not mcfg.get("auto_inject", True):
         return None
 
@@ -23048,7 +22586,7 @@ def _mneme_context_inject(
             # gracefully to the legacy hot-entity path below.
 
         # posture == "always" (legacy opt-in), or "relevant" degraded above.
-        # #473 hot-entity injection: prefer Mimir's purpose-built context tool.
+        # #473 hot-entity injection: prefer Vault's purpose-built context tool.
         # context_categories scopes the pre-resolution to the relevant intent
         # (empty = all categories). Always_on entities are injected first by the
         # server regardless of category.
@@ -23058,7 +22596,7 @@ def _mneme_context_inject(
         except Exception:
             hot_md = None
         if isinstance(hot_md, str):
-            hot_body = _mneme_hot_block(hot_md)
+            hot_body = _vault_hot_block(hot_md)
             if hot_body:
                 return (
                     PERSISTENT_MEMORY_HEADER + "\n\n"
@@ -23067,9 +22605,9 @@ def _mneme_context_inject(
                     + hot_body
                 )
 
-        # Fallback: generic recent-memory recall (older Mimir without
-        # mimir_context, or an empty hot set). An empty query returns the most
-        # recent entities by Mimir's decay/recency ranking. Workspace-scoped
+        # Fallback: generic recent-memory recall (older Vault without
+        # perseus_vault_context, or an empty hot set). An empty query returns the most
+        # recent entities by Vault's decay/recency ranking. Workspace-scoped
         # (#553 fix 3) when a workspace is known.
         segment = connector.recall(query="", max_results=limit, workspace_hash=ws_hash)
         if not segment or not getattr(segment, "items", None):
@@ -23115,9 +22653,9 @@ def cmd_vault_maintain(args, cfg):
     by hand — ``--dry-run`` previews the combined report with zero mutation.
     """
 
-    vault_cfg = _resolve_mneme_config(cfg)
+    vault_cfg = _resolve_vault_config(cfg)
     command = list(vault_cfg.get("command") or ["perseus-vault", "serve"])
-    binary = _find_mimir_binary(command)
+    binary = _find_vault_binary(command)
     if not binary:
         print(
             "Error: perseus-vault binary not found (checked the configured "
@@ -23157,7 +22695,7 @@ def cmd_vault_export(args, cfg):
     human-accreted prose body of each vault entry. Meets CoalWash's input
     contract for store-neutral prose cleaning.
     """
-    vault_path = _mneme_vault_path(cfg)
+    vault_path = _vault_path(cfg)
     if not vault_path.is_dir():
         print(f"Error: vault path not found: {vault_path}", file=sys.stderr)
         return 1
@@ -23215,14 +22753,14 @@ def cmd_vault_export(args, cfg):
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Build integration note:
-# This module is concatenated after memory.py, mneme_index.py, mneme_narrative.py,
-# and mneme_federation.py. _mneme_recall (from memory.py) and other Mnēmē symbols
+# This module is concatenated after memory.py, vault_index.py, vault_narrative.py,
+# and vault_federation.py. _vault_recall (from memory.py) and other Perseus Vault symbols
 # are in global scope at call-time. No cross-module imports needed.
 # ═══════════════════════════════════════════════════════════════════════════════
 # ──────────────────────────────── Inbox (task-16) ─────────────────────────────
 #
 # Point-to-point message store for cross-instance agent communication.
-# Per-workspace by default (uses _workspace_hash from Mnēmē / task-07).
+# Per-workspace by default (uses _workspace_hash from Perseus Vault / task-07).
 #
 # Storage: ~/.perseus/inbox/<workspace-hash>/<id>.yaml
 # Schema: schema=1; sent_at, sender, recipient, subject, body, read_at, dismissed_at
@@ -23434,7 +22972,7 @@ def _memory_workspace(args, cfg) -> Path:
         if (parent / ".perseus").exists():
             if parent != home:
                 sys.stderr.write(
-                    f"> Mneme: using workspace {parent} "
+                    f"> Vault: using workspace {parent} "
                     f"(nearest ancestor with .perseus/).\n"
                 )
             return parent
@@ -23445,7 +22983,7 @@ def _memory_workspace(args, cfg) -> Path:
     # which made scheduled jobs operate on the wrong workspace unnoticed —
     # fail fast with an actionable message instead.
     sys.stderr.write(
-        "> ✖ Mneme: no .perseus/ found in CWD or any ancestor directory "
+        "> ✖ Vault: no .perseus/ found in CWD or any ancestor directory "
         f"(searched up from {cwd}).\n"
         "> Pass --workspace <dir> explicitly, or run from inside a workspace "
         "(a directory whose root contains .perseus/).\n"
@@ -23462,7 +23000,7 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     cp_files = _list_checkpoint_files(cfg)
     # #152: check if we are at HWM to skip pointless I/O. If the file count
     # matches the processed count in frontmatter, nothing changed.
-    mp = _mneme_path(workspace, cfg)
+    mp = _vault_memory_path(workspace, cfg)
     fm, body = _load_narrative(mp)
     hwm = int(fm.get("checkpoints_processed", 0)) if fm else 0
     if hwm > 0 and hwm >= len(cp_files) and not _read_all_pythia_entries():
@@ -23477,11 +23015,11 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     all_pythia = _read_all_pythia_entries()
 
     if not fm:
-        fm = _mneme_default_frontmatter(workspace)
+        fm = _vault_default_frontmatter(workspace)
         body = ""
 
     cp_hwm = int(fm.get("checkpoints_processed", 0))
-    py_hwm = _mneme_pythia_hwm(fm)
+    py_hwm = _vault_pythia_hwm(fm)
     new_cp = all_checkpoints[cp_hwm:]
     new_py = all_pythia[py_hwm:]
 
@@ -23495,7 +23033,7 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     new_body = _deterministic_narrative(all_checkpoints, all_pythia, body, workspace, cfg)
 
     fm["checkpoints_processed"] = len(all_checkpoints)
-    _set_mneme_pythia_hwm(fm, len(all_pythia))
+    _set_vault_pythia_hwm(fm, len(all_pythia))
     fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
     fm["workspace"] = str(workspace)
     fm["workspace_hash"] = _workspace_hash(workspace)
@@ -23527,10 +23065,10 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
             all_checkpoints.append(cp)
     all_pythia = _read_all_pythia_entries()
 
-    mp = _mneme_path(workspace, cfg)
+    mp = _vault_memory_path(workspace, cfg)
     fm, _ = _load_narrative(mp)
     if not fm:
-        fm = _mneme_default_frontmatter(workspace)
+        fm = _vault_default_frontmatter(workspace)
 
     # Compaction always distills deterministically — Perseus runs no inference
     # of its own (observe model). `provider` is accepted for call-site
@@ -23538,7 +23076,7 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
     new_body = _deterministic_narrative(all_checkpoints, all_pythia, "", workspace, cfg)
 
     fm["checkpoints_processed"] = len(all_checkpoints)
-    _set_mneme_pythia_hwm(fm, len(all_pythia))
+    _set_vault_pythia_hwm(fm, len(all_pythia))
     fm["compaction_count"] = int(fm.get("compaction_count", 0)) + 1
     fm["last_compaction_at_update"] = fm["compaction_count"]
     fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -23556,7 +23094,7 @@ def cmd_memory_update_silent(workspace: Path, cfg: dict) -> None:
     try:
         _memory_do_update(workspace, cfg, None)
     except Exception as exc:
-        sys.stderr.write(f"> ⚠ Mnēmē update failed: {exc}\n")
+        sys.stderr.write(f"> ⚠ Perseus Vault update failed: {exc}\n")
 
 
 # ──────────────────────────────── @capture (#713) ─────────────────────────────
@@ -23719,7 +23257,7 @@ def cmd_memory(args, cfg):
             elif attempted:
                 print(f"> 🧠 capture: {stored}/{attempted} session checkpoints written to the vault.")
         if changed:
-            mp = _mneme_path(workspace, cfg)
+            mp = _vault_memory_path(workspace, cfg)
             fm, body = _load_narrative(mp)
             threshold = int(cfg.get("memory", {}).get("compact_threshold", 20))
             cp_processed = int(fm.get("checkpoints_processed", 0))
@@ -23749,7 +23287,7 @@ def cmd_memory(args, cfg):
             cfg.setdefault("memory", {})["pattern_extractor"] = pe_override
         msg = _memory_do_compact(workspace, cfg, None)
         # Record last_compact_processed so future advisory math works
-        mp = _mneme_path(workspace, cfg)
+        mp = _vault_memory_path(workspace, cfg)
         fm, body = _load_narrative(mp)
         fm["last_compact_processed"] = int(fm.get("checkpoints_processed", 0))
         _save_narrative(mp, fm, body)
@@ -23757,7 +23295,7 @@ def cmd_memory(args, cfg):
         return
 
     if sub == "show":
-        mp = _mneme_path(workspace, cfg)
+        mp = _vault_memory_path(workspace, cfg)
         if not mp.exists():
             print(f"> ⚠ No {MEMORY_BRAND} narrative found for {workspace}.")
             print("> Run `perseus memory update` to initialize.")
@@ -23766,7 +23304,7 @@ def cmd_memory(args, cfg):
         return
 
     if sub == "status":
-        mp = _mneme_path(workspace, cfg)
+        mp = _vault_memory_path(workspace, cfg)
         use_json = getattr(args, "json", False)
         if not mp.exists():
             if use_json:
@@ -23780,7 +23318,7 @@ def cmd_memory(args, cfg):
         all_cp = _list_checkpoint_files(cfg)
         all_py = _read_all_pythia_entries()
         cp_hwm = int(fm.get("checkpoints_processed", 0))
-        py_hwm = _mneme_pythia_hwm(fm)
+        py_hwm = _vault_pythia_hwm(fm)
         cp_pending = max(0, len(all_cp) - cp_hwm)
         py_pending = max(0, len(all_py) - py_hwm)
         line_count = body.count("\n") + (1 if body and not body.endswith("\n") else 0)
@@ -23815,7 +23353,7 @@ def cmd_memory(args, cfg):
 
     if sub == "query":
         question = getattr(args, "question", "") or ""
-        mp = _mneme_path(workspace, cfg)
+        mp = _vault_memory_path(workspace, cfg)
         if not mp.exists():
             print(f"> ⚠ No {MEMORY_BRAND} narrative found for {workspace}.")
             print("> Run `perseus memory update` to initialize.")
@@ -23872,10 +23410,10 @@ def cmd_memory(args, cfg):
 
 
 def cmd_memory_doctor(args, cfg) -> None:
-    """Mnēmē doctor — scan and optionally migrate legacy MD5-named narratives.
+    """Perseus Vault doctor — scan and optionally migrate legacy MD5-named narratives.
 
     Regression for #128: pre-1.0.3 narratives are named after an MD5 hash of
-    the workspace path; v1.0.3+ uses SHA-256. _mneme_path() auto-migrates on
+    the workspace path; v1.0.3+ uses SHA-256. _vault_memory_path() auto-migrates on
     first access, but that requires the operator to actually open the
     workspace. ``memory doctor`` lets an operator scan and migrate all
     workspaces at once, and surface diagnostic info for files that can't be
@@ -23883,10 +23421,10 @@ def cmd_memory_doctor(args, cfg) -> None:
     """
     do_migrate = bool(getattr(args, "migrate", False))
     use_json = bool(getattr(args, "json", False))
-    scan = _mneme_doctor_scan(cfg)
+    scan = _vault_doctor_scan(cfg)
 
     if do_migrate:
-        result = _mneme_doctor_migrate(cfg)
+        result = _vault_doctor_migrate(cfg)
         if use_json:
             import json as _json
             print(_json.dumps({"scan_before": scan, "migrate": result}, indent=2))
@@ -23966,7 +23504,7 @@ def resolve_profile(args_str: str, cfg: dict,
     Selects the per-model context profile for this document and renders a
     one-line banner stating the resolved context target and memory posture.
     The posture itself is applied by the automatic memory injection layer
-    (`_mneme_context_inject`), which scans the source for this directive.
+    (`_vault_context_inject`), which scans the source for this directive.
 
     Accepts `@profile claude-sonnet-4-6` or `@profile model=claude-sonnet-4-6`.
     Unknown names fall back to the `default` profile deterministically, with
@@ -24010,13 +23548,9 @@ def resolve_profile(args_str: str, cfg: dict,
     return line + "\n"
 
 
-def resolve_mimir(args_str: str, cfg: dict,
+def resolve_vault(args_str: str, cfg: dict,
                    workspace: Path | None = None) -> str:
-    """@mimir shim → forwards to unified @memory mode=search.
-
-    Kept for backward compatibility. Simply prepends mode=search to handle
-    the old @mimir query="..." syntax and delegates to resolve_memory.
-    """
+    """Resolve the canonical @vault directive through shared memory search."""
     # Build equivalent @memory args: mode=search query="..." [scope=...] [k=...] [type=...]
     return resolve_memory(f"mode=search {args_str}", cfg, workspace)
 
@@ -24064,7 +23598,7 @@ def render_retrieval_debug_trace(task: str) -> str:
 
 
 def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> str:
-    """Render the unified @memory directive — Mnēmē v2.
+    """Render the unified @memory directive — Perseus Vault v2.
 
     Modes (auto-detected or explicit):
       mode=search [query=...] [scope=...] [k=5] [type=...] [render=default]
@@ -24076,12 +23610,10 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
         → Render the checkpoint-distilled narrative journal.
       mode=federation [alias=...] [include_federation=true]
         → Cross-workspace narrative aggregation.
-      mode=vault-mem [project=...] [query=...]
-        → Query frozo-ai/vault-mem for typed project memories.
       limit:N — cap at N entries regardless of mode
 
     Default: if query= is present → search; otherwise → narrative.
-    Legacy shim: @mimir calls this with mode=search automatically.
+    `@vault` is the canonical directive for direct Perseus Vault search.
     """
     ws = workspace or Path.cwd()
     args_stripped = args_str.strip()
@@ -24121,8 +23653,6 @@ def resolve_memory(args_str: str, cfg: dict, workspace: Path | None = None) -> s
         return _resolve_memory_search(mods, cfg, ws, limit_n=limit_n)
     elif explicit_mode == "federation" or is_federation:
         return _resolve_memory_federation(args_stripped, mods, cfg)
-    elif explicit_mode == "vault-mem":
-        return _resolve_memory_vaultmem(mods, cfg)
     else:
         return _resolve_memory_narrative(args_stripped, mods, cfg, ws, limit_n=limit_n)
 
@@ -24152,44 +23682,44 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
     # vault hits — ~2x recall latency and duplicate content whenever the
     # vault was healthy. Query the vault first; scan the local index only
     # when the vault contributed nothing (down, errored, or zero matches).
-    # `mimir.local_additive: true` restores the historical additive render.
-    additive_local = bool((cfg.get("mimir") or {}).get("local_additive"))
+    # `perseus_vault.local_additive: true` restores the optional additive render.
+    additive_local = bool((cfg.get("perseus_vault") or {}).get("local_additive"))
     hits: list = []
     if additive_local:
-        hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
+        hits = _vault_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
 
-    # ── Mimir augmentation (MCP) ──────────────────────────────────────
-    # Query Mimir persistent memory backend for additional historical
+    # ── Vault augmentation (MCP) ──────────────────────────────────────
+    # Query Vault persistent memory backend for additional historical
     # context (Architecture, Decision, Insight types) with Ebbinghaus
-    # decay scoring. Results are merged below alongside local Mnēmē FTS5 hits.
-    mneme_items: list = []
+    # decay scoring. Results are merged below alongside local Perseus Vault FTS5 hits.
+    vault_items: list = []
     # #539: distinguish "vault unreachable / errored" from "vault reachable,
     # genuinely zero matches" so the render can say which one happened
     # instead of silently reporting the generic "fresh install" message for
-    # both. Populated from MemorySegment.error (never raises — MnemeConnector
+    # both. Populated from MemorySegment.error (never raises — VaultConnector
     # methods catch their own failures) or from an unexpected exception in
     # the hybrid-search call itself (defensive: connector bugs shouldn't take
     # down the whole @memory directive).
     vault_error: str = ""
     try:
-        mseg = _mneme_hybrid_search(
+        mseg = _vault_hybrid_search(
             cfg=cfg, query=query, workspace=str(workspace),
             local_hits=hits or None, max_results=k,
         )
-        mneme_items = mseg.items if mseg else []
+        vault_items = mseg.items if mseg else []
         vault_error = (mseg.error if mseg else "") or ""
     except Exception as e:
         import logging
-        logging.getLogger("perseus.mimir").warning(
-            "Mimir recall failed, falling back to local Mnēmē FTS5: %s", e
+        logging.getLogger("perseus.vault").warning(
+            "Vault recall failed, falling back to local Perseus Vault FTS5: %s", e
         )
         vault_error = f"unexpected error calling vault: {e}"
 
     # #774: the vault contributed nothing — NOW pay for the local scan.
-    if not additive_local and not mneme_items:
-        hits = _mneme_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
+    if not additive_local and not vault_items:
+        hits = _vault_recall(cfg, query, k=k, scope=scope, type_filter=type_filter, sensitivity=sensitivity)
 
-    if not hits and not mneme_items:
+    if not hits and not vault_items:
         if vault_error:
             return (
                 f"> \u26a0 Vault unreachable ({vault_error}) — showing local results only "
@@ -24199,7 +23729,7 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
         return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched yet — this is expected on a fresh install. Populate the vault with memory files or run `perseus memory update` to initialize.\n"
 
     lines = ["> \U0001f9e0 **Mn\u0113m\u0113 memories:**\n"]
-    if vault_error and not mneme_items:
+    if vault_error and not vault_items:
         # We do have local hits, but the vault contribution silently failed.
         # Surface that so callers don't mistake "local-only" for "hybrid".
         lines.append(f"> \u26a0 Vault unreachable ({vault_error}) — showing local Mn\u0113m\u0113 results only.\n")
@@ -24249,75 +23779,17 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
             parts.append("(" + " · ".join(meta) + ")")
             lines.append(" ".join(parts))
 
-    # ── Mneme results ─────────────────────────────────────────────────
-    if mneme_items:
+    # ── Vault results ─────────────────────────────────────────────────
+    if vault_items:
         lines.append("")
-        lines.append("> 🧠 **Mimir context:**")
-        for mi in mneme_items:
+        lines.append("> 🧠 **Vault context:**")
+        for mi in vault_items:
             title = mi.summary or (mi.content[:80] + "…" if len(mi.content) > 80 else mi.content)
-            lines.append(f"  - [mimir] [{mi.type.value}] {title}")
+            lines.append(f"  - [vault] [{mi.type.value}] {title}")
             if mi.links:
                 for lnk in mi.links[:2]:
                     lines.append(f"    ↳ `{lnk.relationship}` → {lnk.target_id[:8]}…")
     return "\n".join(lines) + "\n"
-
-
-def _resolve_memory_vaultmem(mods: dict, cfg: dict) -> str:
-    """@memory mode=vault-mem — query frozo-ai/vault-mem for typed project memories.
-
-    Optional args:
-      project=<slug>  — override configured project list (single project)
-      query=<text>    — search query (uses vault-mem's memory_search if set)
-      max_tokens=<N>  — override max_tokens budget (default: 2000)
-    """
-    import sys
-
-    if not _vaultmem_available():
-        return "> ⚠ vault-mem is not installed. See https://github.com/frozo-ai/frozo-vault-mem\n"
-
-    vault_path = _vaultmem_vault_path(cfg)
-    if not Path(vault_path).is_dir():
-        return f"> ⚠ vault-mem vault not found at `{vault_path}`. Run `vault-mem-mcp init`.\n"
-
-    # Resolve project: explicit arg > config > auto-detect from cwd
-    project = (mods.get("project") or "").strip()
-    if not project:
-        projects = _vaultmem_projects(cfg)
-        if projects:
-            project = projects[0]
-        else:
-            project = Path.cwd().name
-
-    max_tokens = _vaultmem_max_tokens(cfg)
-    override_tok = (mods.get("max_tokens") or "").strip()
-    if override_tok and override_tok.isdigit():
-        max_tokens = int(override_tok)
-
-    query = (mods.get("query") or "").strip()
-
-    # If a query is provided, inject it into the prompt for more targeted recall.
-    # Otherwise use standard project memory context.
-    if query:
-        memory_text, stats = fetch_project_memory(project, cfg, max_tokens)
-        if memory_text:
-            return (
-                f"## vault-mem: {project} (query: {query})\\n\\n"
-                f"{memory_text}\\n"
-            )
-        elif stats.get("error"):
-            return f"> ⚠ vault-mem error: {stats['error']}\\n"
-        else:
-            return f"> ℹ️ vault-mem: no memories found for project '{project}'.\\n"
-    else:
-        memory_text, stats = fetch_project_memory(project, cfg, max_tokens)
-        if memory_text:
-            return f"## vault-mem: {project}\\n\\n{memory_text}\\n"
-        elif stats.get("error"):
-            print(f"[perseus] vault-mem: {stats['error']}", file=sys.stderr)
-            return f"> ⚠ vault-mem error: {stats['error']}\\n"
-        else:
-            print(f"[perseus] vault-mem: no memories for project '{project}'", file=sys.stderr)
-            return "> ℹ️ vault-mem: no typed memories found for this project.\\n"
 
 
 def _resolve_memory_federation(args_stripped: str, mods: dict, cfg: dict) -> str:
@@ -24378,7 +23850,7 @@ def _recent_activity_from_vault(cfg: dict, workspace: Path, limit: int = 5) -> s
     if not items:
         return ""
 
-    # Newest first — mimir decay scoring already favours recency, but sort
+    # Newest first — vault decay scoring already favours recency, but sort
     # explicitly so the surface reads chronologically regardless of backend.
     items.sort(key=lambda h: getattr(h, "created_at_unix_ms", 0), reverse=True)
 
@@ -24532,7 +24004,7 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
         digest = _render_federation_digest(cfg)
         return f"{local_text}\n\n---\n\n## Federated Context\n\n{digest}"
 
-    mp = _mneme_path(ws, cfg)
+    mp = _vault_memory_path(ws, cfg)
     if not mp.exists():
         return _maybe_append_federation(
             "> ℹ️ No " + MEMORY_BRAND + " narrative found for this workspace — this is expected on a fresh install.\n"
@@ -24557,7 +24029,7 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
     except Exception as exc:
         import logging
         logging.getLogger("perseus.agora").warning(
-            "Mnēmē narrative staleness check failed: %s", exc
+            "Perseus Vault narrative staleness check failed: %s", exc
         )
 
     if not stale_note and body.strip():
@@ -24576,7 +24048,7 @@ def _resolve_memory_narrative(args_stripped: str, mods: dict, cfg: dict, ws: Pat
             except Exception as exc:
                 import logging
                 logging.getLogger("perseus.agora").warning(
-                    "Mnēmē narrative save failed (non-critical): %s", exc
+                    "Perseus Vault narrative save failed (non-critical): %s", exc
                 )  # best-effort; never break the read path
 
     compact_note = ""
@@ -26918,22 +26390,22 @@ def _doctor_check_latest_checkpoint(cfg: dict, workspace: Path) -> DoctorResult:
         return DoctorResult("latest_checkpoint_age", "ok", "latest checkpoint", str(yamls[0].name), "")
 
 
-def _doctor_check_mneme(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check Mnēmē narrative existence and size."""
+def _doctor_check_vault(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check Perseus Vault narrative existence and size."""
     mem_cfg = cfg.get("memory", {})
-    narrative = _mneme_path(workspace, cfg)
+    narrative = _vault_memory_path(workspace, cfg)
     if not narrative.exists():
-        return DoctorResult("mneme_narrative", "warn", f"{MEMORY_BRAND} narrative",
+        return DoctorResult("vault_narrative", "warn", f"{MEMORY_BRAND} narrative",
                             "not found", "Memory will auto-create on next render with @memory")
     lines = narrative.read_text(errors="replace", encoding="utf-8").splitlines()
     max_lines = mem_cfg.get("max_narrative_lines", 300)
     line_count = len(lines)
     val = f"{line_count} lines"
     if line_count > max_lines:
-        return DoctorResult("mneme_narrative", "warn", f"{MEMORY_BRAND} narrative",
+        return DoctorResult("vault_narrative", "warn", f"{MEMORY_BRAND} narrative",
                             f"{val} (exceeds max_narrative_lines={max_lines})",
                             "Consider pruning old entries from the narrative")
-    return DoctorResult("mneme_narrative", "ok", f"{MEMORY_BRAND} narrative", val, "")
+    return DoctorResult("vault_narrative", "ok", f"{MEMORY_BRAND} narrative", val, "")
 
 
 def _doctor_check_federation(cfg: dict, workspace: Path) -> DoctorResult:
@@ -27041,12 +26513,12 @@ def _doctor_check_mcp(cfg: dict, workspace: Path) -> DoctorResult:
         return DoctorResult("mcp_server", "error", "mcp_server", str(exc), "Check mcp.py")
 
 
-def _doctor_check_mneme_index(_cfg: dict, _workspace: Path) -> DoctorResult:
-    """Check Mnēmē FTS5 index health — existence, population, orphans."""
+def _doctor_check_vault_index(_cfg: dict, _workspace: Path) -> DoctorResult:
+    """Check Perseus Vault FTS5 index health — existence, population, orphans."""
     try:
-        stats = _mneme_index_stats(_cfg)
+        stats = _vault_index_stats(_cfg)
         if not stats["available"]:
-            return DoctorResult("mneme_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
+            return DoctorResult("vault_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
                                 "index not available (vault may be empty)",
                                 "Add memory files to trigger indexing, or run `perseus memory index rebuild`")
 
@@ -27055,16 +26527,16 @@ def _doctor_check_mneme_index(_cfg: dict, _workspace: Path) -> DoctorResult:
         index_path = stats["index_path"]
 
         # Orphan check: files in index that no longer exist in vault. The
-        # mneme_files schema column is "path" (see mneme_index.py), not
+        # vault_files schema column is "path" (see vault_index.py), not
         # "file_path" -- a stale query name here previously made this check a
         # permanent silent no-op via the bare except below (always 0 orphans,
         # even with a moved/deleted vault).
         orphans = 0
         orphan_check_failed = False
         try:
-            conn = _mneme_open_index(_cfg)
+            conn = _vault_open_index(_cfg)
             if conn:
-                rows = conn.execute("SELECT path FROM mneme_files").fetchall()
+                rows = conn.execute("SELECT path FROM vault_files").fetchall()
                 for (fp,) in rows:
                     if not Path(fp).exists():
                         orphans += 1
@@ -27076,21 +26548,21 @@ def _doctor_check_mneme_index(_cfg: dict, _workspace: Path) -> DoctorResult:
         parts = [f"{doc_count} docs, {file_count} files tracked"]
         if orphan_check_failed:
             parts.append("orphan check failed (index schema mismatch)")
-            return DoctorResult("mneme_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
+            return DoctorResult("vault_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
                                 ", ".join(parts),
                                 "Run `perseus memory index rebuild` to recreate the index")
         if orphans > 0:
             parts.append(f"{orphans} orphaned entries")
-            return DoctorResult("mneme_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
+            return DoctorResult("vault_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
                                 ", ".join(parts),
                                 f"{orphans} orphaned entries — run `perseus memory index rebuild`")
         if doc_count == 0:
-            return DoctorResult("mneme_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
+            return DoctorResult("vault_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
                                 "index exists but is empty",
                                 "Run `perseus memory index rebuild`")
-        return DoctorResult("mneme_fts_index", "ok", f"{MEMORY_BRAND} FTS index", ", ".join(parts), "")
+        return DoctorResult("vault_fts_index", "ok", f"{MEMORY_BRAND} FTS index", ", ".join(parts), "")
     except Exception as exc:
-        return DoctorResult("mneme_fts_index", "error", f"{MEMORY_BRAND} FTS index", str(exc), "Check mneme_index.py")
+        return DoctorResult("vault_fts_index", "error", f"{MEMORY_BRAND} FTS index", str(exc), "Check vault_index.py")
 
 
 def _doctor_check_cache_writable(cfg: dict, workspace: Path) -> DoctorResult:
@@ -27127,12 +26599,9 @@ def _doctor_check_sessions(cfg: dict, workspace: Path) -> DoctorResult:
                            str(exc), "Check SESSIONS_DIR permissions")
 
 
-# Ordered list of doctor checks — adding a check is one function + one line here.
-# #662: the memory binary is now "perseus-vault" (formerly mimir/mneme); search
-# both the new and legacy names so a config that still points at `mimir` OR one
-# migrated to `perseus-vault` is discovered in the common install locations.
-_MEMORY_BINARY_NAMES = ("perseus-vault", "mimir", "mneme")
-_KNOWN_MIMIR_PATHS = [
+# The only supported memory binary is the Perseus Vault executable.
+_MEMORY_BINARY_NAMES = ("perseus-vault",)
+_KNOWN_VAULT_PATHS = [
     os.path.join(prefix, name)
     for name in _MEMORY_BINARY_NAMES
     for prefix in (
@@ -27157,7 +26626,7 @@ MEMORY_INSTALL_REMEDIATION = (
 )
 
 
-def _find_mimir_binary(configured_command: list[str]) -> str | None:
+def _find_vault_binary(configured_command: list[str]) -> str | None:
     """Search common paths for the memory (Perseus Vault) binary.
 
     Returns the first found absolute path, or None if not found.
@@ -27172,23 +26641,14 @@ def _find_mimir_binary(configured_command: list[str]) -> str | None:
     if resolved:
         return resolved
 
-    # Search known common paths (both new perseus-vault and legacy names)
-    candidates = list(_KNOWN_MIMIR_PATHS)
-
-    # Also search $PWD/{perseus-vault,mimir}/target/{release,debug}/<name>.
-    # 2026-07-05 security review: this CWD-relative search is an untrusted-search-path
-    # vector (CWE-427) — running Perseus from an attacker-influenced directory that
-    # contains ./perseus-vault/target/release/perseus-vault would execute it as "the
-    # vault". Gate it behind an explicit dev opt-in so it never fires in production.
+    candidates = list(_KNOWN_VAULT_PATHS)
+    # Development discovery is limited to the canonical project directory.
     if os.environ.get("PERSEUS_DEV_VAULT_BUILD") == "1":
         try:
             cwd = Path.cwd()
-            for src_dir, name in (
-                ("perseus-vault", "perseus-vault"),
-                ("mimir", "mimir"),
-            ):
-                candidates.append(str(cwd / src_dir / "target" / "release" / name))
-                candidates.append(str(cwd / src_dir / "target" / "debug" / name))
+            src_dir = cwd / "perseus-vault"
+            candidates.append(str(src_dir / "target" / "release" / "perseus-vault"))
+            candidates.append(str(src_dir / "target" / "debug" / "perseus-vault"))
         except Exception:
             pass
 
@@ -27200,31 +26660,31 @@ def _find_mimir_binary(configured_command: list[str]) -> str | None:
     return None
 
 
-def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check mimir connectivity and binary discovery (#226, #227).
+def _doctor_check_vault_bridge(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check vault connectivity and binary discovery (#226, #227).
 
-    When mimir.enabled is true, this check:
-      1. Searches common paths for the mimir binary (#227)
-      2. Attempts MCP handshake + mimir_health tool call (#226)
-      3. Surfaces a clear warning (not silent Mneme fallback) if unreachable
+    When vault.enabled is true, this check:
+      1. Searches common paths for the vault binary (#227)
+      2. Attempts MCP handshake + perseus_vault_health tool call (#226)
+      3. Surfaces a clear warning (not silent Vault fallback) if unreachable
     """
-    mneme_cfg = _resolve_mneme_config(cfg)
-    enabled = bool(mneme_cfg.get("enabled", True))
+    vault_cfg = _resolve_vault_config(cfg)
+    enabled = bool(vault_cfg.get("enabled", True))
 
     if not enabled:
-        return DoctorResult("mimir_connectivity", "ok", MEMORY_BRAND,
+        return DoctorResult("vault_connectivity", "ok", MEMORY_BRAND,
                            "disabled", "")
 
-    command = list(mneme_cfg.get("command", ["perseus-vault", "serve"]))
+    command = list(vault_cfg.get("command", ["perseus-vault", "serve"]))
     binary_name = command[0] if command else "perseus-vault"
 
     # Step 1: Auto-discover binary if not on PATH (#227)
-    binary_path = _find_mimir_binary(command)
+    binary_path = _find_vault_binary(command)
     if binary_path is None:
         # #663: the connector is configured (enabled) but the memory binary is
         # absent, so memory would be silently empty. Warn clearly with
         # copy-paste remediation instead of leaving the user to discover it.
-        return DoctorResult("mimir_connectivity", "warn", f"{MEMORY_BRAND} binary",
+        return DoctorResult("vault_connectivity", "warn", f"{MEMORY_BRAND} binary",
                            f"configured but not found: '{binary_name}' "
                            "(searched PATH + known locations) — persistent memory "
                            "will be empty until it is installed",
@@ -27237,19 +26697,19 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
     try:
         # Build a temporary connector with the discovered binary path. Write
         # under the canonical `perseus_vault:` key (#662) so it wins in
-        # _resolve_mneme_config regardless of which alias the original cfg used.
+        # Resolve the canonical Perseus Vault block before validating defaults.
         test_cfg = dict(cfg)
-        test_cfg["perseus_vault"] = dict(mneme_cfg)
+        test_cfg["perseus_vault"] = dict(vault_cfg)
         test_cfg["perseus_vault"]["command"] = command
 
-        connector = MnemeConnector(test_cfg)
+        connector = VaultConnector(test_cfg)
         if connector.available:
             # Run health check
             healthy, status = connector.health_check()
             if healthy:
                 # Try to get version from health check response
                 version_info = ""
-                raw_result, _ = connector._client.call_tool("mimir_health", {}) if connector._client else (None, None)
+                raw_result, _ = connector._client.call_tool("perseus_vault_health", {}) if connector._client else (None, None)
                 if raw_result and isinstance(raw_result, dict):
                     ver = raw_result.get("version", "")
                     db_path = raw_result.get("db_path", "")
@@ -27259,21 +26719,21 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
                         version_info += f" db: {db_path}"
                 connector.close()
                 extra = f" (binary: {binary_path})" if binary_path != binary_name else ""
-                return DoctorResult("mimir_connectivity", "ok", MEMORY_BRAND,
+                return DoctorResult("vault_connectivity", "ok", MEMORY_BRAND,
                                    f"connected + healthy{version_info}{extra}", "")
             else:
                 connector.close()
-                return DoctorResult("mimir_connectivity", "warn", MEMORY_BRAND,
+                return DoctorResult("vault_connectivity", "warn", MEMORY_BRAND,
                                    f"connected but health check failed: {status}",
                                    "Check the Perseus Vault server status")
         else:
             err = connector.status
             connector.close()
-            return DoctorResult("mimir_connectivity", "warn", MEMORY_BRAND,
+            return DoctorResult("vault_connectivity", "warn", MEMORY_BRAND,
                                f"unreachable: {err}",
                                "Check Perseus Vault is running or install it")
     except Exception as exc:
-        return DoctorResult("mimir_connectivity", "error", MEMORY_BRAND,
+        return DoctorResult("vault_connectivity", "error", MEMORY_BRAND,
                            str(exc),
                            "Verify the perseus-vault binary and the `perseus_vault.command` in config.yaml")
 
@@ -27704,111 +27164,36 @@ def _doctor_check_agents_startup_route(cfg: dict, workspace: Path) -> DoctorResu
                         f"{rel}: {block} block present{src_note}", "")
 
 
-def _legacy_shadowed_paths(expected: dict, resolved: dict, overridden: dict,
-                           prefix: str = "") -> list[str]:
-    """Return dotted paths from `expected` whose values are NOT reflected in
-    `resolved` and NOT explicitly overridden by a raw canonical block (#704).
-
-    A path explicitly set under a raw `perseus_vault:` block is skipped —
-    canonical wins over legacy aliases by design, so that is not shadowing.
-    """
-    bad: list[str] = []
-    for key, val in expected.items():
-        path = f"{prefix}{key}"
-        if isinstance(val, dict):
-            sub_resolved = resolved.get(key)
-            sub_overridden = overridden.get(key)
-            bad.extend(_legacy_shadowed_paths(
-                val,
-                sub_resolved if isinstance(sub_resolved, dict) else {},
-                sub_overridden if isinstance(sub_overridden, dict) else {},
-                path + ".",
-            ))
-        else:
-            if key in overridden:
-                continue
-            if resolved.get(key) != val:
-                bad.append(path)
-    return bad
-
-
-def _doctor_check_legacy_memory_config(cfg: dict, workspace: Path) -> DoctorResult:
-    """#704: a legacy `mneme:`/`mimir:` block must actually take effect.
-
-    Pre-#704, load_config materialized the full default `perseus_vault:` block
-    even when the user's config.yaml only had a legacy `mneme:`/`mimir:` block,
-    and _resolve_mneme_config returned that non-empty default — silently
-    discarding every user setting (including an absolute-path `command:`).
-    This check re-reads the RAW config files and errors if any legacy-block
-    setting is not reflected in the resolved connector config.
-    """
-    raw_sources: list[dict] = []
-    candidates = [PERSEUS_HOME / "config.yaml"]
-    if workspace:
-        candidates.append(Path(workspace) / ".perseus" / "config.yaml")
-    for path in candidates:
-        try:
-            if path.exists():
-                raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-                if isinstance(raw, dict):
-                    raw_sources.append(raw)
-        except Exception:
-            # Unparseable config is _doctor_check_config's problem, not ours.
-            continue
-
-    legacy_by_key: dict[str, dict] = {}
-    canonical_raw: dict = {}
-    for raw in raw_sources:
-        for key in ("mimir", "mneme"):
-            block = raw.get(key)
-            if isinstance(block, dict) and block:
-                _deep_merge_dicts(legacy_by_key.setdefault(key, {}), block)
-        cblock = raw.get("perseus_vault")
-        if isinstance(cblock, dict) and cblock:
-            _deep_merge_dicts(canonical_raw, cblock)
-
-    if not legacy_by_key:
-        return DoctorResult("legacy_memory_config", "ok", "memory config key",
-                            "canonical (`perseus_vault:`) or defaults", "")
-
-    resolved = _resolve_mneme_config(cfg)
-    shadowed: list[str] = []
-    for key, block in sorted(legacy_by_key.items()):
-        shadowed.extend(f"{key}.{p}" for p in
-                        _legacy_shadowed_paths(block, resolved, canonical_raw))
-    keys = ", ".join(f"`{k}:`" for k in sorted(legacy_by_key))
-    if shadowed:
+def _doctor_check_vault_config(cfg: dict, workspace: Path) -> DoctorResult:
+    """Report the canonical Perseus Vault configuration state."""
+    resolved = _resolve_vault_config(cfg)
+    if resolved:
         return DoctorResult(
-            "legacy_memory_config", "error", "memory config key",
-            f"legacy {keys} block present but SHADOWED — these settings are "
-            f"NOT applied: {', '.join(shadowed[:5])}"
-            + (f" (+{len(shadowed) - 5} more)" if len(shadowed) > 5 else ""),
-            "Rename the block to `perseus_vault:` in config.yaml. Legacy keys "
-            "are deep-merged onto the canonical block since #704 — this error "
-            "means that merge did not happen (stale perseus install, or the "
-            "config was loaded by an older version).")
+            "vault_config", "ok", "memory config key",
+            "canonical (`perseus_vault:`)", "",
+        )
     return DoctorResult(
-        "legacy_memory_config", "ok", "memory config key",
-        f"deprecated {keys} block applied (folded into `perseus_vault:`; "
-        "rename to silence the deprecation notice)", "")
+        "vault_config", "ok", "memory config key",
+        "canonical defaults", "",
+    )
 
 
 _DOCTOR_CHECKS = [
     _doctor_check_config,
-    _doctor_check_legacy_memory_config,
+    _doctor_check_vault_config,
     _doctor_check_context_file,
     _doctor_check_render_shell,
     _doctor_check_render_outside_workspace,
     _doctor_check_latest_checkpoint,
-    _doctor_check_mneme,
-    _doctor_check_mneme_index,
+    _doctor_check_vault,
+    _doctor_check_vault_index,
     _doctor_check_federation,
     _doctor_check_pythia_log,
     _doctor_check_serve_loopback,
     _doctor_check_registry,
     _doctor_check_mcp,
     _doctor_check_cache_writable,
-    _doctor_check_mimir_bridge,
+    _doctor_check_vault_bridge,
     _doctor_check_plutus_metering,
     _doctor_check_sessions,
     _doctor_check_version_header,
@@ -27985,7 +27370,7 @@ def run_doctor_checks(cfg: dict, workspace: Path) -> dict:
     # probes), so run them in a thread pool instead of serially. User-facing
     # latency was the SUM of every check's latency, dominated by the slow
     # network/subprocess ones (llm_reachable's 5s HTTP timeout, llm_functional's
-    # round-trip, mimir_bridge's subprocess + MCP handshake). ThreadPoolExecutor
+    # round-trip, vault_bridge's subprocess + MCP handshake). ThreadPoolExecutor
     # .map preserves _DOCTOR_CHECKS order; each check stays exception-isolated so
     # one failure can't abort the run. (#449)
     def _run_doctor_check(check_fn) -> DoctorResult:
@@ -29350,7 +28735,7 @@ Before storing a fact in the `memory` tool, verify ALL three:
 Only facts that pass ALL THREE gates belong in `memory` (2,200 char hard limit).
 Everything else has a better home:
 - 🔁 **Procedures** → `skill_manage` (create/update a skill)
-- 🧠 **Cross-session context** → mimir (MCP `mimir_store` / `mimir_recall`)
+- 🧠 **Cross-session context** → Perseus Vault (MCP `perseus_vault_remember` / `perseus_vault_recall`)
 - 🚫 **Ephemeral state, one-time fixes, completed tasks** → discard
 
 🚫 **Flat files (.txt, .json, .csv, .md) are BANNED as a memory backend.**
@@ -29380,7 +28765,7 @@ Everything else has a better home:
 
 ---
 
-## Project Memory (Mnēmē)
+## Project Memory (Perseus Vault)
 @memory focus=recent ttl=300
 
 ---
@@ -29394,10 +28779,10 @@ Everything else has a better home:
 > @memory mode=search query="another topic" k=2
 > ```
 > Each sub-query is short enough to match effectively; the relay layer merges results.
-> Falls back gracefully to local Mnēmē FTS5 if Perseus Vault is unavailable.
-> Requires `perseus_vault.enabled: true` (or the legacy `mimir.enabled: true`) in `.perseus/config.yaml`.
+> Falls back gracefully to local Perseus Vault FTS5 if Perseus Vault is unavailable.
+> Requires `perseus_vault.enabled: true` in `.perseus/config.yaml`.
 
-@memory mode=search query="{mneme_query}" k=5
+@memory mode=search query="{vault_query}" k=5
 """
 
 
@@ -29411,13 +28796,9 @@ def _quickstart_write_config(
 
     The memory connector is always wired (enabled) under the canonical
     ``perseus_vault:`` key with the ``perseus-vault`` binary (#665). No ``--db``
-    argument is emitted: the vault binary self-resolves its canonical default DB
-    path, so omitting it eliminates path drift. The install ships ONLY a
-    ``perseus-vault`` binary (there is no ``mimir`` binary), so a legacy
-    ``mimir:``/``mimir serve`` block would be dead on a fresh operator's machine.
-    ``with_memory`` is retained for call-site compatibility but no longer
-    selects a different (legacy) block. Legacy keys are still ACCEPTED on read
-    (see ``_resolve_mneme_config``).
+    argument is emitted: the Vault binary self-resolves its canonical default DB
+    path, so omitting it eliminates path drift. ``with_memory`` controls whether
+    the canonical connector is enabled in the generated configuration.
     """
     perseus_dir = workspace / ".perseus"
     perseus_dir.mkdir(parents=True, exist_ok=True)
@@ -29521,10 +28902,10 @@ def cmd_quickstart(args, cfg) -> int:
     # or build the Rust binary silently (#663); the install is always an
     # explicit, operator-run command.
     try:
-        mcfg = _resolve_mneme_config(cfg) if cfg else {}
+        mcfg = _resolve_vault_config(cfg) if cfg else {}
         if mcfg.get("enabled", True):
             command = mcfg.get("command", ["perseus-vault", "serve"])
-            binary_path = _find_mimir_binary(command)
+            binary_path = _find_vault_binary(command)
             if binary_path is None:
                 print("⚠ Perseus Vault (persistent memory engine) is configured but NOT installed.")
                 print("  The memory block will be EMPTY until the binary is on PATH.")
@@ -29695,7 +29076,7 @@ def _knows_model(hits: list, stats: dict | None, limit: int) -> dict:
     """Build the renderer-agnostic model both the CLI and /knows (#695) use.
 
     Counts come from the Vault's active-only stats fields when the server has
-    them (perseus-vault #493); `mimir_stats.total_entities` is archived-
+    them (perseus-vault #493); `perseus_vault_stats.total_entities` is archived-
     inflated, so with an older server the headline falls back to the listing
     size and archived stays unknown rather than lying.
     """
@@ -29820,7 +29201,7 @@ def cmd_knows(args, cfg) -> int:
         print("perseus knows is disabled (config: knows.enabled = false)")
         return 1
 
-    connector = MnemeConnector(cfg)
+    connector = VaultConnector(cfg)
     try:
         limit = int(getattr(args, "limit", None) or
                     knows_cfg.get("limit", _KNOWS_DEFAULT_LIMIT))
@@ -30653,7 +30034,7 @@ def cmd_render(args, cfg):
 
     workspace = _infer_workspace(source_path)
     cfg = load_config(workspace)
-    _merge_pack_mimir_config(cfg, workspace)  # #441: per-workspace mimir overrides
+    _merge_pack_vault_config(cfg, workspace)  # #441: per-workspace vault overrides
 
     text = source_path.read_text(errors="replace", encoding="utf-8")
     fmt = getattr(args, "format", "md")
@@ -30776,7 +30157,7 @@ def cmd_scan(args, cfg):
 
     workspace = _infer_workspace(source_path)
     cfg = load_config(workspace)
-    _merge_pack_mimir_config(cfg, workspace)
+    _merge_pack_vault_config(cfg, workspace)
     text = source_path.read_text(errors="replace", encoding="utf-8")
 
     max_tier = getattr(args, "tier", None)
@@ -30837,7 +30218,7 @@ def cmd_compress(args, cfg):
 
     workspace = _infer_workspace(source_path)
     cfg = load_config(workspace)
-    _merge_pack_mimir_config(cfg, workspace)
+    _merge_pack_vault_config(cfg, workspace)
     text = source_path.read_text(errors="replace", encoding="utf-8")
 
     max_tier = getattr(args, "tier", None)
@@ -30903,7 +30284,7 @@ def cmd_preview(args, cfg):
 
     workspace = _infer_workspace(source_path)
     cfg = load_config(workspace)
-    _merge_pack_mimir_config(cfg, workspace)
+    _merge_pack_vault_config(cfg, workspace)
     text = source_path.read_text(errors="replace", encoding="utf-8")
 
     max_tier = getattr(args, "tier", None)
@@ -31522,7 +30903,7 @@ def _deep_merge_into(base: dict, overrides: dict) -> None:
             base[key] = val
 
 
-def _merge_pack_mimir_config(cfg: dict, workspace: Path) -> None:
+def _merge_pack_vault_config(cfg: dict, workspace: Path) -> None:
     """Deep-merge a pack.yaml memory-connector block over the loaded config (#441).
 
     `load_config` only layers the global and workspace `config.yaml` files, so a
@@ -31531,10 +30912,8 @@ def _merge_pack_mimir_config(cfg: dict, workspace: Path) -> None:
     Perseus Vault behavior per render target. Best-effort: a missing or
     malformed pack never breaks a render.
 
-    Reads the pack's connector block under any of the rename aliases
-    (`perseus_vault:`/`mneme:`/`mimir:`, #662) and merges into whichever key
-    `_resolve_mneme_config()` will actually read back — merging into a key that
-    resolution ignores would silently drop the override.
+    Reads the pack's canonical `perseus_vault:` connector block and merges it
+    into the configuration used by `_resolve_vault_config()`.
     """
     try:
         data, _path, errors = _load_pack_manifest(workspace)
@@ -31542,29 +30921,12 @@ def _merge_pack_mimir_config(cfg: dict, workspace: Path) -> None:
         return
     if errors or not isinstance(data, dict):
         return
-    # Accept the pack override under any alias (canonical first).
-    pack_mimir = None
-    for _key in ("perseus_vault", "mneme", "mimir"):
-        _block = data.get(_key)
-        if isinstance(_block, dict) and _block:
-            pack_mimir = _block
-            break
-    if not isinstance(pack_mimir, dict) or not pack_mimir:
+    # Accept only the canonical Vault block.
+    pack_vault = data.get("perseus_vault")
+    if not isinstance(pack_vault, dict) or not pack_vault:
         return
-    # Merge into whichever key _resolve_mneme_config() will actually read back
-    # (perseus_vault: preferred, then mneme:, then legacy mimir:, same lookup
-    # order) -- merging into a key that resolution ignores silently drops the
-    # override for anyone who has migrated their config.yaml.
-    base = None
-    for _key in ("perseus_vault", "mneme", "mimir"):
-        _block = cfg.get(_key)
-        if isinstance(_block, dict) and _block:
-            base = _block
-            break
-    if base is None:
-        base = {}
-        cfg["perseus_vault"] = base
-    _deep_merge_into(base, pack_mimir)
+    base = cfg.setdefault("perseus_vault", {})
+    _deep_merge_into(base, pack_vault)
 
 
 def _pack_rel(path: Path, workspace: Path) -> str:
@@ -31890,7 +31252,7 @@ Perseus is a retrieval engine. Memory is **queried when a turn needs it**, not
 stapled into every turn. There is no "hot cache" to feed — that pattern is what
 you build when you have no retrieval layer. You have one. Use it.
 
-**Default posture: `@memory mode=search` / `mimir_recall` at the moment of need.**
+**Default posture: `@memory mode=search` / `perseus_vault_recall` at the moment of need.**
 Before writing code, making a decision, or answering from prior context, pull
 exactly the facts this turn requires — then let them fall away. Nothing is
 injected unconditionally; the working budget stays on the task, not on a
@@ -31899,7 +31261,7 @@ deployment target — a per-turn memory blob is pure waste there.)
 
 Where knowledge belongs:
 - 🧠 **Durable cross-session facts, decisions, architecture** → Perseus Vault
-  (`mimir_remember` to write, `mimir_recall` / `@memory mode=search` to retrieve
+  (`perseus_vault_remember` to write, `perseus_vault_recall` / `@memory mode=search` to retrieve
   on demand). This is the primary store.
 - ⚡ **`recall_when` triggers** → attach retrieval hints to entities so the right
   memory surfaces just-in-time for a matching task, instead of being always-on.
@@ -31950,7 +31312,7 @@ retrieve it when it's actually relevant.
 
 ---
 
-## Project Memory (Mnēmē)
+## Project Memory (Perseus Vault)
 @memory focus=recent ttl=300
 
 ---
@@ -31964,10 +31326,10 @@ retrieve it when it's actually relevant.
 > @memory mode=search query="another topic" k=2
 > ```
 > Each sub-query is short enough to match effectively; the relay layer merges results.
-> Falls back gracefully to local Mnēmē FTS5 if Perseus Vault is unavailable.
-> Requires `perseus_vault.enabled: true` (or the legacy `mimir.enabled: true`) in `.perseus/config.yaml`.
+> Falls back gracefully to local Perseus Vault FTS5 if Perseus Vault is unavailable.
+> Requires `perseus_vault.enabled: true` in `.perseus/config.yaml`.
 
-@memory mode=search query="{mneme_query}" k=5
+@memory mode=search query="{vault_query}" k=5
 """
 
 # ───────────────────────── Phase 24: install ──────────────────────────────────
@@ -32158,7 +31520,7 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
 
     # Narrative
     try:
-        mp = _mneme_path(workspace, cfg)
+        mp = _vault_memory_path(workspace, cfg)
         if mp.exists():
             txt = mp.read_text(errors="replace", encoding="utf-8")
             stats["narrative_lines"] = txt.count("\n") + (1 if txt and not txt.endswith("\n") else 0)
@@ -32296,7 +31658,7 @@ def _serve_render_index(workspace: Path, stats: dict) -> str:
     endpoints = [
         ("/context", "Rendered .perseus/context.md", "Live render of the canonical context file (markdown)."),
         ("/knows", "What Perseus knows about you", "Plain-language memory review — active-only counts, trust markers, recency (add ?format=json for machines)."),
-        ("/narrative", "Mnēmē narrative", "Per-workspace project narrative distilled from checkpoints."),
+        ("/narrative", "Perseus Vault narrative", "Per-workspace project narrative distilled from checkpoints."),
         ("/health", "Maintenance report", "Stale checkpoints, near-duplicates, large context, old completed tasks."),
         ("/agora", "Task board", "All tasks in tasks/ with frontmatter status (markdown table)."),
         ("/checkpoint/latest", "Latest checkpoint (YAML)", "Most recent checkpoint for this workspace."),
@@ -32589,10 +31951,10 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             return (200, "text/markdown; charset=utf-8", rendered)
 
         if endpoint == "/narrative":
-            mp = _mneme_path(workspace, cfg)
+            mp = _vault_memory_path(workspace, cfg)
             if not mp.exists():
                 return (404, "text/plain; charset=utf-8",
-                        "No Mnēmē narrative initialized. Run `perseus memory update`.")
+                        "No Perseus Vault narrative initialized. Run `perseus memory update`.")
             narrative_text, _ = redact_text(mp.read_text(encoding="utf-8"), cfg)
             return (200, "text/markdown; charset=utf-8", narrative_text)
 
@@ -32625,13 +31987,13 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             import sys as _sys
             ws_hash = query.get("ws", "")
             try:
-                mp = _mneme_path(workspace, cfg)
+                mp = _vault_memory_path(workspace, cfg)
             except Exception as e:
                 return (500, "application/json; charset=utf-8",
-                        _json.dumps({"error": f"_mneme_path failed: {e}", "workspace_id": None}))
+                        _json.dumps({"error": f"_vault_memory_path failed: {e}", "workspace_id": None}))
             if not mp.exists():
                 return (404, "application/json; charset=utf-8",
-                        _json.dumps({"error": "No Mneme narrative initialized", "workspace_id": None,
+                        _json.dumps({"error": "No Vault narrative initialized", "workspace_id": None,
                                      "path": str(mp)}))
             # Same trust boundary as /narrative: federation peers must not
             # receive secrets the human-facing endpoint strips.
@@ -32981,15 +32343,15 @@ def cmd_init(args, cfg):
             sys.exit(1)
         content = tpl.replace("{workspace}", str(workspace))
     else:
-        content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace), version=_PERSEUS_VERSION, mneme_query=_context_appropriate_memory_query(workspace))
+        content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace), version=_PERSEUS_VERSION, vault_query=_context_appropriate_memory_query(workspace))
     context_file.write_text(content, encoding="utf-8")
 
     # ── Perseus Vault binary auto-discovery (#227, #665) ──
     # If the vault binary is not installed, suggest the prebuilt installer.
-    mneme_cfg = _resolve_mneme_config(cfg) if cfg else {}
-    if mneme_cfg.get("enabled", True):
-        command = mneme_cfg.get("command", ["perseus-vault", "serve"])
-        binary_path = _find_mimir_binary(command)
+    vault_cfg = _resolve_vault_config(cfg) if cfg else {}
+    if vault_cfg.get("enabled", True):
+        command = vault_cfg.get("command", ["perseus-vault", "serve"])
+        binary_path = _find_vault_binary(command)
         if binary_path is None:
             print(f"💡 Perseus Vault not found. For persistent cross-session memory (prebuilt binary):")
             print(f"   curl -sSf https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/install.sh | sh")
@@ -33367,17 +32729,17 @@ _REQUEST_CLASSES = frozenset({"direct", "retrieve", "decide", "create", "verify"
 _INTEGRATIONS = ("vault", "ledger")
 _STATES = frozenset({"active", "unavailable", "not_configured"})
 _CAPABILITY_ORDER = (
-    "vault_recall",
+    "perseus_vault_recall",
     "ledger_verify",
     "evidence_claim_gate",
     "aar_authorize",
 )
 _REQUIRED = {
-    "retrieve": ("vault_recall",),
-    "decide": ("vault_recall",),
-    "create": ("vault_recall",),
+    "retrieve": ("perseus_vault_recall",),
+    "decide": ("perseus_vault_recall",),
+    "create": ("perseus_vault_recall",),
     "verify": ("ledger_verify", "evidence_claim_gate"),
-    "act": ("vault_recall", "aar_authorize", "ledger_verify"),
+    "act": ("perseus_vault_recall", "aar_authorize", "ledger_verify"),
 }
 
 
@@ -33410,7 +32772,7 @@ def route_front_door(
         for capability in _REQUIRED[request_class]:
             if capability not in available:
                 continue
-            if capability == "vault_recall" and states["vault"] != "active":
+            if capability == "perseus_vault_recall" and states["vault"] != "active":
                 continue
             if capability in {"ledger_verify", "evidence_claim_gate"} and states["ledger"] != "active":
                 continue
@@ -33425,7 +32787,7 @@ def route_front_door(
         degraded = "required_integrations_unavailable"
     elif "ledger_verify" in capabilities:
         guarantees.append("ledger_evidence_verification")
-    if "vault_recall" in capabilities:
+    if "perseus_vault_recall" in capabilities:
         guarantees.append("persistent_memory_retrieval")
     if "aar_authorize" in capabilities:
         guarantees.append("authorized_action_preflight")
@@ -34030,7 +33392,7 @@ def cmd_prompt_size(args, cfg):
 
     workspace = _infer_workspace(source_path)
     cfg = load_config(workspace)
-    _merge_pack_mimir_config(cfg, workspace)
+    _merge_pack_vault_config(cfg, workspace)
     text = source_path.read_text(errors="replace", encoding="utf-8")
 
     max_tier = getattr(args, "tier", None)
@@ -34397,8 +33759,8 @@ def main():
     )
     _add_knows_args(p_knows)
 
-    # memory (Mnēmē)
-    p_mem = sub.add_parser("memory", help="Mnēmē — narrative project memory")
+    # memory (Perseus Vault)
+    p_mem = sub.add_parser("memory", help="Perseus Vault — narrative project memory")
     mem_sub = p_mem.add_subparsers(dest="memory_command", required=True)
     p_mem_update = mem_sub.add_parser("update", help="Incrementally update narrative")
     p_mem_update.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
@@ -34444,7 +33806,7 @@ def main():
     p_fed_merge.add_argument("alias_b", help="Second subscription alias")
 
     # memory sign (Phase 27B)
-    p_mem_sign = mem_sub.add_parser("sign", help="Sign the current Mneme narrative with workspace identity")
+    p_mem_sign = mem_sub.add_parser("sign", help="Sign the current Vault narrative with workspace identity")
     p_mem_sign.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
     p_mem_sign.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
@@ -34463,14 +33825,14 @@ def main():
     # memory doctor (#128 — legacy MD5 → SHA-256 narrative migration)
     p_mem_doc = mem_sub.add_parser(
         "doctor",
-        help="Scan/repair the Mnēmē memory store (legacy MD5 → SHA-256 narrative migration)",
+        help="Scan/repair the Perseus Vault memory store (legacy MD5 → SHA-256 narrative migration)",
     )
     p_mem_doc.add_argument("--migrate", action="store_true",
                            help="Rename legacy MD5-named narratives to their SHA-256 paths (atomic, idempotent)")
     p_mem_doc.add_argument("--json", action="store_true",
                            help="Machine-readable JSON output")
 
-    # memory index (Mnēmē v2)
+    # memory index (Perseus Vault v2)
     p_mem_idx = mem_sub.add_parser("index", help="Manage the FTS5 search index")
     idx_sub = p_mem_idx.add_subparsers(dest="index_command", required=True)
     p_idx_stats = idx_sub.add_parser("stats", help="Show index statistics")

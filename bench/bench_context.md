@@ -52,7 +52,7 @@ Repo: github.com/Perseus-Computing-LLC/perseus
 ## Task Board
 @agora
 
-## Long-Term Memory (Mneme)
+## Long-Term Memory (Vault)
 @memory mode=search query="perseus architecture memory integration" k=5
 
 ## Sibyl Memory (Structured)

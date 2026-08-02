@@ -17,7 +17,7 @@ Review it thoroughly and return a structured report. Be specific — cite file p
     mcp.py                # MCP server — auto-exposes directives as tools
     mcp_extended.py       # Extended MCP endpoints
     checkpoint.py         # Session waypoints
-    memory.py / mneme_index.py / mneme_narrative.py / mneme_federation.py
+    memory.py / perseus_vault_index.py / perseus_vault_narrative.py / perseus_vault_federation.py
     pythia.py             # Tool oracle
     lsp.py                # LSP server
     serve.py              # HTTP serve
@@ -42,7 +42,7 @@ Perseus v1.0.5. MIT license, patent pending. Python 3.10+, single dependency (py
 
 **The renderer** processes `.md` files with a `@perseus v0.4` header. It resolves directives line-by-line, with a two-level cache (in-memory session + disk-backed TTL), pipe syntax for chaining, macro expansion, and transitive `@include` with cycle detection.
 
-**Mnēmē** is an in-process persistent memory system using BM25 ranking. It stores narrative memories per workspace, supports cross-workspace federation, and is queryable via `@memory` directives and MCP tools.
+**Perseus Vault** is an in-process persistent memory system using BM25 ranking. It stores narrative memories per workspace, supports cross-workspace federation, and is queryable via `@memory` directives and MCP tools.
 
 **Hephaestus** is the extensibility layer: plugins (drop Python files into `~/.perseus/plugins/`), macros, render pipeline hooks, webhooks, custom validators, output format adapters, and directive aliases.
 
@@ -55,7 +55,7 @@ Read these files FIRST:
 - `src/perseus/renderer.py` — the cache layer and render pipeline
 - `src/perseus/mcp.py` — MCP server auto-generation
 - `src/perseus/memory.py` — memory system design
-- `src/perseus/mneme_index.py` — Mnēmē BM25 implementation
+- `src/perseus/perseus_vault_index.py` — Perseus Vault BM25 implementation
 - `scripts/build.py` — the build concatenation approach
 
 Then read any other files you find interesting.

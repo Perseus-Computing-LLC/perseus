@@ -68,7 +68,7 @@
         "chars": 34,
         "tokens": 11
       },
-      "Long-Term Memory (Mneme)": {
+      "Long-Term Memory (Vault)": {
         "lines": 5,
         "chars": 188,
         "tokens": 62
@@ -314,7 +314,7 @@
     },
     {
       "task_id": 5,
-      "task_name": "Fix Mneme FTS5 search escaping bug (issue #318)",
+      "task_name": "Fix Vault FTS5 search escaping bug (issue #318)",
       "task_type": "simple",
       "sibyl_only_calls": 5,
       "sibyl_only_tokens": 3106,

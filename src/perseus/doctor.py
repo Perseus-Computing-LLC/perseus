@@ -215,22 +215,22 @@ def _doctor_check_latest_checkpoint(cfg: dict, workspace: Path) -> DoctorResult:
         return DoctorResult("latest_checkpoint_age", "ok", "latest checkpoint", str(yamls[0].name), "")
 
 
-def _doctor_check_mneme(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check Mnēmē narrative existence and size."""
+def _doctor_check_vault(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check Perseus Vault narrative existence and size."""
     mem_cfg = cfg.get("memory", {})
-    narrative = _mneme_path(workspace, cfg)
+    narrative = _vault_memory_path(workspace, cfg)
     if not narrative.exists():
-        return DoctorResult("mneme_narrative", "warn", f"{MEMORY_BRAND} narrative",
+        return DoctorResult("vault_narrative", "warn", f"{MEMORY_BRAND} narrative",
                             "not found", "Memory will auto-create on next render with @memory")
     lines = narrative.read_text(errors="replace", encoding="utf-8").splitlines()
     max_lines = mem_cfg.get("max_narrative_lines", 300)
     line_count = len(lines)
     val = f"{line_count} lines"
     if line_count > max_lines:
-        return DoctorResult("mneme_narrative", "warn", f"{MEMORY_BRAND} narrative",
+        return DoctorResult("vault_narrative", "warn", f"{MEMORY_BRAND} narrative",
                             f"{val} (exceeds max_narrative_lines={max_lines})",
                             "Consider pruning old entries from the narrative")
-    return DoctorResult("mneme_narrative", "ok", f"{MEMORY_BRAND} narrative", val, "")
+    return DoctorResult("vault_narrative", "ok", f"{MEMORY_BRAND} narrative", val, "")
 
 
 def _doctor_check_federation(cfg: dict, workspace: Path) -> DoctorResult:
@@ -338,12 +338,12 @@ def _doctor_check_mcp(cfg: dict, workspace: Path) -> DoctorResult:
         return DoctorResult("mcp_server", "error", "mcp_server", str(exc), "Check mcp.py")
 
 
-def _doctor_check_mneme_index(_cfg: dict, _workspace: Path) -> DoctorResult:
-    """Check Mnēmē FTS5 index health — existence, population, orphans."""
+def _doctor_check_vault_index(_cfg: dict, _workspace: Path) -> DoctorResult:
+    """Check Perseus Vault FTS5 index health — existence, population, orphans."""
     try:
-        stats = _mneme_index_stats(_cfg)
+        stats = _vault_index_stats(_cfg)
         if not stats["available"]:
-            return DoctorResult("mneme_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
+            return DoctorResult("vault_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
                                 "index not available (vault may be empty)",
                                 "Add memory files to trigger indexing, or run `perseus memory index rebuild`")
 
@@ -352,16 +352,16 @@ def _doctor_check_mneme_index(_cfg: dict, _workspace: Path) -> DoctorResult:
         index_path = stats["index_path"]
 
         # Orphan check: files in index that no longer exist in vault. The
-        # mneme_files schema column is "path" (see mneme_index.py), not
+        # vault_files schema column is "path" (see vault_index.py), not
         # "file_path" -- a stale query name here previously made this check a
         # permanent silent no-op via the bare except below (always 0 orphans,
         # even with a moved/deleted vault).
         orphans = 0
         orphan_check_failed = False
         try:
-            conn = _mneme_open_index(_cfg)
+            conn = _vault_open_index(_cfg)
             if conn:
-                rows = conn.execute("SELECT path FROM mneme_files").fetchall()
+                rows = conn.execute("SELECT path FROM vault_files").fetchall()
                 for (fp,) in rows:
                     if not Path(fp).exists():
                         orphans += 1
@@ -373,21 +373,21 @@ def _doctor_check_mneme_index(_cfg: dict, _workspace: Path) -> DoctorResult:
         parts = [f"{doc_count} docs, {file_count} files tracked"]
         if orphan_check_failed:
             parts.append("orphan check failed (index schema mismatch)")
-            return DoctorResult("mneme_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
+            return DoctorResult("vault_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
                                 ", ".join(parts),
                                 "Run `perseus memory index rebuild` to recreate the index")
         if orphans > 0:
             parts.append(f"{orphans} orphaned entries")
-            return DoctorResult("mneme_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
+            return DoctorResult("vault_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
                                 ", ".join(parts),
                                 f"{orphans} orphaned entries — run `perseus memory index rebuild`")
         if doc_count == 0:
-            return DoctorResult("mneme_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
+            return DoctorResult("vault_fts_index", "warn", f"{MEMORY_BRAND} FTS index",
                                 "index exists but is empty",
                                 "Run `perseus memory index rebuild`")
-        return DoctorResult("mneme_fts_index", "ok", f"{MEMORY_BRAND} FTS index", ", ".join(parts), "")
+        return DoctorResult("vault_fts_index", "ok", f"{MEMORY_BRAND} FTS index", ", ".join(parts), "")
     except Exception as exc:
-        return DoctorResult("mneme_fts_index", "error", f"{MEMORY_BRAND} FTS index", str(exc), "Check mneme_index.py")
+        return DoctorResult("vault_fts_index", "error", f"{MEMORY_BRAND} FTS index", str(exc), "Check vault_index.py")
 
 
 def _doctor_check_cache_writable(cfg: dict, workspace: Path) -> DoctorResult:
@@ -424,12 +424,9 @@ def _doctor_check_sessions(cfg: dict, workspace: Path) -> DoctorResult:
                            str(exc), "Check SESSIONS_DIR permissions")
 
 
-# Ordered list of doctor checks — adding a check is one function + one line here.
-# #662: the memory binary is now "perseus-vault" (formerly mimir/mneme); search
-# both the new and legacy names so a config that still points at `mimir` OR one
-# migrated to `perseus-vault` is discovered in the common install locations.
-_MEMORY_BINARY_NAMES = ("perseus-vault", "mimir", "mneme")
-_KNOWN_MIMIR_PATHS = [
+# The only supported memory binary is the Perseus Vault executable.
+_MEMORY_BINARY_NAMES = ("perseus-vault",)
+_KNOWN_VAULT_PATHS = [
     os.path.join(prefix, name)
     for name in _MEMORY_BINARY_NAMES
     for prefix in (
@@ -454,7 +451,7 @@ MEMORY_INSTALL_REMEDIATION = (
 )
 
 
-def _find_mimir_binary(configured_command: list[str]) -> str | None:
+def _find_vault_binary(configured_command: list[str]) -> str | None:
     """Search common paths for the memory (Perseus Vault) binary.
 
     Returns the first found absolute path, or None if not found.
@@ -469,23 +466,14 @@ def _find_mimir_binary(configured_command: list[str]) -> str | None:
     if resolved:
         return resolved
 
-    # Search known common paths (both new perseus-vault and legacy names)
-    candidates = list(_KNOWN_MIMIR_PATHS)
-
-    # Also search $PWD/{perseus-vault,mimir}/target/{release,debug}/<name>.
-    # 2026-07-05 security review: this CWD-relative search is an untrusted-search-path
-    # vector (CWE-427) — running Perseus from an attacker-influenced directory that
-    # contains ./perseus-vault/target/release/perseus-vault would execute it as "the
-    # vault". Gate it behind an explicit dev opt-in so it never fires in production.
+    candidates = list(_KNOWN_VAULT_PATHS)
+    # Development discovery is limited to the canonical project directory.
     if os.environ.get("PERSEUS_DEV_VAULT_BUILD") == "1":
         try:
             cwd = Path.cwd()
-            for src_dir, name in (
-                ("perseus-vault", "perseus-vault"),
-                ("mimir", "mimir"),
-            ):
-                candidates.append(str(cwd / src_dir / "target" / "release" / name))
-                candidates.append(str(cwd / src_dir / "target" / "debug" / name))
+            src_dir = cwd / "perseus-vault"
+            candidates.append(str(src_dir / "target" / "release" / "perseus-vault"))
+            candidates.append(str(src_dir / "target" / "debug" / "perseus-vault"))
         except Exception:
             pass
 
@@ -497,31 +485,31 @@ def _find_mimir_binary(configured_command: list[str]) -> str | None:
     return None
 
 
-def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check mimir connectivity and binary discovery (#226, #227).
+def _doctor_check_vault_bridge(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check vault connectivity and binary discovery (#226, #227).
 
-    When mimir.enabled is true, this check:
-      1. Searches common paths for the mimir binary (#227)
-      2. Attempts MCP handshake + mimir_health tool call (#226)
-      3. Surfaces a clear warning (not silent Mneme fallback) if unreachable
+    When vault.enabled is true, this check:
+      1. Searches common paths for the vault binary (#227)
+      2. Attempts MCP handshake + perseus_vault_health tool call (#226)
+      3. Surfaces a clear warning (not silent Vault fallback) if unreachable
     """
-    mneme_cfg = _resolve_mneme_config(cfg)
-    enabled = bool(mneme_cfg.get("enabled", True))
+    vault_cfg = _resolve_vault_config(cfg)
+    enabled = bool(vault_cfg.get("enabled", True))
 
     if not enabled:
-        return DoctorResult("mimir_connectivity", "ok", MEMORY_BRAND,
+        return DoctorResult("vault_connectivity", "ok", MEMORY_BRAND,
                            "disabled", "")
 
-    command = list(mneme_cfg.get("command", ["perseus-vault", "serve"]))
+    command = list(vault_cfg.get("command", ["perseus-vault", "serve"]))
     binary_name = command[0] if command else "perseus-vault"
 
     # Step 1: Auto-discover binary if not on PATH (#227)
-    binary_path = _find_mimir_binary(command)
+    binary_path = _find_vault_binary(command)
     if binary_path is None:
         # #663: the connector is configured (enabled) but the memory binary is
         # absent, so memory would be silently empty. Warn clearly with
         # copy-paste remediation instead of leaving the user to discover it.
-        return DoctorResult("mimir_connectivity", "warn", f"{MEMORY_BRAND} binary",
+        return DoctorResult("vault_connectivity", "warn", f"{MEMORY_BRAND} binary",
                            f"configured but not found: '{binary_name}' "
                            "(searched PATH + known locations) — persistent memory "
                            "will be empty until it is installed",
@@ -534,19 +522,19 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
     try:
         # Build a temporary connector with the discovered binary path. Write
         # under the canonical `perseus_vault:` key (#662) so it wins in
-        # _resolve_mneme_config regardless of which alias the original cfg used.
+        # Resolve the canonical Perseus Vault block before validating defaults.
         test_cfg = dict(cfg)
-        test_cfg["perseus_vault"] = dict(mneme_cfg)
+        test_cfg["perseus_vault"] = dict(vault_cfg)
         test_cfg["perseus_vault"]["command"] = command
 
-        connector = MnemeConnector(test_cfg)
+        connector = VaultConnector(test_cfg)
         if connector.available:
             # Run health check
             healthy, status = connector.health_check()
             if healthy:
                 # Try to get version from health check response
                 version_info = ""
-                raw_result, _ = connector._client.call_tool("mimir_health", {}) if connector._client else (None, None)
+                raw_result, _ = connector._client.call_tool("perseus_vault_health", {}) if connector._client else (None, None)
                 if raw_result and isinstance(raw_result, dict):
                     ver = raw_result.get("version", "")
                     db_path = raw_result.get("db_path", "")
@@ -556,21 +544,21 @@ def _doctor_check_mimir_bridge(cfg: dict, workspace: Path) -> DoctorResult:
                         version_info += f" db: {db_path}"
                 connector.close()
                 extra = f" (binary: {binary_path})" if binary_path != binary_name else ""
-                return DoctorResult("mimir_connectivity", "ok", MEMORY_BRAND,
+                return DoctorResult("vault_connectivity", "ok", MEMORY_BRAND,
                                    f"connected + healthy{version_info}{extra}", "")
             else:
                 connector.close()
-                return DoctorResult("mimir_connectivity", "warn", MEMORY_BRAND,
+                return DoctorResult("vault_connectivity", "warn", MEMORY_BRAND,
                                    f"connected but health check failed: {status}",
                                    "Check the Perseus Vault server status")
         else:
             err = connector.status
             connector.close()
-            return DoctorResult("mimir_connectivity", "warn", MEMORY_BRAND,
+            return DoctorResult("vault_connectivity", "warn", MEMORY_BRAND,
                                f"unreachable: {err}",
                                "Check Perseus Vault is running or install it")
     except Exception as exc:
-        return DoctorResult("mimir_connectivity", "error", MEMORY_BRAND,
+        return DoctorResult("vault_connectivity", "error", MEMORY_BRAND,
                            str(exc),
                            "Verify the perseus-vault binary and the `perseus_vault.command` in config.yaml")
 
@@ -1001,111 +989,36 @@ def _doctor_check_agents_startup_route(cfg: dict, workspace: Path) -> DoctorResu
                         f"{rel}: {block} block present{src_note}", "")
 
 
-def _legacy_shadowed_paths(expected: dict, resolved: dict, overridden: dict,
-                           prefix: str = "") -> list[str]:
-    """Return dotted paths from `expected` whose values are NOT reflected in
-    `resolved` and NOT explicitly overridden by a raw canonical block (#704).
-
-    A path explicitly set under a raw `perseus_vault:` block is skipped —
-    canonical wins over legacy aliases by design, so that is not shadowing.
-    """
-    bad: list[str] = []
-    for key, val in expected.items():
-        path = f"{prefix}{key}"
-        if isinstance(val, dict):
-            sub_resolved = resolved.get(key)
-            sub_overridden = overridden.get(key)
-            bad.extend(_legacy_shadowed_paths(
-                val,
-                sub_resolved if isinstance(sub_resolved, dict) else {},
-                sub_overridden if isinstance(sub_overridden, dict) else {},
-                path + ".",
-            ))
-        else:
-            if key in overridden:
-                continue
-            if resolved.get(key) != val:
-                bad.append(path)
-    return bad
-
-
-def _doctor_check_legacy_memory_config(cfg: dict, workspace: Path) -> DoctorResult:
-    """#704: a legacy `mneme:`/`mimir:` block must actually take effect.
-
-    Pre-#704, load_config materialized the full default `perseus_vault:` block
-    even when the user's config.yaml only had a legacy `mneme:`/`mimir:` block,
-    and _resolve_mneme_config returned that non-empty default — silently
-    discarding every user setting (including an absolute-path `command:`).
-    This check re-reads the RAW config files and errors if any legacy-block
-    setting is not reflected in the resolved connector config.
-    """
-    raw_sources: list[dict] = []
-    candidates = [PERSEUS_HOME / "config.yaml"]
-    if workspace:
-        candidates.append(Path(workspace) / ".perseus" / "config.yaml")
-    for path in candidates:
-        try:
-            if path.exists():
-                raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-                if isinstance(raw, dict):
-                    raw_sources.append(raw)
-        except Exception:
-            # Unparseable config is _doctor_check_config's problem, not ours.
-            continue
-
-    legacy_by_key: dict[str, dict] = {}
-    canonical_raw: dict = {}
-    for raw in raw_sources:
-        for key in ("mimir", "mneme"):
-            block = raw.get(key)
-            if isinstance(block, dict) and block:
-                _deep_merge_dicts(legacy_by_key.setdefault(key, {}), block)
-        cblock = raw.get("perseus_vault")
-        if isinstance(cblock, dict) and cblock:
-            _deep_merge_dicts(canonical_raw, cblock)
-
-    if not legacy_by_key:
-        return DoctorResult("legacy_memory_config", "ok", "memory config key",
-                            "canonical (`perseus_vault:`) or defaults", "")
-
-    resolved = _resolve_mneme_config(cfg)
-    shadowed: list[str] = []
-    for key, block in sorted(legacy_by_key.items()):
-        shadowed.extend(f"{key}.{p}" for p in
-                        _legacy_shadowed_paths(block, resolved, canonical_raw))
-    keys = ", ".join(f"`{k}:`" for k in sorted(legacy_by_key))
-    if shadowed:
+def _doctor_check_vault_config(cfg: dict, workspace: Path) -> DoctorResult:
+    """Report the canonical Perseus Vault configuration state."""
+    resolved = _resolve_vault_config(cfg)
+    if resolved:
         return DoctorResult(
-            "legacy_memory_config", "error", "memory config key",
-            f"legacy {keys} block present but SHADOWED — these settings are "
-            f"NOT applied: {', '.join(shadowed[:5])}"
-            + (f" (+{len(shadowed) - 5} more)" if len(shadowed) > 5 else ""),
-            "Rename the block to `perseus_vault:` in config.yaml. Legacy keys "
-            "are deep-merged onto the canonical block since #704 — this error "
-            "means that merge did not happen (stale perseus install, or the "
-            "config was loaded by an older version).")
+            "vault_config", "ok", "memory config key",
+            "canonical (`perseus_vault:`)", "",
+        )
     return DoctorResult(
-        "legacy_memory_config", "ok", "memory config key",
-        f"deprecated {keys} block applied (folded into `perseus_vault:`; "
-        "rename to silence the deprecation notice)", "")
+        "vault_config", "ok", "memory config key",
+        "canonical defaults", "",
+    )
 
 
 _DOCTOR_CHECKS = [
     _doctor_check_config,
-    _doctor_check_legacy_memory_config,
+    _doctor_check_vault_config,
     _doctor_check_context_file,
     _doctor_check_render_shell,
     _doctor_check_render_outside_workspace,
     _doctor_check_latest_checkpoint,
-    _doctor_check_mneme,
-    _doctor_check_mneme_index,
+    _doctor_check_vault,
+    _doctor_check_vault_index,
     _doctor_check_federation,
     _doctor_check_pythia_log,
     _doctor_check_serve_loopback,
     _doctor_check_registry,
     _doctor_check_mcp,
     _doctor_check_cache_writable,
-    _doctor_check_mimir_bridge,
+    _doctor_check_vault_bridge,
     _doctor_check_plutus_metering,
     _doctor_check_sessions,
     _doctor_check_version_header,
@@ -1282,7 +1195,7 @@ def run_doctor_checks(cfg: dict, workspace: Path) -> dict:
     # probes), so run them in a thread pool instead of serially. User-facing
     # latency was the SUM of every check's latency, dominated by the slow
     # network/subprocess ones (llm_reachable's 5s HTTP timeout, llm_functional's
-    # round-trip, mimir_bridge's subprocess + MCP handshake). ThreadPoolExecutor
+    # round-trip, vault_bridge's subprocess + MCP handshake). ThreadPoolExecutor
     # .map preserves _DOCTOR_CHECKS order; each check stays exception-isolated so
     # one failure can't abort the run. (#449)
     def _run_doctor_check(check_fn) -> DoctorResult:

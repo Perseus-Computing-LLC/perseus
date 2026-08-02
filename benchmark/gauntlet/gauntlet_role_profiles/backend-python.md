@@ -69,4 +69,4 @@
 @drift
 @inbox
 
-@mneme query="Python sqlite FTS5"
+@vault query="Python sqlite FTS5"

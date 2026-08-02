@@ -1,6 +1,6 @@
 ---
 id: task-23
-title: "Perseus context system cleanup: commit Mnēmē diff, fix ROADMAP constraint, homelab context overhaul"
+title: "Perseus context system cleanup: commit Perseus Vault diff, fix ROADMAP constraint, homelab context overhaul"
 status: completed
 scope: medium
 depends_on: []
@@ -15,7 +15,7 @@ closed: 2026-05-22
 
 Three things that are broken or stale, collected into one task:
 
-1. **Commit the uncommitted Mnēmē diff** — 4 files (agora.py, checkpoint.py, cli.py, registry.py) have been sitting unstaged with bugs #1-3 and features #1-4 fixed/added. They need to be built, tested, and pushed.
+1. **Commit the uncommitted Perseus Vault diff** — 4 files (agora.py, checkpoint.py, cli.py, registry.py) have been sitting unstaged with bugs #1-3 and features #1-4 fixed/added. They need to be built, tested, and pushed.
 
 2. **Fix ROADMAP.md constraint #1** — still says "single file, no package structure" but the project shipped `src/perseus/` module tree. AGENTS.md has the correct wording; ROADMAP.md needs to match.
 
@@ -51,7 +51,7 @@ Full plan with step-by-step tasks at:
 
 All three goals delivered in full:
 
-1. **Mnēmē diff committed** — bugs #1-3 and features #1-4 (agora.py, checkpoint.py, cli.py, registry.py) built, tested, and pushed. 535 tests pass.
+1. **Perseus Vault diff committed** — bugs #1-3 and features #1-4 (agora.py, checkpoint.py, cli.py, registry.py) built, tested, and pushed. 535 tests pass.
 2. **ROADMAP.md constraint #1 fixed** — now correctly reflects the `src/perseus/` module architecture.
 3. **Homelab context overhaul** — removed Docker Containers and Cron Jobs sections (no-signal), added `category=` multi-value filter to `@skills` (subtask 3a: `0e28f28`), context now renders 46 curated skills across 5 categories, `@session count=3`, Perseus CLI entry uses installed `perseus --version` command, version tag bumped to `v0.8`.
 

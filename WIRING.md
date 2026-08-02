@@ -76,7 +76,7 @@ After wiring, the assistant gets these tools:
 | Tool | Resolves |
 |------|----------|
 | `perseus_render_source` | Full context rendering with all directives |
-| `perseus_memory_search` | Mnēmē vault (FTS5 semantic search) |
+| `perseus_memory_search` | Perseus Vault (FTS5 semantic search) |
 | `perseus_memory_narrative` | Project narrative |
 | `perseus_health_report` | Maintenance suggestions |
 | `perseus_oracle_suggest` | Pythia tool/skill recommendations |

@@ -20,7 +20,7 @@ Perseus is a live context engine for AI assistants. It solves the **cold-start p
 | Replay the serving slice against real Vault | [Real Vault density replay](../benchmark/real_vault_density/README.md) |
 | Measure whether startup memory is actually saving time | [Startup-Memory Benchmark](./startup-memory-benchmark.md) |
 | Deploy with Docker / run as a service | [Container deployment](./CONTAINER.md) |
-| Deploy the full ecosystem on Hermes (Bastra, LLM proxy, crons) | [Deployment Guide](./DEPLOYMENT.md) |
+| Deploy the full ecosystem on Hermes (previous Vault format, LLM proxy, crons) | [Deployment Guide](./DEPLOYMENT.md) |
 | Enable cited synthesis (`@synthesize`) | [Cited Synthesis](./CITED_SYNTHESIS.md) |
 | Use the trust and security model | [Spec: permissions](../spec/components.md) |
 | Look up every directive | [spec/directives.md](../spec/directives.md) |

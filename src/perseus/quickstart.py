@@ -27,7 +27,7 @@ Before storing a fact in the `memory` tool, verify ALL three:
 Only facts that pass ALL THREE gates belong in `memory` (2,200 char hard limit).
 Everything else has a better home:
 - 🔁 **Procedures** → `skill_manage` (create/update a skill)
-- 🧠 **Cross-session context** → mimir (MCP `mimir_store` / `mimir_recall`)
+- 🧠 **Cross-session context** → Perseus Vault (MCP `perseus_vault_remember` / `perseus_vault_recall`)
 - 🚫 **Ephemeral state, one-time fixes, completed tasks** → discard
 
 🚫 **Flat files (.txt, .json, .csv, .md) are BANNED as a memory backend.**
@@ -57,7 +57,7 @@ Everything else has a better home:
 
 ---
 
-## Project Memory (Mnēmē)
+## Project Memory (Perseus Vault)
 @memory focus=recent ttl=300
 
 ---
@@ -71,10 +71,10 @@ Everything else has a better home:
 > @memory mode=search query="another topic" k=2
 > ```
 > Each sub-query is short enough to match effectively; the relay layer merges results.
-> Falls back gracefully to local Mnēmē FTS5 if Perseus Vault is unavailable.
-> Requires `perseus_vault.enabled: true` (or the legacy `mimir.enabled: true`) in `.perseus/config.yaml`.
+> Falls back gracefully to local Perseus Vault FTS5 if Perseus Vault is unavailable.
+> Requires `perseus_vault.enabled: true` in `.perseus/config.yaml`.
 
-@memory mode=search query="{mneme_query}" k=5
+@memory mode=search query="{vault_query}" k=5
 """
 
 
@@ -88,13 +88,9 @@ def _quickstart_write_config(
 
     The memory connector is always wired (enabled) under the canonical
     ``perseus_vault:`` key with the ``perseus-vault`` binary (#665). No ``--db``
-    argument is emitted: the vault binary self-resolves its canonical default DB
-    path, so omitting it eliminates path drift. The install ships ONLY a
-    ``perseus-vault`` binary (there is no ``mimir`` binary), so a legacy
-    ``mimir:``/``mimir serve`` block would be dead on a fresh operator's machine.
-    ``with_memory`` is retained for call-site compatibility but no longer
-    selects a different (legacy) block. Legacy keys are still ACCEPTED on read
-    (see ``_resolve_mneme_config``).
+    argument is emitted: the Vault binary self-resolves its canonical default DB
+    path, so omitting it eliminates path drift. ``with_memory`` controls whether
+    the canonical connector is enabled in the generated configuration.
     """
     perseus_dir = workspace / ".perseus"
     perseus_dir.mkdir(parents=True, exist_ok=True)
@@ -198,11 +194,11 @@ def cmd_quickstart(args, cfg) -> int:
     # or build the Rust binary silently (#663); the install is always an
     # explicit, operator-run command.
     try:
-        from perseus.doctor import _find_mimir_binary, MEMORY_INSTALL_REMEDIATION
-        mcfg = _resolve_mneme_config(cfg) if cfg else {}
+        from perseus.doctor import _find_vault_binary, MEMORY_INSTALL_REMEDIATION
+        mcfg = _resolve_vault_config(cfg) if cfg else {}
         if mcfg.get("enabled", True):
             command = mcfg.get("command", ["perseus-vault", "serve"])
-            binary_path = _find_mimir_binary(command)
+            binary_path = _find_vault_binary(command)
             if binary_path is None:
                 print("⚠ Perseus Vault (persistent memory engine) is configured but NOT installed.")
                 print("  The memory block will be EMPTY until the binary is on PATH.")

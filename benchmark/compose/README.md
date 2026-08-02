@@ -80,12 +80,12 @@ author's intent once and reproduces it exactly.
 - **Determinism is a Perseus guarantee, not a unique trick here.** Offline BM25 is
   also deterministic, so the framework rows are marked `deterministic*`. The point
   is that Perseus is deterministic *by construction* — including for directives
-  (`@query`, `@mimir`) where the alternatives are not.
+  (`@query`, `@vault`) where the alternatives are not.
 - **Cold→warm cache speedup is intentionally not measured here.** This corpus uses
   only cheap `@include` directives, for which the render cache adds overhead
   without benefit. The cache pays off for expensive directives (`@query`,
-  `@mimir`); those cold→warm numbers live in the other `benchmark/` suites
-  (e.g. `real_deltas.json`, `mneme_hardcore.json`).
+  `@vault`); those cold→warm numbers live in the other `benchmark/` suites
+  (e.g. `real_deltas.json`, `vault_hardcore.json`).
 
 ## Files
 

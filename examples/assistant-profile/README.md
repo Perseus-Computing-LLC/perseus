@@ -77,7 +77,7 @@ perseus cron --schedule "*/30 * * * *" \
 
 **Build up the project narrative over time:**
 ```bash
-# Write checkpoints as you work — Mnēmē distils them into @memory
+# Write checkpoints as you work — Perseus Vault distils them into @memory
 perseus checkpoint \
   --task "Implement auth" \
   --status "complete" \

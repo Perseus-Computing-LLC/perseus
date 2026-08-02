@@ -240,7 +240,7 @@ Pythia assembles a live snapshot of your environment (skills, services, recent w
 perseus doctor
 ```
 
-10 checks: config, context file, render settings, checkpoint age, Mnēmē narrative, federation, oracle log, serve endpoint, directive registry, version. Exit 0 = all ok/warn; exit 1 = any error.
+10 checks: config, context file, render settings, checkpoint age, Perseus Vault narrative, federation, oracle log, serve endpoint, directive registry, version. Exit 0 = all ok/warn; exit 1 = any error.
 
 ---
 

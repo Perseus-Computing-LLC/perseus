@@ -135,7 +135,7 @@ perseus diff --workspace /workspace/perseus
 **Closed:** 2026-05-18 · **Implemented by:** claude-sonnet-4.5
 
 - `perseus checkpoint` writes `latest-<workspace-hash>.yaml` alongside `latest.yaml`
-- `_workspace_hash()` (introduced for Mnēmē in task-12) reused — single source of truth
+- `_workspace_hash()` (introduced for Perseus Vault in task-12) reused — single source of truth
 - Pointer files are plain copies, not symlinks (safer across filesystems)
 - `perseus recover --workspace <path>` takes fast path via pointer when present, falls back to scan
 - Pointer cleanup runs on `max_keep` prune — re-points or removes stale pointers

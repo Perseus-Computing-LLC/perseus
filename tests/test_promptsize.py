@@ -85,7 +85,7 @@ def test_total_reconciles_with_actual_render(tmp_path, monkeypatch, capsys):
                      "@perseus\n\n# A\nalpha\n@env PSTEST_VALUE\n")
     report, _ = _report(src, capsys)
     cfg = perseus.load_config(ws)
-    perseus._merge_pack_mimir_config(cfg, ws)
+    perseus._merge_pack_vault_config(cfg, ws)
     rendered = perseus.render_source(src.read_text(encoding="utf-8"), cfg, ws,
                                      max_tier=3)
     assert report["total"]["bytes"] == len(rendered.encode("utf-8"))

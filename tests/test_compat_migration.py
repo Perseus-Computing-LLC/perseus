@@ -154,7 +154,7 @@ def test_memory_update_preserves_future_narrative_frontmatter_fields(tmp_path):
         "status": "complete",
         "workspace": str(workspace),
     }), encoding="utf-8")
-    narrative = perseus._mneme_path(workspace, local)
+    narrative = perseus._vault_memory_path(workspace, local)
     narrative.parent.mkdir(parents=True, exist_ok=True)
     narrative.write_text(
         "---\n"

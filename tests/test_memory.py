@@ -18,9 +18,9 @@ from conftest import PY_VER, cfg, perseus, _capture_json, _seed_oracle_log
 
 pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
 
-# ─────────────────────────────── Mnēmē tests ──────────────────────────────────
+# ─────────────────────────────── Perseus Vault tests ──────────────────────────────────
 
-def _mneme_cfg(tmp_path):
+def _vault_cfg(tmp_path):
     local = cfg()
     local["memory"]["store"] = str(tmp_path / "memory")
     local["checkpoints"]["store"] = str(tmp_path / "checkpoints")
@@ -52,33 +52,33 @@ def test_workspace_hash_is_stable_and_16_hex(tmp_path):
     assert perseus._workspace_hash(tmp_path) == h
 
 
-def test_mneme_path_uses_memory_store(tmp_path):
-    local = _mneme_cfg(tmp_path)
-    p = perseus._mneme_path(tmp_path, local)
+def test_vault_path_uses_memory_store(tmp_path):
+    local = _vault_cfg(tmp_path)
+    p = perseus._vault_memory_path(tmp_path, local)
     assert p.parent == Path(local["memory"]["store"])
     assert p.suffix == ".md"
     assert perseus._workspace_hash(tmp_path) in p.name
 
 
-def test_mneme_vault_path_defaults_to_store(tmp_path):
+def test_vault_path_defaults_to_store(tmp_path):
     """Regression: the FTS5 indexer must scan the narrative store by default.
 
-    With no explicit ``mneme_vault_path``, the indexer's source dir has to be
+    With no explicit ``vault_path``, the indexer's source dir has to be
     ``memory.store`` (where narratives are written) — not a ``vault/`` subdir,
     which previously left the index empty on a stock install.
     """
-    local = _mneme_cfg(tmp_path)  # sets memory.store, leaves vault path empty
-    assert local["memory"].get("mneme_vault_path", "") == ""
-    assert perseus._mneme_vault_path(local) == Path(local["memory"]["store"])
-    # _mneme_path (writer) and _mneme_vault_path (reader) scan the same dir.
-    narrative = perseus._mneme_path(tmp_path, local)
-    assert narrative.parent == perseus._mneme_vault_path(local)
+    local = _vault_cfg(tmp_path)  # sets memory.store, leaves vault path empty
+    assert local["memory"].get("vault_path", "") == ""
+    assert perseus._vault_path(local) == Path(local["memory"]["store"])
+    # _vault_path (writer) and _vault_path (reader) scan the same dir.
+    narrative = perseus._vault_memory_path(tmp_path, local)
+    assert narrative.parent == perseus._vault_path(local)
 
 
 def test_index_rebuild_indexes_narrative_written_to_store(tmp_path):
     """End-to-end: a narrative written via `memory update` is indexed by
     `memory index rebuild` and is then recallable — with default paths."""
-    local = _mneme_cfg(tmp_path)  # store set; vault/index paths left to default
+    local = _vault_cfg(tmp_path)  # store set; vault/index paths left to default
     _write_checkpoint(
         Path(local["checkpoints"]["store"]),
         "2026-05-15T10:00:00+00:00",
@@ -92,24 +92,24 @@ def test_index_rebuild_indexes_narrative_written_to_store(tmp_path):
     )
 
     # The narrative file the writer produced must carry the index fields.
-    fm, _ = perseus._load_narrative(perseus._mneme_path(tmp_path, local))
+    fm, _ = perseus._load_narrative(perseus._vault_memory_path(tmp_path, local))
     assert fm.get("id") and fm.get("title")
     assert fm.get("type") == "narrative"
 
     # `index rebuild` indexes it (>0 docs) using the default vault path.
-    count = perseus._mneme_build_index(local, force=True)
+    count = perseus._vault_build_index(local, force=True)
     assert count >= 1
-    assert perseus._mneme_index_stats(local)["doc_count"] >= 1
+    assert perseus._vault_index_stats(local)["doc_count"] >= 1
 
     # And recall finds it.
-    hits = perseus._mneme_recall(local, "Pythia", k=5)
+    hits = perseus._vault_recall(local, "Pythia", k=5)
     assert len(hits) >= 1
     assert any(h.get("type") == "narrative" for h in hits)
 
 
 def test_save_and_load_narrative_roundtrip(tmp_path):
-    local = _mneme_cfg(tmp_path)
-    p = perseus._mneme_path(tmp_path, local)
+    local = _vault_cfg(tmp_path)
+    p = perseus._vault_memory_path(tmp_path, local)
     fm = {"schema": 1, "workspace": str(tmp_path), "checkpoints_processed": 3}
     body = "## Project Arc\n\nHello.\n"
     perseus._save_narrative(p, fm, body)
@@ -127,13 +127,13 @@ def test_load_narrative_missing_file_returns_empty(tmp_path):
 
 
 def test_memory_update_fresh_workspace(tmp_path, capsys):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     _write_checkpoint(Path(local["checkpoints"]["store"]), "2026-05-15T10:00:00+00:00", "Initial work", status="complete", notes="We renamed oracle to Pythia.")
     args = argparse.Namespace(memory_command="update", workspace=str(tmp_path), llm=None)
     perseus.cmd_memory(args, local)
     out = capsys.readouterr().out
     assert "Updated" in out
-    p = perseus._mneme_path(tmp_path, local)
+    p = perseus._vault_memory_path(tmp_path, local)
     assert p.exists()
     fm, body = perseus._load_narrative(p)
     assert fm["checkpoints_processed"] == 1
@@ -143,7 +143,7 @@ def test_memory_update_fresh_workspace(tmp_path, capsys):
 
 
 def test_memory_update_idempotent_nothing_new(tmp_path, capsys):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     _write_checkpoint(Path(local["checkpoints"]["store"]), "2026-05-15T10:00:00+00:00", "T")
     args = argparse.Namespace(memory_command="update", workspace=str(tmp_path), llm=None)
     perseus.cmd_memory(args, local)
@@ -154,14 +154,14 @@ def test_memory_update_idempotent_nothing_new(tmp_path, capsys):
 
 
 def test_memory_compact_rebuilds_narrative(tmp_path, capsys):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     _write_checkpoint(Path(local["checkpoints"]["store"]), "2026-05-15T10:00:00+00:00", "A")
     _write_checkpoint(Path(local["checkpoints"]["store"]), "2026-05-16T10:00:00+00:00", "B")
     args = argparse.Namespace(memory_command="compact", workspace=str(tmp_path), llm=None)
     perseus.cmd_memory(args, local)
     out = capsys.readouterr().out
     assert "Compacted" in out
-    p = perseus._mneme_path(tmp_path, local)
+    p = perseus._vault_memory_path(tmp_path, local)
     fm, body = perseus._load_narrative(p)
     assert fm["compaction_count"] == 1
     assert fm["checkpoints_processed"] == 2
@@ -169,7 +169,7 @@ def test_memory_compact_rebuilds_narrative(tmp_path, capsys):
 
 
 def test_memory_show_prints_narrative(tmp_path, capsys):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     _write_checkpoint(Path(local["checkpoints"]["store"]), "2026-05-15T10:00:00+00:00", "T")
     perseus.cmd_memory(argparse.Namespace(memory_command="update", workspace=str(tmp_path), llm=None), local)
     capsys.readouterr()
@@ -180,14 +180,14 @@ def test_memory_show_prints_narrative(tmp_path, capsys):
 
 
 def test_memory_show_warns_when_missing(tmp_path, capsys):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     perseus.cmd_memory(argparse.Namespace(memory_command="show", workspace=str(tmp_path)), local)
     out = capsys.readouterr().out
     assert "No Perseus Vault narrative" in out
 
 
 def test_memory_status_summary(tmp_path, capsys):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     _write_checkpoint(Path(local["checkpoints"]["store"]), "2026-05-15T10:00:00+00:00", "T")
     perseus.cmd_memory(argparse.Namespace(memory_command="update", workspace=str(tmp_path), llm=None), local)
     capsys.readouterr()
@@ -199,7 +199,7 @@ def test_memory_status_summary(tmp_path, capsys):
 
 
 def test_memory_query_deterministic_grep(tmp_path, capsys):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     _write_checkpoint(Path(local["checkpoints"]["store"]), "2026-05-15T10:00:00+00:00", "T", notes="Renamed oracle to Pythia for clarity.")
     perseus.cmd_memory(argparse.Namespace(memory_command="update", workspace=str(tmp_path), llm=None), local)
     capsys.readouterr()
@@ -210,7 +210,7 @@ def test_memory_query_deterministic_grep(tmp_path, capsys):
 
 
 def test_resolve_memory_no_narrative_warning(tmp_path):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     out = perseus.resolve_memory("", local, tmp_path)
     assert "No Perseus Vault narrative" in out
 
@@ -218,11 +218,10 @@ def test_resolve_memory_no_narrative_warning(tmp_path):
 # ── #666: rendered narrative title routes through the Perseus Vault brand ─────
 
 def test_narrative_title_uses_perseus_vault_brand(tmp_path):
-    """#666: the distilled narrative's H1 title must use the current brand,
-    not the historical `# Mnēmē — …`."""
-    body = perseus._deterministic_narrative([], [], "", tmp_path, _mneme_cfg(tmp_path))
+    """The distilled narrative uses the single current memory brand."""
+    body = perseus._deterministic_narrative([], [], "", tmp_path, _vault_cfg(tmp_path))
     assert body.lstrip().startswith("# Perseus Vault — ")
-    assert "# Mnēmē" not in body
+    assert body.count("# Perseus Vault — ") == 1
 
 
 # ── #670: Recent Activity falls back to a vault recall when checkpoints empty ──
@@ -257,13 +256,13 @@ def _seed_empty_recent_narrative(tmp_path, local):
     (the no-checkpoints case #670 describes)."""
     body = perseus._deterministic_narrative([], [], "", tmp_path, local)
     assert "_No recent activity._" in body
-    mp = perseus._mneme_path(tmp_path, local)
+    mp = perseus._vault_memory_path(tmp_path, local)
     perseus._save_narrative(mp, {"updated": datetime.now().astimezone().isoformat()}, body)
     return mp
 
 
 def test_recent_activity_vault_fallback_populates(tmp_path, monkeypatch):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     _seed_empty_recent_narrative(tmp_path, local)
     conn = _FakeConnector(available=True, hits=_fake_session_hits(2))
     monkeypatch.setattr(perseus, "_get_connector", lambda cfg: conn)
@@ -277,7 +276,7 @@ def test_recent_activity_vault_fallback_populates(tmp_path, monkeypatch):
 
 
 def test_recent_activity_vault_fallback_focus_recent(tmp_path, monkeypatch):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     _seed_empty_recent_narrative(tmp_path, local)
     conn = _FakeConnector(available=True, hits=_fake_session_hits(1))
     monkeypatch.setattr(perseus, "_get_connector", lambda cfg: conn)
@@ -287,7 +286,7 @@ def test_recent_activity_vault_fallback_focus_recent(tmp_path, monkeypatch):
 
 
 def test_recent_activity_no_fallback_when_vault_unavailable(tmp_path, monkeypatch):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     _seed_empty_recent_narrative(tmp_path, local)
     conn = _FakeConnector(available=False)
     monkeypatch.setattr(perseus, "_get_connector", lambda cfg: conn)
@@ -300,7 +299,7 @@ def test_recent_activity_no_fallback_when_vault_unavailable(tmp_path, monkeypatc
 def test_recent_activity_preserved_when_checkpoints_present(tmp_path, monkeypatch):
     """The fallback must NOT fire (or query the vault) when checkpoint-derived
     Recent Activity already exists."""
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     _write_checkpoint(Path(local["checkpoints"]["store"]), "2026-05-15T10:00:00+00:00", "Real task")
     perseus.cmd_memory(argparse.Namespace(memory_command="update", workspace=str(tmp_path), llm=None), local)
     called = {"n": 0}
@@ -316,10 +315,10 @@ def test_recent_activity_preserved_when_checkpoints_present(tmp_path, monkeypatc
 
 
 def test_resolve_memory_stale_warning(tmp_path):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     local["checkpoints"]["ttl_s"] = 1
-    p = perseus._mneme_path(tmp_path, local)
-    fm = perseus._mneme_default_frontmatter(tmp_path)
+    p = perseus._vault_memory_path(tmp_path, local)
+    fm = perseus._vault_default_frontmatter(tmp_path)
     fm["updated"] = "2000-01-01T00:00:00+00:00"
     perseus._save_narrative(p, fm, "## Project Arc\n\nold.\n")
     out = perseus.resolve_memory("", local, tmp_path)
@@ -327,7 +326,7 @@ def test_resolve_memory_stale_warning(tmp_path):
 
 
 def test_resolve_memory_fresh_returns_body(tmp_path):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     _write_checkpoint(Path(local["checkpoints"]["store"]), "2026-05-15T10:00:00+00:00", "T")
     perseus.cmd_memory(argparse.Namespace(memory_command="update", workspace=str(tmp_path), llm=None), local)
     out = perseus.resolve_memory("", local, tmp_path)
@@ -335,7 +334,7 @@ def test_resolve_memory_fresh_returns_body(tmp_path):
 
 
 def test_resolve_memory_focus_decisions(tmp_path):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     _write_checkpoint(Path(local["checkpoints"]["store"]), "2026-05-15T10:00:00+00:00", "T", notes="Decided to keep single-file.")
     perseus.cmd_memory(argparse.Namespace(memory_command="update", workspace=str(tmp_path), llm=None), local)
     out = perseus.resolve_memory('focus="decisions"', local, tmp_path)
@@ -345,7 +344,7 @@ def test_resolve_memory_focus_decisions(tmp_path):
 
 
 def test_resolve_memory_focus_unknown_section(tmp_path):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     _write_checkpoint(Path(local["checkpoints"]["store"]), "2026-05-15T10:00:00+00:00", "T")
     perseus.cmd_memory(argparse.Namespace(memory_command="update", workspace=str(tmp_path), llm=None), local)
     out = perseus.resolve_memory('focus="totally-made-up"', local, tmp_path)
@@ -353,10 +352,10 @@ def test_resolve_memory_focus_unknown_section(tmp_path):
 
 
 def test_checkpoint_triggers_memory_auto_update(tmp_path):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     args = argparse.Namespace(task="auto-task", status="done", next="", workspace=str(tmp_path), notes="Always test the auto path.")
     perseus.cmd_checkpoint(args, local)
-    p = perseus._mneme_path(Path(str(tmp_path)).resolve(), local)
+    p = perseus._vault_memory_path(Path(str(tmp_path)).resolve(), local)
     assert p.exists()
     fm, body = perseus._load_narrative(p)
     assert fm["checkpoints_processed"] == 1
@@ -364,27 +363,27 @@ def test_checkpoint_triggers_memory_auto_update(tmp_path):
 
 
 def test_checkpoint_auto_update_failure_does_not_abort(tmp_path, monkeypatch, capsys):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     def boom(*a, **kw):
-        raise RuntimeError("simulated mneme failure")
+        raise RuntimeError("simulated vault failure")
     monkeypatch.setattr(perseus, "_memory_do_update", boom)
     args = argparse.Namespace(task="t", status="", next="", workspace=str(tmp_path), notes="")
     perseus.cmd_checkpoint(args, local)
     captured = capsys.readouterr()
     assert "Checkpoint written" in captured.out
-    assert "Mnēmē update failed" in captured.err  # #149: errors now go to stderr
+    assert "Perseus Vault update failed" in captured.err  # #149: errors now go to stderr
 
 
 def test_checkpoint_auto_update_can_be_disabled(tmp_path):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     local["memory"]["auto_update"] = False
     args = argparse.Namespace(task="t", status="", next="", workspace=str(tmp_path), notes="")
     perseus.cmd_checkpoint(args, local)
-    assert not perseus._mneme_path(Path(str(tmp_path)).resolve(), local).exists()
+    assert not perseus._vault_memory_path(Path(str(tmp_path)).resolve(), local).exists()
 
 
 def test_memory_directive_dispatched_from_render(tmp_path):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     _write_checkpoint(Path(local["checkpoints"]["store"]), "2026-05-15T10:00:00+00:00", "T")
     perseus.cmd_memory(argparse.Namespace(memory_command="update", workspace=str(tmp_path), llm=None), local)
     src = "@perseus\n\n@memory\n"
@@ -394,7 +393,7 @@ def test_memory_directive_dispatched_from_render(tmp_path):
 
 
 def test_memory_directive_ttl_sugar_caches(tmp_path):
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     _write_checkpoint(Path(local["checkpoints"]["store"]), "2026-05-15T10:00:00+00:00", "T")
     perseus.cmd_memory(argparse.Namespace(memory_command="update", workspace=str(tmp_path), llm=None), local)
     # The @memory ttl=N pre-processing happens in _render_lines; verify the
@@ -402,7 +401,7 @@ def test_memory_directive_ttl_sugar_caches(tmp_path):
     src = "@perseus\n\n@memory ttl=3600\n"
     out = perseus._render_lines(src.splitlines()[1:], local, workspace=tmp_path)
     assert "## Project Arc" in out
-# ─── task-21: Trained pattern extraction in Mnēmē ──────────────────────────
+# ─── task-21: Trained pattern extraction in Perseus Vault ──────────────────────────
 
 
 def test_extract_patterns_section_dispatches_deterministic_by_default():
@@ -427,7 +426,7 @@ def test_memory_status_json_with_narrative(tmp_path, monkeypatch):
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
     c = cfg()
     c["memory"]["store"] = str(tmp_path / "memories")
-    narrative = perseus._mneme_path(tmp_path, c)
+    narrative = perseus._vault_memory_path(tmp_path, c)
     narrative.parent.mkdir(parents=True)
     narrative.write_text("---\nupdated: '2026-05-18T12:00:00'\ncheckpoints_processed: 5\npythia_entries_processed: 3\ncompaction_count: 1\n---\nSome narrative content.\n", encoding="utf-8")
     ns = argparse.Namespace(workspace=str(tmp_path), memory_command="status", json=True, llm=None)

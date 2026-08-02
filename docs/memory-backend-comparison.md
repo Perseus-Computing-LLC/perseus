@@ -92,7 +92,7 @@ A personal data memory hub for MCP agents. Indexes files, email, calendar, brows
 | Aspect | memory-mesh | Perseus Vault |
 |---|---|---|
 | Maturity | 5 commits, v0.8.0 but barely started | 61 commits, production-grade |
-| Connectors | 47 (ambitious) | 1 (mimir_ingest with GitHub issues) |
+| Connectors | 47 (ambitious) | 1 (vault_ingest with GitHub issues) |
 | Memory model | Document chunks + embeddings | Structured entities with categories |
 | Search | Hybrid dense + BM25 + RRF + reranker | FTS5 + optional dense vectors |
 | Decay | Hot/warm/cold tier promotion/demotion | Ebbinghaus curve + cohere grooming |
@@ -193,12 +193,12 @@ Requires a one-time activation token from [yourmemoryai.xyz](https://yourmemorya
 | License | CC BY-NC 4.0 | **MIT** |
 | Activation | Email token required | None |
 | Language | Python | **Rust** (binary, no runtime) |
-| Memory extraction | Requires Ollama (qwen2.5:7b) | Explicit (agent calls mimir_remember) |
+| Memory extraction | Requires Ollama (qwen2.5:7b) | Explicit (agent calls perseus_vault_remember) |
 | Storage | DuckDB or Postgres | SQLite (single file) |
 | Entity model | Memories with categories | Structured entities (type/category/key) |
 | Decay | Ebbinghaus | Ebbinghaus (via cohere + decay) |
 | Knowledge graph | Entity edges | Entity links (depends_on, implements, extends) |
-| RAG | LLM-dependent extraction | Optional (mimir_ask via Ollama) |
+| RAG | LLM-dependent extraction | Optional (vault_ask via Ollama) |
 | MCP tools | ~15 | **27** |
 | Web UI | Memory browser + graph viz | Dashboard |
 | Benchmarks | Published (LoCoMo, LongMemEval, HotpotQA) | None published |
@@ -222,7 +222,7 @@ Requires a one-time activation token from [yourmemoryai.xyz](https://yourmemorya
 
 1. **Publish Perseus Vault benchmarks** — Run LongMemEval-S and LoCoMo-10 against Perseus Vault. YourMemory's published numbers are the bar to beat. This is the single highest-impact action for Perseus Vault's credibility.
 
-2. **Adopt "ask without LLM" pattern** — YourMemory's ability to answer simple factual queries without an LLM call is a genuine UX win. Perseus Vault could add a `mimir_fact` tool that checks for exact entity matches before escalating to `mimir_ask` (RAG).
+2. **Adopt "ask without LLM" pattern** — YourMemory's ability to answer simple factual queries without an LLM call is a genuine UX win. Perseus Vault could add a `vault_fact` tool that checks for exact entity matches before escalating to `vault_ask` (RAG).
 
 3. **Document codebase-memory-mcp as complementary** — Not competitive. Different domain. Add to Perseus docs as recommended companion for code-heavy workspaces.
 

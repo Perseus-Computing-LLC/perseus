@@ -288,12 +288,12 @@ def _dependency_fingerprint(directive: str, clean_args: str, workspace: Path | N
             except (OSError, PermissionError):
                 pass  # can't read → no fingerprint (cache miss is safe)
 
-    if directive in ("@memory", "@mimir"):
-        mcfg = _resolve_mneme_config(cfg)
+    if directive in ("@memory", "@vault"):
+        mcfg = _resolve_vault_config(cfg)
         import json as _json
         try:
             mcfg_str = _json.dumps(mcfg, sort_keys=True)
-            parts.append(f"config:mimir={mcfg_str}")
+            parts.append(f"config:vault={mcfg_str}")
         except Exception:
             pass
 
@@ -614,7 +614,7 @@ def _collect_until_end(lines: list[str], i: int, end_re: "re.Pattern[str] | None
 
 
 # ── @profile first-wins banner marking (#627 fix 2) ─────────────────────────
-# `_scan_profile_name` (mneme_connector) applies the FIRST non-fenced
+# `_scan_profile_name` (vault_connector) applies the FIRST non-fenced
 # `@profile` in the source; every subsequent directive still renders a banner
 # but does not govern. Mark those banners so the non-governing directives are
 # visible instead of silently confusing.
@@ -1098,7 +1098,7 @@ def _uses_preflight_sensitive_directive(lines: list[str]) -> bool:
     """
     if not INLINE_DIRECTIVE_RE:
         return False
-    sensitive = {"@waypoint", "@inbox", "@memory", "@mimir"}
+    sensitive = {"@waypoint", "@inbox", "@memory", "@vault"}
     for raw in lines:
         m = INLINE_DIRECTIVE_RE.match(raw.strip())
         if m and m.group(1).lower() in sensitive:
@@ -2031,7 +2031,7 @@ def _render_lines(
 
 
 _SOURCE_CATEGORY = {
-    "memory": "mimir", "mimir": "mimir",
+    "memory": "perseus_vault", "vault": "perseus_vault",
     "read": "files", "include": "files", "tree": "files",
     "services": "services", "query": "query", "tool": "tools",
     "agent": "agents", "env": "env", "git": "git", "session": "session",
@@ -2425,7 +2425,7 @@ def render_source_html(
 
 
 def _derive_query_hints(source_text: str, workspace) -> list[str]:
-    """Extract contextual hints for Mimir FTS5 search.
+    """Extract contextual hints for Vault FTS5 search.
 
     Uses DIRECTIVE_REGISTRY's is_semantic_hint flag to discover which
     directives carry project-level search terms — no hardcoded lists.
@@ -2459,9 +2459,9 @@ def _derive_query_hints(source_text: str, workspace) -> list[str]:
 
     return hints
 
-def _inject_external_memory(rendered: str, cfg: dict,
-                            source_text: str = "", workspace=None) -> str:
-    """Append the vault-mem and Mnēmē auto-injected memory blocks, redacted.
+def _inject_vault_context(rendered: str, cfg: dict,
+                          source_text: str = "", workspace=None) -> str:
+    """Append the Perseus Vault auto-injected memory block, redacted.
 
     These blocks are pulled from external memory stores and appended AFTER the
     render_source redaction pass, so they must go through their own redaction
@@ -2469,20 +2469,19 @@ def _inject_external_memory(rendered: str, cfg: dict,
     and skipping this wrote them verbatim into AGENTS.md/CLAUDE.md.
 
     #553/#608 hook: `source_text` and `workspace` are threaded through to
-    `_mneme_context_inject` so it can (a) skip injection when the rendered
+    `_vault_context_inject` so it can (a) skip injection when the rendered
     output already carries a memory section (de-dup), (b) resolve the active
     `@profile` posture, and (c) relevance-gate / workspace-scope the recall.
     """
     from perseus.merlin_dedup import dedup_context_if_available
-    from perseus.vaultmem_connector import inject_vaultmem_context
-    from perseus.mneme_connector import _mneme_context_inject
+    from perseus.vault_connector import _vault_context_inject
     rendered = dedup_context_if_available(rendered, cfg)
-    injected = inject_vaultmem_context(rendered, cfg)
-    mneme_block = _mneme_context_inject(
+    injected = rendered
+    vault_block = _vault_context_inject(
         cfg, rendered=injected, source_text=source_text, workspace=workspace,
     )
-    if mneme_block:
-        injected = injected + "\n\n" + mneme_block
+    if vault_block:
+        injected = injected + "\n\n" + vault_block
     if injected != rendered:
         # Only the appended blocks are new, but redaction placeholders are
         # inert so re-running over the full text is idempotent and keeps the
@@ -2507,7 +2506,7 @@ def render_output(
         rendered = render_source(source_text, cfg, workspace, max_tier=max_tier, no_cache=no_cache)
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
-        rendered = _inject_external_memory(rendered, cfg, source_text, workspace)
+        rendered = _inject_vault_context(rendered, cfg, source_text, workspace)
         return rendered
     elif fmt == "html":
         t = title or "Workspace Context"
@@ -2522,7 +2521,7 @@ def render_output(
         rendered = render_source(source_text, cfg, workspace, max_tier=max_tier, no_cache=no_cache)
         rendered, _report = redact_text(rendered, cfg)
         _audit_render_redaction(cfg, _report)
-        rendered = _inject_external_memory(rendered, cfg, source_text, workspace)
+        rendered = _inject_vault_context(rendered, cfg, source_text, workspace)
         return wrap_rendered(rendered, fmt, _PERSEUS_VERSION)
 
     # Custom formats (task-68)

@@ -5,7 +5,7 @@
 > **Perseus version tested:** v1.0.17
 > **Platforms verified:** macOS · Linux · Windows 10 (git-bash) · Docker  
 > **Source:** https://github.com/Perseus-Computing-LLC/perseus · https://pypi.org/project/perseus-ctx/  
-> **New in this version:** Perseus Vault as primary persistent store (structured memory, canonical `perseus_vault:` config key; legacy `mimir:`/`mneme:` still accepted)
+> **New in this version:** Perseus Vault as primary persistent store (structured memory, canonical `perseus_vault:` config key)
 
 ---
 
@@ -121,7 +121,7 @@ The `@memory mode=search` directive queries Perseus Vault persistent memory (FTS
 **Query tip:** FTS5 treats multi-word queries as exact phrases — split long
 queries across multiple directives for better recall. Falls back gracefully to
 local FTS5 if Perseus Vault is unavailable. Requires `perseus_vault.enabled: true`
-(legacy `mimir.enabled: true` still accepted) in `.perseus/config.yaml`.
+in `.perseus/config.yaml`.
 
 ---
 
@@ -136,7 +136,7 @@ local FTS5 if Perseus Vault is unavailable. Requires `perseus_vault.enabled: tru
   cache/                           # Directive output cache
   memory/                          # Perseus Vault narrative files (per-workspace)
     <sha256_hash>.md               # Narrative for workspace at that hash
-    vault/                         # Backup copies and aliases
+    vault/                         # Backup copies
   inbox/                           # Inter-agent messages
 
 ~/AGENTS.md                        # Rendered output (read by Hermes Agent, Claude Code,
@@ -227,7 +227,7 @@ memory:
   # llm_model: phi3:latest            # See GitHub issue #131 (compact hangs indefinitely)
   llm_timeout_s: 300
   compaction_threshold: 200
-  # narrative_file and mneme_vault_path are legacy fields; current versions use
+  # narrative_file and vault_path are obsolete fields; current versions use
   # ~/.perseus/memory/<sha256_hash>.md (see Workspace Hash section below)
 
 perseus_vault:                         # Perseus Vault MCP persistent memory (default; canonical key)
@@ -572,8 +572,7 @@ memory:
 > decay, a five-tier memory model (state · entities · journal · reference · archive),
 > and circuit-breaker protection. It ships **enabled by default**
 > (`perseus_vault.enabled: true`); set `perseus_vault.enabled: false` to turn it off.
-> The canonical config key is `perseus_vault:`; the legacy `mimir:`/`mneme:` keys are
-> still accepted for back-compat.
+> The canonical config key is `perseus_vault:` and is the only supported memory configuration.
 
 When enabled, `@memory` runs a **three-step hybrid resolution**:
 
@@ -628,7 +627,7 @@ perseus-vault --version   # expect "perseus-vault 2.14.0" (or later)
 >     - "/usr/local/bin/perseus-vault"   # absolute path to perseus-vault binary
 >     - "serve"
 >     - "--db"
->     - "/opt/data/webui/minions/.minions-data/mimir/perseus-vault.db" # persistent, writable by runtime user
+>     - "/opt/data/webui/minions/.minions-data/Perseus Vault/perseus-vault.db" # persistent, writable by runtime user
 > ```
 
 > **Merge strategies explained:**
@@ -1020,7 +1019,7 @@ Available MCP tools: `perseus_query`, `perseus_services`, `perseus_memory`, `per
 
 ### Perseus Vault v2 Vault Setup
 
-The `@memory mode=search` and `@mneme` directives search a vault of `.md` files
+The `@memory mode=search` and `@Perseus Vault` directives search a vault of `.md` files
 indexed by SQLite FTS5 BM25. To populate your vault:
 
 ```bash
@@ -1053,12 +1052,12 @@ perseus memory index search --query "architecture" --k 5
 
 # 5. Use in context.md
 # @memory mode=search query="architecture" k=5
-# @mimir query="decisions" k=5
+# @Perseus Vault query="decisions" k=5
 ```
 
 > **Required fields:** Only `id` (alphanumeric slug) and `title` are required.
 > For best search results, include `type`, `summary`, `scope`, and `tags`.
-> See the [Vault format reference](docs/mneme-vault-format.md) for the full field reference.
+> See the [Vault format reference](docs/vault-format.md) for the full field reference.
 >
 > **FTS5 quirk:** Multi-word queries are matched as exact FTS5 phrases.
 > Use single-word queries for broad recall, or short phrases that appear
@@ -1277,5 +1276,5 @@ perseus doctor
 
 ---
 
-*Built from production experience wiring Perseus into Hermes Agent, Rovo Dev CLI, and Rovo web agent — with Perseus Vault as primary persistent store (legacy `mimir:`/`mneme:` config keys still accepted).*
+*Built from production experience wiring Perseus into Hermes Agent, Rovo Dev CLI, and Rovo web agent — with Perseus Vault as primary persistent store.*
 *Issues filed: [#128](https://github.com/Perseus-Computing-LLC/perseus/issues/128) – [#135](https://github.com/Perseus-Computing-LLC/perseus/issues/135)*

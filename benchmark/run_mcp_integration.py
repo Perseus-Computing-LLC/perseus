@@ -4,14 +4,14 @@ MCP-Class Benchmark — Tool-Layer Generality
 ============================================
 
 Demonstrates Perseus caching of expensive knowledge-retrieval operations —
-the class of work that MCP tools like Bastra Recall perform: document search,
+the class of work that MCP tools like Perseus Vault perform: document search,
 memory retrieval, and knowledge-base queries across a real codebase.
 
 Perseus doesn't care whether the tool is local or remote, POSIX or MCP.
 Cache behavior is identical: cold = O(n) from scratch, warm = O(1) hash lookup.
 
 Each block contains 20 directives simulating what an AI agent with
-Bastra-style memory tools would execute:
+Vault-style memory tools would execute:
   - Document retrieval (@include of large spec/knowledge files)
   - Semantic search (@query with ripgrep across the knowledge base)
   - Project memory recall (@query git log with complex filters)
@@ -43,21 +43,21 @@ OUT = Path("/workspace/perseus/benchmark/mcp_integration.json")
 # These simulate expensive MCP-class knowledge retrieval operations:
 # document loads, semantic searches, project memory queries.
 DIRECTIVE_BLOCK_COLD = [
-    # ── Document retrieval (simulates Bastra read_document) ──────────
+    # ── Document retrieval (simulates previous Vault format read_document) ──────────
     '@include spec/components.md\n',              # 773 lines — heavy doc retrieval
     '@include ROADMAP.md\n',                      # 1229 lines — heavy project memory
     '@include spec/directives.md\n',              # 453 lines — medium doc retrieval
     '@include docs/DEPLOYMENT.md\n',              # 870 lines — infrastructure knowledge
     '@include spec/data-model.md\n',              # 432 lines — schema retrieval
 
-    # ── Semantic search (simulates Bastra find_document / recall) ────
+    # ── Semantic search (simulates previous Vault format find_document / recall) ────
     '@query "rg -l \\"cache|benchmark|performance\\" spec/ src/ --glob \\"*.md\\" --glob \\"*.py\\" | head -15"\n',
     '@query "rg -c \\"^def \\" src/perseus/*.py | awk -F: \'{sum+=$2} END {print sum}\'"\n',
     '@query "find spec/ -name \\"*.md\\" -exec wc -l {} + | sort -rn | head -10"\n',
     '@query "rg \\"TODO|FIXME|HACK\\" src/ --no-heading | wc -l"\n',
     '@query "find benchmark/ -name \\"*.py\\" | xargs wc -l | sort -rn | head -15"\n',
 
-    # ── Project memory recall (simulates Bastra recall / memory queries) ─
+    # ── Project memory recall (simulates previous Vault format recall / memory queries) ─
     '@query "git log --format=\\"%h %s\\" -30"\n',
     '@query "git log --format=\\"%an\\" --since=\\"3 months ago\\" | sort | uniq -c | sort -rn"\n',
     '@query "git diff --stat HEAD~10"\n',
@@ -114,7 +114,7 @@ results = {
     "test": "mcp-integration",
     "description": (
         "MCP-class benchmark simulating expensive knowledge-retrieval operations "
-        "(Bastra Recall-style: document vault search, memory queries, codebase "
+        "(Perseus Vault-style: document vault search, memory queries, codebase "
         "intelligence). Each block contains 20 directives heavier than real_deltas "
         "— @include of large spec files, @query with rg/find across the repo, "
         "git history analysis. COLD: directives resolve from scratch. "

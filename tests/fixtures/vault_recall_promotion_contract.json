@@ -1,6 +1,6 @@
 {
   "contract_version": "2026-07-28",
-  "producer": "perseus-vault mimir_recall",
+  "producer": "perseus-vault: perseus_vault_recall",
   "items": [
     {
       "id": "mem-observation",

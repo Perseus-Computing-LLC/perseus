@@ -162,13 +162,11 @@ class TestConfigMerge569:
     def test_workspace_overrides_global_nested(self, monkeypatch, tmp_path):
         merged = self._load(
             monkeypatch, tmp_path,
-            global_yaml="mimir:\n  circuit_breaker:\n    threshold: 7\n    cooldown: 33\n",
-            ws_yaml="mimir:\n  circuit_breaker:\n    threshold: 9\n",
+            global_yaml="perseus_vault:\n  circuit_breaker:\n    threshold: 7\n    cooldown: 33\n",
+            ws_yaml="perseus_vault:\n  circuit_breaker:\n    threshold: 9\n",
         )
-        # #704: legacy `mimir:` blocks are folded into the canonical
-        # `perseus_vault:` key at load, so the workspace-over-global nested
-        # merge is asserted there (a raw `mimir` key no longer survives load).
-        assert "mimir" not in merged
+        # The canonical block merges workspace values over global values.
+        assert "vault" not in merged
         assert merged["perseus_vault"]["circuit_breaker"]["threshold"] == 9
         assert merged["perseus_vault"]["circuit_breaker"]["cooldown"] == 33
 

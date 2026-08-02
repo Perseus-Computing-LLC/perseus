@@ -53,7 +53,6 @@ MODULE_ORDER = [
     "src/perseus/mason_ref.py",         # ← Mason tool directive reference
     "src/perseus/yourmemory_ref.py",    # ← YourMemory @query integration (MONITOR)
     "src/perseus/tooltrim_connector.py",# ← @tooltrim directive (INTEGRATE)
-    "src/perseus/vaultmem_connector.py",# ← vault-mem project memory (INTEGRATE)
     "src/perseus/kondukt_validator.py", # ← Kondukt MCP validator (PASS)
     # memory_mesh.py (MemoryMesh PoC) deleted in #648 — zero callers, and its
     # stdio MCP client carried every pre-#544 defect (blocking readline,
@@ -65,13 +64,13 @@ MODULE_ORDER = [
     "src/perseus/adapters.py",           # ← Context Adapter SDK (#473): resolve_context + framework adapters (depends on renderer)
     "src/perseus/checkpoint.py",
     "src/perseus/memory.py",
-    "src/perseus/mneme_index.py",        # ← Mnēmē v2: SQLite FTS5 index (depends on memory.py)
-    "src/perseus/mneme_narrative.py",    # ← Mnēmē v2: narrative engine (depends on memory.py)
-    "src/perseus/mneme_federation.py",   # ← Mnēmē v2: federation (depends on narrative)
+    "src/perseus/vault_index.py",        # ← Perseus Vault SQLite FTS5 index (depends on memory.py)
+    "src/perseus/vault_narrative.py",    # ← Perseus Vault narrative engine (depends on memory.py)
+    "src/perseus/vault_federation.py",   # ← Perseus Vault federation (depends on narrative)
     "src/perseus/identity.py",           # ← Phase 27B: workspace identity + signing (depends on federation, narrative)
     "src/perseus/retrieval_expansion.py",  # ← #580: LLM query expansion (stdlib-only; before the connector that uses it)
     "src/perseus/composite_ranking.py",  # ← #831: explicit composite retrieval ranking (stdlib-only; before the connector that uses it)
-    "src/perseus/mneme_connector.py",  # ← Mneme bridge: MCP client + hybrid resolution (depends on memory)
+    "src/perseus/vault_connector.py",  # ← Perseus Vault bridge: MCP client + hybrid resolution (depends on memory)
     "src/perseus/inbox.py",
     "src/perseus/agora.py",
     "src/perseus/pythia.py",
@@ -82,7 +81,7 @@ MODULE_ORDER = [
     "src/perseus/synthesis.py",         # ← serve.py extraction: @synthesize
     "src/perseus/update.py",            # ← serve.py extraction: self-update
     "src/perseus/quickstart.py",        # ← Track B: perseus quickstart bootstrap + LLM auto-config
-    "src/perseus/knows.py",             # ← #692: `perseus knows` — plain-language memory review + curation (depends on mneme_connector)
+    "src/perseus/knows.py",             # ← #692: `perseus knows` — plain-language memory review + curation (depends on vault_connector)
     "src/perseus/speculate.py",         # ← #607: @speculate next-intent speculative prefetch (called at runtime from renderer/query/cli)
     "src/perseus/serve.py",             # ← still contains PRODUCT_PROFILES + trust CLI (not yet decomposed)
     "src/perseus/context_decision.py",  # ← #890: deterministic explainable context routing
@@ -193,7 +192,7 @@ def _check_stripped_imports_defined(repo_root: Path) -> None:
     failing the build otherwise.
 
     See https://github.com/Perseus-Computing-LLC/perseus/issues/299
-    (root cause of the #298 ``_mimir_context_inject`` NameError).
+    (root cause of the #298 ``_vault_context_inject`` NameError).
     """
     defined: set[str] = set()
     imported: dict[str, str] = {}  # name -> first module that imports it

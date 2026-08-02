@@ -30,7 +30,7 @@ personal-fork namespace. No unconditional RCE bypass was found.
 |---|-----|------|------|------|
 | 1 | MED | Supply chain | Docker image bakes `ENV PERSEUS_ALLOW_DANGEROUS=1` — pre-flips one of the two shell-RCE gate layers for every container | `Dockerfile:13` |
 | 2 | MED | Supply chain | `bootstrap.sh` curl\|bash one-liner + all doc links point at the **personal fork** `tcconnally/perseus`, not `Perseus-Computing-LLC/perseus`; `pip install` unpinned | `scripts/bootstrap.sh:7,42,153,157,236,351` |
-| 3 | MED | SSRF | Federation fetch/push: no scheme allow-list, **no private-IP block, follows redirects** — the `_is_private_host` + `_NoRedirect` guards used by `@perseus`/`@services`/webhooks are absent here | `mneme_federation.py:245,356` |
+| 3 | MED | SSRF | Federation fetch/push: no scheme allow-list, **no private-IP block, follows redirects** — the `_is_private_host` + `_NoRedirect` guards used by `@perseus`/`@services`/webhooks are absent here | `vault_federation.py:245,356` |
 | 4 | MED | Injection | `@tool` `--flag=value` allow-list bypass: a bare-flag allow-list entry admits an arbitrary attached value (argv only, no shell — escalates only if an interpreter is allow-listed) | `directives/tool.py:97-101` |
 | 5 | MED | Path/symlink | `@tree` follows symlinked directories out of the workspace (child paths not re-validated) → out-of-tree **filename disclosure**. `@list` is safe (`os.walk` no-followlinks) | `directives/misc.py:248` |
 | 6 | MED | Supply chain | Self-update verifies GPG **fail-open**: `PERSEUS_GPG_FINGERPRINT=None` → `_gpg_verify_signature` returns "pass"; gpg-missing/unsigned/timeout also pass. `update --apply` runs whatever `origin/main` holds | `src/perseus/update.py:7-9,28-31,146-165` |

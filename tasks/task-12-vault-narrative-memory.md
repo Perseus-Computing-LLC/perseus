@@ -1,6 +1,6 @@
 ---
 id: task-12
-title: "Task 12 — Mnēmē: Narrative Project Memory"
+title: "Task 12 — Perseus Vault: Narrative Project Memory"
 status: completed
 scope: large
 depends_on:
@@ -11,7 +11,7 @@ opened: 2026-05-18
 closed: 2026-05-18
 ---
 
-# Task 12 — Mnēmē: Narrative Project Memory
+# Task 12 — Perseus Vault: Narrative Project Memory
 
 **Status: Open**  
 **Scope: Large — new subsystem; substantial design surface**  
@@ -27,11 +27,11 @@ closed: 2026-05-18
 
 ## The Name
 
-**Mnēmē** (Μνήμη) was the original Muse of Memory in pre-classical Greek mythology, before
+**Perseus Vault** (Μνήμη) was the original Muse of Memory in pre-classical Greek mythology, before
 the canon was expanded to nine. She is the keeper of what happened and why — not a log, not
 an audit trail, but the *distilled narrative* of experience.
 
-In Perseus, Mnēmē is the layer that maintains a living narrative of each workspace: what was
+In Perseus, Perseus Vault is the layer that maintains a living narrative of each workspace: what was
 built, what was decided, what was learned, what failed, and why things are the way they are.
 She answers the question no snapshot can: *how did we get here?*
 
@@ -47,19 +47,19 @@ no amount of snapshot freshness can repay.
 
 The raw material already exists: checkpoints accumulate task history, the oracle log captures
 every Pythia recommendation and whether it was accepted, session digests carry the project's
-active threads. Nobody is distilling it. Mnēmē distills it.
+active threads. Nobody is distilling it. Perseus Vault distills it.
 
 ---
 
-## What Mnēmē Is Not
+## What Perseus Vault Is Not
 
-- **Not a log viewer.** `oracle_log.jsonl` and checkpoint files are the raw sources. Mnēmē
+- **Not a log viewer.** `oracle_log.jsonl` and checkpoint files are the raw sources. Perseus Vault
   reads them; it does not replace them.
 - **Not a daemon.** No background process. No file watchers. No scheduler.
   Update is explicit: triggered by the user or by `perseus checkpoint` as a side-effect.
 - **Not an LLM requirement.** Two modes — deterministic and LLM-assisted. The deterministic
   mode must be genuinely useful, not a stub.
-- **Not a separate file.** Single-file constraint is absolute. All Mnēmē code lives in
+- **Not a separate file.** Single-file constraint is absolute. All Perseus Vault code lives in
   `perseus.py`.
 
 ---
@@ -91,7 +91,7 @@ oracle_entries_processed: 312
 compaction_count: 2
 ---
 
-# Mnēmē — /workspace/perseus
+# Perseus Vault — /workspace/perseus
 
 > Narrative last updated 2026-05-18 14:32 CT.
 > Source: 47 checkpoints, 312 oracle entries.
@@ -158,7 +158,7 @@ Add a `memory` block to `DEFAULT_CONFIG`:
 },
 ```
 
-The `llm_provider` key defaults to `None` — deterministic mode — so Mnēmē works for every
+The `llm_provider` key defaults to `None` — deterministic mode — so Perseus Vault works for every
 user without any LLM setup. LLM-assisted mode is opt-in.
 
 ---
@@ -182,8 +182,8 @@ perseus memory update --llm ollama
 3. Load all checkpoint files sorted by filename; slice from `checkpoints_processed` onward
 4. Load all oracle log entries; slice from `oracle_entries_processed` onward
 5. If no new data: print "Nothing new since last update." and exit
-6. If LLM available: call `_mneme_update_llm(narrative, new_checkpoints, new_oracle_entries, cfg)`
-7. If no LLM: call `_mneme_update_deterministic(narrative, new_checkpoints, new_oracle_entries)`
+6. If LLM available: call `_vault_update_llm(narrative, new_checkpoints, new_oracle_entries, cfg)`
+7. If no LLM: call `_vault_update_deterministic(narrative, new_checkpoints, new_oracle_entries)`
 8. Update frontmatter high-water marks and `updated` timestamp
 9. Write back to narrative file
 10. If `compaction_count` increments since last compaction ≥ `compact_threshold`: print
@@ -223,7 +223,7 @@ Does NOT append to oracle log — this is a read-only query, not an oracle recom
 Print a summary: narrative age, high-water marks, compaction count, estimated size.
 
 ```
-Mnēmē — /workspace/perseus
+Perseus Vault — /workspace/perseus
   Updated:     2026-05-18 14:32 CT (2h ago)
   Checkpoints: 47 processed (0 pending)
   Oracle log:  312 entries processed (0 pending)
@@ -256,13 +256,13 @@ injects it inline.
 
 **No narrative exists yet:**
 ```markdown
-> ⚠ No Mnēmē narrative found for this workspace.
+> ⚠ No Perseus Vault narrative found for this workspace.
 > Run `perseus memory update` to initialize.
 ```
 
 **Narrative exists but is stale (age > `checkpoints.ttl_s`):**
 ```markdown
-> ⚠ Mnēmē narrative is stale (last updated 3d ago).
+> ⚠ Perseus Vault narrative is stale (last updated 3d ago).
 > Run `perseus memory update` to refresh.
 ```
 
@@ -285,7 +285,7 @@ Note: task-07 (multi-workspace checkpoint namespacing) uses the same algorithm. 
 has already landed, reuse its implementation. If not, define this helper once here — task-07
 will import it.
 
-### `_mneme_path(workspace: Path, cfg: dict) -> Path`
+### `_vault_path(workspace: Path, cfg: dict) -> Path`
 
 Returns `Path(cfg["memory"]["store"]) / f"{_workspace_hash(workspace)}.md"`.
 
@@ -330,7 +330,7 @@ Count by the first word of `response` that matches a known skill/tool prefix
 *Recent Activity:* The last `memory.recent_keep` checkpoints verbatim (formatted as the
 schema example shows). Always re-rendered from scratch on every update/compact.
 
-### `_mneme_update_llm(narrative_body: str, frontmatter: dict, new_checkpoints: list[dict], new_oracle_entries: list[dict], cfg: dict) -> str`
+### `_vault_update_llm(narrative_body: str, frontmatter: dict, new_checkpoints: list[dict], new_oracle_entries: list[dict], cfg: dict) -> str`
 
 LLM-assisted incremental update. Builds a prompt that contains:
 1. The existing narrative body (if any)
@@ -344,7 +344,7 @@ Returns the updated narrative body string.
 **Prompt template** (implement this verbatim — do not paraphrase):
 
 ```
-You are Mnēmē, the keeper of project narrative for an AI development workflow.
+You are Perseus Vault, the keeper of project narrative for an AI development workflow.
 
 Your job: update a structured project narrative by incorporating new activity.
 Preserve all existing content unless it directly contradicts new information.
@@ -368,9 +368,9 @@ INSTRUCTIONS:
 - Return ONLY the updated markdown body. No preamble. No commentary. Start with "## Project Arc".
 ```
 
-### `_mneme_compact_llm(all_checkpoints: list[dict], all_oracle_entries: list[dict], workspace: Path, cfg: dict) -> str`
+### `_vault_compact_llm(all_checkpoints: list[dict], all_oracle_entries: list[dict], workspace: Path, cfg: dict) -> str`
 
-LLM-assisted full compaction. Like `_mneme_update_llm` but processes all sources fresh.
+LLM-assisted full compaction. Like `_vault_update_llm` but processes all sources fresh.
 Prompt is similar but instructs the LLM to build the narrative from scratch rather than
 update an existing one.
 
@@ -383,7 +383,7 @@ When `memory.auto_update` is `True` (the default), `cmd_checkpoint` calls
 
 `cmd_memory_update_silent` is identical to `cmd_memory update` except:
 - It prints nothing on success (silent side-effect)
-- On any error: print a single warning line `"> ⚠ Mnēmē update failed: {exc}"` — never
+- On any error: print a single warning line `"> ⚠ Perseus Vault update failed: {exc}"` — never
   raise or abort the checkpoint write
 
 This is the compounding behavior: every checkpoint automatically advances the narrative
@@ -401,7 +401,7 @@ without user intervention.
 - **Narrative write is atomic.** Use write-to-temp + rename pattern. Partial writes must
   not corrupt the narrative.
 - **Read-only query.** `perseus memory query` does not modify the narrative or oracle log.
-- **Backward compatible.** Mnēmē is additive. Users without a narrative file see no
+- **Backward compatible.** Perseus Vault is additive. Users without a narrative file see no
   behavioral change in existing commands (except the silent `auto_update` side-effect on
   `checkpoint`, which produces no output on success).
 
@@ -428,10 +428,10 @@ without user intervention.
 - [ ] Tests cover: hash stability, narrative init, incremental update (deterministic),
   compact (deterministic), `@memory` directive (no narrative / stale / fresh / focus),
   auto-update side-effect on checkpoint, silent failure on memory error
-- [ ] `spec/components.md` updated: Mnēmē added to components table
+- [ ] `spec/components.md` updated: Perseus Vault added to components table
 - [ ] `spec/directives.md` updated: `@memory` added to directive reference
 - [ ] `spec/data-model.md` updated: narrative file schema + memory store layout documented
-- [ ] `ROADMAP.md` updated: Phase 7 Mnēmē section added, directive table updated
+- [ ] `ROADMAP.md` updated: Phase 7 Perseus Vault section added, directive table updated
 
 ---
 
@@ -463,7 +463,7 @@ render an empty advisory rather than an error.
 
 **Start here:**
 1. `_workspace_hash` — five lines
-2. `_mneme_path` — two lines
+2. `_vault_path` — two lines
 3. `_load_narrative` / `_save_narrative` — the atomic I/O primitives
 4. `_deterministic_narrative` — the workhorse; implement and test this in full before
    touching LLM paths
@@ -480,7 +480,7 @@ The tests for deterministic mode must cover everything. LLM mode tests may use m
 
 **Closed:** 2026-05-18 · **Implemented by:** claude-sonnet-4.5
 
-Mnēmē — narrative project memory — is now live. Every piece of the design landed
+Perseus Vault — narrative project memory — is now live. Every piece of the design landed
 in `perseus.py` (single-file constraint honored). 22 new tests added; 60/60 pass.
 
 ## What was built
@@ -491,10 +491,10 @@ in `perseus.py` (single-file constraint honored). 22 new tests added; 60/60 pass
 
 ### Internal primitives
 - `_workspace_hash(workspace)` → 12-char sha256 hex; stable per resolved path
-- `_mneme_path(workspace, cfg)` → `<store>/<hash>.md`
+- `_vault_path(workspace, cfg)` → `<store>/<hash>.md`
 - `_load_narrative(path)` → `(frontmatter, body)` with empty-tuple fallback on missing
 - `_save_narrative(path, fm, body)` → atomic write (`.tmp` + `os.replace`)
-- `_mneme_default_frontmatter(workspace)` → schema-1 default keys
+- `_vault_default_frontmatter(workspace)` → schema-1 default keys
 - `_read_all_oracle_entries()` → loads `~/.perseus/oracle_log.jsonl`
 - `_short_date`, `_split_sentences`, `_extract_section` helpers
 
@@ -507,7 +507,7 @@ in `perseus.py` (single-file constraint honored). 22 new tests added; 60/60 pass
 - Recent Activity always re-rendered fresh from last `recent_keep` checkpoints
 
 ### LLM paths (opt-in)
-- `_mneme_update_llm` and `_mneme_compact_llm` — implement the spec prompts verbatim
+- `_vault_update_llm` and `_vault_compact_llm` — implement the spec prompts verbatim
 - `_truncate_oracle_for_llm` — strips `prompt`/`response` to keep prompt small
 - Both route through the existing `run_llm` infrastructure (Track A from task-02)
 
@@ -531,7 +531,7 @@ in `perseus.py` (single-file constraint honored). 22 new tests added; 60/60 pass
 ### Checkpoint side-effect
 - `cmd_checkpoint` calls `cmd_memory_update_silent` after writing the checkpoint
   when `memory.auto_update` is true (default)
-- Errors from Mnēmē print a single warning line and never abort the checkpoint
+- Errors from Perseus Vault print a single warning line and never abort the checkpoint
 - Disabling via `memory.auto_update=False` verified by test
 
 ### Tests (22 new)
@@ -547,19 +547,19 @@ in `perseus.py` (single-file constraint honored). 22 new tests added; 60/60 pass
 - Query deterministic grep
 - `resolve_memory` no-narrative / stale / fresh / focus / unknown focus
 - Checkpoint auto-update side-effect runs
-- Checkpoint succeeds even when Mnēmē raises
+- Checkpoint succeeds even when Perseus Vault raises
 - `memory.auto_update=False` disables the side-effect
 - `@memory` directive dispatches through `_render_lines`
 - LLM update path with mocked `run_llm`
 - `@memory ttl=3600` sugar path
 
 ### Spec / docs
-- `spec/components.md` — added § 4 Mnēmē with modes, CLI, auto-update, directive
+- `spec/components.md` — added § 4 Perseus Vault with modes, CLI, auto-update, directive
 - `spec/directives.md` — added `## Project Memory` section with `@memory` reference table
 - `spec/data-model.md` — added `memory/` to directory layout, added full
-  Mnēmē Narrative Schema section (workspace hash, file format, frontmatter keys,
+  Perseus Vault Narrative Schema section (workspace hash, file format, frontmatter keys,
   atomic-write note, memory config block)
-- `ROADMAP.md` — added Mnēmē to components table, added `@memory` to directive
+- `ROADMAP.md` — added Perseus Vault to components table, added `@memory` to directive
   table, flipped Phase 7 status from PLANNED → COMPLETE ✅, updated sequencing summary
 
 ## Test results
@@ -568,7 +568,7 @@ in `perseus.py` (single-file constraint honored). 22 new tests added; 60/60 pass
 60 passed in 0.12s
 ```
 
-All pre-existing tests (38) continue to pass. New Mnēmē tests (22) cover both
+All pre-existing tests (38) continue to pass. New Perseus Vault tests (22) cover both
 deterministic and LLM paths (LLM via `monkeypatch.setattr(perseus, "run_llm", ...)`).
 
 ## Notes for the project owner

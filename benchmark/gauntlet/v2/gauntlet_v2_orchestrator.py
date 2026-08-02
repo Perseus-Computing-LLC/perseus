@@ -5,7 +5,7 @@ gauntlet_v2_orchestrator.py — Main entry point for the Perseus Gauntlet v2.
   0. Pre-Flight — config, vault, health checks
   1. Render: Cold Baseline — raw render speed
   2. Render: Warm/Cache — cache hit rates, speedup
-  3. Memory: Retrieval — Mneme FTS5 precision/recall/latency
+  3. Memory: Retrieval — Vault FTS5 precision/recall/latency
   4. Agent: Single Task — hermetic coding task completion
   5. Agent: Multi-Agent — parallel coordination (kanban-style)
   6. Enterprise Week — 5-day simulation with chaos
@@ -771,27 +771,27 @@ class GauntletV2Orchestrator:
 
         # Phase 3: Memory
         gr.add_gate(
-            "Phase 3: Mneme recall >= 80%",
+            "Phase 3: Vault recall >= 80%",
             severity="hard",
             required_phase=3,
             threshold="recall >= 0.8",
             threshold_fn=lambda r: (
-                r.get("phase_3", {}).get("mneme_recall", 0) >= 0.8,
-                r.get("phase_3", {}).get("mneme_recall", "no data"),
+                r.get("phase_3", {}).get("perseus_vault_recall", 0) >= 0.8,
+                r.get("phase_3", {}).get("perseus_vault_recall", "no data"),
             ),
             category="engine",
         )
 
         gr.add_gate(
-            "Phase 3: Mneme cold P50 <= 50ms",
+            "Phase 3: Vault cold P50 <= 50ms",
             severity="hard",
             required_phase=3,
             threshold="<= 50ms",
             threshold_fn=lambda r: (
-                r.get("phase_3", {}).get("mneme_cold_query_p50_ms", 999)
+                r.get("phase_3", {}).get("vault_cold_query_p50_ms", 999)
                 <= 50,
                 r.get("phase_3", {}).get(
-                    "mneme_cold_query_p50_ms", "no data"
+                    "vault_cold_query_p50_ms", "no data"
                 ),
             ),
             category="performance",
