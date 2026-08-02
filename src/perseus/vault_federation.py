@@ -1,5 +1,5 @@
 # stdlib imports available from build artifact header
-# ───────────────────────── Mnēmē Federation (task-19) ────────────────────────
+# ───────────────────────── Perseus Vault Federation (task-19) ────────────────────────
 #
 # Phase 8.2 — Cross-workspace narrative aggregation.
 #
@@ -220,7 +220,7 @@ def _resolve_subscription_narrative(entry: dict, cfg: dict) -> tuple[Path | None
     if not ws.exists():
         return (None, f"workspace path does not exist: {ws}")
     try:
-        narrative = _mneme_path(ws, cfg)
+        narrative = _vault_memory_path(ws, cfg)
     except Exception as e:
         return (None, f"cannot compute narrative path: {e}")
     if not narrative.exists():
@@ -321,7 +321,7 @@ def _fetch_remote_narrative(entry: dict, cfg: dict) -> tuple[str | None, str | N
         fetch_timeout = int(cfg.get("federation", {}).get("fetch_timeout_s", 10))
         read_timeout = int(cfg.get("federation", {}).get("read_timeout_s", 30))
         # #552: cap how much a remote peer may send. The local vault parser
-        # caps documents at 1 MB (mneme_index); remote narratives get a
+        # caps documents at 1 MB (vault_index); remote narratives get a
         # slightly more generous default, config-overridable.
         max_bytes = int(cfg.get("federation", {}).get("max_fetch_bytes", 4 * 1024 * 1024))
 
@@ -503,7 +503,7 @@ def cmd_memory_federation_push(args, cfg) -> int | None:
     
     ws_raw = getattr(args, "workspace", None) or os.getcwd()
     workspace = Path(ws_raw).expanduser().resolve()
-    mp = _mneme_path(workspace, cfg)
+    mp = _vault_memory_path(workspace, cfg)
     if not mp.exists():
         print(f"No narrative at {mp}.", file=sys.stderr)
         return 1

@@ -72,7 +72,7 @@ The following internal identifiers should be renamed. These are not part of any 
 | `_daedalus_patterns_body(oracle_entries, ...)` | same |
 | `_extract_patterns_section(oracle_entries, ...)` | same |
 | `_truncate_oracle_for_llm(...)` | `_truncate_pythia_for_llm(...)` |
-| `oracle_entries_processed` (key in Mnēmē return dict) | `pythia_entries_processed` |
+| `oracle_entries_processed` (key in Perseus Vault return dict) | `pythia_entries_processed` |
 | `PERSEUS_HOME / "oracle_log.jsonl"` | `PERSEUS_HOME / "pythia_log.jsonl"` |
 
 **Migration note for `oracle_log.jsonl`:** On first run after rename, if `~/.perseus/oracle_log.jsonl` exists and `~/.perseus/pythia_log.jsonl` does not, rename the file automatically and emit: `[perseus] migrated oracle_log.jsonl → pythia_log.jsonl`. Do not silently lose existing log data.
@@ -134,5 +134,5 @@ Similarly, `@drift` directive description referencing "Daedalus drift report" is
 - Renamed the spec file to `spec/pythia.md` and updated current docs/spec references.
 - Moved internal config reads/writes to `pythia`, with legacy `oracle:` config accepted and warned.
 - Moved the recommendation log to `pythia_log.jsonl`, with one-time migration from the legacy filename.
-- Renamed Mnēmē's Pythia high-water mark to `pythia_entries_processed` while reading legacy frontmatter.
+- Renamed Perseus Vault's Pythia high-water mark to `pythia_entries_processed` while reading legacy frontmatter.
 - Added tests for legacy config compatibility and log migration.

@@ -45,7 +45,7 @@ README must warn that there is no auth.
 |---|---|
 | `/` | HTML index linking to the other endpoints |
 | `/context` | `text/markdown` — `perseus render .perseus/context.md` output |
-| `/narrative` | `text/markdown` — Mnēmē narrative body |
+| `/narrative` | `text/markdown` — Perseus Vault narrative body |
 | `/health` | `text/markdown` — health report |
 | `/agora` | `text/markdown` — Agora list output |
 | `/checkpoint/latest` | `text/yaml` — latest checkpoint for the workspace |
@@ -65,7 +65,7 @@ Graceful shutdown on Ctrl-C.
 
 1. `perseus serve --port 7991` starts a server; `curl http://127.0.0.1:7991/` returns 200.
 2. `GET /context` returns the rendered context.md (handle no-context-file gracefully).
-3. `GET /narrative` returns the Mnēmē narrative or a 404 if not initialized.
+3. `GET /narrative` returns the Perseus Vault narrative or a 404 if not initialized.
 4. `GET /health` returns the maintenance report.
 5. `GET /agora` returns the task list.
 6. `GET /checkpoint/latest` returns the latest workspace pointer or 404.

@@ -3,7 +3,7 @@
 
 FIRST load test of the *integrated* path (the vault's own concurrency arc hit
 ~4,242 req/s in isolation; the connector path had never been exercised under
-concurrency). Drives real load through a `MnemeConnector` -> MCP stdio -> vault
+concurrency). Drives real load through a `VaultConnector` -> MCP stdio -> vault
 against a seeded temp DB.
 
   Phase 0  Seed a real dataset so recall returns ranked results.

@@ -68,7 +68,7 @@
         "judge_completion": 100
       }
     },
-    "mimir": {
+    "vault": {
       "n_attempted": 60,
       "n_graded": 60,
       "answer_errors": 0,
@@ -151,7 +151,7 @@
     {
       "question_id": "e47becba",
       "question_type": "single-session-user",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -181,7 +181,7 @@
     {
       "question_id": "118b2229",
       "question_type": "single-session-user",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -211,7 +211,7 @@
     {
       "question_id": "51a45a95",
       "question_type": "single-session-user",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -241,7 +241,7 @@
     {
       "question_id": "58bf7951",
       "question_type": "single-session-user",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -271,7 +271,7 @@
     {
       "question_id": "1e043500",
       "question_type": "single-session-user",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -301,7 +301,7 @@
     {
       "question_id": "c5e8278d",
       "question_type": "single-session-user",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -331,7 +331,7 @@
     {
       "question_id": "6ade9755",
       "question_type": "single-session-user",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -361,7 +361,7 @@
     {
       "question_id": "6f9b354f",
       "question_type": "single-session-user",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -391,7 +391,7 @@
     {
       "question_id": "0a995998",
       "question_type": "multi-session",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -421,7 +421,7 @@
     {
       "question_id": "6d550036",
       "question_type": "multi-session",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -451,7 +451,7 @@
     {
       "question_id": "gpt4_59c863d7",
       "question_type": "multi-session",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -481,7 +481,7 @@
     {
       "question_id": "b5ef892d",
       "question_type": "multi-session",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -511,7 +511,7 @@
     {
       "question_id": "e831120c",
       "question_type": "multi-session",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -541,7 +541,7 @@
     {
       "question_id": "3a704032",
       "question_type": "multi-session",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -571,7 +571,7 @@
     {
       "question_id": "gpt4_d84a3211",
       "question_type": "multi-session",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -601,7 +601,7 @@
     {
       "question_id": "aae3761f",
       "question_type": "multi-session",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -631,7 +631,7 @@
     {
       "question_id": "gpt4_f2262a51",
       "question_type": "multi-session",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -661,7 +661,7 @@
     {
       "question_id": "dd2973ad",
       "question_type": "multi-session",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -691,7 +691,7 @@
     {
       "question_id": "c4a1ceb8",
       "question_type": "multi-session",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -721,7 +721,7 @@
     {
       "question_id": "gpt4_a56e767c",
       "question_type": "multi-session",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -751,7 +751,7 @@
     {
       "question_id": "6cb6f249",
       "question_type": "multi-session",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -781,7 +781,7 @@
     {
       "question_id": "46a3abf7",
       "question_type": "multi-session",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -811,7 +811,7 @@
     {
       "question_id": "36b9f61e",
       "question_type": "multi-session",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -841,7 +841,7 @@
     {
       "question_id": "28dc39ac",
       "question_type": "multi-session",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -871,7 +871,7 @@
     {
       "question_id": "8a2466db",
       "question_type": "single-session-preference",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -901,7 +901,7 @@
     {
       "question_id": "06878be2",
       "question_type": "single-session-preference",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -931,7 +931,7 @@
     {
       "question_id": "75832dbd",
       "question_type": "single-session-preference",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -961,7 +961,7 @@
     {
       "question_id": "0edc2aef",
       "question_type": "single-session-preference",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -991,7 +991,7 @@
     {
       "question_id": "gpt4_59149c77",
       "question_type": "temporal-reasoning",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1021,7 +1021,7 @@
     {
       "question_id": "gpt4_f49edff3",
       "question_type": "temporal-reasoning",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1051,7 +1051,7 @@
     {
       "question_id": "71017276",
       "question_type": "temporal-reasoning",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1081,7 +1081,7 @@
     {
       "question_id": "b46e15ed",
       "question_type": "temporal-reasoning",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -1111,7 +1111,7 @@
     {
       "question_id": "gpt4_fa19884c",
       "question_type": "temporal-reasoning",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -1141,7 +1141,7 @@
     {
       "question_id": "0bc8ad92",
       "question_type": "temporal-reasoning",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1171,7 +1171,7 @@
     {
       "question_id": "af082822",
       "question_type": "temporal-reasoning",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -1201,7 +1201,7 @@
     {
       "question_id": "gpt4_4929293a",
       "question_type": "temporal-reasoning",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1231,7 +1231,7 @@
     {
       "question_id": "gpt4_b5700ca9",
       "question_type": "temporal-reasoning",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1261,7 +1261,7 @@
     {
       "question_id": "9a707b81",
       "question_type": "temporal-reasoning",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -1291,7 +1291,7 @@
     {
       "question_id": "gpt4_1d4ab0c9",
       "question_type": "temporal-reasoning",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1321,7 +1321,7 @@
     {
       "question_id": "gpt4_e072b769",
       "question_type": "temporal-reasoning",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1351,7 +1351,7 @@
     {
       "question_id": "0db4c65d",
       "question_type": "temporal-reasoning",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1381,7 +1381,7 @@
     {
       "question_id": "gpt4_1d80365e",
       "question_type": "temporal-reasoning",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1411,7 +1411,7 @@
     {
       "question_id": "gpt4_7f6b06db",
       "question_type": "temporal-reasoning",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -1441,7 +1441,7 @@
     {
       "question_id": "gpt4_6dc9b45b",
       "question_type": "temporal-reasoning",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1471,7 +1471,7 @@
     {
       "question_id": "6a1eabeb",
       "question_type": "knowledge-update",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -1501,7 +1501,7 @@
     {
       "question_id": "6aeb4375",
       "question_type": "knowledge-update",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1531,7 +1531,7 @@
     {
       "question_id": "830ce83f",
       "question_type": "knowledge-update",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -1561,7 +1561,7 @@
     {
       "question_id": "852ce960",
       "question_type": "knowledge-update",
-      "system": "mimir",
+      "system": "vault",
       "correct": false,
       "error": null,
       "ans_usage": {
@@ -1591,7 +1591,7 @@
     {
       "question_id": "945e3d21",
       "question_type": "knowledge-update",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1621,7 +1621,7 @@
     {
       "question_id": "d7c942c3",
       "question_type": "knowledge-update",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1651,7 +1651,7 @@
     {
       "question_id": "71315a70",
       "question_type": "knowledge-update",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1681,7 +1681,7 @@
     {
       "question_id": "89941a93",
       "question_type": "knowledge-update",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1711,7 +1711,7 @@
     {
       "question_id": "ce6d2d27",
       "question_type": "knowledge-update",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1741,7 +1741,7 @@
     {
       "question_id": "7161e7e2",
       "question_type": "single-session-assistant",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1771,7 +1771,7 @@
     {
       "question_id": "c4f10528",
       "question_type": "single-session-assistant",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1801,7 +1801,7 @@
     {
       "question_id": "89527b6b",
       "question_type": "single-session-assistant",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1831,7 +1831,7 @@
     {
       "question_id": "e9327a54",
       "question_type": "single-session-assistant",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1861,7 +1861,7 @@
     {
       "question_id": "4c36ccef",
       "question_type": "single-session-assistant",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1891,7 +1891,7 @@
     {
       "question_id": "6ae235be",
       "question_type": "single-session-assistant",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {
@@ -1921,7 +1921,7 @@
     {
       "question_id": "7e00a6cb",
       "question_type": "single-session-assistant",
-      "system": "mimir",
+      "system": "vault",
       "correct": true,
       "error": null,
       "ans_usage": {

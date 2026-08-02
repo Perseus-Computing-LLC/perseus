@@ -1,4 +1,4 @@
-# Mnēmē v2 — Perseus-Native Vault Format
+# Perseus Vault v2 — Perseus-Native Vault Format
 
 **Version:** schema 2  
 **Date:** 2026-05-27  
@@ -6,13 +6,13 @@
 
 ## Overview
 
-Mnēmē v2 memories are stored as `.md` files with YAML frontmatter in `~/.perseus/memory/vault/`. Each file is one memory. The frontmatter provides structured metadata for SQLite FTS5 indexing; the body is markdown prose rendered inline by `@memory`.
+Perseus Vault v2 memories are stored as `.md` files with YAML frontmatter in `~/.perseus/memory/vault/`. Each file is one memory. The frontmatter provides structured metadata for SQLite FTS5 indexing; the body is markdown prose rendered inline by `@memory`.
 
-## Key Differences from Bastra Format (schema 1)
+## Key Differences from Previous Vault Format (schema 1)
 
-| Bastra (schema 1) | Mnēmē v2 (schema 2) | Reason |
+| Previous Vault format (schema 1) | Perseus Vault v2 (schema 2) | Reason |
 |---|---|---|
-| `recall_when` field | Dropped | Search is on title + summary + body + tags + topic_path; trigger phrases were Bastra-specific |
+| `recall_when` field | Dropped | Search is on title + summary + body + tags + topic_path; trigger phrases were previous Vault format-specific |
 | `valid_until` | `expires` | Simplified single field |
 | `expires_after_days` | Dropped | Replaced by `expires` |
 | `related` | `related` (same) | Wikilinks still supported |
@@ -63,27 +63,27 @@ All other fields are optional — the parser accepts whatever frontmatter you pr
 ---
 schema: 2
 id: bm25-over-embeddings
-title: Chose BM25 over embeddings for Mnēmē v2
+title: Chose BM25 over embeddings for Perseus Vault v2
 type: decision
 summary: BM25 (FTS5) chosen over embedding-based search for determinism, zero-dependency, and 38ms P50 latency
 scope: perseus
 created: '2026-05-27'
 updated: '2026-05-27'
 tags: [memory, bm25, architecture]
-topic_path: [mneme, v2, search]
+topic_path: [vault, v2, search]
 confidence: 1.0
 sensitivity: team
-related: [mneme-v2-plan]
-affected_files: [src/perseus/mneme_index.py]
+related: [vault-v2-plan]
+affected_files: [src/perseus/vault_index.py]
 issues: []
 perseus_cache_ttl: 7200
 perseus_inject_at: inline
 perseus_render_template: default
 ---
 
-# BM25 over Embeddings for Mnēmē v2
+# BM25 over Embeddings for Perseus Vault v2
 
-We chose BM25 (via SQLite FTS5) over embedding-based semantic search for Mnēmē v2.
+We chose BM25 (via SQLite FTS5) over embedding-based semantic search for Perseus Vault v2.
 
 **Why:** BM25 is deterministic, has zero Python dependencies beyond stdlib `sqlite3`, and delivers 38ms P50 latency at 10K documents. Embedding models (onnxruntime + SBERT) add a ~90MB dependency and 20-50ms inference time per query.
 
@@ -92,12 +92,12 @@ We chose BM25 (via SQLite FTS5) over embedding-based semantic search for Mnēmē
 **How to apply:** When evaluating future retrieval improvements, benchmark against the FTS5 BM25 baseline. Only adopt embeddings if the semantic gap causes real user-facing failures.
 ```
 
-## Migration from Bastra Format
+## Migration from Previous Vault Format
 
-Run `python scripts/migrate-mneme-vault.py` to convert Bastra-format vault files to v2.
+Run `python scripts/migrate-vault.py` to convert schema-1 Vault files to v2.
 
 The migration script:
-1. Reads `schema: 1` (or implicit) `.md` files from `~/.hermes/mneme-vault/memories/projects/`
+1. Reads `schema: 1` (or implicit) `.md` files from `~/.perseus/memory/legacy/`
 2. Translates fields:
    - `recall_when` → dropped (body already contains trigger context)
    - `valid_until` → `expires`
@@ -116,8 +116,8 @@ The migration script:
 │   ├── bm25-over-embeddings.md
 │   ├── doc-rot-pitfall.md
 │   └── ...
-├── mneme.index               # SQLite FTS5 database
-├── mneme.index-wal           # SQLite WAL (write-ahead log)
-├── mneme.index-shm           # SQLite shared memory
+├── vault.index               # SQLite FTS5 database
+├── vault.index-wal           # SQLite WAL (write-ahead log)
+├── vault.index-shm           # SQLite shared memory
 └── <workspace-hash>.md       # Narrative journal files (unchanged)
 ```

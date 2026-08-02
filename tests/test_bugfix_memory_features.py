@@ -24,7 +24,7 @@ pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Pytho
 
 # ──────────────────────────────── helpers ─────────────────────────────────────
 
-def _mneme_cfg(tmp_path):
+def _vault_cfg(tmp_path):
     local = cfg()
     local["memory"]["store"] = str(tmp_path / "memory")
     local["checkpoints"]["store"] = str(tmp_path / "checkpoints")
@@ -38,7 +38,7 @@ def _write_narrative(tmp_path, local_cfg, *, age_hours=0, body="## Recent Activi
                      checkpoints_processed=5, last_compact_processed=0):
     """Write a narrative file and return its path."""
     ws = tmp_path
-    mp = perseus._mneme_path(ws, local_cfg)
+    mp = perseus._vault_memory_path(ws, local_cfg)
     mp.parent.mkdir(parents=True, exist_ok=True)
     updated = (datetime.now(timezone.utc) - timedelta(hours=age_hours)).isoformat(timespec="seconds")
     fm = {
@@ -57,7 +57,7 @@ def _write_narrative(tmp_path, local_cfg, *, age_hours=0, body="## Recent Activi
 
 def test_bug1_stale_narrative_returns_body(tmp_path):
     """Stale @memory should include the narrative body, not just a warning."""
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     # TTL is 86400 s (1 day); write narrative from 2 days ago
     _write_narrative(tmp_path, local, age_hours=49)
     result = perseus.resolve_memory("", local, workspace=tmp_path)
@@ -66,7 +66,7 @@ def test_bug1_stale_narrative_returns_body(tmp_path):
 
 def test_bug1_stale_narrative_prepends_inline_warning(tmp_path):
     """Stale @memory should prepend the warning note before the body."""
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     _write_narrative(tmp_path, local, age_hours=49)
     result = perseus.resolve_memory("", local, workspace=tmp_path)
     assert result.index("⚠") < result.index("Did stuff."), "warning should precede body"
@@ -74,7 +74,7 @@ def test_bug1_stale_narrative_prepends_inline_warning(tmp_path):
 
 def test_bug1_fresh_narrative_no_warning(tmp_path):
     """Fresh narrative should not include any stale warning."""
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     _write_narrative(tmp_path, local, age_hours=1)
     result = perseus.resolve_memory("", local, workspace=tmp_path)
     assert "stale" not in result.lower()
@@ -83,7 +83,7 @@ def test_bug1_fresh_narrative_no_warning(tmp_path):
 
 def test_bug1_stale_focus_returns_section_with_warning(tmp_path):
     """focus= on stale narrative: section text + inline warning, not warning-only."""
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     _write_narrative(
         tmp_path, local, age_hours=49,
         body="## Recent Activity\n\nDid stuff.\n\n## Key Decisions\n\nDecided.\n",
@@ -99,7 +99,7 @@ def test_bug2_memory_workspace_cwd_with_perseus_dir(tmp_path, monkeypatch):
     """When CWD has .perseus/, _memory_workspace returns CWD."""
     (tmp_path / ".perseus").mkdir()
     monkeypatch.chdir(tmp_path)
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     ns = argparse.Namespace(workspace=None)
     result = perseus._memory_workspace(ns, local)
     assert result == tmp_path.resolve()
@@ -117,7 +117,7 @@ def test_bug2_memory_workspace_resolves_home_when_under_home(tmp_path, monkeypat
     cwd.mkdir()
     monkeypatch.setattr(Path, "home", lambda: fake_home)
     monkeypatch.chdir(cwd)   # no .perseus/ here
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     ns = argparse.Namespace(workspace=None)
     result = perseus._memory_workspace(ns, local)
     assert result == fake_home.resolve()
@@ -126,7 +126,7 @@ def test_bug2_memory_workspace_resolves_home_when_under_home(tmp_path, monkeypat
 def test_bug2_explicit_workspace_flag_always_wins(tmp_path, monkeypatch):
     """--workspace flag overrides the fallback logic regardless of CWD."""
     monkeypatch.chdir(tmp_path)
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     explicit = str(tmp_path)
     ns = argparse.Namespace(workspace=explicit)
     result = perseus._memory_workspace(ns, local)
@@ -141,7 +141,7 @@ def test_712_walkup_discovers_ancestor_workspace(tmp_path, monkeypatch):
     deep = tmp_path / "sub" / "deep"
     deep.mkdir(parents=True)
     monkeypatch.chdir(deep)
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     ns = argparse.Namespace(workspace=None)
     result = perseus._memory_workspace(ns, local)
     assert result == tmp_path.resolve()
@@ -155,7 +155,7 @@ def test_712_walkup_prefers_nearest_ancestor(tmp_path, monkeypatch):
     deep = inner / "sub"
     deep.mkdir()
     monkeypatch.chdir(deep)
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     ns = argparse.Namespace(workspace=None)
     result = perseus._memory_workspace(ns, local)
     assert result == inner.resolve()
@@ -168,7 +168,7 @@ def test_712_no_workspace_anywhere_errors(tmp_path, monkeypatch):
     jail.mkdir(parents=True)
     monkeypatch.setattr(Path, "home", lambda: fake_home)
     monkeypatch.chdir(jail)
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     ns = argparse.Namespace(workspace=None)
     with pytest.raises(SystemExit) as excinfo:
         perseus._memory_workspace(ns, local)
@@ -184,7 +184,7 @@ def test_712_explicit_workspace_skips_discovery_and_error(tmp_path, monkeypatch)
     target.mkdir()
     monkeypatch.setattr(Path, "home", lambda: fake_home)
     monkeypatch.chdir(jail)
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     ns = argparse.Namespace(workspace=str(target))
     result = perseus._memory_workspace(ns, local)
     assert result == target.resolve()
@@ -227,11 +227,11 @@ def test_bug3_notes_still_works(tmp_path, monkeypatch):
 
 def test_feat1_workspace_modifier_resolves_different_workspace(tmp_path):
     """@memory workspace=<path> should pull narrative from the specified workspace."""
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     target = tmp_path / "target_ws"
     target.mkdir()
     # Write narrative for target_ws
-    mp = perseus._mneme_path(target, local)
+    mp = perseus._vault_memory_path(target, local)
     mp.parent.mkdir(parents=True, exist_ok=True)
     fm = {
         "schema": 1, "workspace": str(target),
@@ -250,7 +250,7 @@ def test_feat1_workspace_modifier_resolves_different_workspace(tmp_path):
 
 def test_feat1_workspace_modifier_tilde_expands(tmp_path):
     """workspace=~/ should expand correctly without error (may return missing msg)."""
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     result = perseus.resolve_memory("workspace=~/", local, workspace=tmp_path)
     # Either returns narrative or the standard missing message — must not raise
     assert isinstance(result, str)
@@ -261,10 +261,10 @@ def test_feat1_workspace_modifier_tilde_expands(tmp_path):
 
 def test_feat2_touch_updated_on_fresh_render(tmp_path):
     """resolve_memory should update the 'updated' timestamp on a fresh render."""
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     # Write narrative with a timestamp 30 minutes ago (well within TTL)
     old_time = datetime.now(timezone.utc) - timedelta(minutes=30)
-    mp = perseus._mneme_path(tmp_path, local)
+    mp = perseus._vault_memory_path(tmp_path, local)
     mp.parent.mkdir(parents=True, exist_ok=True)
     fm = {
         "schema": 1, "workspace": str(tmp_path),
@@ -286,10 +286,10 @@ def test_feat2_touch_updated_on_fresh_render(tmp_path):
 
 def test_feat2_no_touch_when_stale(tmp_path):
     """resolve_memory must NOT touch updated when narrative is stale (would reset staleness)."""
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     old_time = datetime.now(timezone.utc) - timedelta(hours=49)
     old_ts = old_time.isoformat(timespec="seconds")
-    mp = perseus._mneme_path(tmp_path, local)
+    mp = perseus._vault_memory_path(tmp_path, local)
     mp.parent.mkdir(parents=True, exist_ok=True)
     fm = {
         "schema": 1, "workspace": str(tmp_path),
@@ -308,11 +308,11 @@ def test_feat2_no_touch_when_stale(tmp_path):
 def test_feat2_touch_is_debounced_within_window(tmp_path):
     """#445: a fresh render must NOT rewrite the narrative when `updated` is within
     the debounce window — the per-render write is collapsed."""
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     local.setdefault("memory", {})["narrative_touch_debounce_s"] = 300  # 5-min window
     # Recent (10s ago): not stale, and within the debounce window.
     recent_ts = (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat(timespec="seconds")
-    mp = perseus._mneme_path(tmp_path, local)
+    mp = perseus._vault_memory_path(tmp_path, local)
     mp.parent.mkdir(parents=True, exist_ok=True)
     fm = {
         "schema": 1, "workspace": str(tmp_path),
@@ -332,7 +332,7 @@ def test_feat2_touch_is_debounced_within_window(tmp_path):
 
 def test_feat3_compact_note_appears_near_threshold(tmp_path):
     """A compact suggestion should appear when updates_since >= 80% of threshold."""
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     local["memory"]["compact_threshold"] = 10  # threshold = 10, warn at 8
     # checkpoints_processed=9, last_compact_processed=0 → updates_since=9 >= 8
     _write_narrative(tmp_path, local, checkpoints_processed=9, last_compact_processed=0)
@@ -342,7 +342,7 @@ def test_feat3_compact_note_appears_near_threshold(tmp_path):
 
 def test_feat3_no_compact_note_below_threshold(tmp_path):
     """No compact suggestion below 80% of threshold."""
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     local["memory"]["compact_threshold"] = 10
     # updates_since=3 < 8
     _write_narrative(tmp_path, local, checkpoints_processed=3, last_compact_processed=0)
@@ -352,7 +352,7 @@ def test_feat3_no_compact_note_below_threshold(tmp_path):
 
 def test_feat3_compact_note_with_focus(tmp_path):
     """Compact suggestion should also appear when using focus= modifier."""
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     local["memory"]["compact_threshold"] = 5  # warn at 4
     _write_narrative(
         tmp_path, local,
@@ -369,7 +369,7 @@ def test_feat3_compact_note_with_focus(tmp_path):
 def test_feat4_checkpoint_workspace_defaults_to_cwd(tmp_path, monkeypatch):
     """checkpoint always records workspace; defaults to CWD when --workspace omitted."""
     monkeypatch.chdir(tmp_path)
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     # Disable auto_update so we don't need an LLM
     local["memory"]["auto_update"] = False
 
@@ -397,7 +397,7 @@ def test_feat4_checkpoint_workspace_defaults_to_cwd(tmp_path, monkeypatch):
 def test_feat4_checkpoint_workspace_explicit_flag(tmp_path, monkeypatch):
     """--workspace flag sets the workspace field to the provided path."""
     monkeypatch.chdir(tmp_path)
-    local = _mneme_cfg(tmp_path)
+    local = _vault_cfg(tmp_path)
     local["memory"]["auto_update"] = False
     explicit = str(tmp_path / "myproject")
 

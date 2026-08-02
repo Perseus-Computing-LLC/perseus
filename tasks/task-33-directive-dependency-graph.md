@@ -49,7 +49,7 @@ The graph is the read-only substrate for later prefetch rules.
 
 - Do not run prefetches in this task.
 - Do not add a daemon or scheduler.
-- Do not infer patterns from oracle/Mnēmē history yet; that is task-34/task-35.
+- Do not infer patterns from oracle/Perseus Vault history yet; that is task-34/task-35.
 
 ## Completed
 

@@ -8,7 +8,7 @@
 
 ## Problem Statement
 
-Current federation (Phase 8.2) reads Mnēmē narratives from local filesystem
+Current federation (Phase 8.2) reads Perseus Vault narratives from local filesystem
 paths. It works when all workspaces share a filesystem (same machine, NFS
 mount, or container volume). It does not work when:
 
@@ -20,7 +20,7 @@ mount, or container volume). It does not work when:
 
 Decentralized Federation solves these by layering **remote transport**,
 **cryptographic identity**, **provenance tracking**, and **conflict-aware
-merge assistance** onto the existing Mnēmē narrative format.
+merge assistance** onto the existing Perseus Vault narrative format.
 
 ---
 
@@ -96,7 +96,7 @@ central registry needed.
 
 ### Signing Layer
 
-Each narrative write (checkpoint → Mnēmē update) produces both:
+Each narrative write (checkpoint → Perseus Vault update) produces both:
 
 ```
 ~/.perseus/memory/<hash>.md     ← the narrative (unchanged format)
@@ -184,7 +184,7 @@ trust-on-first-use (TOFU) log:
 ### Conflict Detection & Merge Assistance
 
 When two subscribed workspaces have narratives that cover the same
-topic domain (detected via Mnēmē focus tags or FTS5 similarity),
+topic domain (detected via Perseus Vault focus tags or FTS5 similarity),
 Perseus flags the overlap:
 
 ```
@@ -260,7 +260,7 @@ endpoints. This is the foundation — everything else builds on it.
 ### Phase 27E — Conflict Detection & Merge Assistance (task-100)
 
 - `perseus memory federation diff <alias-a> <alias-b>` — side-by-side view
-- Topic overlap detection via Mnēmē focus tags and FTS5 similarity
+- Topic overlap detection via Perseus Vault focus tags and FTS5 similarity
 - `perseus memory federation merge <alias-a> <alias-b>` — Pythia-assisted
   reconciliation draft (cited synthesis, never auto-applied)
 - `@federation conflicts` directive — renders detected conflicts inline
@@ -338,7 +338,7 @@ prerequisite for 27C (push) and 27F (provenance).
    directory of per-subscription YAML files as an alternative in Phase
    27D when access control adds per-subscriber complexity.
 
-3. **Narrative format compatibility?** Current Mnēmē narratives are
+3. **Narrative format compatibility?** Current Perseus Vault narratives are
    markdown with YAML frontmatter. Remote federation transports them
-   as-is. This means any Mnēmē narrative is federatable — backward
+   as-is. This means any Perseus Vault narrative is federatable — backward
    compatible by design. No format migration needed.

@@ -15,13 +15,13 @@
 | `perseus pack {validate,show} [--json]` | Inspect and validate `.perseus/pack.yaml` context pack manifests. |
 | `perseus watch [--source FILE] [--output FILE] [--interval N]` | Poll context sources and refresh render outputs without platform scheduler dependencies. |
 | `perseus validate --schema SCHEMA [payload\|-] [--json]` | Validate YAML/JSON payloads against Perseus schemas; omit payload or pass `-` to read stdin. |
-| `perseus checkpoint --task ... --status ... --next ...` | Write a YAML waypoint to `~/.perseus/checkpoints/`. Auto-updates Mnēmē narrative. |
+| `perseus checkpoint --task ... --status ... --next ...` | Write a YAML waypoint to `~/.perseus/checkpoints/`. Auto-updates Perseus Vault narrative. |
 | `perseus diff [--from FILE] [--to FILE]` | Show diff between two checkpoints (default: latest two). |
 | `perseus recover [--workspace PATH]` | Print the latest checkpoint for the workspace. |
 | `perseus agora [--status open\|in_progress\|completed]` | Live task board from `tasks/*.md`. |
 | `perseus suggest <prompt>` | Pythia tool oracle — ranks skills against a prompt and prints the prompt for the host agent to answer, with transparent outcome-weight hints when data exists. |
-| `perseus memory {update,compact,show,status,query,federation}` | Mnēmē narrative project memory + cross-workspace federation. |
-| `perseus memory index {rebuild,stats,search}` | Mnēmē v2 FTS5 vault index management. `rebuild` re-indexes all `.md` files in `~/.perseus/memory/vault/`. `stats` shows document count and index size. `search --query "..." --k 5` runs a BM25 search against the vault. |
+| `perseus memory {update,compact,show,status,query,federation}` | Perseus Vault narrative project memory + cross-workspace federation. |
+| `perseus memory index {rebuild,stats,search}` | Perseus Vault v2 FTS5 vault index management. `rebuild` re-indexes all `.md` files in `~/.perseus/memory/vault/`. `stats` shows document count and index size. `search --query "..." --k 5` runs a BM25 search against the vault. |
 | `perseus inbox {send,list,read,unread,mark-read}` | Point-to-point messages between agents. |
 | `perseus health` | Maintenance report — stale skills, large narrative, Pythia log volume. |
 | `perseus oracle {accept,reject,log,export,infer-labels,outcomes,drift}` | Daedalus Pythia log management, inferred labels, outcome signals, and drift checks. |
@@ -34,7 +34,7 @@
 | `perseus install --target {claude-code,cursor,gemini-cli,copilot} [--workspace PATH] [--dry-run]` | Install Perseus hooks into an AI assistant. |
 | `perseus update [--apply] [--check] [--auto on\|off]` | Check for and apply Perseus updates from git. |
 | `perseus mcp {serve,config,register}` | Run Perseus as an MCP server — expose directives as tools for any MCP-compatible assistant. |
-| `perseus doctor [--workspace PATH] [--json]` | Run readiness checks against workspace and config (10 checks: config, context file, render settings, checkpoint age, Mnēmē narrative, federation, Pythia log, serve endpoint, directive registry, version). |
+| `perseus doctor [--workspace PATH] [--json]` | Run readiness checks against workspace and config (10 checks: config, context file, render settings, checkpoint age, Perseus Vault narrative, federation, Pythia log, serve endpoint, directive registry, version). |
 | `perseus trust [--json] {profile,audit}` | Show effective permission profile and trust posture; audit recent access decisions. |
 
 ## JSON Surfaces

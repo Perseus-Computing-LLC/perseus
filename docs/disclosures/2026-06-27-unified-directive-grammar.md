@@ -45,7 +45,7 @@ all six source classes under one resolvable grammar with a single policy table.
 | 1 | Filesystem (`@file`) | `@read` | `resolve_read` | Workspace files |
 | 2 | Recursive composition | `@include` | `resolve_include` | Nested Perseus sources (resolved recursively) |
 | 3 | Live shell (`@query`) | `@query` | `resolve_query` | Sandboxed subprocess, gated by `allow_query_shell` |
-| 4 | Semantic memory (`@search`) | `@memory` | `resolve_memory` | Local FTS5 / Mnēmē vault (offline) |
+| 4 | Semantic memory (`@search`) | `@memory` | `resolve_memory` | Local FTS5 / Perseus Vault store (offline) |
 | 5 | Sub-agent (`@agent`) | `@agent` | `resolve_agent` | Agent subprocess, gated by `allow_agent_shell` |
 | 6 | External tool (`@tool`) | `@tool` | `resolve_tool` | Allowlisted executable |
 
@@ -68,7 +68,7 @@ the non-provisional:
 2. **`@search` is deliberately a *local* semantic recall, not web search.**
    Perseus is offline by invariant (Disclosure 1, Key Property 5: "no runtime
    dependency on a model provider … runs entirely offline"). The semantic-memory
-   source class resolves against a local FTS5 index / Mnēmē vault, never a
+   source class resolves against a local FTS5 index / Perseus Vault store, never a
    network search API. This is a feature for the §101/§103 posture: the source
    class is a *deterministic local index lookup*, preserving byte-reproducibility
    and the resolve-before-context guarantee.
@@ -120,7 +120,7 @@ class — the complete uniform grammar as enumerated by the live
 | `@env` | `resolve_env` | inline | `acw` | 1 | in-process / computed |  |
 | `@health` | `resolve_health` | inline | `acw` | 1 | filesystem / workspace |  |
 | `@if` | `— (control)` | control | `block` | 1 | control/structural |  |
-| `@memory` | `resolve_memory` | inline | `acw` | 1 | semantic memory (FTS5/Mneme/Mimir) | @search (semantic memory) |
+| `@memory` | `resolve_memory` | inline | `acw` | 1 | semantic memory (FTS5/Vault/Vault) | @search (semantic memory) |
 | `@prompt` | `resolve_prompt_block` | block | `block` | 1 | in-process / computed |  |
 | `@tokens` | `resolve_tokens` | block | `a` | 1 | shell / live system |  |
 | `@validate` | `resolve_validate_block` | block | `block` | 1 | filesystem / workspace |  |
@@ -128,7 +128,7 @@ class — the complete uniform grammar as enumerated by the live
 | `@agora` | `resolve_agora` | inline | `acw` | 2 | filesystem / workspace |  |
 | `@drift` | `resolve_drift` | inline | `ac` | 2 | filesystem / workspace |  |
 | `@inbox` | `resolve_inbox` | inline | `acw` | 2 | filesystem / workspace |  |
-| `@mimir` | `resolve_mimir` | inline | `acw` | 2 | semantic memory (FTS5/Mneme/Mimir) |  |
+| `@vault` | `resolve_vault` | inline | `acw` | 2 | semantic memory (FTS5/Vault/Vault) |  |
 | `@perseus` | `resolve_perseus` | inline | `acw` | 2 | in-process / computed |  |
 | `@services` | `resolve_services` | block | `block` | 2 | shell / live system |  |
 | `@session` | `resolve_session` | inline | `ac` | 2 | filesystem / workspace |  |

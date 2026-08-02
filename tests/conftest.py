@@ -135,7 +135,7 @@ def _clear_session_cache():
 
         # #448: clear the memoized satellite-connector binary-path probes so a
         # test mocking the binary present/absent isn't served a stale result.
-        for _bin_cache in ("_MEMTRACE_BIN_CACHE", "_VAULTMEM_BIN_CACHE"):
+        for _bin_cache in ("_MEMTRACE_BIN_CACHE", "_VAULT_BIN_CACHE"):
             if hasattr(perseus, _bin_cache):
                 getattr(perseus, _bin_cache).clear()
 

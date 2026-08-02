@@ -50,7 +50,7 @@ public_key_algorithm: "hmac-sha256"
 
 ### 2. `perseus memory sign`
 
-Signs the current Mnēmē narrative:
+Signs the current Perseus Vault narrative:
 
 ```
 perseus memory sign [--workspace PATH]
@@ -73,7 +73,7 @@ perseus memory sign [--workspace PATH]
 
 When `federation.signing.enabled: true` (default: `false`):
 
-- `cmd_checkpoint` calls `_sign_narrative()` after Mnēmē update
+- `cmd_checkpoint` calls `_sign_narrative()` after Perseus Vault update
 - Signing failure is a warning (never fatal to checkpoint write)
 - Config key: `federation.signing.enabled`
 

@@ -31,7 +31,7 @@ Nexo is a local cognitive runtime that transforms AI agents from stateless assis
 | Startup preflight (`nexo_startup`, `nexo_smart_startup`) | Pre-session context rendering | **HIGH** |
 | Core Rules injection (`cortex/task_open`) | `AGENTS.md` injection | **HIGH** |
 | Managed bootstrap files for Claude Code, Codex | `perseus render` output | Medium |
-| Persistent memory (local-context.db) | Mimir (mimir.db) | **HIGH** |
+| Persistent memory (local-context.db) | Vault (vault.db) | **HIGH** |
 | Self-healing / doctor diagnostics | `perseus doctor` | Medium |
 | Email monitor + task automation | N/A (operational context only) | None |
 | Semantic router (mDeBERTa + cached LLM) | N/A | None |

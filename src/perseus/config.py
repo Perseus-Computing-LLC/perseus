@@ -141,9 +141,9 @@ DEFAULT_CONFIG = {
         "auto_update": True,        # update narrative on every checkpoint write
         "compact_threshold": 20,    # advisory: compact after this many incremental updates
         "max_narrative_lines": 300, # warn (not error) if narrative grows beyond this
-        # Mnēmē v2 — Perseus-native vault (SQLite FTS5, no Mneme v2 dependency)
-        "mneme_vault_path": "",     # empty = auto-detect ($PERSEUS_HOME/memory/vault/)
-        "mneme_index_path": "",     # empty = vault_path / "mneme.index"
+        # Perseus Vault v2 — Perseus-native vault (SQLite FTS5, no Vault v2 dependency)
+        "vault_path": "",     # empty = auto-detect ($PERSEUS_HOME/memory/vault/)
+        "vault_index_path": "",     # empty = vault_path / "vault.index"
         # task-19 (Phase 8.2) — federation manifest path
         "federation_manifest": str(PERSEUS_HOME / "memory" / "federation.yaml"),
         # Pattern extraction is always deterministic (rule-based, no model) —
@@ -178,16 +178,12 @@ DEFAULT_CONFIG = {
         "claude-sonnet-4-6": {"context_target": 200000,  "memory": "on_demand"},
         "claude-opus-4-8":   {"context_target": 1000000, "memory": "on_demand"},  # big window is not an excuse to bloat
     },
-    # Perseus Vault persistent memory (MCP binary; formerly "Mimir"/"Mneme").
-    # #662/#665: the canonical config key is now `perseus_vault:` and this
-    # default is emitted under it (legacy `mimir:`/`mneme:` keys are still
-    # ACCEPTED on read — see _resolve_mneme_config, which checks perseus_vault
-    # first). The default command carries NO `--db` argument: the perseus-vault
-    # binary self-resolves its canonical default DB path, so omitting it avoids
-    # path drift. The install ships only a `perseus-vault` binary (no `mimir`).
+    # Perseus Vault persistent memory (MCP binary).
+    # The canonical configuration key is `perseus_vault:` and the default
+    # command is the `perseus-vault` executable.
     "perseus_vault": {
         "enabled": True,
-        "auto_inject": True,             # Allow the automatic memory section (pointer or dump per profile posture); set False to require an explicit @memory/@mimir directive (#442). NOTE (#608): whether a pre-materialized dump is injected is now governed by the active profile's `memory` posture — on_demand (default) injects only a retrieval pointer.
+        "auto_inject": True,             # Allow the automatic memory section (pointer or dump per profile posture); set False to require an explicit @memory/@vault directive (#442). NOTE (#608): whether a pre-materialized dump is injected is now governed by the active profile's `memory` posture — on_demand (default) injects only a retrieval pointer.
         "workspace_scope": True,         # #553: pass the workspace hash to vault recall calls that support it, so unrelated workspaces don't share one undifferentiated memory pool at the render layer
         "transport": "stdio",            # "stdio" (local binary) or "sse" (remote endpoint)
         "command": ["perseus-vault", "serve"],
@@ -195,7 +191,7 @@ DEFAULT_CONFIG = {
         "timeout_s": 10.0,
         "merge_strategy": "local_first", # local_first | remote_first | interleave | decay_first
         "decay_priority_weight": 0.4,    # weight of decay_score in merge ordering (0.0–1.0)
-        "fallback_to_local": True,       # Use Mnēmē FTS5 when Mimir is unreachable
+        "fallback_to_local": True,       # Use Perseus Vault FTS5 when Vault is unreachable
         "circuit_breaker": {
             "threshold": 3,              # Consecutive failures before opening
             "cooldown": 120,             # Seconds before attempting recovery

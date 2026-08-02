@@ -1,7 +1,7 @@
 """
-test_mneme_efficiency.py — Phase 3: Context Efficiency (Cost/Token Optimization)
+test_vault_efficiency.py — Phase 3: Context Efficiency (Cost/Token Optimization)
 
-Validates that the hybrid Mneme + vault approach is token-efficient.
+Validates that the hybrid Vault + vault approach is token-efficient.
 Every token costs money, so we need to ensure:
 
 1. Deduplication is working — no redundant information
@@ -41,12 +41,12 @@ def _test_cfg(strategy="local_first"):
     _reset_connector_singleton()
     c = cfg()
     # #665: canonical memory key is now `perseus_vault`; the resolver reads it
-    # before the legacy `mimir`/`mneme` aliases, so the connector must be
+    # before the legacy `vault`/`vault` aliases, so the connector must be
     # configured under the canonical key to take effect.
     c["perseus_vault"] = {
         "enabled": True,
         "transport": "stdio",
-        "command": ["/nonexistent/path/mneme"],
+        "command": ["/nonexistent/path/vault"],
         "timeout_s": 0.5,
         "merge_strategy": strategy,
         "decay_priority_weight": 0.4,
@@ -91,13 +91,13 @@ class TestTokenBudget:
     """Validate that merged & assembled context stays within token budgets."""
 
     def _connector(self, strategy="local_first"):
-        return perseus.MnemeConnector(_test_cfg(strategy))
+        return perseus.VaultConnector(_test_cfg(strategy))
 
     def test_merged_segment_stays_within_budget(self):
         """A merged result with 10 items should be well under 10K tokens."""
         conn = self._connector()
         local = []
-        mimir_items = []
+        vault_items = []
         for i in range(5):
             local.append(_make_hit(
                 f"l-{i}",
@@ -107,16 +107,16 @@ class TestTokenBudget:
                 "local", "architecture", decay=0.8 - i * 0.1,
             ))
         for i in range(5):
-            mimir_items.append(_make_hit(
+            vault_items.append(_make_hit(
                 f"e-{i}",
-                f"Mneme memory item {i}: Historical context about the project's evolution from earlier prototypes. "
-                f"The v1 used flat JSON files, v2 introduced Mnemosyne with FTS5, and v3 (current) uses Mneme "
+                f"Vault memory item {i}: Historical context about the project's evolution from earlier prototypes. "
+                f"The v1 used flat JSON files, v2 introduced Perseus Vault with FTS5, and v3 (current) uses Vault "
                 f"with topic trees and Ebbinghaus decay modeling for automatic memory lifecycle management.",
                 "vault", "insight", decay=0.9 - i * 0.15,
             ))
 
         merged = conn._merge_results(
-            local_items=local, mimir_items=mimir_items,
+            local_items=local, vault_items=vault_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
 
@@ -179,7 +179,7 @@ class TestDeduplicationEfficiency:
     """Measure how much token waste is eliminated by deduplication."""
 
     def _connector(self):
-        return perseus.MnemeConnector(_test_cfg())
+        return perseus.VaultConnector(_test_cfg())
 
     def test_dedup_eliminates_duplicate_tokens(self):
         """Identical content in both sources → only one copy in result.
@@ -194,10 +194,10 @@ class TestDeduplicationEfficiency:
         ) * 2  # make it long enough to matter
 
         local = [_make_hit("l-long", long_content, "local", "decision", decay=0.5)]
-        mneme_items = [_make_hit("l-long", long_content, "vault", "decision", decay=0.9)]
+        vault_items = [_make_hit("l-long", long_content, "vault", "decision", decay=0.9)]
 
         merged = conn._merge_results(
-            local_items=local, mimir_items=mneme_items,
+            local_items=local, vault_items=vault_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
 
@@ -220,15 +220,15 @@ class TestDeduplicationEfficiency:
         local = [_make_hit(f"l-shared-{i}", shared_contents[i], "local", "architecture") for i in range(5)]
         local += [_make_hit(f"l-unique-{i}", f"Local-only operational note #{i}: Daily health check runs at 0600 UTC.", "local", "insight") for i in range(5)]
 
-        mneme_items = [_make_hit(f"e-shared-{i}", shared_contents[i], "vault", "architecture", decay=0.85) for i in range(5)]
-        mneme_items += [_make_hit(f"e-unique-{i}", f"Mneme-only historical context #{i}: Original prototype used JSON flat files.", "vault", "insight", decay=0.3) for i in range(5)]
+        vault_items = [_make_hit(f"e-shared-{i}", shared_contents[i], "vault", "architecture", decay=0.85) for i in range(5)]
+        vault_items += [_make_hit(f"e-unique-{i}", f"Vault-only historical context #{i}: Original prototype used JSON flat files.", "vault", "insight", decay=0.3) for i in range(5)]
 
         merged = conn._merge_results(
-            local_items=local, mimir_items=mneme_items,
+            local_items=local, vault_items=vault_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
 
-        # Total items: 5 shared + 5 local-only + 5 mneme-only = 15
+        # Total items: 5 shared + 5 local-only + 5 vault-only = 15
         assert len(merged.items) == 15
 
         # Without dedup: 10 local + 10 engram = 20 items
@@ -242,11 +242,11 @@ class TestDeduplicationEfficiency:
         conn = self._connector()
         shared = "This is a shared memory that exists in both local and remote stores."
         local = [_make_hit("l-dup", shared, "local", "insight")]
-        mneme_items = [_make_hit("e-dup", shared, "vault", "insight")]
+        vault_items = [_make_hit("e-dup", shared, "vault", "insight")]
 
         diag = {}
         conn._merge_results(
-            local_items=local, mimir_items=mneme_items,
+            local_items=local, vault_items=vault_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics=diag,
         )
         # Diagnostics should show dedup activity
@@ -261,7 +261,7 @@ class TestInformationDensity:
     """Measure unique information per token — the core efficiency metric."""
 
     def _connector(self):
-        return perseus.MnemeConnector(_test_cfg())
+        return perseus.VaultConnector(_test_cfg())
 
     def test_all_unique_content_high_density(self):
         """When all items are unique, information density approaches 1.0."""
@@ -272,7 +272,7 @@ class TestInformationDensity:
         ]
 
         merged = conn._merge_results(
-            local_items=items[:5], mimir_items=items[5:],
+            local_items=items[:5], vault_items=items[5:],
             strategy=perseus.MergeStrategy.INTERLEAVE, diagnostics={},
         )
 
@@ -300,7 +300,7 @@ class TestInformationDensity:
         # After merge (with dedup): should have 2 items
         merged = conn._merge_results(
             local_items=[redundant_items[1]],  # local: r-2
-            mimir_items=[redundant_items[0], redundant_items[2]],  # engram: r-1 (same) + r-3 (unique)
+            vault_items=[redundant_items[0], redundant_items[2]],  # engram: r-1 (same) + r-3 (unique)
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
 
@@ -316,16 +316,16 @@ class TestInformationDensity:
         """Core metric: information density with 50 items, 40% duplicates."""
         conn = self._connector()
         unique_bases = [f"Unique architectural insight #{i}: details about module {i}." for i in range(30)]
-        duplicate_pairs = [f"Shared content block #{j} that appears in both local and mneme stores." for j in range(10)]
+        duplicate_pairs = [f"Shared content block #{j} that appears in both local and vault stores." for j in range(10)]
 
         local = [_make_hit(f"l-u-{i}", unique_bases[i], "local", "architecture") for i in range(15)]
-        mimir_items = [_make_hit(f"e-u-{i}", unique_bases[i+15], "vault", "architecture") for i in range(15)]
+        vault_items = [_make_hit(f"e-u-{i}", unique_bases[i+15], "vault", "architecture") for i in range(15)]
         for j in range(10):
             local.append(_make_hit(f"l-dup-{j}", duplicate_pairs[j], "local", "decision"))
-            mimir_items.append(_make_hit(f"e-dup-{j}", duplicate_pairs[j], "vault", "decision", decay=0.8))
+            vault_items.append(_make_hit(f"e-dup-{j}", duplicate_pairs[j], "vault", "decision", decay=0.8))
 
         merged = conn._merge_results(
-            local_items=local, mimir_items=mimir_items,
+            local_items=local, vault_items=vault_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
 
@@ -356,7 +356,7 @@ class TestStrategyTokenProfiles:
 
     def _merge_with_strategy(self, strategy_name):
         _reset_connector_singleton()
-        conn = perseus.MnemeConnector(_test_cfg(strategy_name))
+        conn = perseus.VaultConnector(_test_cfg(strategy_name))
         strategy_enum = {
             "local_first": perseus.MergeStrategy.LOCAL_FIRST,
             "remote_first": perseus.MergeStrategy.REMOTE_FIRST,
@@ -369,14 +369,14 @@ class TestStrategyTokenProfiles:
             _make_hit("l-b", "Local B: Monitoring uses Prometheus with 15s scrape interval.", "local", "insight", decay=0.85),
             _make_hit("l-c", "Local C: Recent hotfix for auth race condition deployed today.", "local", "decision", decay=1.0),
         ]
-        mneme_items = [
+        vault_items = [
             _make_hit("e-x", "Engram X: Historical deployment was on port 3000 without TLS.", "vault", "architecture", decay=0.15),
             _make_hit("e-y", "Engram Y: Monitoring was originally done with Grafana Cloud.", "vault", "insight", decay=0.25),
             _make_hit("e-z", "Engram Z: Auth module was originally OAuth-only, no JWT.", "vault", "decision", decay=0.10),
         ]
 
         return conn._merge_results(
-            local_items=local, mimir_items=mneme_items,
+            local_items=local, vault_items=vault_items,
             strategy=strategy_enum, diagnostics={},
         )
 
@@ -427,7 +427,7 @@ class TestRealWorldSimulation:
             perseus.LiveStateEntry(key="ENGRAM_ENABLED", value="true", source="@env"),
             perseus.LiveStateEntry(key="ENGRAM_TRANSPORT", value="stdio", source="@config"),
             perseus.LiveStateEntry(key="MERGE_STRATEGY", value="local_first", source="@config"),
-            perseus.LiveStateEntry(key="MNEMOSYNE_DB_VERSION", value="3.3.0", source="@env"),
+            perseus.LiveStateEntry(key="Perseus Vault_DB_VERSION", value="3.3.0", source="@env"),
             perseus.LiveStateEntry(key="WORKSPACE_PATH", value="/opt/data/webui/minions/ws", source="@ctx"),
             perseus.LiveStateEntry(key="HOSTNAME", value="hermes-webui", source="@env"),
             perseus.LiveStateEntry(key="PROJECT", value="perseus", source="@ctx"),
@@ -445,7 +445,7 @@ class TestRealWorldSimulation:
                 "operates as an isolated component. The core router handles directive parsing and module dispatch.",
                 "vault", "architecture", decay=0.88),
             _make_hit("dec-1",
-                "SQLite FTS5 was chosen for local Mneme search because: (1) zero external dependency — everything "
+                "SQLite FTS5 was chosen for local Vault search because: (1) zero external dependency — everything "
                 "ships in one file, (2) FTS5 provides BM25 ranking adequate for our use case, (3) sqlite-vec "
                 "supplements with optional vector embeddings. PostgreSQL was rejected as too heavy for local dev.",
                 "local", "decision", decay=0.95),
@@ -454,7 +454,7 @@ class TestRealWorldSimulation:
                 "directly — always edit src/ and rebuild. Merge conflicts resolved with --ours then rebuild.",
                 "vault", "insight", decay=0.92),
             _make_hit("arch-2",
-                "The Mneme bridge uses MCP stdio transport: it spawns 'mneme serve --mcp' as a subprocess "
+                "The Vault bridge uses MCP stdio transport: it spawns 'vault serve --mcp' as a subprocess "
                 "and communicates via JSON-RPC over stdin/stdout. The SSE transport is available as a stub "
                 "for future dockerized deployments.",
                 "vault", "architecture", decay=0.85),
@@ -468,8 +468,8 @@ class TestRealWorldSimulation:
                 "the daemon runs as a persistent background process with configurable interval via --interval flag.",
                 "vault", "insight", decay=0.72),
             _make_hit("arch-3",
-                "Mnemosyne v3.3.0 uses FTS5 with optional vector embeddings via sqlite-vec. The database is stored "
-                "at ~/.hermes/mnemosyne/data/mnemosyne.db. Mnemosyne scores with embeddings active show improved recall.",
+                "Perseus Vault v3.3.0 uses FTS5 with optional vector embeddings via sqlite-vec. The database is stored "
+                "at ~/.hermes/Perseus Vault/data/Perseus Vault.db. Perseus Vault scores with embeddings active show improved recall.",
                 "local", "architecture", decay=0.65),
             _make_hit("dec-3",
                 "PERSEUS_ALLOW_DANGEROUS=1 is a defense-in-depth security gate added in v1.0.6 to prevent accidental "
@@ -513,7 +513,7 @@ class TestRealWorldSimulation:
         ]
         local_tokens = sum(_estimate_tokens(item.content) for item in local_only_items)
 
-        # Hybrid: 5 local + 5 mneme items, 2 shared (verified)
+        # Hybrid: 5 local + 5 vault items, 2 shared (verified)
         shared_content = [
             "Auth uses JWT with 15min expiry — same as local.",  # shared
             "Cache: Redis for session store — identical content.",  # shared
@@ -534,9 +534,9 @@ class TestRealWorldSimulation:
         ]
 
         _reset_connector_singleton()
-        conn = perseus.MnemeConnector(_test_cfg())
+        conn = perseus.VaultConnector(_test_cfg())
         merged = conn._merge_results(
-            local_items=hybrid_local, mimir_items=hybrid_engram,
+            local_items=hybrid_local, vault_items=hybrid_engram,
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
 
@@ -565,7 +565,7 @@ class TestRealWorldSimulation:
         c = _test_cfg()
         # With a very small max_results, even large inputs should produce small output
         local_items = [_make_hit(f"l-{i}", f"Local memory {i}", "local", "insight") for i in range(100)]
-        mseg = perseus._mneme_hybrid_search(
+        mseg = perseus._vault_hybrid_search(
             cfg=c, query="test", workspace="/tmp/test",
             local_hits=[{"id": f"x-{i}", "content": f"c{i}"} for i in range(100)],
             max_results=5,
@@ -574,20 +574,20 @@ class TestRealWorldSimulation:
 
 
 class TestConnectorCacheKeying:
-    """_get_connector keys its singleton on the `mimir` subtree only — cheaper
+    """_get_connector keys its singleton on the `vault` subtree only — cheaper
     than hashing the whole config, and it must not rebuild on unrelated changes
-    nor miss a real mimir-config change."""
+    nor miss a real vault-config change."""
 
     def test_unrelated_config_change_reuses_connector(self):
         _reset_connector_singleton()
         c = _test_cfg()
         first = perseus._get_connector(c)
-        # Mutate a NON-mimir key; the connector must be reused (no rebuild).
+        # Mutate a NON-vault key; the connector must be reused (no rebuild).
         c["render"] = {"some_unrelated_flag": True}
         second = perseus._get_connector(c)
         assert second is first
 
-    def test_mimir_config_change_rebuilds_connector(self):
+    def test_vault_config_change_rebuilds_connector(self):
         _reset_connector_singleton()
         c = _test_cfg()
         first = perseus._get_connector(c)

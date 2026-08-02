@@ -12,7 +12,7 @@ import sys
 import types
 from pathlib import Path
 
-# Load mneme_connector + its package deps directly by path, WITHOUT mutating
+# Load vault_connector + its package deps directly by path, WITHOUT mutating
 # sys.path or leaving a src-backed 'perseus' in sys.modules: the repo-root
 # perseus.py artifact shadows the src/perseus package for every other test
 # module (see test_composite_ranking.py for the same pattern), and leaking
@@ -35,9 +35,9 @@ sys.modules["perseus"] = _pkg
 try:
     _load("perseus.composite_ranking", _SRC / "composite_ranking.py")
     _load("perseus.retrieval_expansion", _SRC / "retrieval_expansion.py")
-    mc = _load("perseus.mneme_connector", _SRC / "mneme_connector.py")
+    mc = _load("perseus.vault_connector", _SRC / "vault_connector.py")
 finally:
-    for k in ("perseus", "perseus.composite_ranking", "perseus.retrieval_expansion", "perseus.mneme_connector"):
+    for k in ("perseus", "perseus.composite_ranking", "perseus.retrieval_expansion", "perseus.vault_connector"):
         sys.modules.pop(k, None)
     sys.modules.update(_saved)
 
@@ -199,7 +199,7 @@ class TestBackwardsCompatibility:
             def call_tool(self, *_args, **_kwargs):
                 raise AssertionError("transport must not be called")
 
-        connector = mc.MnemeConnector({"perseus_vault": {"enabled": False}})
+        connector = mc.VaultConnector({"perseus_vault": {"enabled": False}})
         connector._enabled = True
         connector._client = Client()
         ok, error = connector.store("decision", category="decision", key="k", evidence={})
@@ -218,7 +218,7 @@ class TestBackwardsCompatibility:
                 return {"id": "mem-evidence", "action": "created"}, None
 
         client = Client()
-        connector = mc.MnemeConnector({"perseus_vault": {"enabled": False}})
+        connector = mc.VaultConnector({"perseus_vault": {"enabled": False}})
         connector._enabled = True
         connector._client = client
         ok, _ = connector.store(

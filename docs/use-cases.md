@@ -14,7 +14,7 @@ Here are a few use cases:
 
 3.  **Proactive Sales Nudges and Workflow Guidance:** The "Tool Oracle" feature could guide sales reps through complex sales processes. For example, based on the current stage of a deal and available customer data, Perseus could suggest the next best action (e.g., "send a personalized case study," "schedule a follow-up demo," "escalate to a specialist") and even recommend the specific tool or skill needed to execute that action.
 
-4.  **Enhanced Deal Continuity and Handoffs:** For long sales cycles or when a sales rep transitions an account, Perseus's "Checkpoints" and "Mnēmē narrative memory" would ensure seamless handoffs. All the context, progress, and crucial notes from previous interactions would be readily available, allowing the new rep or an assisting AI to pick up exactly where the last one left off without missing a beat.
+4.  **Enhanced Deal Continuity and Handoffs:** For long sales cycles or when a sales rep transitions an account, Perseus's "Checkpoints" and "Perseus Vault narrative memory" would ensure seamless handoffs. All the context, progress, and crucial notes from previous interactions would be readily available, allowing the new rep or an assisting AI to pick up exactly where the last one left off without missing a beat.
 
 5.  **Personalized Outreach and Content Generation:** With access to live, rich context about prospects and customers, an AI assistant could help sales teams generate highly personalized outreach messages, proposals, or presentation content, significantly improving engagement rates.
 

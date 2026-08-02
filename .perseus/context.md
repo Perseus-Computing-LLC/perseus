@@ -3,7 +3,7 @@
 # Context - @date format="YYYY-MM-DD HH:mm z"
 
 ## Persistent Memory
-@mneme query="lesson preference decision reference" k=5 scope=perseus
+@Perseus Vault query="lesson preference decision reference" k=5 scope=perseus
 
 ## Environment
 @query "which perseus 2>/dev/null || echo 'perseus not on PATH'"

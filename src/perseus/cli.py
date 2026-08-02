@@ -269,8 +269,8 @@ def main():
     )
     _add_knows_args(p_knows)
 
-    # memory (Mnēmē)
-    p_mem = sub.add_parser("memory", help="Mnēmē — narrative project memory")
+    # memory (Perseus Vault)
+    p_mem = sub.add_parser("memory", help="Perseus Vault — narrative project memory")
     mem_sub = p_mem.add_subparsers(dest="memory_command", required=True)
     p_mem_update = mem_sub.add_parser("update", help="Incrementally update narrative")
     p_mem_update.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
@@ -316,7 +316,7 @@ def main():
     p_fed_merge.add_argument("alias_b", help="Second subscription alias")
 
     # memory sign (Phase 27B)
-    p_mem_sign = mem_sub.add_parser("sign", help="Sign the current Mneme narrative with workspace identity")
+    p_mem_sign = mem_sub.add_parser("sign", help="Sign the current Vault narrative with workspace identity")
     p_mem_sign.add_argument("--workspace", default=None, help="Workspace path (default: auto-discover nearest ancestor with .perseus/)")
     p_mem_sign.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
@@ -335,14 +335,14 @@ def main():
     # memory doctor (#128 — legacy MD5 → SHA-256 narrative migration)
     p_mem_doc = mem_sub.add_parser(
         "doctor",
-        help="Scan/repair the Mnēmē memory store (legacy MD5 → SHA-256 narrative migration)",
+        help="Scan/repair the Perseus Vault memory store (legacy MD5 → SHA-256 narrative migration)",
     )
     p_mem_doc.add_argument("--migrate", action="store_true",
                            help="Rename legacy MD5-named narratives to their SHA-256 paths (atomic, idempotent)")
     p_mem_doc.add_argument("--json", action="store_true",
                            help="Machine-readable JSON output")
 
-    # memory index (Mnēmē v2)
+    # memory index (Perseus Vault v2)
     p_mem_idx = mem_sub.add_parser("index", help="Manage the FTS5 search index")
     idx_sub = p_mem_idx.add_subparsers(dest="index_command", required=True)
     p_idx_stats = idx_sub.add_parser("stats", help="Show index statistics")

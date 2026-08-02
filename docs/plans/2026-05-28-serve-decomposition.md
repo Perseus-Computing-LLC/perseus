@@ -64,7 +64,7 @@ Delete lines 409–828 (the entire Cited synthesis section including its header)
 In `scripts/build.py`, insert `"src/perseus/synthesis.py"` into `MODULE_ORDER` between `"src/perseus/memory.py"` and `"src/perseus/serve.py"`.
 
 ```python
-    "src/perseus/mneme_federation.py",
+    "src/perseus/vault_federation.py",
     "src/perseus/inbox.py",
     "src/perseus/agora.py",
     "src/perseus/pythia.py",
@@ -300,8 +300,8 @@ src/perseus/
 ├── registry.py        (DIRECTIVE_REGISTRY)
 ├── renderer.py        (render_source, cache layer)
 ├── checkpoint.py      (checkpoint read/write)
-├── memory.py          (Mnēmē memory system)
-├── mneme_*.py         (Mnēmē v2: index, narrative, federation)
+├── memory.py          (Perseus Vault memory system)
+├── vault_*.py         (Perseus Vault v2: index, narrative, federation)
 ├── inbox.py           (agent inbox)
 ├── agora.py           (task board)
 ├── pythia.py          (Pythia recommendations)

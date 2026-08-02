@@ -51,4 +51,4 @@ def test_context_hash_is_stable_for_identical_content():
 
 def test_derive_sources_maps_directives():
     src = "@perseus\n@memory mode=search\n@read file.md\n@services\n"
-    assert perseus._derive_render_sources(src) == ["files", "mimir", "services"]
+    assert perseus._derive_render_sources(src) == ["files", "perseus_vault", "services"]

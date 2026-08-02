@@ -18,7 +18,7 @@ opened: '2026-05-19'
 
 ## Why
 
-Perseus has accumulated config, checkpoints, caches, oracle logs, Mneme
+Perseus has accumulated config, checkpoints, caches, oracle logs, Vault
 narratives, federation manifests, and task files. v1 must not strand existing
 workspaces.
 
@@ -46,7 +46,7 @@ workspaces.
 ## Completed
 
 - Added `tests/test_compat_migration.py` to pin v1 compatibility behavior for legacy config, state, and manifest shapes.
-- Covered `hermes:` → `assistant:` migration, `oracle:` → `pythia:` migration/deprecation warnings, one-time `oracle_log.jsonl` → `pythia_log.jsonl` migration, old checkpoint recovery/diff behavior, legacy/body-only Mnēmē narratives, future Mnēmē frontmatter preservation, federation manifest future-field tolerance, and context pack future-field tolerance.
+- Covered `hermes:` → `assistant:` migration, `oracle:` → `pythia:` migration/deprecation warnings, one-time `oracle_log.jsonl` → `pythia_log.jsonl` migration, old checkpoint recovery/diff behavior, legacy/body-only Perseus Vault narratives, future Perseus Vault frontmatter preservation, federation manifest future-field tolerance, and context pack future-field tolerance.
 - Added compatibility and migration guidance to `spec/data-model.md`, including intentional breaking/validation boundaries.
 
 Validation:

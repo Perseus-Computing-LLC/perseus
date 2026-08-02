@@ -311,35 +311,8 @@ def _normalize_loaded_config(loaded: dict, warn_legacy: bool = False) -> dict:
     elif isinstance(loaded.get("pythia"), dict):
         loaded["pythia"] = _normalize_pythia_section(loaded["pythia"])
 
-    # #704: fold legacy memory-bridge aliases into the canonical key BEFORE
-    # merge precedence is applied. DEFAULT_CONFIG materializes a full
-    # (non-empty) `perseus_vault:` block, so a user block left under a legacy
-    # `mneme:`/`mimir:` key would be permanently shadowed by that default in
-    # _resolve_mneme_config — the user's `command:` (etc.) never applies and
-    # the bridge silently falls back to a bare `perseus-vault` PATH lookup,
-    # masked by fallback_to_local. Fold order mimir → mneme → perseus_vault so
-    # an explicit canonical block still wins key-by-key when several are
-    # present (matches the _MEMORY_CONFIG_KEYS alias precedence).
-    legacy_memory_keys = [
-        k for k in ("mneme", "mimir")
-        if isinstance(loaded.get(k), dict) and loaded[k]
-    ]
-    if legacy_memory_keys:
-        folded: dict = {}
-        for key in ("mimir", "mneme", _MEMORY_CONFIG_CANONICAL):
-            block = loaded.get(key)
-            if isinstance(block, dict) and block:
-                _deep_merge_dicts(folded, block)
-                del loaded[key]
-        loaded[_MEMORY_CONFIG_CANONICAL] = folded
-        if warn_legacy:
-            for key in legacy_memory_keys:
-                if key not in _warned_legacy_config_keys:
-                    sys.stderr.write(
-                        f"perseus: config.yaml `{key}:` block is deprecated, please rename "
-                        f"to `{_MEMORY_CONFIG_CANONICAL}:` (settings still applied)\n"
-                    )
-                    _warned_legacy_config_keys.add(key)
+    # Only the canonical Perseus Vault configuration block is active. Unknown
+    # top-level memory keys remain untouched and are not interpreted as aliases.
 
     return loaded
 

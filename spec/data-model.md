@@ -15,7 +15,7 @@
     2026-05-17T2231.yaml
     ...
   memory/
-    <workspace-hash>.md ← Mnēmē per-workspace narrative file
+    <workspace-hash>.md ← Perseus Vault per-workspace narrative file
   pythia_log.jsonl      ← Pythia recommendation log (append-only)
 
 /workspace/<project>/
@@ -232,7 +232,7 @@ health:                                  # task-05
   context_line_warning: 400
   include_completed_tasks_older_than_days: 14
 
-memory:                                  # task-12 (Mnēmē)
+memory:                                  # task-12 (Perseus Vault)
   store: ~/.perseus/memory
   recent_keep: 5
   auto_update: true
@@ -334,7 +334,7 @@ pythia:
 - Checkpoints without an explicit `version` field remain readable. Future
   checkpoint fields are ignored by recovery and shown by diff output when they
   change.
-- Mnēmē narratives without YAML frontmatter are treated as body-only legacy
+- Perseus Vault narratives without YAML frontmatter are treated as body-only legacy
   narratives. Narratives with future frontmatter keys preserve those keys during
   deterministic updates.
 - Federation manifests ignore unknown top-level manifest fields and preserve
@@ -349,7 +349,7 @@ pythia:
 
 ---
 
-## Mnēmē Narrative Schema
+## Perseus Vault Narrative Schema
 
 Per-workspace narrative file at `~/.perseus/memory/<workspace-hash>.md`. Standard
 markdown with YAML frontmatter. Human-readable, GitHub-renderable, Perseus-parseable.
@@ -378,7 +378,7 @@ last_compaction_at_update: 2
 last_compact_processed: 47
 ---
 
-# Mnēmē — /workspace/example
+# Perseus Vault — /workspace/example
 
 > Narrative last updated 2026-05-18 14:32 CT.
 > Source: 47 checkpoints, 312 Pythia entries.

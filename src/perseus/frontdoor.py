@@ -9,17 +9,17 @@ _REQUEST_CLASSES = frozenset({"direct", "retrieve", "decide", "create", "verify"
 _INTEGRATIONS = ("vault", "ledger")
 _STATES = frozenset({"active", "unavailable", "not_configured"})
 _CAPABILITY_ORDER = (
-    "vault_recall",
+    "perseus_vault_recall",
     "ledger_verify",
     "evidence_claim_gate",
     "aar_authorize",
 )
 _REQUIRED = {
-    "retrieve": ("vault_recall",),
-    "decide": ("vault_recall",),
-    "create": ("vault_recall",),
+    "retrieve": ("perseus_vault_recall",),
+    "decide": ("perseus_vault_recall",),
+    "create": ("perseus_vault_recall",),
     "verify": ("ledger_verify", "evidence_claim_gate"),
-    "act": ("vault_recall", "aar_authorize", "ledger_verify"),
+    "act": ("perseus_vault_recall", "aar_authorize", "ledger_verify"),
 }
 
 
@@ -52,7 +52,7 @@ def route_front_door(
         for capability in _REQUIRED[request_class]:
             if capability not in available:
                 continue
-            if capability == "vault_recall" and states["vault"] != "active":
+            if capability == "perseus_vault_recall" and states["vault"] != "active":
                 continue
             if capability in {"ledger_verify", "evidence_claim_gate"} and states["ledger"] != "active":
                 continue
@@ -67,7 +67,7 @@ def route_front_door(
         degraded = "required_integrations_unavailable"
     elif "ledger_verify" in capabilities:
         guarantees.append("ledger_evidence_verification")
-    if "vault_recall" in capabilities:
+    if "perseus_vault_recall" in capabilities:
         guarantees.append("persistent_memory_retrieval")
     if "aar_authorize" in capabilities:
         guarantees.append("authorized_action_preflight")

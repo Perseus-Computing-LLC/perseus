@@ -82,7 +82,7 @@ def cmd_render(args, cfg):
 
     workspace = _infer_workspace(source_path)
     cfg = load_config(workspace)
-    _merge_pack_mimir_config(cfg, workspace)  # #441: per-workspace mimir overrides
+    _merge_pack_vault_config(cfg, workspace)  # #441: per-workspace vault overrides
 
     text = source_path.read_text(errors="replace", encoding="utf-8")
     fmt = getattr(args, "format", "md")
@@ -205,7 +205,7 @@ def cmd_scan(args, cfg):
 
     workspace = _infer_workspace(source_path)
     cfg = load_config(workspace)
-    _merge_pack_mimir_config(cfg, workspace)
+    _merge_pack_vault_config(cfg, workspace)
     text = source_path.read_text(errors="replace", encoding="utf-8")
 
     max_tier = getattr(args, "tier", None)
@@ -266,7 +266,7 @@ def cmd_compress(args, cfg):
 
     workspace = _infer_workspace(source_path)
     cfg = load_config(workspace)
-    _merge_pack_mimir_config(cfg, workspace)
+    _merge_pack_vault_config(cfg, workspace)
     text = source_path.read_text(errors="replace", encoding="utf-8")
 
     max_tier = getattr(args, "tier", None)
@@ -332,7 +332,7 @@ def cmd_preview(args, cfg):
 
     workspace = _infer_workspace(source_path)
     cfg = load_config(workspace)
-    _merge_pack_mimir_config(cfg, workspace)
+    _merge_pack_vault_config(cfg, workspace)
     text = source_path.read_text(errors="replace", encoding="utf-8")
 
     max_tier = getattr(args, "tier", None)
@@ -951,7 +951,7 @@ def _deep_merge_into(base: dict, overrides: dict) -> None:
             base[key] = val
 
 
-def _merge_pack_mimir_config(cfg: dict, workspace: Path) -> None:
+def _merge_pack_vault_config(cfg: dict, workspace: Path) -> None:
     """Deep-merge a pack.yaml memory-connector block over the loaded config (#441).
 
     `load_config` only layers the global and workspace `config.yaml` files, so a
@@ -960,10 +960,8 @@ def _merge_pack_mimir_config(cfg: dict, workspace: Path) -> None:
     Perseus Vault behavior per render target. Best-effort: a missing or
     malformed pack never breaks a render.
 
-    Reads the pack's connector block under any of the rename aliases
-    (`perseus_vault:`/`mneme:`/`mimir:`, #662) and merges into whichever key
-    `_resolve_mneme_config()` will actually read back — merging into a key that
-    resolution ignores would silently drop the override.
+    Reads the pack's canonical `perseus_vault:` connector block and merges it
+    into the configuration used by `_resolve_vault_config()`.
     """
     try:
         data, _path, errors = _load_pack_manifest(workspace)
@@ -971,29 +969,12 @@ def _merge_pack_mimir_config(cfg: dict, workspace: Path) -> None:
         return
     if errors or not isinstance(data, dict):
         return
-    # Accept the pack override under any alias (canonical first).
-    pack_mimir = None
-    for _key in ("perseus_vault", "mneme", "mimir"):
-        _block = data.get(_key)
-        if isinstance(_block, dict) and _block:
-            pack_mimir = _block
-            break
-    if not isinstance(pack_mimir, dict) or not pack_mimir:
+    # Accept only the canonical Vault block.
+    pack_vault = data.get("perseus_vault")
+    if not isinstance(pack_vault, dict) or not pack_vault:
         return
-    # Merge into whichever key _resolve_mneme_config() will actually read back
-    # (perseus_vault: preferred, then mneme:, then legacy mimir:, same lookup
-    # order) -- merging into a key that resolution ignores silently drops the
-    # override for anyone who has migrated their config.yaml.
-    base = None
-    for _key in ("perseus_vault", "mneme", "mimir"):
-        _block = cfg.get(_key)
-        if isinstance(_block, dict) and _block:
-            base = _block
-            break
-    if base is None:
-        base = {}
-        cfg["perseus_vault"] = base
-    _deep_merge_into(base, pack_mimir)
+    base = cfg.setdefault("perseus_vault", {})
+    _deep_merge_into(base, pack_vault)
 
 
 def _pack_rel(path: Path, workspace: Path) -> str:
@@ -1319,7 +1300,7 @@ Perseus is a retrieval engine. Memory is **queried when a turn needs it**, not
 stapled into every turn. There is no "hot cache" to feed — that pattern is what
 you build when you have no retrieval layer. You have one. Use it.
 
-**Default posture: `@memory mode=search` / `mimir_recall` at the moment of need.**
+**Default posture: `@memory mode=search` / `perseus_vault_recall` at the moment of need.**
 Before writing code, making a decision, or answering from prior context, pull
 exactly the facts this turn requires — then let them fall away. Nothing is
 injected unconditionally; the working budget stays on the task, not on a
@@ -1328,7 +1309,7 @@ deployment target — a per-turn memory blob is pure waste there.)
 
 Where knowledge belongs:
 - 🧠 **Durable cross-session facts, decisions, architecture** → Perseus Vault
-  (`mimir_remember` to write, `mimir_recall` / `@memory mode=search` to retrieve
+  (`perseus_vault_remember` to write, `perseus_vault_recall` / `@memory mode=search` to retrieve
   on demand). This is the primary store.
 - ⚡ **`recall_when` triggers** → attach retrieval hints to entities so the right
   memory surfaces just-in-time for a matching task, instead of being always-on.
@@ -1379,7 +1360,7 @@ retrieve it when it's actually relevant.
 
 ---
 
-## Project Memory (Mnēmē)
+## Project Memory (Perseus Vault)
 @memory focus=recent ttl=300
 
 ---
@@ -1393,10 +1374,10 @@ retrieve it when it's actually relevant.
 > @memory mode=search query="another topic" k=2
 > ```
 > Each sub-query is short enough to match effectively; the relay layer merges results.
-> Falls back gracefully to local Mnēmē FTS5 if Perseus Vault is unavailable.
-> Requires `perseus_vault.enabled: true` (or the legacy `mimir.enabled: true`) in `.perseus/config.yaml`.
+> Falls back gracefully to local Perseus Vault FTS5 if Perseus Vault is unavailable.
+> Requires `perseus_vault.enabled: true` in `.perseus/config.yaml`.
 
-@memory mode=search query="{mneme_query}" k=5
+@memory mode=search query="{vault_query}" k=5
 """
 
 # ───────────────────────── Phase 24: install ──────────────────────────────────
@@ -1588,7 +1569,7 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
 
     # Narrative
     try:
-        mp = _mneme_path(workspace, cfg)
+        mp = _vault_memory_path(workspace, cfg)
         if mp.exists():
             txt = mp.read_text(errors="replace", encoding="utf-8")
             stats["narrative_lines"] = txt.count("\n") + (1 if txt and not txt.endswith("\n") else 0)
@@ -1726,7 +1707,7 @@ def _serve_render_index(workspace: Path, stats: dict) -> str:
     endpoints = [
         ("/context", "Rendered .perseus/context.md", "Live render of the canonical context file (markdown)."),
         ("/knows", "What Perseus knows about you", "Plain-language memory review — active-only counts, trust markers, recency (add ?format=json for machines)."),
-        ("/narrative", "Mnēmē narrative", "Per-workspace project narrative distilled from checkpoints."),
+        ("/narrative", "Perseus Vault narrative", "Per-workspace project narrative distilled from checkpoints."),
         ("/health", "Maintenance report", "Stale checkpoints, near-duplicates, large context, old completed tasks."),
         ("/agora", "Task board", "All tasks in tasks/ with frontmatter status (markdown table)."),
         ("/checkpoint/latest", "Latest checkpoint (YAML)", "Most recent checkpoint for this workspace."),
@@ -2019,10 +2000,10 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             return (200, "text/markdown; charset=utf-8", rendered)
 
         if endpoint == "/narrative":
-            mp = _mneme_path(workspace, cfg)
+            mp = _vault_memory_path(workspace, cfg)
             if not mp.exists():
                 return (404, "text/plain; charset=utf-8",
-                        "No Mnēmē narrative initialized. Run `perseus memory update`.")
+                        "No Perseus Vault narrative initialized. Run `perseus memory update`.")
             narrative_text, _ = redact_text(mp.read_text(encoding="utf-8"), cfg)
             return (200, "text/markdown; charset=utf-8", narrative_text)
 
@@ -2055,13 +2036,13 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             import sys as _sys
             ws_hash = query.get("ws", "")
             try:
-                mp = _mneme_path(workspace, cfg)
+                mp = _vault_memory_path(workspace, cfg)
             except Exception as e:
                 return (500, "application/json; charset=utf-8",
-                        _json.dumps({"error": f"_mneme_path failed: {e}", "workspace_id": None}))
+                        _json.dumps({"error": f"_vault_memory_path failed: {e}", "workspace_id": None}))
             if not mp.exists():
                 return (404, "application/json; charset=utf-8",
-                        _json.dumps({"error": "No Mneme narrative initialized", "workspace_id": None,
+                        _json.dumps({"error": "No Vault narrative initialized", "workspace_id": None,
                                      "path": str(mp)}))
             # Same trust boundary as /narrative: federation peers must not
             # receive secrets the human-facing endpoint strips.
@@ -2411,16 +2392,16 @@ def cmd_init(args, cfg):
             sys.exit(1)
         content = tpl.replace("{workspace}", str(workspace))
     else:
-        content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace), version=_PERSEUS_VERSION, mneme_query=_context_appropriate_memory_query(workspace))
+        content = INIT_CONTEXT_TEMPLATE.format(workspace=str(workspace), version=_PERSEUS_VERSION, vault_query=_context_appropriate_memory_query(workspace))
     context_file.write_text(content, encoding="utf-8")
 
     # ── Perseus Vault binary auto-discovery (#227, #665) ──
     # If the vault binary is not installed, suggest the prebuilt installer.
-    mneme_cfg = _resolve_mneme_config(cfg) if cfg else {}
-    if mneme_cfg.get("enabled", True):
-        from perseus.doctor import _find_mimir_binary
-        command = mneme_cfg.get("command", ["perseus-vault", "serve"])
-        binary_path = _find_mimir_binary(command)
+    vault_cfg = _resolve_vault_config(cfg) if cfg else {}
+    if vault_cfg.get("enabled", True):
+        from perseus.doctor import _find_vault_binary
+        command = vault_cfg.get("command", ["perseus-vault", "serve"])
+        binary_path = _find_vault_binary(command)
         if binary_path is None:
             print(f"💡 Perseus Vault not found. For persistent cross-session memory (prebuilt binary):")
             print(f"   curl -sSf https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/install.sh | sh")

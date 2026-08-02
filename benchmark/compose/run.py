@@ -129,7 +129,7 @@ def path_perseus(perseus, runs: int = 5) -> dict:
     (Cold->warm cache speedup is intentionally NOT measured here: this corpus uses
     only cheap @include directives, for which the cache adds overhead without
     benefit. The existing benchmark/ suites measure cold->warm for the directives
-    that actually pay for caching — @query / @mimir. See README.)"""
+    that actually pay for caching — @query / @vault. See README.)"""
     import copy
     cfg = copy.deepcopy(perseus.DEFAULT_CONFIG)
     source = PERSEUS_SOURCE.read_text(encoding="utf-8")
