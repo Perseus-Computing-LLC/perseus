@@ -112,7 +112,7 @@ class TestTokenBudget:
                 f"Mneme memory item {i}: Historical context about the project's evolution from earlier prototypes. "
                 f"The v1 used flat JSON files, v2 introduced Mnemosyne with FTS5, and v3 (current) uses Mneme "
                 f"with topic trees and Ebbinghaus decay modeling for automatic memory lifecycle management.",
-                "mimir", "insight", decay=0.9 - i * 0.15,
+                "vault", "insight", decay=0.9 - i * 0.15,
             ))
 
         merged = conn._merge_results(
@@ -134,9 +134,9 @@ class TestTokenBudget:
 
         live = perseus.LiveStateSegment(workspace_path="/tmp/test", entries=live_entries)
         mem_items = [
-            _make_hit("mem-0", "Core architecture uses microkernel pattern for module isolation.", "mimir", "architecture"),
+            _make_hit("mem-0", "Core architecture uses microkernel pattern for module isolation.", "vault", "architecture"),
             _make_hit("mem-1", "Database driver chosen: SQLite FTS5 for zero-dependency guarantee.", "local", "decision"),
-            _make_hit("mem-2", "Build artifact perseus.py is generated from src/ via scripts/build.py.", "mimir", "insight"),
+            _make_hit("mem-2", "Build artifact perseus.py is generated from src/ via scripts/build.py.", "vault", "insight"),
         ]
         mem = perseus.MemorySegment(items=mem_items, strategy_used="local_first", total_available=3)
         pkg = perseus.ContextPackage(live_state=live, memory=mem, merge_strategy=perseus.MergeStrategy.LOCAL_FIRST)
@@ -158,7 +158,7 @@ class TestTokenBudget:
                 f"item-{i}",
                 f"Architecture note {i}: The system processes requests through a pipeline of {i % 5} stages, "
                 f"each with its own timeout and retry policy. Memory retrieval is cached for performance.",
-                "mimir" if i % 2 == 0 else "local",
+                "vault" if i % 2 == 0 else "local",
                 ["architecture", "decision", "insight"][i % 3],
                 decay=0.1 + (i % 10) * 0.09,
             ))
@@ -194,7 +194,7 @@ class TestDeduplicationEfficiency:
         ) * 2  # make it long enough to matter
 
         local = [_make_hit("l-long", long_content, "local", "decision", decay=0.5)]
-        mneme_items = [_make_hit("l-long", long_content, "mimir", "decision", decay=0.9)]
+        mneme_items = [_make_hit("l-long", long_content, "vault", "decision", decay=0.9)]
 
         merged = conn._merge_results(
             local_items=local, mimir_items=mneme_items,
@@ -220,8 +220,8 @@ class TestDeduplicationEfficiency:
         local = [_make_hit(f"l-shared-{i}", shared_contents[i], "local", "architecture") for i in range(5)]
         local += [_make_hit(f"l-unique-{i}", f"Local-only operational note #{i}: Daily health check runs at 0600 UTC.", "local", "insight") for i in range(5)]
 
-        mneme_items = [_make_hit(f"e-shared-{i}", shared_contents[i], "mimir", "architecture", decay=0.85) for i in range(5)]
-        mneme_items += [_make_hit(f"e-unique-{i}", f"Mneme-only historical context #{i}: Original prototype used JSON flat files.", "mimir", "insight", decay=0.3) for i in range(5)]
+        mneme_items = [_make_hit(f"e-shared-{i}", shared_contents[i], "vault", "architecture", decay=0.85) for i in range(5)]
+        mneme_items += [_make_hit(f"e-unique-{i}", f"Mneme-only historical context #{i}: Original prototype used JSON flat files.", "vault", "insight", decay=0.3) for i in range(5)]
 
         merged = conn._merge_results(
             local_items=local, mimir_items=mneme_items,
@@ -242,7 +242,7 @@ class TestDeduplicationEfficiency:
         conn = self._connector()
         shared = "This is a shared memory that exists in both local and remote stores."
         local = [_make_hit("l-dup", shared, "local", "insight")]
-        mneme_items = [_make_hit("e-dup", shared, "mimir", "insight")]
+        mneme_items = [_make_hit("e-dup", shared, "vault", "insight")]
 
         diag = {}
         conn._merge_results(
@@ -267,7 +267,7 @@ class TestInformationDensity:
         """When all items are unique, information density approaches 1.0."""
         conn = self._connector()
         items = [
-            _make_hit(f"item-{i}", f"Unique content piece number {i} with specific details about component {chr(65+i)}.", "mimir", "insight")
+            _make_hit(f"item-{i}", f"Unique content piece number {i} with specific details about component {chr(65+i)}.", "vault", "insight")
             for i in range(10)
         ]
 
@@ -287,9 +287,9 @@ class TestInformationDensity:
         conn = self._connector()
         shared = "Repeated content across multiple items. This represents redundant information that should be deduplicated."
         redundant_items = [
-            _make_hit("r-1", shared, "mimir", "insight"),
+            _make_hit("r-1", shared, "vault", "insight"),
             _make_hit("r-2", shared, "local", "insight"),
-            _make_hit("r-3", "Unique item with different information that adds value.", "mimir", "insight"),
+            _make_hit("r-3", "Unique item with different information that adds value.", "vault", "insight"),
         ]
 
         # Before merge (without dedup): 3 items, 2 share same content
@@ -319,10 +319,10 @@ class TestInformationDensity:
         duplicate_pairs = [f"Shared content block #{j} that appears in both local and mneme stores." for j in range(10)]
 
         local = [_make_hit(f"l-u-{i}", unique_bases[i], "local", "architecture") for i in range(15)]
-        mimir_items = [_make_hit(f"e-u-{i}", unique_bases[i+15], "mimir", "architecture") for i in range(15)]
+        mimir_items = [_make_hit(f"e-u-{i}", unique_bases[i+15], "vault", "architecture") for i in range(15)]
         for j in range(10):
             local.append(_make_hit(f"l-dup-{j}", duplicate_pairs[j], "local", "decision"))
-            mimir_items.append(_make_hit(f"e-dup-{j}", duplicate_pairs[j], "mimir", "decision", decay=0.8))
+            mimir_items.append(_make_hit(f"e-dup-{j}", duplicate_pairs[j], "vault", "decision", decay=0.8))
 
         merged = conn._merge_results(
             local_items=local, mimir_items=mimir_items,
@@ -370,9 +370,9 @@ class TestStrategyTokenProfiles:
             _make_hit("l-c", "Local C: Recent hotfix for auth race condition deployed today.", "local", "decision", decay=1.0),
         ]
         mneme_items = [
-            _make_hit("e-x", "Engram X: Historical deployment was on port 3000 without TLS.", "mimir", "architecture", decay=0.15),
-            _make_hit("e-y", "Engram Y: Monitoring was originally done with Grafana Cloud.", "mimir", "insight", decay=0.25),
-            _make_hit("e-z", "Engram Z: Auth module was originally OAuth-only, no JWT.", "mimir", "decision", decay=0.10),
+            _make_hit("e-x", "Engram X: Historical deployment was on port 3000 without TLS.", "vault", "architecture", decay=0.15),
+            _make_hit("e-y", "Engram Y: Monitoring was originally done with Grafana Cloud.", "vault", "insight", decay=0.25),
+            _make_hit("e-z", "Engram Z: Auth module was originally OAuth-only, no JWT.", "vault", "decision", decay=0.10),
         ]
 
         return conn._merge_results(
@@ -443,7 +443,7 @@ class TestRealWorldSimulation:
             _make_hit("arch-1",
                 "The Perseus context engine uses a microkernel architecture where each module (Sense, Memory, Agora) "
                 "operates as an isolated component. The core router handles directive parsing and module dispatch.",
-                "mimir", "architecture", decay=0.88),
+                "vault", "architecture", decay=0.88),
             _make_hit("dec-1",
                 "SQLite FTS5 was chosen for local Mneme search because: (1) zero external dependency — everything "
                 "ships in one file, (2) FTS5 provides BM25 ranking adequate for our use case, (3) sqlite-vec "
@@ -452,12 +452,12 @@ class TestRealWorldSimulation:
             _make_hit("ins-1",
                 "perseus.py is a BUILD ARTIFACT generated by scripts/build.py from src/ modules. NEVER edit it "
                 "directly — always edit src/ and rebuild. Merge conflicts resolved with --ours then rebuild.",
-                "mimir", "insight", decay=0.92),
+                "vault", "insight", decay=0.92),
             _make_hit("arch-2",
                 "The Mneme bridge uses MCP stdio transport: it spawns 'mneme serve --mcp' as a subprocess "
                 "and communicates via JSON-RPC over stdin/stdout. The SSE transport is available as a stub "
                 "for future dockerized deployments.",
-                "mimir", "architecture", decay=0.85),
+                "vault", "architecture", decay=0.85),
             _make_hit("dec-2",
                 "Circuit breaker thresholds: 3 consecutive failures trigger OPEN state, 120s cooldown before "
                 "HALF_OPEN probe. These values were chosen to balance fast failure detection with false positive "
@@ -466,7 +466,7 @@ class TestRealWorldSimulation:
             _make_hit("ins-2",
                 "Perseus watch daemon auto-refreshes AGENTS.md every 900s. Since the container has no cron/systemd, "
                 "the daemon runs as a persistent background process with configurable interval via --interval flag.",
-                "mimir", "insight", decay=0.72),
+                "vault", "insight", decay=0.72),
             _make_hit("arch-3",
                 "Mnemosyne v3.3.0 uses FTS5 with optional vector embeddings via sqlite-vec. The database is stored "
                 "at ~/.hermes/mnemosyne/data/mnemosyne.db. Mnemosyne scores with embeddings active show improved recall.",
@@ -474,7 +474,7 @@ class TestRealWorldSimulation:
             _make_hit("dec-3",
                 "PERSEUS_ALLOW_DANGEROUS=1 is a defense-in-depth security gate added in v1.0.6 to prevent accidental "
                 "shell execution. Even when config allows @query/@agent shell access, this env var must be set.",
-                "mimir", "decision", decay=0.60),
+                "vault", "decision", decay=0.60),
         ]
 
         mem = perseus.MemorySegment(items=mem_items, strategy_used="local_first", total_available=8)
@@ -526,11 +526,11 @@ class TestRealWorldSimulation:
             _make_hit("hl-5", shared_content[1], "local", "decision"),
         ]
         hybrid_engram = [
-            _make_hit("he-1", shared_content[0], "mimir", "decision", decay=0.9),
-            _make_hit("he-2", shared_content[1], "mimir", "decision", decay=0.85),
-            _make_hit("he-3", "Historical: port was 3000 before migration, no TLS before v2.", "mimir", "architecture", decay=0.15),
-            _make_hit("he-4", "Original monitoring: Grafana Cloud, expensive at scale.", "mimir", "insight", decay=0.2),
-            _make_hit("he-5", "Decision to migrate to Prometheus: cost savings of $400/mo.", "mimir", "decision", decay=0.45),
+            _make_hit("he-1", shared_content[0], "vault", "decision", decay=0.9),
+            _make_hit("he-2", shared_content[1], "vault", "decision", decay=0.85),
+            _make_hit("he-3", "Historical: port was 3000 before migration, no TLS before v2.", "vault", "architecture", decay=0.15),
+            _make_hit("he-4", "Original monitoring: Grafana Cloud, expensive at scale.", "vault", "insight", decay=0.2),
+            _make_hit("he-5", "Decision to migrate to Prometheus: cost savings of $400/mo.", "vault", "decision", decay=0.45),
         ]
 
         _reset_connector_singleton()
