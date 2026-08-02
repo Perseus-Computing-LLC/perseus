@@ -2,7 +2,7 @@
 gauntlet_v2_memory.py — Memory retrieval benchmarks for Perseus Gauntlet v2.
 
 Measures:
-  - Mneme FTS5 precision/recall against seeded vault (75 records)
+  - Vault FTS5 precision/recall against seeded vault (75 records)
   - Cold index build latency + warm query latency
 
 All benchmarks are hermetic — they use the locally seeded vault, no network.
@@ -30,16 +30,16 @@ from gauntlet_v2_lib import (
 )
 
 
-# ─── Mneme FTS5 benchmark ─────────────────────────────────────────────────────
+# ─── Vault FTS5 benchmark ─────────────────────────────────────────────────────
 
 
-def find_mneme_db(home: Path) -> Path | None:
-    """Locate the Mneme SQLite database under PERSEUS_HOME."""
+def find_vault_db(home: Path) -> Path | None:
+    """Locate the Vault SQLite database under PERSEUS_HOME."""
     candidates = [
-        home / "memory" / "vault" / "mneme.index",
-        home / "memory" / "mneme" / "mneme.db",
-        home / "memory" / "mneme.db",
-        home / "mneme" / "mneme.db",
+        home / "memory" / "vault" / "vault.index",
+        home / "memory" / "vault" / "vault.db",
+        home / "memory" / "vault.db",
+        home / "vault" / "vault.db",
     ]
     for c in candidates:
         if c.is_file():
@@ -47,22 +47,22 @@ def find_mneme_db(home: Path) -> Path | None:
     # Also search recursively (one level deep)
     for d in [home / "memory", home]:
         if d.is_dir():
-            for p in d.rglob("mneme.index"):
+            for p in d.rglob("vault.index"):
                 if p.is_file():
                     return p
     return None
 
 
-def _get_mneme_query_terms() -> list[dict]:
+def _get_vault_query_terms() -> list[dict]:
     """Return ground-truth query/expected pairs matching the seeded vault.
 
-    Titles are from gauntlet_seed_mneme.py which seeds 75 memory records.
+    Titles are from gauntlet_seed_vault.py which seeds 75 memory records.
     """
     return [
         # Exact title matches
         {
-            "query": "SQLite FTS5 Mneme search",
-            "expected": ["Adopt SQLite FTS5 for Mnēmē v2 search (#2)"],
+            "query": "SQLite FTS5 Vault search",
+            "expected": ["Adopt SQLite FTS5 for Perseus Vault v2 search (#2)"],
             "category": "exact",
         },
         {
@@ -88,7 +88,7 @@ def _get_mneme_query_terms() -> list[dict]:
         # Semantic queries
         {
             "query": "search backend architecture",
-            "expected": ["Adopt SQLite FTS5 for Mnēmē v2 search (#2)"],
+            "expected": ["Adopt SQLite FTS5 for Perseus Vault v2 search (#2)"],
             "category": "semantic",
         },
         {
@@ -140,10 +140,10 @@ def _get_mneme_query_terms() -> list[dict]:
     ]
 
 
-def search_mneme(db_path: Path, query: str, limit: int = 5) -> list[dict]:
-    """Run an FTS5 query against the Mneme database.
+def search_vault(db_path: Path, query: str, limit: int = 5) -> list[dict]:
+    """Run an FTS5 query against the Vault database.
 
-    The mneme_fts virtual table has: id, title, summary, tags,
+    The vault_fts virtual table has: id, title, summary, tags,
     topic_path, body, type, scope, sensitivity, confidence,
     source_path, updated. Uses porter stemming so hyphenated
     terms need space-replacement for FTS5 MATCH.
@@ -158,14 +158,14 @@ def search_mneme(db_path: Path, query: str, limit: int = 5) -> list[dict]:
         # a column-name parsing error in MATCH expressions.
         fts_query = query.replace('-', ' ')
 
-        # Query FTS5 directly — works whether or not mneme_files join is needed
+        # Query FTS5 directly — works whether or not vault_files join is needed
         try:
             cursor.execute(
                 """
-                SELECT title, snippet(mneme_fts, 2, '<b>', '</b>', '...', 40) as snippet,
-                       bm25(mneme_fts, 1.0, 0.75) as rank
-                FROM mneme_fts
-                WHERE mneme_fts MATCH ?
+                SELECT title, snippet(vault_fts, 2, '<b>', '</b>', '...', 40) as snippet,
+                       bm25(vault_fts, 1.0, 0.75) as rank
+                FROM vault_fts
+                WHERE vault_fts MATCH ?
                 ORDER BY rank
                 LIMIT ?
                 """,
@@ -175,9 +175,9 @@ def search_mneme(db_path: Path, query: str, limit: int = 5) -> list[dict]:
             # Fallback: no BM25, just MATCH
             cursor.execute(
                 """
-                SELECT title, snippet(mneme_fts, 2, '<b>', '</b>', '...', 40) as snippet
-                FROM mneme_fts
-                WHERE mneme_fts MATCH ?
+                SELECT title, snippet(vault_fts, 2, '<b>', '</b>', '...', 40) as snippet
+                FROM vault_fts
+                WHERE vault_fts MATCH ?
                 LIMIT ?
                 """,
                 (fts_query, limit),
@@ -197,26 +197,26 @@ def search_mneme(db_path: Path, query: str, limit: int = 5) -> list[dict]:
         return [{"title": "", "snippet": f"ERROR: {exc}", "rank": 0}]
 
 
-def run_mneme_benchmark(home: Path, phase_name: str = "cold") -> dict:
-    """Run Mneme retrieval benchmark against a PERSEUS_HOME.
+def run_vault_benchmark(home: Path, phase_name: str = "cold") -> dict:
+    """Run Vault retrieval benchmark against a PERSEUS_HOME.
 
     Returns dict with precision, recall, f1, latency stats, per-query results.
     """
-    db_path = find_mneme_db(home)
+    db_path = find_vault_db(home)
     if not db_path:
         return {
             "status": "skipped",
-            "reason": f"No Mneme database found under {home}",
+            "reason": f"No Vault database found under {home}",
         }
 
-    queries = _get_mneme_query_terms()
+    queries = _get_vault_query_terms()
     results = []
 
     # ── Cold query benchmark ──
     cold_times: list[float] = []
     for q in queries:
         t0 = time.time()
-        hits = search_mneme(db_path, q["query"])
+        hits = search_vault(db_path, q["query"])
         elapsed_ms = (time.time() - t0) * 1000
         cold_times.append(elapsed_ms)
 
@@ -249,7 +249,7 @@ def run_mneme_benchmark(home: Path, phase_name: str = "cold") -> dict:
     warm_times: list[float] = []
     for q in queries:
         t0 = time.time()
-        search_mneme(db_path, q["query"])
+        search_vault(db_path, q["query"])
         elapsed_ms = (time.time() - t0) * 1000
         warm_times.append(elapsed_ms)
 
@@ -301,45 +301,45 @@ def run_memory_phase(
     nfs_base: Path,
     duration: str = "full",
 ) -> dict:
-    """Phase 3: Memory Retrieval — benchmark Mneme FTS5.
+    """Phase 3: Memory Retrieval — benchmark Vault FTS5.
 
     Runs against both cold and warm homes, measures:
       - FTS5 precision/recall
       - Cold query latency (no index warmed)
       - Warm query latency (index primed)
     """
-    print("  Running Mneme cold benchmark...")
-    mneme_cold = run_mneme_benchmark(COLD_HOME, phase_name="cold")
+    print("  Running Vault cold benchmark...")
+    vault_cold = run_vault_benchmark(COLD_HOME, phase_name="cold")
 
-    print("  Running Mneme warm benchmark...")
-    mneme_warm = run_mneme_benchmark(WARM_HOME, phase_name="warm")
+    print("  Running Vault warm benchmark...")
+    vault_warm = run_vault_benchmark(WARM_HOME, phase_name="warm")
 
     # Record metrics
     metrics.record(
-        operation="mneme_cold",
-        precision=mneme_cold.get("precision", 0),
-        recall=mneme_cold.get("recall", 0),
-        f1=mneme_cold.get("f1", 0),
-        p50_ms=mneme_cold.get("cold_query_p50_ms", 0),
-        success=mneme_cold.get("status") == "completed",
+        operation="vault_cold",
+        precision=vault_cold.get("precision", 0),
+        recall=vault_cold.get("recall", 0),
+        f1=vault_cold.get("f1", 0),
+        p50_ms=vault_cold.get("cold_query_p50_ms", 0),
+        success=vault_cold.get("status") == "completed",
     )
     metrics.record(
-        operation="mneme_warm",
-        p50_ms=mneme_warm.get("warm_query_p50_ms", 0),
-        success=mneme_warm.get("status") == "completed",
+        operation="vault_warm",
+        p50_ms=vault_warm.get("warm_query_p50_ms", 0),
+        success=vault_warm.get("status") == "completed",
     )
 
     agg = metrics.aggregate()
 
     # Merge benchmark details into aggregate
     agg.update({
-        "mneme_cold": mneme_cold,
-        "mneme_warm": mneme_warm,
-        "mneme_precision": mneme_cold.get("precision", 0),
-        "mneme_recall": mneme_cold.get("recall", 0),
-        "mneme_f1": mneme_cold.get("f1", 0),
-        "mneme_cold_query_p50_ms": mneme_cold.get("cold_query_p50_ms", 0),
-        "mneme_warm_query_p50_ms": mneme_warm.get("warm_query_p50_ms", 0),
+        "vault_cold": vault_cold,
+        "vault_warm": vault_warm,
+        "vault_precision": vault_cold.get("precision", 0),
+        "perseus_vault_recall": vault_cold.get("recall", 0),
+        "vault_f1": vault_cold.get("f1", 0),
+        "vault_cold_query_p50_ms": vault_cold.get("cold_query_p50_ms", 0),
+        "vault_warm_query_p50_ms": vault_warm.get("warm_query_p50_ms", 0),
     })
 
     from gauntlet_v2_lib import write_json

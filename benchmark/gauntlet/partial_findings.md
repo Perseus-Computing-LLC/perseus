@@ -4,7 +4,7 @@
 ## Configuration fixes applied
 - `allow_query_shell: true` in PERSEUS_HOME/config.yaml (was default false)
 - Caches cleared between runs (stale "disabled" entries were poisoning results)
-- 75 synthetic Mnēmē vault records seeded
+- 75 synthetic Perseus Vault store records seeded
 - 20 workspace checkpoints created for narrative
 - `perseus memory update` run to build narrative
 - Referenced files created in profile workspace (@read targets)

@@ -24,7 +24,7 @@
     "commands": [
       { "command": "perseus.render", "title": "Perseus: Render Current Document" },
       { "command": "perseus.openCheckpoint", "title": "Perseus: Open Latest Checkpoint" },
-      { "command": "perseus.compactMemory", "title": "Perseus: Compact Mnēmē Narrative" }
+      { "command": "perseus.compactMemory", "title": "Perseus: Compact Perseus Vault Narrative" }
     ],
     "configuration": {
       "title": "Perseus",

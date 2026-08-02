@@ -401,7 +401,7 @@ def _scenario_a9_fork_bomb(home: Path):
 
 
 def _scenario_a10_memory_vault_corruption(home: Path):
-    """A10: Memory vault corruption — corrupt Mneme database."""
+    """A10: Memory vault corruption — corrupt Vault database."""
     vault = home / "memory" / "vault"
 
     def setup():
@@ -412,7 +412,7 @@ def _scenario_a10_memory_vault_corruption(home: Path):
                 "\x00\x00\x00NOT_VALID_UTF8_SEQUENCE\xFF\xFF\xFF"
             , encoding="utf-8")
         # Corrupt the database if it exists
-        db_path = home / "memory" / "mneme" / "mneme.db"
+        db_path = home / "memory" / "vault" / "vault.db"
         if db_path.is_file():
             db_path.write_bytes(b"CORRUPTED_DATABASE")
 

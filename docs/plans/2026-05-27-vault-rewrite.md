@@ -1,8 +1,8 @@
-# Mnēmē Rewrite — Implementation Plan
+# Perseus Vault Rewrite — Implementation Plan
 
 > **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.
 
-**Goal:** Rewrite Mnēmē as a Perseus-native, deeply-integrated memory layer — BM25 via SQLite FTS5, persistent index, unified `@memory` directive, Perseus-specific vault format.
+**Goal:** Rewrite Perseus Vault as a Perseus-native, deeply-integrated memory layer — BM25 via SQLite FTS5, persistent index, unified `@memory` directive, Perseus-specific vault format.
 
 **Architecture:** Replace the current dual-system memory.py (BM25 + narrative + federation, 1023 lines) with a clean three-layer design: a Perseus-native vault format, a SQLite FTS5 persistent index, and a unified `@memory` directive deeply integrated into the resolve-before-context pipeline. The BM25 engine moves from hand-rolled in-process to SQLite FTS5 (Python stdlib, concurrent-safe, persistent across processes). The narrative layer (checkpoint distillation, federation) is preserved but moved to separate modules and updated to use the new index.
 
@@ -10,7 +10,7 @@
 
 **Locked decisions:**
 1. BM25 (not embeddings) — zero-dependency, deterministic, fast
-2. Perseus-native vault format — not Bastra-compatible
+2. Perseus-native vault format — not previous Vault format-compatible
 3. Unified `@memory` — one directive for search + narrative + federation
 4. Persistent index — SQLite FTS5, build once, shared across processes
 5. Deep pipeline integration — registry → static graph → prefetch → render injection → cache
@@ -33,13 +33,13 @@ Before any code changes:
 **Objective:** Define the `.md` + YAML frontmatter format for Perseus memories.
 
 **Files:**
-- Create: `docs/mneme-vault-format.md`
+- Create: `docs/vault-format.md`
 
 **Format specification:**
 
 ```yaml
 ---
-# Perseus Mnēmē Memory v2
+# Perseus Vault Memory v2
 schema: 2
 id: memory-slug               # stable identifier
 title: Memory Title            # required
@@ -62,25 +62,25 @@ affected_files: [src/perseus/memory.py]  # optional, for LSP integration
 # Markdown body
 ```
 
-**Key differences from Bastra format:**
+**Key differences from previous Vault format format:**
 - `schema: 2` instead of implicit
-- `recall_when` field is dropped — search is purely on title + summary + body + tags + topic_path (no Bastra-specific trigger phrases)
+- `recall_when` field is dropped — search is purely on title + summary + body + tags + topic_path (no previous Vault format-specific trigger phrases)
 - Added `perseus_*` prefixed fields for pipeline integration
-- `expires` replaces Bastra's `valid_until` + `expires_after_days`
+- `expires` replaces previous Vault format's `valid_until` + `expires_after_days`
 - Body is markdown, rendered inline by `@memory`
 
 **Step 1: Write spec document**
 
-Write `docs/mneme-vault-format.md` with:
+Write `docs/vault-format.md` with:
 - Full field reference
-- Migration guide from Bastra format
+- Migration guide from previous Vault format format
 - Example memories
 
 **Step 2: Commit**
 
 ```bash
-git add docs/mneme-vault-format.md
-git commit -m "docs: add Mnēmē v2 vault format spec"
+git add docs/vault-format.md
+git commit -m "docs: add Perseus Vault v2 vault format spec"
 ```
 
 ---
@@ -97,14 +97,14 @@ git commit -m "docs: add Mnēmē v2 vault format spec"
 ```python
 # In DEFAULT_CONFIG under 'memory':
 'memory': {
-    'backend': 'mneme',          # removed — no more backend switch
-    'mneme_vault_path': '',      # empty = auto-detect
-    'mneme_index_path': '',      # empty = vault_path / 'mneme.index' (SQLite)
+    'backend': 'vault',          # removed — no more backend switch
+    'vault_path': '',      # empty = auto-detect
+    'vault_index_path': '',      # empty = vault_path / 'vault.index' (SQLite)
     # ... keep existing narrative/federation config
 }
 ```
 
-Vault path auto-detection (replaces Bastra path):
+Vault path auto-detection (replaces previous Vault format path):
 ```
 1. $PERSEUS_HOME/memory/vault/
 2. ~/.perseus/memory/vault/
@@ -112,14 +112,14 @@ Vault path auto-detection (replaces Bastra path):
 
 Index path auto-detection:
 ```
-{vault_path}/mneme.index
+{vault_path}/vault.index
 ```
 
 **Migration function** (for Phase 6):
 
 ```python
-def _mneme_migrate_vault(old_path: Path, new_path: Path) -> int:
-    """Copy .md files from old Bastra vault, rewrite frontmatter to v2 format.
+def _vault_migrate_vault(old_path: Path, new_path: Path) -> int:
+    """Copy .md files from old previous Vault format vault, rewrite frontmatter to v2 format.
     Returns count of migrated files."""
 ```
 
@@ -129,7 +129,7 @@ In `src/perseus/config.py`, update the `memory` block.
 
 **Step 2: Update vault path resolution**
 
-In `src/perseus/memory.py`, replace `_mneme_vault_path()` to use `PERSEUS_HOME` instead of `HERMES_HOME`.
+In `src/perseus/memory.py`, replace `_vault_path()` to use `PERSEUS_HOME` instead of `HERMES_HOME`.
 
 **Step 3: Commit**
 
@@ -147,25 +147,25 @@ git commit -m "feat: Perseus-native vault paths (PERSEUS_HOME-based)"
 **Objective:** Replace hand-rolled inverted index with SQLite FTS5.
 
 **Files:**
-- Create: `src/perseus/mneme_index.py` — SQLite FTS5 index layer
-- Modify: `scripts/build.py` — add `mneme_index.py` to MODULE_ORDER
+- Create: `src/perseus/vault_index.py` — SQLite FTS5 index layer
+- Modify: `scripts/build.py` — add `vault_index.py` to MODULE_ORDER
 
 **Architecture:**
 
 ```
-mneme_index.py
-  _mneme_open_index(vault_path) → sqlite3.Connection
-  _mneme_build_index(conn, vault_path) → None  (bulk insert)
-  _mneme_search(conn, query, k, scope, type_filter) → list[dict]
-  _mneme_index_document(conn, doc) → None  (insert/update single)
-  _mneme_delete_document(conn, doc_id) → None
-  _mneme_index_stats(conn) → dict  (doc count, index size)
+vault_index.py
+  _vault_open_index(vault_path) → sqlite3.Connection
+  _vault_build_index(conn, vault_path) → None  (bulk insert)
+  _vault_search(conn, query, k, scope, type_filter) → list[dict]
+  _vault_index_document(conn, doc) → None  (insert/update single)
+  _vault_delete_document(conn, doc_id) → None
+  _vault_index_stats(conn) → dict  (doc count, index size)
 ```
 
 **SQLite FTS5 table schema:**
 
 ```sql
-CREATE VIRTUAL TABLE IF NOT EXISTS mneme USING fts5(
+CREATE VIRTUAL TABLE IF NOT EXISTS vault USING fts5(
     id,
     title,
     type,
@@ -179,13 +179,13 @@ CREATE VIRTUAL TABLE IF NOT EXISTS mneme USING fts5(
 );
 
 -- Metadata table for field weights & cache info
-CREATE TABLE IF NOT EXISTS mneme_meta (
+CREATE TABLE IF NOT EXISTS vault_meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
 
 -- Tracking table for indexed files
-CREATE TABLE IF NOT EXISTS mneme_files (
+CREATE TABLE IF NOT EXISTS vault_files (
     path TEXT PRIMARY KEY,
     mtime REAL,
     indexed_at TEXT
@@ -195,13 +195,13 @@ CREATE TABLE IF NOT EXISTS mneme_files (
 **BM25 scoring via SQLite FTS5:**
 - FTS5 uses BM25 by default (Okapi BM25 variant)
 - `tokenize='porter unicode61'` handles stemming + unicode
-- Custom ranking function if needed: `INSERT INTO mneme(mneme, rank) VALUES('rank', 'bm25(10.0, 0.75)')` for k1=1.0, b=0.75
+- Custom ranking function if needed: `INSERT INTO vault(vault, rank) VALUES('rank', 'bm25(10.0, 0.75)')` for k1=1.0, b=0.75
 
 **Field weighting approach:**
 Since FTS5 doesn't support per-field weights natively, we repeat high-weight fields in a boosted content column:
 
 ```sql
-CREATE VIRTUAL TABLE IF NOT EXISTS mneme USING fts5(
+CREATE VIRTUAL TABLE IF NOT EXISTS vault USING fts5(
     id,
     title,          -- stored for retrieval
     search_text,    -- CONCAT(repeat(title, 3), ' ', repeat(summary, 2), ' ', tags, ' ', topic_path, ' ', body)
@@ -217,11 +217,11 @@ The `search_text` column repeats title 3× and summary 2× before body to simula
 
 **Step 1: Write the module**
 
-Implement `src/perseus/mneme_index.py` with full FTS5 index operations.
+Implement `src/perseus/vault_index.py` with full FTS5 index operations.
 
 **Step 2: Write tests**
 
-File: `tests/test_mneme_index.py`
+File: `tests/test_vault_index.py`
 
 Minimum tests:
 - `test_open_index_creates_file`
@@ -239,57 +239,57 @@ Minimum tests:
 **Step 3: Run tests, fix, commit**
 
 ```bash
-python scripts/build.py && python -m pytest tests/test_mneme_index.py -v
+python scripts/build.py && python -m pytest tests/test_vault_index.py -v
 ```
 
 ---
 
 ### Task 2.2: Replace BM25 recall with SQLite FTS5
 
-**Objective:** Swap `_mneme_recall()` to use SQLite FTS5 instead of hand-rolled BM25.
+**Objective:** Swap `_vault_recall()` to use SQLite FTS5 instead of hand-rolled BM25.
 
 **Files:**
-- Modify: `src/perseus/memory.py` — update `_mneme_recall()`, deprecate old `_mneme_build_bm25()`, `_mneme_score()`, `_mneme_tokenize()`, `_mneme_ensure_index()`
+- Modify: `src/perseus/memory.py` — update `_vault_recall()`, deprecate old `_vault_build_bm25()`, `_vault_score()`, `_vault_tokenize()`, `_vault_ensure_index()`
 
 **Implementation:**
 
 ```python
-def _mneme_recall(cfg: dict, query: str, k: int = 5,
+def _vault_recall(cfg: dict, query: str, k: int = 5,
                    scope: str | None = None,
                    type_filter: str | None = None) -> list[dict]:
     """Recall memories via SQLite FTS5 BM25 index."""
     try:
-        conn = _mneme_open_index(cfg)
-        results = _mneme_search(conn, query, k, scope, type_filter)
+        conn = _vault_open_index(cfg)
+        results = _vault_search(conn, query, k, scope, type_filter)
         return results
     except Exception:
         return []
 ```
 
-The old hand-rolled BM25 functions (`_mneme_build_bm25`, `_mneme_score`, `_mneme_tokenize`, `_mneme_ensure_index`) are removed. The 200+ lines of inverted index code become ~30 lines of FTS5 wrapper.
+The old hand-rolled BM25 functions (`_vault_build_bm25`, `_vault_score`, `_vault_tokenize`, `_vault_ensure_index`) are removed. The 200+ lines of inverted index code become ~30 lines of FTS5 wrapper.
 
-**Step 1: Rewrite `_mneme_recall()`**
+**Step 1: Rewrite `_vault_recall()`**
 
 Replace the hand-rolled BM25 path with SQLite FTS5 calls.
 
 **Step 2: Remove dead code**
 
-Delete `_mneme_build_bm25()`, `_mneme_score()`, `_mneme_tokenize()`, `_mneme_ensure_index()`, `_MNEME_INDEX_CACHE`, `_MNEME_STOPWORDS`, `_MNEME_BM25_K1`, `_MNEME_BM25_B`, `_MNEME_FIELD_WEIGHTS`.
+Delete `_vault_build_bm25()`, `_vault_score()`, `_vault_tokenize()`, `_vault_ensure_index()`, `_VAULT_INDEX_CACHE`, `_VAULT_STOPWORDS`, `_VAULT_BM25_K1`, `_VAULT_BM25_B`, `_VAULT_FIELD_WEIGHTS`.
 
 **Step 3: Update tests**
 
-Existing `test_mneme.py` tests should still pass — they mock `_mneme_recall()` so the internal implementation change is transparent. Add an integration test that actually writes to a vault directory and searches via the real FTS5 index.
+Existing `test_vault.py` tests should still pass — they mock `_vault_recall()` so the internal implementation change is transparent. Add an integration test that actually writes to a vault directory and searches via the real FTS5 index.
 
 **Step 4: Rebuild and run tests**
 
 ```bash
-python scripts/build.py && python -m pytest tests/test_mneme.py tests/test_mneme_index.py -v
+python scripts/build.py && python -m pytest tests/test_vault.py tests/test_vault_index.py -v
 ```
 
 **Step 5: Commit**
 
 ```bash
-git add src/perseus/memory.py src/perseus/mneme_index.py tests/test_mneme_index.py scripts/build.py
+git add src/perseus/memory.py src/perseus/vault_index.py tests/test_vault_index.py scripts/build.py
 git commit -m "feat: replace hand-rolled BM25 with SQLite FTS5 persistent index"
 ```
 
@@ -299,7 +299,7 @@ git commit -m "feat: replace hand-rolled BM25 with SQLite FTS5 persistent index"
 
 ### Task 3.1: Design the unified @memory directive
 
-**Objective:** One `@memory` directive that handles search, narrative, and federation — no more `@mneme` or backend switch.
+**Objective:** One `@memory` directive that handles search, narrative, and federation — no more `@vault` or backend switch.
 
 **Directive specification:**
 
@@ -336,12 +336,12 @@ git commit -m "feat: replace hand-rolled BM25 with SQLite FTS5 persistent index"
 ```
 
 **Backward compatibility:**
-- `@mneme query="..."` → auto-routed to `@memory mode=search query="..."` (shim for one release, then removed)
+- `@vault query="..."` → auto-routed to `@memory mode=search query="..."` (shim for one release, then removed)
 - `memory.backend` config key → ignored (always uses FTS5 index now)
 
 **Step 1: Write directive spec document**
 
-Create `docs/mneme-directive-spec.md`.
+Create `docs/vault-directive-spec.md`.
 
 **Step 2: Get user sign-off on the API before implementation**
 
@@ -350,7 +350,7 @@ Present the spec for review. Do not proceed to implementation until confirmed.
 **Step 3: Commit**
 
 ```bash
-git add docs/mneme-directive-spec.md
+git add docs/vault-directive-spec.md
 git commit -m "docs: unified @memory directive specification"
 ```
 
@@ -358,11 +358,11 @@ git commit -m "docs: unified @memory directive specification"
 
 ### Task 3.2: Implement unified @memory directive handler
 
-**Objective:** Replace `resolve_mneme()` + `resolve_memory()` with a single `resolve_memory()` that dispatches by mode.
+**Objective:** Keep the canonical `@memory` and `@vault` directives distinct while routing both through Perseus Vault.
 
 **Files:**
 - Modify: `src/perseus/memory.py` — rewrite directive handlers
-- Modify: `src/perseus/registry.py` — update DirectiveSpec for @memory, mark @mneme as deprecated
+- Modify: `src/perseus/registry.py` — register `@vault` with the canonical `resolve_vault` resolver
 
 **Implementation:**
 
@@ -395,7 +395,7 @@ def _resolve_memory_search(args_str: str, cfg: dict, workspace: Path | None) -> 
     type_filter = _parse_memory_arg(args_str, 'type')
     render_template = _parse_memory_arg(args_str, 'render') or 'default'
     
-    results = _mneme_recall(cfg, query, k, scope, type_filter)
+    results = _vault_recall(cfg, query, k, scope, type_filter)
     return _format_search_results(results, render_template)
 ```
 
@@ -419,15 +419,15 @@ DirectiveSpec("@memory", resolve_memory,
     ["mode=", "query=", "scope=", "k=", "type=", "section=", 
      "include_federation=", "alias=", "render=", "workspace="],
     "inline", "acw", reads_files=True, cacheable=True, 
-    summary="Mnēmē memory — unified search + narrative + federation", tier=1),
+    summary="Perseus Vault memory — unified search + narrative + federation", tier=1),
 
 # Deprecated shim:
-DirectiveSpec("@mneme", resolve_mneme_shim, ...),  # forwards to @memory mode=search
+DirectiveSpec("@vault", resolve_vault_shim, ...),  # forwards to @memory mode=search
 ```
 
 **Step 4: Remove backend switch**
 
-Remove `memory.backend` from DEFAULT_CONFIG. The `resolve_memory()` function no longer checks it — it's always mneme.
+Remove `memory.backend` from DEFAULT_CONFIG. The `resolve_memory()` function no longer checks it — it's always vault.
 
 **Step 5: Write tests**
 
@@ -446,12 +446,12 @@ Minimum tests:
 - `test_federation_mode_no_subscriptions`
 - `test_mode_defaults_to_search_when_query_present`
 - `test_mode_defaults_to_narrative_when_no_query`
-- `test_at_mneme_shim_forwards_to_memory`
+- `test_at_vault_shim_forwards_to_memory`
 
 **Step 6: Rebuild, run tests, commit**
 
 ```bash
-python scripts/build.py && python -m pytest tests/test_memory_unified.py tests/test_mneme.py tests/test_memory.py -v
+python scripts/build.py && python -m pytest tests/test_memory_unified.py tests/test_vault.py tests/test_memory.py -v
 ```
 
 ---
@@ -523,16 +523,16 @@ def test_graph_includes_memory_node():
 **Objective:** `perseus prefetch` should warm the memory index before render.
 
 **Files:**
-- Modify: `src/perseus/memory.py` — add `_mneme_warm_index()`
+- Modify: `src/perseus/memory.py` — add `_vault_warm_index()`
 - Modify: `src/perseus/directives/query.py` — add prefetch rule for @memory
 
 **Implementation:**
 
 ```python
-def _mneme_warm_index(cfg: dict) -> bool:
+def _vault_warm_index(cfg: dict) -> bool:
     """Ensure the SQLite FTS5 index is built and ready. 
     Called by prefetch before rendering context files that contain @memory."""
-    conn = _mneme_open_index(cfg)
+    conn = _vault_open_index(cfg)
     # FTS5 index is always ready once built; just verify it exists
     return conn is not None
 ```
@@ -644,8 +644,8 @@ def test_memory_cache_invalidated_on_index_change():
 **Objective:** Keep the deterministic narrative engine but improve it with a cleaner implementation and the new vault integration.
 
 **Files:**
-- Create: `src/perseus/mneme_narrative.py` — narrative engine
-- Modify: `src/perseus/memory.py` — strip narrative functions, import from mneme_narrative
+- Create: `src/perseus/vault_narrative.py` — narrative engine
+- Modify: `src/perseus/memory.py` — strip narrative functions, import from vault_narrative
 
 **Implementation:**
 
@@ -657,7 +657,7 @@ Extract narrative functions to a clean module:
 
 Narrative now includes a "Related Memories" section that links to the top-k relevant vault memories for each checkpoint, creating a bidirectional link between the narrative journal and the search index.
 
-**Step 1: Extract to mneme_narrative.py**
+**Step 1: Extract to vault_narrative.py**
 
 **Step 2: Add "Related Memories" cross-reference section**
 
@@ -675,14 +675,14 @@ Existing `test_memory.py` tests should still pass after refactor.
 
 **Files:**
 - Modify: `src/perseus/memory.py` — update federation functions
-- Create: `src/perseus/mneme_federation.py`
+- Create: `src/perseus/vault_federation.py`
 
 **Implementation:**
 
 Extract federation functions to a clean module.
 Add `include_vault=true` option to federation subscriptions — when enabled, `@memory mode=federation` also searches the remote workspace's vault index.
 
-**Step 1: Extract to mneme_federation.py**
+**Step 1: Extract to vault_federation.py**
 
 **Step 2: Add vault federation**
 
@@ -694,22 +694,22 @@ Add `include_vault=true` option to federation subscriptions — when enabled, `@
 
 ## Phase 6: Migration & Cleanup
 
-### Task 6.1: Write Bastra → Mnēmē v2 migration script
+### Task 6.1: Write previous Vault format → Perseus Vault v2 migration script
 
 **Objective:** One-command migration from old vault to new vault.
 
 **Files:**
-- Create: `scripts/migrate-mneme-vault.py`
+- Create: `scripts/migrate-vault.py`
 
 **Implementation:**
 
 ```bash
-python scripts/migrate-mneme-vault.py --from ~/.hermes/mneme-vault/memories/projects/ --to ~/.perseus/memory/vault/
+python scripts/migrate-vault.py --from ~/.perseus/memory/legacy/ --to ~/.perseus/memory/vault/
 ```
 
 The script:
 1. Reads all `.md` files from the old vault
-2. Parses Bastra frontmatter
+2. Parses previous Vault format frontmatter
 3. Translates to v2 format:
    - `recall_when` → dropped (body already contains trigger context)
    - `valid_until` / `expires_after_days` → `expires`
@@ -724,7 +724,7 @@ The script:
 **Step 2: Test on existing vault**
 
 ```bash
-python scripts/migrate-mneme-vault.py --dry-run
+python scripts/migrate-vault.py --dry-run
 # Verify no data loss
 ```
 
@@ -732,22 +732,22 @@ python scripts/migrate-mneme-vault.py --dry-run
 
 ---
 
-### Task 6.2: Remove @mneme shim and Bastra references
+### Task 6.2: Verify the canonical Vault-only boundary
 
-**Objective:** Clean break from the old system.
+**Objective:** Keep the current runtime on the canonical Perseus Vault surface.
 
 **Files:**
-- Modify: `src/perseus/registry.py` — remove `@mneme` DirectiveSpec
-- Modify: `src/perseus/memory.py` — remove `resolve_mneme()`, Bastra path references
-- Modify: `src/perseus/config.py` — remove `memory.backend`, `mneme_mode`, `bastra_url`
-- Delete: `tests/test_bastra.py` (if still exists)
+- Verify: `src/perseus/registry.py` — `@vault` remains the canonical Vault directive
+- Verify: `src/perseus/memory.py` — only canonical Vault resolution is active
+- Verify: `src/perseus/config.py` — only `perseus_vault` is resolved
+- Verify: tests and generated artifact contain no obsolete provider names
 
-**Step 1: Remove deprecated code**
+**Step 1: Remove obsolete compatibility references**
 
-**Step 2: Verify no remaining Bastra references**
+**Step 2: Verify the current naming boundary**
 
 ```bash
-grep -rni 'bastra\|@mneme\|resolve_mneme' src/perseus/ tests/ | grep -v 'docs/' | grep -v '.md'
+pytest -q tests/test_vault_only_boundary.py tests/test_vault_only_runtime.py
 ```
 
 **Step 3: Commit**
@@ -756,10 +756,10 @@ grep -rni 'bastra\|@mneme\|resolve_mneme' src/perseus/ tests/ | grep -v 'docs/' 
 
 ### Task 6.3: Update benchmarks
 
-**Objective:** Rewrite `mneme_hardcore.py` for the SQLite FTS5 index.
+**Objective:** Rewrite `vault_hardcore.py` for the SQLite FTS5 index.
 
 **Files:**
-- Modify: `benchmark/mneme_hardcore.py`
+- Modify: `benchmark/vault_hardcore.py`
 
 **Implementation:**
 
@@ -781,7 +781,7 @@ Expected improvement over hand-rolled BM25:
 **Step 2: Run and record results**
 
 ```bash
-python benchmark/mneme_hardcore.py
+python benchmark/vault_hardcore.py
 ```
 
 **Step 3: Commit benchmark results**
@@ -824,15 +824,15 @@ python -m pytest tests/ -v --durations=10
 **Objective:** Record the rewrite in project documentation.
 
 **Files:**
-- Modify: `ROADMAP.md` — mark Mnēmē v2 as complete, note rewrite
+- Modify: `ROADMAP.md` — mark Perseus Vault v2 as complete, note rewrite
 - Modify: `CHANGELOG.md` — add entry
-- Modify: `docs/mneme-vault-format.md` — mark as authoritative
+- Modify: `docs/vault-format.md` — mark as authoritative
 
 **Step 1: Update ROADMAP**
 
 Add a row to the Components table:
 ```
-| **Mnēmē v2** | Perseus-native memory — SQLite FTS5, unified @memory, deep pipeline integration | ✅ Phase N |
+| **Perseus Vault v2** | Perseus-native memory — SQLite FTS5, unified @memory, deep pipeline integration | ✅ Phase N |
 ```
 
 **Step 2: Update CHANGELOG**
@@ -866,10 +866,10 @@ perseus render .hermes.md  # verify @memory renders correctly
 ### Task 7.3: Migrate existing vault
 
 ```bash
-python scripts/migrate-mneme-vault.py
+python scripts/migrate-vault.py
 # Verify migration
 ls ~/.perseus/memory/vault/
-ls ~/.perseus/memory/vault/mneme.index
+ls ~/.perseus/memory/vault/vault.index
 ```
 
 ---
@@ -879,21 +879,21 @@ ls ~/.perseus/memory/vault/mneme.index
 | File | Action | Lines |
 |---|---|---|
 | `src/perseus/memory.py` | Major rewrite | 1023 → ~400 (remove hand-rolled BM25, update recall, keep narrative + federation) |
-| `src/perseus/mneme_index.py` | **Create** | ~200 (SQLite FTS5 layer) |
-| `src/perseus/mneme_narrative.py` | **Create** | ~300 (extracted from memory.py) |
-| `src/perseus/mneme_federation.py` | **Create** | ~300 (extracted from memory.py) |
+| `src/perseus/vault_index.py` | **Create** | ~200 (SQLite FTS5 layer) |
+| `src/perseus/vault_narrative.py` | **Create** | ~300 (extracted from memory.py) |
+| `src/perseus/vault_federation.py` | **Create** | ~300 (extracted from memory.py) |
 | `src/perseus/config.py` | Modify | ~10 lines (remove backend, update vault paths) |
 | `src/perseus/registry.py` | Modify | ~10 lines (unified @memory DirectiveSpec) |
 | `src/perseus/renderer.py` | Modify | ~50 lines (memory pre-resolution, cache, graph) |
 | `scripts/build.py` | Modify | +3 lines (new modules in MODULE_ORDER) |
-| `tests/test_mneme.py` | Modify | 174 → ~100 (update for new API) |
-| `tests/test_mneme_index.py` | **Create** | ~150 |
+| `tests/test_vault.py` | Modify | 174 → ~100 (update for new API) |
+| `tests/test_vault_index.py` | **Create** | ~150 |
 | `tests/test_memory_unified.py` | **Create** | ~200 |
 | `tests/test_memory.py` | Modify | minor updates for refactor |
-| `benchmark/mneme_hardcore.py` | Rewrite | ~400 |
-| `scripts/migrate-mneme-vault.py` | **Create** | ~100 |
-| `docs/mneme-vault-format.md` | **Create** | spec doc |
-| `docs/mneme-directive-spec.md` | **Create** | spec doc |
+| `benchmark/vault_hardcore.py` | Rewrite | ~400 |
+| `scripts/migrate-vault.py` | **Create** | ~100 |
+| `docs/vault-format.md` | **Create** | spec doc |
+| `docs/vault-directive-spec.md` | **Create** | spec doc |
 
 **Total:** ~2,800 lines changed/added, 1023 lines of hand-rolled BM25 removed.
 
@@ -907,7 +907,7 @@ ls ~/.perseus/memory/vault/mneme.index
 
 3. **Concurrent writers** — Multiple processes writing to the same SQLite database. Mitigation: SQLite WAL mode handles concurrent readers + single writer. Write locks are brief (microseconds for a single INSERT).
 
-4. **Backward compatibility** — `@mneme` directive disappears. Mitigation: shim for one release cycle, then removed. Vault migration script handles data.
+4. **Canonical directive stability** — `@vault` is the direct Perseus Vault search directive and remains registered alongside `@memory`. The shared migration script handles schema-1 data.
 
 5. **Test churn** — 69 existing memory tests need updating. Mitigation: incremental update, test-after-each-task, keep old tests passing until replacement is verified.
 
@@ -916,7 +916,7 @@ ls ~/.perseus/memory/vault/mneme.index
 ## Executor Flags
 
 1. **Build before testing** — Always run `python scripts/build.py` before `pytest`. The test `conftest.py` imports from the built artifact.
-2. **MODULE_ORDER in build.py** — New modules (`mneme_index.py`, `mneme_narrative.py`, `mneme_federation.py`) must be listed AFTER `memory.py` in MODULE_ORDER since they import from it (or before, depending on dependency direction). Decide: `memory.py` imports from the new modules, so memory.py comes LAST.
-3. **Don't delete old tests until new ones pass** — `test_memory.py`, `test_mneme.py`, and `test_memory_federation.py` have 69 tests that must keep passing through the refactor.
+2. **MODULE_ORDER in build.py** — New modules (`vault_index.py`, `vault_narrative.py`, `vault_federation.py`) must be listed AFTER `memory.py` in MODULE_ORDER since they import from it (or before, depending on dependency direction). Decide: `memory.py` imports from the new modules, so memory.py comes LAST.
+3. **Don't delete old tests until new ones pass** — `test_memory.py`, `test_vault.py`, and `test_memory_federation.py` have 69 tests that must keep passing through the refactor.
 4. **Line-count assertion** — After Phase 2, `memory.py` should shrink from 1023 to ~400 lines. Verify after each commit.
 5. **Smoke test early** — After Task 2.2 (first real index build), run `perseus render` on a file containing `@memory` to verify end-to-end.

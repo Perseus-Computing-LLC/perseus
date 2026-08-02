@@ -477,9 +477,9 @@ def _directive_resource_hints(directive: str, args_str: str) -> list[dict]:
         if cmd:
             resources.append({"kind": "shell", "value": cmd})
 
-    if directive in {"@memory", "@mimir"}:
+    if directive in {"@memory", "@vault"}:
         try:
-            index_path = str(_mneme_index_path({}))
+            index_path = str(_vault_index_path({}))
             resources.append({"kind": "index", "value": index_path})
         except Exception:
             pass
@@ -926,7 +926,7 @@ def _adaptive_pattern_corpus(cfg: dict, workspace: Path | None) -> str:
             parts.append(str(entry.get("response", "") or ""))
     if workspace is not None:
         try:
-            _, body = _load_narrative(_mneme_path(workspace, cfg))
+            _, body = _load_narrative(_vault_memory_path(workspace, cfg))
             parts.append(body)
         except Exception:
             pass
@@ -1088,11 +1088,11 @@ def prefetch_source(
 ) -> dict:
     graph = directive_dependency_graph(source_text, source_name=source_name, workspace=workspace)
 
-    # Mnēmē v2 — warm the SQLite FTS5 index if any @memory directives present.
+    # Perseus Vault v2 — warm the SQLite FTS5 index if any @memory directives present.
     # Build is idempotent (skips already-indexed files) and fast when unchanged.
     memory_nodes = [n for n in graph["nodes"] if n["directive"] == "@memory"]
     if memory_nodes:
-        _mneme_build_index(cfg)
+        _vault_build_index(cfg)
 
     rules = cfg.get("prefetch", {}).get("rules", [])
     if not isinstance(rules, list):

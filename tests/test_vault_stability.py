@@ -1,9 +1,9 @@
 """
 test_engram_stability.py — Phase 1: Infrastructure Validation (Robustness)
 
-Tests in this file validate that the Mneme bridge does NOT break
+Tests in this file validate that the Vault bridge does NOT break
 the system when things go wrong. These can run in CI/CD, as daily health
-checks, and do NOT require a running Mneme service.
+checks, and do NOT require a running Vault service.
 
 Three test suites:
   1. Circuit Breaker — validates the breaker state machine
@@ -26,20 +26,20 @@ from conftest import PY_VER, cfg, perseus, _capture_json
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _cfg_with_mneme(overrides=None):
+def _cfg_with_vault(overrides=None):
     """Build a config with the memory connector enabled but using parameters
     suitable for testing.
 
     #665: the canonical config key is now `perseus_vault` and the resolver
-    reads it before the legacy `mimir`/`mneme` aliases, so the connector must
+    reads it before the legacy `vault`/`vault` aliases, so the connector must
     be configured under the canonical key for these overrides to take effect
-    (a `mimir:` block would be shadowed by DEFAULT_CONFIG's `perseus_vault:`).
+    (a `vault:` block would be shadowed by DEFAULT_CONFIG's `perseus_vault:`).
     """
     c = cfg()
     c["perseus_vault"] = {
         "enabled": True,
         "transport": "stdio",
-        "command": ["nonexistent-mneme-binary", "serve", "--mcp"],  # guaranteed unavailable
+        "command": ["nonexistent-vault-binary", "serve", "--mcp"],  # guaranteed unavailable
         "endpoint": "",
         "timeout_s": 0.5,
         "merge_strategy": "local_first",
@@ -60,7 +60,7 @@ def _cfg_with_mneme(overrides=None):
 
 
 def _mock_local_hits():
-    """Return synthetic local Mneme FTS5 hits for fallback tests."""
+    """Return synthetic local Vault FTS5 hits for fallback tests."""
     return [
         {"id": "local-1", "type": "architecture", "content": "The auth module uses SQLite FTS5 for local search.", "summary": "Auth module: SQLite FTS5", "relevance": 0.85},
         {"id": "local-2", "type": "decision", "content": "Chose microkernel pattern for module isolation.", "summary": "Microkernel pattern decision", "relevance": 0.72},
@@ -68,28 +68,28 @@ def _mock_local_hits():
     ]
 
 
-def _mock_mneme_hits():
-    """Return synthetic Mneme memory hits."""
+def _mock_vault_hits():
+    """Return synthetic Vault memory hits."""
     from conftest import perseus as p
     return [
         p.EntityHit(
             id="eng-1", entity_type="architecture",
             body_json="The auth module uses Postgres for production and SQLite FTS5 for local dev.",
-            source=p.MemorySource.MIMIR, summary="Auth module: dual DB strategy",
+            source=p.MemorySource.VAULT, summary="Auth module: dual DB strategy",
             relevance=0.88, decay_score=0.95, retrieval_count=3,
             layer="core", topic_path="architecture/auth/database",
         ),
         p.EntityHit(
             id="eng-2", entity_type="decision",
             body_json="Chose microkernel pattern for module isolation after evaluating plugin architectures.",
-            source=p.MemorySource.MIMIR, summary="Microkernel: post-evaluation decision",
+            source=p.MemorySource.VAULT, summary="Microkernel: post-evaluation decision",
             relevance=0.76, decay_score=0.73, retrieval_count=1,
             layer="working", topic_path="architecture/patterns/microkernel",
         ),
         p.EntityHit(
             id="eng-3", entity_type="insight",
             body_json="Perseus watch daemon auto-refreshes AGENTS.md every 900s in the container.",
-            source=p.MemorySource.MIMIR, summary="Perseus watch daemon timing",
+            source=p.MemorySource.VAULT, summary="Perseus watch daemon timing",
             relevance=0.65, decay_score=0.42, retrieval_count=5,
             layer="working", topic_path="operations/daemons/watch",
         ),
@@ -200,40 +200,40 @@ class TestCircuitBreakerDegradedMode:
     """Validate that the connector gracefully degrades when circuit is open."""
 
     def test_connector_with_bad_binary_enters_degraded(self):
-        """When the mneme binary doesn't exist, the connector should be unavailable
+        """When the vault binary doesn't exist, the connector should be unavailable
         but NOT crash. The status should reflect the degradation."""
         _reset_connector_singleton()
-        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
-        connector = perseus.MnemeConnector(c)
+        c = _cfg_with_vault({"command": ["/nonexistent/path/vault"]})
+        connector = perseus.VaultConnector(c)
         assert not connector.available
         assert "unavailable" in connector.status.lower()
         assert connector.breaker_stats["total_failures"] >= 1
 
     def test_connector_recall_when_unavailable_returns_empty(self):
-        """When Mneme is unavailable, recall() should return an empty MemorySegment
+        """When Vault is unavailable, recall() should return an empty MemorySegment
         without raising an exception."""
         _reset_connector_singleton()
-        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
-        connector = perseus.MnemeConnector(c)
+        c = _cfg_with_vault({"command": ["/nonexistent/path/vault"]})
+        connector = perseus.VaultConnector(c)
         assert not connector.available
         segment = connector.recall(query="project architecture", max_results=5)
         assert isinstance(segment, perseus.MemorySegment)
         assert len(segment.items) == 0
 
     def test_connector_store_when_unavailable_returns_false(self):
-        """store() should return (False, error_message) when Mneme is unavailable."""
+        """store() should return (False, error_message) when Vault is unavailable."""
         _reset_connector_singleton()
-        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
-        connector = perseus.MnemeConnector(c)
+        c = _cfg_with_vault({"command": ["/nonexistent/path/vault"]})
+        connector = perseus.VaultConnector(c)
         success, msg = connector.store(content="test memory", entity_type="insight")
         assert success is False
         assert len(msg) > 0
 
     def test_connector_health_check_when_unavailable_returns_unhealthy(self):
-        """health_check() should return (False, reason) when Mneme is unavailable."""
+        """health_check() should return (False, reason) when Vault is unavailable."""
         _reset_connector_singleton()
-        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
-        connector = perseus.MnemeConnector(c)
+        c = _cfg_with_vault({"command": ["/nonexistent/path/vault"]})
+        connector = perseus.VaultConnector(c)
         ok, status = connector.health_check()
         assert ok is False
 
@@ -243,14 +243,14 @@ class TestCircuitBreakerDegradedMode:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestFallbackBehavior:
-    """Validate that when Engram returns empty/errors, local Mneme FTS5 takes over."""
+    """Validate that when Engram returns empty/errors, local Vault FTS5 takes over."""
 
     def test_hybrid_search_falls_back_to_local_when_engram_unavailable(self):
-        """_mimir_hybrid_search should return local hits when Mneme is down."""
+        """_vault_hybrid_search should return local hits when Vault is down."""
         _reset_connector_singleton()
-        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
+        c = _cfg_with_vault({"command": ["/nonexistent/path/vault"]})
         local_hits = _mock_local_hits()
-        mseg = perseus._mneme_hybrid_search(
+        mseg = perseus._vault_hybrid_search(
             cfg=c,
             query="what database does auth use?",
             workspace="/tmp/test-workspace",
@@ -262,16 +262,16 @@ class TestFallbackBehavior:
         assert mseg.strategy_used == "local_fallback"
 
     def test_hybrid_search_falls_back_to_local_when_engram_returns_empty(self):
-        """Even when Mneme is theoretically available, if it returns no results,
+        """Even when Vault is theoretically available, if it returns no results,
         the local hits should be used as fallback."""
         _reset_connector_singleton()
-        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
+        c = _cfg_with_vault({"command": ["/nonexistent/path/vault"]})
         local_hits = _mock_local_hits()
-        mseg = perseus._mneme_hybrid_search(
+        mseg = perseus._vault_hybrid_search(
             cfg=c, query="nonexistent topic", workspace="/tmp/test",
             local_hits=local_hits, max_results=3,
         )
-        # Mneme is unavailable, so local fallback kicks in
+        # Vault is unavailable, so local fallback kicks in
         assert len(mseg.items) > 0
         # All returned items should have LOCAL source
         for item in mseg.items:
@@ -280,8 +280,8 @@ class TestFallbackBehavior:
     def test_hybrid_search_returns_empty_when_both_sources_empty(self):
         """When both Engram and local produce no hits, return empty MemorySegment."""
         _reset_connector_singleton()
-        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
-        mseg = perseus._mneme_hybrid_search(
+        c = _cfg_with_vault({"command": ["/nonexistent/path/vault"]})
+        mseg = perseus._vault_hybrid_search(
             cfg=c, query="completely irrelevant query xyzzy", workspace="/tmp/test",
             local_hits=[], max_results=5,
         )
@@ -291,16 +291,16 @@ class TestFallbackBehavior:
     def test_engram_disabled_in_config_still_works(self):
         """When engram.enabled=False, the system should operate local-only without errors."""
         _reset_connector_singleton()
-        c = _cfg_with_mneme({"enabled": False, "command": ["/nonexistent/path/mneme"]})
-        connector = perseus.MnemeConnector(c)
+        c = _cfg_with_vault({"enabled": False, "command": ["/nonexistent/path/vault"]})
+        connector = perseus.VaultConnector(c)
         assert not connector.available
         assert connector.status == "disabled"
 
-    def test_hybrid_mneme_search_returns_local_only_when_unavailable(self):
-        """_mimir_hybrid_search should return empty/local-only when Mneme is down."""
+    def test_hybrid_vault_search_returns_local_only_when_unavailable(self):
+        """_vault_hybrid_search should return empty/local-only when Vault is down."""
         _reset_connector_singleton()
-        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
-        mseg = perseus._mneme_hybrid_search(
+        c = _cfg_with_vault({"command": ["/nonexistent/path/vault"]})
+        mseg = perseus._vault_hybrid_search(
             cfg=c, query="project architecture", k=5,
         )
         assert isinstance(mseg, perseus.MemorySegment)
@@ -323,11 +323,11 @@ class TestLatencyBudgets:
     def test_circuit_breaker_short_circuits_instantly(self):
         """When circuit is OPEN, recall() should return immediately (< 10ms)."""
         _reset_connector_singleton()
-        c = _cfg_with_mneme({
-            "command": ["/nonexistent/path/mneme"],
+        c = _cfg_with_vault({
+            "command": ["/nonexistent/path/vault"],
             "circuit_breaker": {"threshold": 1, "cooldown": 300},
         })
-        connector = perseus.MnemeConnector(c)
+        connector = perseus.VaultConnector(c)
         assert not connector.available
         # Subsequent recall should be instant (circuit breaker fast path)
         t0 = time.perf_counter()
@@ -337,12 +337,12 @@ class TestLatencyBudgets:
         assert len(segment.items) == 0
 
     def test_local_fallback_is_fast(self):
-        """Local Mneme FTS5 conversion should be near-instant."""
+        """Local Vault FTS5 conversion should be near-instant."""
         _reset_connector_singleton()
-        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
+        c = _cfg_with_vault({"command": ["/nonexistent/path/vault"]})
         local_hits = _mock_local_hits() * 10  # 30 items
         t0 = time.perf_counter()
-        mseg = perseus._mneme_hybrid_search(
+        mseg = perseus._vault_hybrid_search(
             cfg=c, query="test", workspace="/tmp/test",
             local_hits=local_hits, max_results=10,
         )
@@ -352,12 +352,12 @@ class TestLatencyBudgets:
     def test_merge_performance_with_large_result_set(self):
         """Merge 1000+ items from each source should complete in < 100ms."""
         _reset_connector_singleton()
-        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
-        connector = perseus.MnemeConnector(c)
+        c = _cfg_with_vault({"command": ["/nonexistent/path/vault"]})
+        connector = perseus.VaultConnector(c)
 
         # Generate large synthetic data sets
         local_items = []
-        mimir_items = []
+        vault_items = []
         for i in range(500):
             local_items.append(perseus.EntityHit(
                 id=f"local-{i}", type="insight",
@@ -365,17 +365,17 @@ class TestLatencyBudgets:
                 source=perseus.MemorySource.LOCAL, summary=f"Local item {i}",
                 relevance=0.5, decay_score=0.1 + (i % 10) * 0.1,
             ))
-            mimir_items.append(perseus.EntityHit(
+            vault_items.append(perseus.EntityHit(
                 id=f"eng-{i}", type="insight",
-                content=f"Mneme memory item number {i} with different content.",
-                source=perseus.MemorySource.MIMIR, summary=f"Mneme item {i}",
+                content=f"Vault memory item number {i} with different content.",
+                source=perseus.MemorySource.VAULT, summary=f"Vault item {i}",
                 relevance=0.5, decay_score=0.1 + (i % 10) * 0.1,
             ))
 
         t0 = time.perf_counter()
         merged = connector._merge_results(
             local_items=local_items,
-            mimir_items=mimir_items,
+            vault_items=vault_items,
             strategy=perseus.MergeStrategy.LOCAL_FIRST,
             diagnostics={},
         )
@@ -384,15 +384,15 @@ class TestLatencyBudgets:
         assert elapsed < 200, f"Merge of 1000 items took {elapsed:.1f}ms, expected < 200ms"
 
     def test_connector_initialization_completes_quickly_with_bad_binary(self):
-        """Even when the mneme binary is missing, init should NOT hang.
+        """Even when the vault binary is missing, init should NOT hang.
         It should fail fast and return control (< 5 seconds, ideally < 500ms)."""
         _reset_connector_singleton()
-        c = _cfg_with_mneme({
-            "command": ["/nonexistent/path/mneme"],
+        c = _cfg_with_vault({
+            "command": ["/nonexistent/path/vault"],
             "timeout_s": 0.5,
         })
         t0 = time.perf_counter()
-        connector = perseus.MnemeConnector(c)
+        connector = perseus.VaultConnector(c)
         elapsed = (time.perf_counter() - t0) * 1000
         assert elapsed < 5000, f"Connector init took {elapsed:.0f}ms, expected < 5000ms"
         assert not connector.available
@@ -405,7 +405,7 @@ class TestLatencyBudgets:
             items.append(p.EntityHit(
                 id=f"item-{i}", type=["architecture", "decision", "insight"][i % 3],
                 content=f"Memory item {i}: important architectural decision about component {i % 10}",
-                source=[p.MemorySource.LOCAL, p.MemorySource.MIMIR][i % 2],
+                source=[p.MemorySource.LOCAL, p.MemorySource.VAULT][i % 2],
                 summary=f"Item {i} summary", relevance=0.5 + (i % 5) * 0.1,
                 decay_score=0.3 + (i % 7) * 0.1,
             ))
@@ -431,39 +431,39 @@ class TestEdgeCases:
     def test_connector_with_empty_command_list(self):
         """Empty command list should not crash."""
         _reset_connector_singleton()
-        c = _cfg_with_mneme({"command": []})
-        connector = perseus.MnemeConnector(c)
+        c = _cfg_with_vault({"command": []})
+        connector = perseus.VaultConnector(c)
         assert not connector.available
 
     def test_connector_with_sse_transport_stub(self):
         """SSE transport stub should report unavailable gracefully."""
         _reset_connector_singleton()
-        c = _cfg_with_mneme({"transport": "sse", "endpoint": "http://localhost:99999/sse"})
-        connector = perseus.MnemeConnector(c)
+        c = _cfg_with_vault({"transport": "sse", "endpoint": "http://localhost:99999/sse"})
+        connector = perseus.VaultConnector(c)
         assert not connector.available  # SSE stub always fails connect
 
     def test_connector_close_when_never_connected(self):
         """close() should not raise even if never connected."""
         _reset_connector_singleton()
-        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
-        connector = perseus.MnemeConnector(c)
+        c = _cfg_with_vault({"command": ["/nonexistent/path/vault"]})
+        connector = perseus.VaultConnector(c)
         connector.close()  # should not raise
 
     def test_connector_close_twice_idempotent(self):
         """close() called twice should not raise."""
         _reset_connector_singleton()
-        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
-        connector = perseus.MnemeConnector(c)
+        c = _cfg_with_vault({"command": ["/nonexistent/path/vault"]})
+        connector = perseus.VaultConnector(c)
         connector.close()
         connector.close()  # should be idempotent
 
     def test_merge_with_empty_inputs(self):
         """Merge of two empty lists should return empty segment."""
         _reset_connector_singleton()
-        c = _cfg_with_mneme({"command": ["/nonexistent/path/mneme"]})
-        connector = perseus.MnemeConnector(c)
+        c = _cfg_with_vault({"command": ["/nonexistent/path/vault"]})
+        connector = perseus.VaultConnector(c)
         merged = connector._merge_results(
-            local_items=[], mimir_items=[],
+            local_items=[], vault_items=[],
             strategy=perseus.MergeStrategy.LOCAL_FIRST, diagnostics={},
         )
         assert len(merged.items) == 0
@@ -557,7 +557,7 @@ class TestStdioClientHardening:
     responses to their request id (regressions for the convergence surface)."""
 
     def test_call_times_out_when_server_hangs(self):
-        client = perseus._MCPStdioClient(["mimir"], timeout_s=0.2)
+        client = perseus._MCPStdioClient(["vault"], timeout_s=0.2)
         client._process = _FakeProc([], block_after=True)  # never responds
         client._start_reader()
 
@@ -579,7 +579,7 @@ class TestStdioClientHardening:
             'not json at all\n',                                                  # garbage
             '{"jsonrpc":"2.0","id":1,"result":{"ok":true}}\n',                   # the answer
         ]
-        client = perseus._MCPStdioClient(["mimir"], timeout_s=2.0)
+        client = perseus._MCPStdioClient(["vault"], timeout_s=2.0)
         client._process = _FakeProc(lines, block_after=True)
         client._start_reader()
 
@@ -596,11 +596,11 @@ class TestStdioClientHardening:
             '{"jsonrpc":"2.0","id":1,"result":{"isError":true,'
             '"content":[{"type":"text","text":"database is locked"}]}}\n',
         ]
-        client = perseus._MCPStdioClient(["mimir"], timeout_s=2.0)
+        client = perseus._MCPStdioClient(["vault"], timeout_s=2.0)
         client._process = _FakeProc(lines, block_after=True)
         client._start_reader()
 
-        result, err = client.call_tool("mimir_recall", {"query": "x"})
+        result, err = client.call_tool("perseus_vault_recall", {"query": "x"})
         assert result is None
         assert err is not None
         assert "database is locked" in err
@@ -609,10 +609,10 @@ class TestStdioClientHardening:
     def test_command_list_is_copied_not_aliased(self):
         # connect() rewrites command[0]; the client must not mutate the caller's
         # (config's) list, or the singleton hash churns and respawns the vault.
-        cmd = ["mimir", "serve", "--db", "x.db"]
+        cmd = ["vault", "serve", "--db", "x.db"]
         client = perseus._MCPStdioClient(cmd, timeout_s=1.0)
-        client._command[0] = "/abs/path/mimir"
-        assert cmd[0] == "mimir", "caller's command list must be untouched"
+        client._command[0] = "/abs/path/vault"
+        assert cmd[0] == "vault", "caller's command list must be untouched"
 
     def test_disconnect_terminates_before_closing_stdout(self):
         # Ordering regression: terminate() must be called before stdout.close(),
@@ -646,7 +646,7 @@ class TestStdioClientHardening:
                 events.append("wait")
                 return 0
 
-        client = perseus._MCPStdioClient(["mimir"], timeout_s=1.0)
+        client = perseus._MCPStdioClient(["vault"], timeout_s=1.0)
         client._process = _OrderProc()
         client.disconnect()
         assert "terminate" in events and "stdout.close" in events
@@ -660,14 +660,14 @@ class TestConnectorReconnect:
 
     def test_status_reports_real_error_not_not_configured(self):
         _reset_connector_singleton()
-        conn = perseus.MnemeConnector(_cfg_with_mneme())  # nonexistent binary
+        conn = perseus.VaultConnector(_cfg_with_vault())  # nonexistent binary
         assert not conn.available
         assert "not configured" not in conn.status
         assert "not found" in conn.status.lower() or "binary" in conn.status.lower()
 
     def test_ensure_connected_reprobes_when_breaker_closed(self):
         _reset_connector_singleton()
-        conn = perseus.MnemeConnector(_cfg_with_mneme())
+        conn = perseus.VaultConnector(_cfg_with_vault())
         calls = {"n": 0}
 
         def _fake_try():
@@ -683,7 +683,7 @@ class TestConnectorReconnect:
 
     def test_ensure_connected_does_not_reprobe_when_breaker_open(self):
         _reset_connector_singleton()
-        conn = perseus.MnemeConnector(_cfg_with_mneme())
+        conn = perseus.VaultConnector(_cfg_with_vault())
         calls = {"n": 0}
 
         def _fake_try():
@@ -750,11 +750,11 @@ class TestRetryAfterTransportTeardown:
 
     def test_recall_against_wedged_then_torn_down_server_returns_fast(self):
         _reset_connector_singleton()
-        conn = perseus.MnemeConnector(_cfg_with_mneme())
+        conn = perseus.VaultConnector(_cfg_with_vault())
         # Wedged server (the #544 fake): handshaken but never answers again.
         # _call times out at 0.2s and disconnects; pre-#649 the two remaining
         # retries then slept 1.0s + 1.5s (backoff_base 1.5) for nothing.
-        client = perseus._MCPStdioClient(["mimir"], timeout_s=0.2)
+        client = perseus._MCPStdioClient(["vault"], timeout_s=0.2)
         client._process = _FakeProc([], block_after=True)
         client._start_reader()
         conn._client = client
@@ -780,7 +780,7 @@ class TestLazyLocalScan774:
     def test_hybrid_recall_skips_local_scan_when_vault_returns_items(self, monkeypatch):
         _reset_connector_singleton()
         from conftest import perseus as p
-        c = _cfg_with_mneme()
+        c = _cfg_with_vault()
         connector = p._get_connector(c)
         calls = {"local": 0}
 
@@ -804,7 +804,7 @@ class TestLazyLocalScan774:
     def test_hybrid_recall_runs_local_scan_when_vault_is_empty(self, monkeypatch):
         _reset_connector_singleton()
         from conftest import perseus as p
-        c = _cfg_with_mneme()
+        c = _cfg_with_vault()
         connector = p._get_connector(c)
         calls = {"local": 0}
 

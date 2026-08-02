@@ -2,7 +2,7 @@
 # ──────────────────────────────── Inbox (task-16) ─────────────────────────────
 #
 # Point-to-point message store for cross-instance agent communication.
-# Per-workspace by default (uses _workspace_hash from Mnēmē / task-07).
+# Per-workspace by default (uses _workspace_hash from Perseus Vault / task-07).
 #
 # Storage: ~/.perseus/inbox/<workspace-hash>/<id>.yaml
 # Schema: schema=1; sent_at, sender, recipient, subject, body, read_at, dismissed_at

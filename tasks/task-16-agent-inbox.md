@@ -62,7 +62,7 @@ file remains until `dismiss`.
 
 ### Workspace scoping
 
-Inbox is per-workspace by default (uses the same `_workspace_hash` as Mnēmē
+Inbox is per-workspace by default (uses the same `_workspace_hash` as Perseus Vault
 and the multi-workspace checkpoint pointer).
 
 ## Acceptance criteria

@@ -598,13 +598,13 @@ def compute_gauntlet_score(
     phase_3 = next((p for p in phase_results if p.get("phase") == 3), {})
 
     # Retrieval recall — did we find the right records?
-    recall = phase_3.get("mneme_recall", 0)
+    recall = phase_3.get("perseus_vault_recall", 0)
     if recall > 0:
         memory_score += int(recall * 40)  # up to +40 for 100% recall
 
         # Query latency: cold < 100ms, warm < 10ms
-        cold_latency = phase_3.get("mneme_cold_query_p50_ms", 999)
-        warm_latency = phase_3.get("mneme_warm_query_p50_ms", 999)
+        cold_latency = phase_3.get("vault_cold_query_p50_ms", 999)
+        warm_latency = phase_3.get("vault_warm_query_p50_ms", 999)
         if cold_latency < 50:
             memory_score += 10
         elif cold_latency < 200:

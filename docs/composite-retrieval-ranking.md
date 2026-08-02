@@ -35,7 +35,7 @@ Components (each normalized 0–1 before weighting):
 | `support` | independent supporting entities (dedup-folded) | belief overlay derivation |
 | `confidence` | verified status × certainty | entity fields |
 | `staleness` | age past `valid_from` without revalidation; `valid_to` exceeded → hard exclude, not penalty | valid-time fields |
-| `contradiction` | live conflict flag | mimir_conflicts pairs |
+| `contradiction` | live conflict flag | vault_conflicts pairs |
 
 ## 2. Interaction with precedence (absolute rules first)
 

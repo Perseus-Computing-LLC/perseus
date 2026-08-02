@@ -1,6 +1,6 @@
-"""#580 — optional LLM query expansion (multi-query fusion) in MnemeConnector.
+"""#580 — optional LLM query expansion (multi-query fusion) in VaultConnector.
 
-When `mneme.expansion.enabled` is off (the default), recall is a single verbatim
+When `vault.expansion.enabled` is off (the default), recall is a single verbatim
 query — byte-identical to before (covered by test_bugfix_699). When on, the
 question is planned into sub-queries, each recalled, and the hits RRF-fused —
 lifting weak-category recall. Validated end-to-end on LongMemEval; these are the
@@ -29,7 +29,7 @@ def _conn(expansion=False, monkeypatch=None):
     if expansion:
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
         c["perseus_vault"]["expansion"] = {"enabled": True, "api_key_env": "OPENAI_API_KEY"}
-    conn = perseus.MnemeConnector(c)
+    conn = perseus.VaultConnector(c)
     conn._client = _StubClient()
     return conn
 
@@ -56,7 +56,7 @@ def test_query_set_dedups_and_appends_original():
 def test_expansion_off_is_single_query(monkeypatch):
     conn = _conn(expansion=False)
     seg = conn.recall(query="what do you know")
-    assert seg.strategy_used == "mimir_recall"
+    assert seg.strategy_used == "perseus_vault_recall"
     assert len(conn._client.calls) == 1  # exactly one recall, unchanged behavior
 
 
@@ -79,7 +79,7 @@ def test_expansion_fuses_subqueries(monkeypatch):
     monkeypatch.setattr(conn, "_recall_once", fake_once)
     seg = conn.recall(query="what", max_results=10)
 
-    assert seg.strategy_used == "mimir_recall_expanded"
+    assert seg.strategy_used == "perseus_vault_recall_expanded"
     assert set(calls) == {"a", "b", "what"}            # one recall per query
     ids = {h.id for h in seg.items}
     assert ids == {"s1", "s2", "s3"}                   # s3 only came from sub-queries
@@ -90,7 +90,7 @@ def test_expansion_falls_back_when_planner_unavailable(monkeypatch):
     monkeypatch.setattr(perseus, "plan_query", lambda q, d, cfg: None)  # planner fails
     seg = conn.recall(query="q")
     # falls through to the unchanged single-query path
-    assert seg.strategy_used == "mimir_recall"
+    assert seg.strategy_used == "perseus_vault_recall"
     assert len(conn._client.calls) == 1
 
 
@@ -99,5 +99,5 @@ def test_expansion_disabled_without_api_key(monkeypatch):
     c = cfg()
     c["perseus_vault"].update(enabled=True)
     c["perseus_vault"]["expansion"] = {"enabled": True, "api_key_env": "OPENAI_API_KEY"}
-    conn = perseus.MnemeConnector(c)
+    conn = perseus.VaultConnector(c)
     assert conn._expansion.enabled is False  # no key -> fail safe, expansion off

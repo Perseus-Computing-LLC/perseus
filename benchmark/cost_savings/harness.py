@@ -6,10 +6,10 @@ Two arms, identical task set, identical pinned answerer+judge, both metered
 into a Plutus ledger via ``plutus_agent.metering.record_usage``:
 
 - ``fullcontext``  — every question gets the whole haystack (baseline).
-- ``mimir``        — Perseus Vault hybrid recall, top-k (the product arm).
+- ``vault``        — Perseus Vault hybrid recall, top-k (the product arm).
 
 The arms are produced by the vault's signed LongMemEval QA harness
-(``perseus-vault/benchmark/longmemeval/qa.py --systems fullcontext mimir``) —
+(``perseus-vault/benchmark/longmemeval/qa.py --systems fullcontext vault``) —
 the same official-judge methodology behind the published accuracy numbers —
 so the savings figure and the accuracy gate come from ONE run under ONE
 config. Dollars come from the Plutus ledger (``spend_by(dimension=
@@ -76,14 +76,14 @@ def find_binary(explicit: str | None, vault_repo: Path) -> Path:
             return p
         sys.exit(f"--bin {explicit} does not exist")
     exe = ".exe" if os.name == "nt" else ""
-    for rel in (f"target/release/perseus-vault{exe}", f"target/release/mimir{exe}"):
+    for rel in (f"target/release/perseus-vault{exe}", f"target/release/vault{exe}"):
         p = vault_repo / rel
         if p.exists():
             return p
     sys.exit("no release perseus-vault binary found; build one or pass --bin")
 
 
-ARM_WORKSPACE = {"fullcontext": "baseline-fullcontext", "mimir": "perseus-vault"}
+ARM_WORKSPACE = {"fullcontext": "baseline-fullcontext", "vault": "perseus-vault"}
 
 
 def meter_journal(conn, org_id: str, journal: Path, mode: str,
@@ -179,7 +179,7 @@ def main() -> None:
         if journal.exists():
             journal.unlink()
         cmd = [sys.executable, "-X", "utf8", str(qa),
-               "--data", args.data, "--systems", "fullcontext", "mimir",
+               "--data", args.data, "--systems", "fullcontext", "vault",
                "--k", str(args.k), "--limit", str(args.limit),
                "--bin", str(binary), "--journal", str(journal),
                "--out", str(qa_report), "--outdir", str(outdir)]
@@ -233,7 +233,7 @@ def main() -> None:
             "n_graded": sysrep.get("n_graded"),
         }
 
-    base, ours = arms["fullcontext"], arms["mimir"]
+    base, ours = arms["fullcontext"], arms["vault"]
     savings_pct = (100.0 * (base["ledger_cost_usd"] - ours["ledger_cost_usd"])
                    / base["ledger_cost_usd"]) if base["ledger_cost_usd"] else None
     acc_delta = (None if base["accuracy"] is None or ours["accuracy"] is None
@@ -270,7 +270,7 @@ def main() -> None:
 
     print(f"\n[3/3] cost-savings report -> {out}")
     print(f"  arm             $ (ledger)   tokens      events  accuracy")
-    for system in ("fullcontext", "mimir"):
+    for system in ("fullcontext", "vault"):
         a = arms[system]
         acc = "n/a" if a["accuracy"] is None else f"{a['accuracy'] * 100:.1f}%"
         print(f"  {system:<15} ${a['ledger_cost_usd']:<11.4f} "

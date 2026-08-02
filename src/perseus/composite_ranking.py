@@ -12,7 +12,7 @@ fixed at 0 and documented; everything else is computed from MemoryHit
 fields already returned by the vault. Every re-ranked hit carries
 `composite_score` and per-component `score_components` for debugging.
 
-Off by default (`mneme.composite_ranking.enabled`); weights live in one
+Off by default (`vault.composite_ranking.enabled`); weights live in one
 config block so ranking can be tuned without code changes.
 """
 

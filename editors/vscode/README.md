@@ -15,7 +15,7 @@ specific niceties.
 - **Completion** — directive names + per-directive argument keys
 - **CodeLens** — "▶ Render" lens at the first directive of each document
 - **Commands** — `Perseus: Render Current Document`, `Perseus: Open Latest
-  Checkpoint`, `Perseus: Compact Mnēmē Narrative`
+  Checkpoint`, `Perseus: Compact Perseus Vault Narrative`
 - **Status bar** — `$(zap) Perseus` indicator; click to render
 
 ## Requirements

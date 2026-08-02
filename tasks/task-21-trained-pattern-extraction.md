@@ -16,7 +16,7 @@ phase: 9.2
 
 ## Context
 
-Mnēmē today distills a narrative deterministically. The `## Patterns &
+Perseus Vault today distills a narrative deterministically. The `## Patterns &
 Anti-patterns` section is currently produced by simple rules:
 - count repeated tool/skill names across checkpoints
 - count repeated failure/recovery sequences
@@ -47,7 +47,7 @@ exist**. The work splits into two halves:
    markdown bullet list, validate, return
 4. **Graceful fallback:** if the daedalus call fails (model not running,
    timeout, etc.) emit a stderr warning AND fall through to the
-   deterministic path. Mnēmē must never break because a model is unavailable.
+   deterministic path. Perseus Vault must never break because a model is unavailable.
 5. New CLI flag: `perseus memory compact --pattern-extractor daedalus` overrides config
 
 ### Half 2 — Model training (OUT OF SCOPE for this task)

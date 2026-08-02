@@ -1,7 +1,7 @@
 # Perseus context-selection eval
 
 A **reproducible, fully offline** measurement of whether Perseus *selects the
-right context* under a tier limit — the selection analog of Mimir's
+right context* under a tier limit — the selection analog of Vault's
 [`benchmark/recall/`](../../). This is a **selection-quality** gate; the
 latency/throughput and semantic-equivalence suites live in
 [`../gauntlet/`](../gauntlet/) and [`../eval/`](../eval/).

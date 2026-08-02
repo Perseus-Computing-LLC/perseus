@@ -393,14 +393,14 @@ A real-world project corpus seeded into a Sibyl Memory five-tier database (268 e
 
 | Category | Entities | Examples |
 |----------|----------|----------|
-| component | 59 | renderer, config, sibyl_memory, mneme_connector, build, cli, health_checker — with status, owner, test_coverage, dependencies |
+| component | 59 | renderer, config, sibyl_memory, vault_connector, build, cli, health_checker — with status, owner, test_coverage, dependencies |
 | decision | 58 | Architecture rationales: SQLite over Postgres, FTS5 over vector, MIT license, directive system, graceful degradation |
 | bug | 43 | Known issues with severity, component, status (open/fixed/wontfix), reproduction steps, assigned_to |
 | convention | 20 | Workflow rules: fix root cause, plan-first, twice-to-skill, no flat files, push feature branches |
-| infrastructure | 12 | Unraid homelab, GitHub Actions CI, PyPI package, Mneme vault, Sibyl DB, BSM cache, Cloudflare DNS |
+| infrastructure | 12 | Unraid homelab, GitHub Actions CI, PyPI package, Perseus Vault, Sibyl DB, BSM cache, Cloudflare DNS |
 | endpoint | 25 | Service health check URLs with expected status codes, timeouts, auth methods |
 | auth | 7 | Credential patterns (BSM cache), token extraction (/proc/1/environ), rotation schedules |
-| project | 8 | Perseus, Minions, Mneme, Hermes Config, Sibyl Memory — with repo metadata, team members |
+| project | 8 | Perseus, Minions, Vault, Hermes Config, Sibyl Memory — with repo metadata, team members |
 | user | 6 | tcconnally, contributors, Sibyl Labs LLC, Nous Research — preferences, coding style |
 | session | 20 | Past session summaries with decisions made, files changed, outcomes |
 | reference | 10 | Install guides, API docs, directive reference, changelog, product contract |
@@ -417,7 +417,7 @@ A real-world project corpus seeded into a Sibyl Memory five-tier database (268 e
 | 2 | Add health check for new service endpoint | simple | 5 facts |
 | 3 | Update CI to test Python 3.13 | simple | 5 facts |
 | 4 | Add memory-cleanup skill SKILL.md | simple | 5 facts |
-| 5 | Fix Mneme FTS5 search escaping bug (#318) | simple | 5 facts |
+| 5 | Fix Vault FTS5 search escaping bug (#318) | simple | 5 facts |
 | 6 | Fix CLI overwrite without warning (#314) | simple | 4 facts |
 | 7 | Update dependency scanner for optional imports | simple | 5 facts |
 | 8 | Implement convention checker for agent validation | complex | 8 facts |
@@ -433,7 +433,7 @@ A real-world project corpus seeded into a Sibyl Memory five-tier database (268 e
 
 **Sibyl Only:** Agent has `sibyl_search`, `sibyl_recall`, `sibyl_list`, `sibyl_remember` and terminal access. No pre-loaded context. Must discover everything at session start.
 
-**Sibyl + Perseus:** Agent starts with Perseus-rendered AGENTS.md injected into context (~{perseus_injection_tokens} tokens). Contains pre-resolved environment state (services, git, skills, sessions), Sibyl-structured memory (entities surfaced by category), Mneme narrative, and state documents. Orientation facts are either in context or one recall away.
+**Sibyl + Perseus:** Agent starts with Perseus-rendered AGENTS.md injected into context (~{perseus_injection_tokens} tokens). Contains pre-resolved environment state (services, git, skills, sessions), Sibyl-structured memory (entities surfaced by category), Vault narrative, and state documents. Orientation facts are either in context or one recall away.
 
 ### Metrics
 
@@ -535,7 +535,7 @@ Sibyl's benchmarks prove that structured retrieval beats vector search on long-h
 | Retrieval efficiency | Sibyl V2 (228 tokens/query) | FTS5 with no embedding overhead | Caches and deduplicates across sessions |
 | Trap refusal | Sibyl V2 (50/50) | Exact match returns nothing for unknowns | Validates service health before injecting |
 | **Orientation efficiency** | **This benchmark** | Structured entities surface by category | Environment state + Sibyl memory pre-loaded |
-| Cross-session continuity | Combined | Journal auto-logs every turn | Waypoints + Mneme narrative bridge sessions |
+| Cross-session continuity | Combined | Journal auto-logs every turn | Waypoints + Vault narrative bridge sessions |
 | Cost efficiency | Sibyl V2 ($0.64 vs $18.68) | Zero extraction/embedding cost | One-time injection, zero per-turn cost |
 
 ---
@@ -623,17 +623,17 @@ old_cat_table = """  <tr><th>Category</th><th>Count</th><th>Examples</th></tr>
   <tr><td>endpoint</td><td>5</td><td>Service health check URLs + expected status</td></tr>
   <tr><td>auth</td><td>2</td><td>Credential patterns, GitHub token extraction</td></tr>
   <tr><td>project</td><td>3</td><td>Perseus, Minions, config</td></tr>
-  <tr><td>tool/user</td><td>2</td><td>Mneme reference, user profile</td></tr>"""
+  <tr><td>tool/user</td><td>2</td><td>Vault reference, user profile</td></tr>"""
 
 new_cat_table = f"""  <tr><th>Category</th><th>Count</th><th>Examples</th></tr>
   <tr><td>component</td><td>59</td><td>Module names, status, owner, test coverage</td></tr>
   <tr><td>decision</td><td>58</td><td>Architecture choices (SQLite, MIT, monorepo, directive system)</td></tr>
   <tr><td>bug</td><td>43</td><td>Known issues with severity, component, status</td></tr>
   <tr><td>convention</td><td>20</td><td>Workflow rules (fix root cause, plan-first, twice-to-skill)</td></tr>
-  <tr><td>infrastructure</td><td>12</td><td>Unraid homelab, CI pipeline, Mneme vault, Sibyl DB</td></tr>
+  <tr><td>infrastructure</td><td>12</td><td>Unraid homelab, CI pipeline, Perseus Vault, Sibyl DB</td></tr>
   <tr><td>endpoint</td><td>25</td><td>Service health check URLs + expected status</td></tr>
   <tr><td>auth</td><td>7</td><td>Credential patterns, token extraction, rotation</td></tr>
-  <tr><td>project</td><td>8</td><td>Perseus, Minions, Mneme, Sibyl Memory</td></tr>
+  <tr><td>project</td><td>8</td><td>Perseus, Minions, Vault, Sibyl Memory</td></tr>
   <tr><td>user/session/reference</td><td>36</td><td>User profiles, past sessions, runbooks</td></tr>"""
 html = html.replace(old_cat_table, new_cat_table)
 

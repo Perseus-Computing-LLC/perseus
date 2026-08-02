@@ -116,4 +116,4 @@
 @query "cat /proc/1/cmdline" timeout=5 @cache ttl=86400
 @query "ls -la /etc/ssl/" timeout=5 @cache ttl=86400
 
-@mneme query="infrastructure deployment"
+@vault query="infrastructure deployment"

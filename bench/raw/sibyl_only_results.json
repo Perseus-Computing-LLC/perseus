@@ -279,7 +279,7 @@
   },
   {
     "task_id": 5,
-    "task_name": "Fix Mneme FTS5 search escaping bug (issue #318)",
+    "task_name": "Fix Vault FTS5 search escaping bug (issue #318)",
     "task_type": "simple",
     "calls": [
       {
@@ -295,12 +295,12 @@
       {
         "call_type": "search_entities",
         "args": "",
-        "kwargs": "{'query': 'mneme_connector component'}",
+        "kwargs": "{'query': 'vault_connector component'}",
         "hits": 11,
         "tokens": 2352,
         "contains_answer": true,
         "error": null,
-        "info_need": "Mneme connector module location (sibyl_search: 'mneme_connector component')"
+        "info_need": "Vault connector module location (sibyl_search: 'vault_connector component')"
       },
       {
         "call_type": "search_entities",
@@ -573,22 +573,22 @@
       {
         "call_type": "recall",
         "args": "",
-        "kwargs": "{'category': 'decision', 'name': 'cross-workspace-memory-federation-via-mneme'}",
+        "kwargs": "{'category': 'decision', 'name': 'cross-workspace-memory-federation-via-vault'}",
         "hits": 1,
         "tokens": 245,
         "contains_answer": true,
         "error": null,
-        "info_need": "Decision: cross-workspace federation (sibyl_recall: decision/cross-workspace-memory-federation-via-mneme)"
+        "info_need": "Decision: cross-workspace federation (sibyl_recall: decision/cross-workspace-memory-federation-via-vault)"
       },
       {
         "call_type": "search_entities",
         "args": "",
-        "kwargs": "{'query': 'mneme_connector component'}",
+        "kwargs": "{'query': 'vault_connector component'}",
         "hits": 11,
         "tokens": 2352,
         "contains_answer": true,
         "error": null,
-        "info_need": "Mneme connector API (sibyl_search: 'mneme_connector component')"
+        "info_need": "Vault connector API (sibyl_search: 'vault_connector component')"
       },
       {
         "call_type": "search_entities",
@@ -849,22 +849,22 @@
       {
         "call_type": "recall",
         "args": "",
-        "kwargs": "{'category': 'decision', 'name': 'cross-workspace-memory-federation-via-mneme'}",
+        "kwargs": "{'category': 'decision', 'name': 'cross-workspace-memory-federation-via-vault'}",
         "hits": 1,
         "tokens": 245,
         "contains_answer": true,
         "error": null,
-        "info_need": "Memory mesh federation (sibyl_recall: decision/cross-workspace-memory-federation-via-mneme)"
+        "info_need": "Memory mesh federation (sibyl_recall: decision/cross-workspace-memory-federation-via-vault)"
       },
       {
         "call_type": "recall",
         "args": "",
-        "kwargs": "{'category': 'infrastructure', 'name': 'mneme-vault'}",
+        "kwargs": "{'category': 'infrastructure', 'name': 'vault-path'}",
         "hits": 0,
         "tokens": 0,
         "contains_answer": false,
-        "error": "entity infrastructure/mneme-vault not found for tenant 00000000-0000-0000-0000-000000000001",
-        "info_need": "Mneme vault path (sibyl_recall: infrastructure/mneme-vault)"
+        "error": "entity infrastructure/vault-path not found for tenant 00000000-0000-0000-0000-000000000001",
+        "info_need": "Perseus Vault path (sibyl_recall: infrastructure/vault-path)"
       },
       {
         "call_type": "recall",

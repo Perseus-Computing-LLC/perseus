@@ -2,17 +2,16 @@
 
 > *"The mirror lets Perseus face the monster clearly, without meeting her gaze."*
 
-This guide walks through deploying every Perseus surface — context engine, Bastra Recall
-(Mnēmē memory), Pythia oracle, Agora task board, Synthesis, and Prefetch
-cache warming — on a Hermes Agent host. By the end, you will have a self-maintaining
-deployment where every component is watchdogged, health-checked, and wired into Hermes
-cron.
+This guide walks through deploying every Perseus surface — context engine, Perseus Vault
+memory, Pythia oracle, Agora task board, Synthesis, and Prefetch cache warming — on a
+Hermes Agent host. By the end, you will have a self-maintaining deployment where every
+component is health-checked and wired into Hermes cron.
 
 **Audience:** anyone running Hermes Agent who wants the full Perseus ecosystem running
 autonomously on their server.
 
-**Assumed environment:** Linux (Unraid/Docker), Hermes Agent installed, Node.js 22+
-available, Python 3.10+ available.
+**Assumed environment:** Linux (Unraid/Docker), Hermes Agent installed, `perseus-vault`
+installed, Python 3.10+ available.
 
 ---
 
@@ -32,9 +31,9 @@ available, Python 3.10+ available.
 │    own model — Perseus runs no inference of its own)        │
 │                           │                                │
 │  ┌────────────────────────┼─────────────────────────────┐  │
-│  │          Bastra Recall (Mnēmē — :6723)                │  │
-│  │    MCP server → 9 tools → memory vault on disk        │  │
-│  │    Daemon + watchdog (5m)                             │  │
+│  │          Perseus Vault (MCP/stdio)                       │  │
+│  │    Canonical tools → structured durable memory           │  │
+│  │    Health checked by `perseus doctor`                    │  │
 │  └──────────────────────────────────────────────────────┘  │
 │                                                             │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐                 │
@@ -58,10 +57,10 @@ Before starting, verify you have:
 | Dependency | How to check | Minimum version |
 |---|---|---|
 | Hermes Agent | `hermes --version` | v0.14.0+ |
-| Node.js | `node --version` | v22+ |
 | Python 3 | `python3 --version` | 3.10+ |
 | `pyyaml` | `python3 -c "import yaml"` | any |
-| ANTHROPIC_API_KEY | `grep ANTHROPIC_API_KEY ~/.hermes/.env` | valid key |
+| `perseus-vault` | `command -v perseus-vault` | installed and executable |
+
 
 **Key files and paths** (adjust if your Hermes home differs):
 
@@ -71,172 +70,88 @@ Before starting, verify you have:
 | `~/.hermes/.env` | API keys and secrets |
 | `~/.hermes/scripts/` | Cron scripts live here |
 | `~/.hermes/logs/` | All Perseus component logs |
-| `~/.hermes/bastra-vault/` | Bastra memory vault on disk |
+| `~/.perseus/memory/` | Perseus Vault database and local narrative support files |
 | `/workspace/perseus/perseus.py` | Standalone Perseus artifact |
 
 ---
 
-## Step 1: Bastra Recall — The Mnēmē Memory Backend
+## Step 1: Perseus Vault — The Persistent Memory Backend
 
-Bastra Recall is Perseus's persistent memory layer. It replaces the legacy
-flat-file Mnēmē subsystem. The daemon serves a REST API at `:6723`; Hermes
-connects via MCP to expose 9 memory tools (`mcp_bastra_recall_*`).
+Perseus Vault is the sole persistent-memory backend for Perseus. It runs as a
+local-first MCP server over stdio and stores structured entities, temporal
+history, journal events, and retrieval indexes in its configured database.
 
-### 1.1 Verify the Node.js Binary
+### 1.1 Configure the canonical Vault block
 
-```bash
-ls ~/.nvm/versions/node/v22.22.3/bin/node
-# Should print the path. If missing, install Node ≥22 via nvm.
+Add the canonical block to `.perseus/config.yaml`:
+
+```yaml
+perseus_vault:
+  enabled: true
+  command: ["perseus-vault", "serve"]
+  transport: stdio
 ```
 
-### 1.2 Create the Daemon Script
-
-Save as `~/.hermes/scripts/bastra-daemon.sh`:
-
-```bash
-#!/usr/bin/env bash
-# bastra-daemon.sh — start/stop/status for the bastra-recall persistent daemon
-set -euo pipefail
-
-VAULT_PATH="${BASTRA_VAULT_PATH:-$HOME/.hermes/bastra-vault}"
-DAEMON_JS="/workspace/bastra-recall/packages/daemon/dist/index.js"
-NODE_BIN="$HOME/.nvm/versions/node/v22.22.3/bin/node"
-LOG_DIR="$HOME/.hermes/logs"
-PID_FILE="/tmp/bastra-daemon.pid"
-PORT="${BASTRA_HTTP_PORT:-6723}"
-
-mkdir -p "$LOG_DIR" "$VAULT_PATH"
-
-cmd="${1:-status}"
-
-case "$cmd" in
-  start)
-    if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-      echo "bastra-daemon: already running (pid $(cat "$PID_FILE"))"
-      exit 0
-    fi
-    nohup env BASTRA_VAULT_PATH="$VAULT_PATH" "$NODE_BIN" "$DAEMON_JS" \
-      > "$LOG_DIR/bastra-daemon.log" 2>&1 &
-    echo $! > "$PID_FILE"
-    for i in $(seq 1 10); do
-      if curl -sf "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
-        echo "bastra-daemon: started (pid $(cat "$PID_FILE"))"
-        exit 0
-      fi
-      sleep 1
-    done
-    echo "bastra-daemon: started but health check timed out (pid $(cat "$PID_FILE"))"
-    exit 1
-    ;;
-  stop)
-    if [ -f "$PID_FILE" ]; then
-      pid=$(cat "$PID_FILE")
-      kill "$pid" 2>/dev/null || true
-      rm -f "$PID_FILE"
-      echo "bastra-daemon: stopped"
-    else
-      echo "bastra-daemon: not running"
-    fi
-    ;;
-  status)
-    if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-      echo "bastra-daemon: running (pid $(cat "$PID_FILE"))"
-      curl -sf "http://127.0.0.1:$PORT/health" 2>/dev/null && echo " (healthy)" || echo " (unhealthy)"
-    else
-      echo "bastra-daemon: not running"
-      rm -f "$PID_FILE"
-      exit 1
-    fi
-    ;;
-  *)
-    echo "usage: $0 {start|stop|status}"
-    exit 1
-    ;;
-esac
-```
-
-```bash
-chmod +x ~/.hermes/scripts/bastra-daemon.sh
-```
-
-### 1.3 Create the Daemon Watchdog
-
-Save as `~/.hermes/scripts/bastra-daemon-watchdog.sh`:
-
-```bash
-#!/usr/bin/env bash
-# Bastra daemon watchdog — restarts daemon if health check fails.
-# Runs via Hermes cron (no-agent mode, every 5m).
-set -euo pipefail
-
-DAEMON_SCRIPT="$HOME/.hermes/scripts/bastra-daemon.sh"
-PORT=6723
-
-if curl -sf "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
-    exit 0  # healthy — silent
-fi
-
-# Daemon is down or unhealthy — restart it
-bash "$DAEMON_SCRIPT" stop 2>/dev/null || true
-bash "$DAEMON_SCRIPT" start
-```
-
-```bash
-chmod +x ~/.hermes/scripts/bastra-daemon-watchdog.sh
-```
-
-### 1.4 Configure MCP in Hermes
-
-Add to `~/.hermes/config.yaml` under `mcp_servers:`:
+For a Hermes MCP server entry, use the same canonical executable:
 
 ```yaml
 mcp_servers:
-  bastra-recall:
-    command: /home/hermeswebui/.hermes/home/.nvm/versions/node/v22.22.3/bin/node
-    args:
-    - /workspace/bastra-recall/packages/daemon/dist/mcp-forwarder.js
-    env:
-      BASTRA_VAULT_PATH: /home/hermeswebui/.hermes/bastra-vault
-      BASTRA_FORWARDER_SPAWN: '0'
-    timeout: 120
+  perseus_vault:
+    command: perseus-vault
+    args: [serve]
 ```
 
-**Important:** The `command` must be an absolute path to your Node.js binary. The
-`$HOME` in cron execution may differ from your interactive shell — use the full
-absolute path. Verify with `which node` or `ls ~/.nvm/versions/node/*/bin/node`.
+Do not add a second memory backend, an alternate configuration key, or a
+compatibility alias. The Vault executable resolves its default database path;
+set an explicit `db_path` only when the deployment requires a non-default
+location.
 
-### 1.5 Verify Bastra
+### 1.2 Verify the binary and connection
 
 ```bash
-# Start the daemon
-bash ~/.hermes/scripts/bastra-daemon.sh start
-# Expected: bastra-daemon: started (pid NNNN)
-
-# Health check
-curl -s http://127.0.0.1:6723/health
-# Expected: {"ok":true,"vault_size":N,"version":"0.1.0"}
-
-# Check MCP tools are registered
-hermes mcp list | grep bastra
-# Expected: bastra-recall ... ✓ enabled
+command -v perseus-vault
+perseus doctor --json
+hermes mcp list | grep perseus_vault
 ```
 
-### 1.6 Schedule the Watchdog
+The doctor report should identify the `perseus-vault` executable, the
+`perseus_vault` configuration block, and the canonical health tool. A failed
+connection must be visible as a diagnostic; Perseus may fall back to local
+FTS5 for explicitly local directives, but it must not silently claim that
+persistent Vault recall succeeded.
+
+### 1.3 Verify render-time recall
 
 ```bash
-hermes cron create "every 5m" \
-  --name "Bastra-recall daemon watchdog" \
-  --script bastra-daemon-watchdog.sh \
-  --no-agent \
-  --deliver local
+perseus render .perseus/context.md --format markdown
 ```
+
+Use the canonical directive when a source file requests persistent recall:
+
+```text
+@vault query="project architecture decisions" k=5
+```
+
+The rendered output should contain either the canonical Perseus Vault context
+block or an explicit, sanitized unavailability diagnostic. Never place API
+keys, passwords, tokens, or connection strings in this configuration or in a
+committed deployment record.
+
+### 1.4 Operational checks
+
+- Keep the `perseus-vault` executable and database under the owner-managed
+  deployment path.
+- Preserve the existing database and rollback metadata before upgrades.
+- Verify the executable version and health response after a restart.
+- Treat a missing binary, failed handshake, or stale database as a deployment
+  blocker rather than substituting another memory provider.
 
 ---
 
 ## Step 2: Perseus LLM Proxy (deprecated — no longer required)
 
 > **Deprecated.** Perseus runs no inference of its own (observe model): Pythia,
-> Synthesis, and Mnēmē now render prompts for the host agent to answer with the
+> Synthesis, and Perseus Vault now render prompts for the host agent to answer with the
 > model it already uses, and no component calls a provider directly. This proxy
 > is no longer needed for a Perseus deployment — skip this step. The section is
 > retained only for operators with an existing proxy still wired into unrelated
@@ -690,9 +605,10 @@ Run through these checks after deployment. All should pass.
 ### 5.1 Core Services
 
 ```bash
-# Bastra daemon
-curl -s http://127.0.0.1:6723/health
-# Expected: {"ok":true,"vault_size":N,"version":"0.1.0"}
+# Perseus Vault
+command -v perseus-vault
+perseus doctor --json
+# Expected: canonical perseus_vault configuration and healthy Vault diagnostics
 
 # LLM proxy
 curl -s http://127.0.0.1:18080/health
@@ -706,21 +622,18 @@ cd /workspace/perseus && python3 perseus.py --version
 ### 5.2 MCP Memory Tools
 
 ```bash
-hermes mcp list | grep bastra
-# Expected: bastra-recall ... ✓ enabled
+hermes mcp list | grep perseus_vault
+# Expected: perseus_vault ... ✓ enabled
 
-# In a Hermes session, these tools should appear:
-# mcp_bastra_recall_recall, mcp_bastra_recall_load_memory,
-# mcp_bastra_recall_save_memory, mcp_bastra_recall_find_document,
-# mcp_bastra_recall_read_document, mcp_bastra_recall_save_document,
-# mcp_bastra_recall_recategorize_document, mcp_bastra_recall_move_document,
-# mcp_bastra_recall_open_document
+# In a Hermes session, the canonical tools should appear:
+# perseus_vault_remember, perseus_vault_recall, perseus_vault_context,
+# perseus_vault_forget, perseus_vault_health, perseus_vault_stats
 ```
 
 ### 5.3 Cron Jobs
 
 ```bash
-hermes cron list | grep -E 'Perseus|Bastra'
+hermes cron list | grep -E 'Perseus|Vault'
 ```
 
 All of these should show `[active]`:
@@ -732,8 +645,8 @@ All of these should show `[active]`:
 | Perseus auto-update | 0 4 * * * | no-agent |
 | Perseus prefetch cache warmer | every 30m | no-agent |
 | Perseus LLM proxy watchdog | every 10m | no-agent |
-| Bastra-recall daemon watchdog | every 5m | no-agent |
-| Perseus Agora status reporter | 0 9 * * * | no-agent |
+| Perseus Vault health check | on demand | agent |
+
 | Perseus Pythia suggest | 0 8 * * * | no-agent |
 | Perseus Synthesis weekly digest | 0 9 * * 1 | no-agent |
 
@@ -757,35 +670,35 @@ python3 perseus.py prefetch .perseus/context.md
 python3 perseus.py graph .perseus/context.md
 ```
 
-### 5.5 Bastra Memory Round-Trip
+### 5.5 Perseus Vault Memory Round-Trip
 
-From a Hermes session, test the full memory pipeline:
+From a Hermes session, test the canonical memory pipeline:
 
 ```
 # Save a test memory
-> mcp_bastra_recall_save_memory with title="test-deployment", type="project-fact",
-  summary="Deployment verification test", body="This is a test.",
-  topic_path=["test"], tags=["test"], scope="test", recall_when=["testing deployment"]
+> perseus_vault_remember with category="test", key="test-deployment",
+  content="Deployment verification test"
 
 # Recall it
-> mcp_bastra_recall_recall with query="deployment verification"
+> perseus_vault_recall with query="deployment verification"
 ```
 
 ---
 
 ## Step 6: Troubleshooting
 
-### Bastra daemon won't start
+### Perseus Vault is unavailable
 
 ```bash
-# Check the log
-tail -20 ~/.hermes/logs/bastra-daemon.log
-
-# Common causes:
-# 1. Node binary path wrong — verify with: ls ~/.nvm/versions/node/*/bin/node
-# 2. Daemon JS missing — verify: ls /workspace/bastra-recall/packages/daemon/dist/index.js
-# 3. Port in use — check: curl -s http://127.0.0.1:6723/health
+perseus doctor --json
+command -v perseus-vault
+perseus-vault --version
 ```
+
+Common causes include a missing executable, an invalid `perseus_vault.command`
+value, a failed MCP handshake, or a database permission problem. Correct the
+canonical configuration and rerun the doctor check; do not substitute another
+memory provider.
 
 ### LLM proxy returns empty responses
 
@@ -836,7 +749,7 @@ export PERSEUS_LLM_TIMEOUT=120
 
 ### MCP tools not appearing
 
-After adding `bastra-recall` to `mcp_servers:` in `config.yaml`, you need a fresh
+After adding `perseus_vault` to `mcp_servers:` in `config.yaml`, you need a fresh
 Hermes session:
 
 ```
@@ -853,7 +766,7 @@ Or restart the Hermes process. MCP servers connect at session start.
  TIME   │ JOB
 ────────┼──────────────────────────────────────────
  :00    │ Context engine refresh (every 5m)
- :05    │ Bastra daemon watchdog (every 5m)
+ :05    │ Perseus Vault health check (on demand)
  :10    │ LLM proxy watchdog (every 10m)
  :30    │ Prefetch cache warmer (every 30m)
  03:00  │ Daily checkpoint

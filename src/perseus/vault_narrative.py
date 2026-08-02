@@ -1,8 +1,8 @@
 # stdlib imports available from build artifact header
-from perseus.mneme_connector import MEMORY_BRAND
-# ─────────────────────────────── Mnēmē Memory ────────────────────────────────
+from perseus.vault_connector import MEMORY_BRAND
+# ─────────────────────────────── Perseus Vault Memory ────────────────────────────────
 #
-# Mnēmē — narrative project memory. Distills checkpoints + Pythia log into a
+# Perseus Vault — narrative project memory. Distills checkpoints + Pythia log into a
 # per-workspace narrative file at ~/.perseus/memory/<workspace-hash>.md.
 #
 # Distillation is deterministic (rule-based extraction; no LLM) — Perseus runs
@@ -43,10 +43,10 @@ def _workspace_hash(workspace: Path) -> str:
 def _workspace_hash_legacy_md5(workspace: Path) -> str:
     """12-char MD5 hex digest — the pre-1.0.3 narrative file name scheme.
 
-    Regression for #128: prior to v1.0.3, Mnēmē derived narrative file names
+    Regression for #128: prior to v1.0.3, Perseus Vault derived narrative file names
     from an MD5 hash. v1.0.3+ switched to SHA-256. Without an explicit
     migration, every existing narrative file on disk was silently orphaned
-    on upgrade. ``_mneme_path`` calls this function as a one-shot fallback
+    on upgrade. ``_vault_memory_path`` calls this function as a one-shot fallback
     to locate and rename legacy files. Once migrated, this code path is
     never re-entered for that workspace.
 
@@ -62,7 +62,7 @@ def _workspace_hash_legacy_md5(workspace: Path) -> str:
         return hashlib.md5(canonical).hexdigest()[:16]
 
 
-def _mneme_path(workspace: Path, cfg: dict) -> Path:
+def _vault_memory_path(workspace: Path, cfg: dict) -> Path:
     """Return the per-workspace narrative file path.
 
     Regression for #128: if a SHA-256 path doesn't exist but a legacy MD5
@@ -93,7 +93,7 @@ def _mneme_path(workspace: Path, cfg: dict) -> Path:
     return new_path
 
 
-def _mneme_doctor_scan(cfg: dict) -> dict:
+def _vault_doctor_scan(cfg: dict) -> dict:
     """Scan the memory store and report on narrative file inventory.
 
     Returns a dict with:
@@ -159,7 +159,7 @@ def _mneme_doctor_scan(cfg: dict) -> dict:
     return out
 
 
-def _mneme_doctor_migrate(cfg: dict) -> dict:
+def _vault_doctor_migrate(cfg: dict) -> dict:
     """Rename legacy MD5-named narrative files to their SHA-256 names.
 
     Returns a dict:
@@ -172,7 +172,7 @@ def _mneme_doctor_migrate(cfg: dict) -> dict:
     Idempotent: re-running after a successful migration is a no-op.
     """
     report: dict = {"migrated": [], "skipped": [], "errors": []}
-    scan = _mneme_doctor_scan(cfg)
+    scan = _vault_doctor_scan(cfg)
     store = Path(scan["store"])
     for legacy_fp_str in scan["legacy_md5_files"]:
         legacy_fp = Path(legacy_fp_str)
@@ -234,7 +234,7 @@ def _save_narrative(path: Path, frontmatter: dict, body: str) -> None:
     os.replace(tmp, path)
 
 
-def _mneme_default_frontmatter(workspace: Path) -> dict:
+def _vault_default_frontmatter(workspace: Path) -> dict:
     return {
         "schema": 1,
         "workspace": str(workspace),
@@ -248,11 +248,11 @@ def _mneme_default_frontmatter(workspace: Path) -> dict:
 
 
 def _enrich_narrative_frontmatter(fm: dict, body: str, workspace: Path) -> None:
-    """Add the vault-index fields the Mnēmē FTS5 indexer requires, in place.
+    """Add the vault-index fields the Perseus Vault FTS5 indexer requires, in place.
 
-    The indexer's parser (``_mneme_parse_vault_file``) skips any .md file that
+    The indexer's parser (``_vault_parse_vault_file``) skips any .md file that
     lacks an ``id`` and ``title``. Without these, a narrative is written to the
-    store but never becomes searchable via ``perseus_memory`` / ``perseus_mimir``
+    store but never becomes searchable via ``perseus_memory`` / ``perseus_vault``
     recall. This mirrors the schema-2 narrative frontmatter Perseus emits so a
     stock install indexes its own narratives out of the box.
 
@@ -290,12 +290,12 @@ def _enrich_narrative_frontmatter(fm: dict, body: str, workspace: Path) -> None:
         fm["schema"] = 2
 
 
-def _mneme_pythia_hwm(frontmatter: dict) -> int:
-    """Read the Pythia high-water mark, accepting legacy Mnēmē frontmatter."""
+def _vault_pythia_hwm(frontmatter: dict) -> int:
+    """Read the Pythia high-water mark, accepting legacy Perseus Vault frontmatter."""
     return int(frontmatter.get(PYTHIA_HWM_KEY, frontmatter.get(LEGACY_PYTHIA_HWM_KEY, 0)))
 
 
-def _set_mneme_pythia_hwm(frontmatter: dict, value: int) -> None:
+def _set_vault_pythia_hwm(frontmatter: dict, value: int) -> None:
     """Write the canonical Pythia high-water mark and drop the legacy key."""
     frontmatter[PYTHIA_HWM_KEY] = int(value)
     frontmatter.pop(LEGACY_PYTHIA_HWM_KEY, None)
@@ -518,7 +518,7 @@ def _deterministic_narrative(
         import re as _re
         _std_headings = {
             "project arc", "key decisions", "task history",
-            "patterns & anti-patterns", "recent activity", "mnēmē",
+            "patterns & anti-patterns", "recent activity", "perseus vault",
             "project arc:", "key decisions:", "task history:",
             "patterns & anti-patterns:", "recent activity:",
         }

@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Mnēmē Hardcore — In-Process BM25 Torture Benchmark
+Perseus Vault Hardcore — In-Process BM25 Torture Benchmark
 ===================================================
 
-Zero daemon, zero network. Tests the Mnēmē memory layer purely through
+Zero daemon, zero network. Tests the Perseus Vault memory layer purely through
 direct vault I/O and in-process BM25 recall.
 
 Phases:
   1. SEED     — write N synthetic docs directly to vault
   2. RECALL   — in-process BM25 recall latency vs vault size
   3. THROUGHPUT — sustained save + recall throughput
-  4. PERSEUS  — @mneme directive cold/warm renders
+  4. PERSEUS  — @vault directive cold/warm renders
   5. CONCURRENT — multiprocess recall stress (8-way)
 
 Design: pyyaml only. No HTTP, no daemon, no Node.js.
@@ -29,15 +29,15 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
-VAULT = Path("/tmp/mneme-bench-vault")
+VAULT = Path("/tmp/vault-bench-vault")
 PERSEUS = Path("/workspace/perseus/perseus.py")
 PY = sys.executable
-OUT = Path("/workspace/perseus/benchmark/mneme_hardcore.json")
+OUT = Path("/workspace/perseus/benchmark/vault_hardcore.json")
 
 SCALES = [10, 100, 500, 1000, 2500, 5000, 10000]
 DOC_TYPES = ["lesson", "preference", "project-fact", "decision",
              "workflow", "reference", "user-preference", "meta-working"]
-SCOPES = ["perseus", "mneme", "benchmark", "hermes", "homelab",
+SCOPES = ["perseus", "vault", "benchmark", "hermes", "homelab",
           "carnexus", "all-projects", "user-preference"]
 TOPICS = [
     ["development", "python", "performance"],
@@ -79,7 +79,7 @@ def write_doc(target_dir: Path, idx: int) -> dict:
         "id": title,
         "title": title,
         "type": mem_type,
-        "summary": f"Synthetic {mem_type} #{idx} for Mneme benchmark. Covers {', '.join(topic)}.",
+        "summary": f"Synthetic {mem_type} #{idx} for Vault benchmark. Covers {', '.join(topic)}.",
         "topic_path": topic,
         "tags": ["benchmark", "synthetic", mem_type],
         "scope": scope,
@@ -99,12 +99,12 @@ def write_doc(target_dir: Path, idx: int) -> dict:
 
 ## Context
 
-Synthetic benchmark document for Mneme hardcore test suite. Simulates a
+Synthetic benchmark document for Vault hardcore test suite. Simulates a
 real {mem_type} memory with content across multiple paragraphs for BM25.
 
 ## Why
 
-Created to test Mneme in-process recall at scale ({SCALES[-1]} docs).
+Created to test Vault in-process recall at scale ({SCALES[-1]} docs).
 Exercises vault I/O, YAML parsing, inverted index build, and BM25 scoring.
 
 ## How to Apply
@@ -134,7 +134,7 @@ def _load_perseus():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     # Clear the module-level index cache between phases
-    mod._MNEME_CONN_CACHE.clear()
+    mod._VAULT_CONN_CACHE.clear()
     return mod
 
 
@@ -186,7 +186,7 @@ def phase_seed() -> dict:
 def phase_recall() -> dict:
     """In-process BM25 recall at each vault scale."""
     p = _load_perseus()
-    cfg = {"memory": {"mneme_vault_path": str(VAULT)}}
+    cfg = {"memory": {"vault_path": str(VAULT)}}
 
     # Rebuild scale-by-scale by clearing cache
     results = {"phase": "recall", "scales": {}}
@@ -202,18 +202,18 @@ def phase_recall() -> dict:
 
     for target in SCALES:
         # Force index rebuild for this scale
-        p._MNEME_CONN_CACHE.clear()
+        p._VAULT_CONN_CACHE.clear()
 
         print(f"  Recall @ {target} docs...", end=" ", flush=True)
         t0 = time.perf_counter()
-        p._mneme_ensure_index(cfg)
+        p._vault_ensure_index(cfg)
         index_ms = (time.perf_counter() - t0) * 1000
 
         search_times = []
         for q in QUERIES:
             for _ in range(3):
                 st = time.perf_counter()
-                hits = p._mneme_recall(cfg, q, k=5)
+                hits = p._vault_recall(cfg, q, k=5)
                 search_times.append(time.perf_counter() - st)
 
         search_times.sort()
@@ -222,7 +222,7 @@ def phase_recall() -> dict:
         scoped_times = []
         for _ in range(5):
             st = time.perf_counter()
-            p._mneme_recall(cfg, "performance", k=5, scope="perseus")
+            p._vault_recall(cfg, "performance", k=5, scope="perseus")
             scoped_times.append(time.perf_counter() - st)
         scoped_times.sort()
 
@@ -243,11 +243,11 @@ def phase_recall() -> dict:
 def phase_throughput() -> dict:
     """Sustained write + recall throughput at final scale."""
     p = _load_perseus()
-    cfg = {"memory": {"mneme_vault_path": str(VAULT)}}
+    cfg = {"memory": {"vault_path": str(VAULT)}}
 
     print("  Building index...", end=" ", flush=True)
     t0 = time.perf_counter()
-    p._mneme_ensure_index(cfg)
+    p._vault_ensure_index(cfg)
     build_ms = (time.perf_counter() - t0) * 1000
     print(f"{build_ms:.0f}ms")
 
@@ -258,7 +258,7 @@ def phase_throughput() -> dict:
     for i in range(500):
         q = QUERIES[i % len(QUERIES)]
         st = time.perf_counter()
-        p._mneme_recall(cfg, q, k=5)
+        p._vault_recall(cfg, q, k=5)
         times.append(time.perf_counter() - st)
     elapsed = time.perf_counter() - t0
     times.sort()
@@ -297,10 +297,10 @@ def phase_throughput() -> dict:
     }
 
 
-# ── Phase 4: Perseus @mneme ─────────────────────────────────────────────────
+# ── Phase 4: Perseus @vault ─────────────────────────────────────────────────
 def phase_perseus() -> dict:
-    """Render Perseus context files with @mneme directives, cold vs warm."""
-    tmp = Path("/tmp/mneme-bench-perseus")
+    """Render Perseus context files with @vault directives, cold vs warm."""
+    tmp = Path("/tmp/vault-bench-perseus")
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir(parents=True)
 
@@ -317,24 +317,24 @@ def phase_perseus() -> dict:
             "  allow_query_shell: true\n"
             "  shell: /bin/bash\n"
             "memory:\n"
-            f"  mneme_vault_path: {VAULT}\n"
-            "  backend: mneme\n"
+            f"  vault_path: {VAULT}\n"
+            "  backend: vault\n"
         )
         (d / ".perseus" / "config.yaml").write_text(cfg_text)
 
         lines = ["@perseus v0.8\n"]
         for i in range(count):
             q = QUERIES[i % len(QUERIES)]
-            lines.append(f'@mneme query="{q}" k=5\n')
-            lines.append(f'@mneme query="{q}" k=5 scope="perseus"\n')
-            lines.append(f'@mneme query="{q}" k=5 type="lesson"\n')
+            lines.append(f'@vault query="{q}" k=5\n')
+            lines.append(f'@vault query="{q}" k=5 scope="perseus"\n')
+            lines.append(f'@vault query="{q}" k=5 type="lesson"\n')
 
         ctx = d / ".perseus" / "context_cold.md"
         ctx.write_text("".join(lines))
         total_dirs = count * 3
 
         cold_env = {**os.environ, "PERSEUS_HOME": str(d / ".ph_cold")}
-        print(f"  @mneme {total_dirs} directives cold...", end=" ", flush=True)
+        print(f"  @vault {total_dirs} directives cold...", end=" ", flush=True)
         t0 = time.perf_counter()
         r = subprocess.run(
             [PY, str(PERSEUS), "render", str(ctx), "--output", str(d / "cold.md")],
@@ -347,9 +347,9 @@ def phase_perseus() -> dict:
         lines_warm = ["@perseus v0.8\n"]
         for i in range(count):
             q = QUERIES[i % len(QUERIES)]
-            lines_warm.append(f'@mneme query="{q}" k=5 @cache ttl=3600\n')
-            lines_warm.append(f'@mneme query="{q}" k=5 scope="perseus" @cache ttl=3600\n')
-            lines_warm.append(f'@mneme query="{q}" k=5 type="lesson" @cache ttl=3600\n')
+            lines_warm.append(f'@vault query="{q}" k=5 @cache ttl=3600\n')
+            lines_warm.append(f'@vault query="{q}" k=5 scope="perseus" @cache ttl=3600\n')
+            lines_warm.append(f'@vault query="{q}" k=5 type="lesson" @cache ttl=3600\n')
 
         ctx_warm = d / ".perseus" / "context_warm.md"
         ctx_warm.write_text("".join(lines_warm))
@@ -393,17 +393,17 @@ def _worker_search(tid: int) -> dict:
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
 
-    cfg = {"memory": {"mneme_vault_path": str(VAULT)}}
+    cfg = {"memory": {"vault_path": str(VAULT)}}
 
     t0 = time.perf_counter()
-    mod._mneme_ensure_index(cfg)
+    mod._vault_ensure_index(cfg)
     build_ms = (time.perf_counter() - t0) * 1000
 
     times = []
     for i in range(50):
         q = QUERIES[(tid * 50 + i) % len(QUERIES)]
         st = time.perf_counter()
-        mod._mneme_recall(cfg, q, k=5)
+        mod._vault_recall(cfg, q, k=5)
         times.append(time.perf_counter() - st)
 
     return {"tid": tid, "build_ms": build_ms, "times": times}
@@ -448,7 +448,7 @@ def phase_concurrent() -> dict:
 def main():
     print("""
 ╔══════════════════════════════════════════════════════╗
-║     Mnēmē Hardcore — In-Process BM25 Benchmark       ║
+║     Perseus Vault Hardcore — In-Process BM25 Benchmark       ║
 ║        Zero daemon. Zero network. Pure Python.       ║
 ╚══════════════════════════════════════════════════════╝
 """)
@@ -484,7 +484,7 @@ def main():
     print(f"  Save:   {s1['docs_per_second']}/s, P50={s1['p50_ms']}ms\n")
 
     # Phase 4
-    print("Phase 4: Perseus @mneme")
+    print("Phase 4: Perseus @vault")
     perseus_r = phase_perseus()
     results["perseus"] = perseus_r
     sps = [v["speedup"] for v in perseus_r["scales"].values() if isinstance(v, dict) and "speedup" in v]
@@ -499,7 +499,7 @@ def main():
 
     # Headline
     results["headline"] = (
-        f"Mnēmē BM25: {SCALES[-1]} docs, "
+        f"Perseus Vault BM25: {SCALES[-1]} docs, "
         f"index={last['index_build_ms']:.0f}ms, "
         f"search={last['search_p50_ms']:.1f}ms P50, "
         f"concurrent={conc['qps']} qps"

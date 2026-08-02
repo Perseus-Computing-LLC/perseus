@@ -2,7 +2,7 @@
   "timestamp": "2026-05-26T23:19:58.450864",
   "python": "3.12.13",
   "hostname": "6e22d21c3126",
-  "vault": "/tmp/mneme-bench-vault",
+  "vault": "/tmp/vault-bench-vault",
   "scales": [
     10,
     100,
@@ -223,5 +223,5 @@
     "search_p99_ms": 208.54,
     "index_build_p50_ms": 11257.5
   },
-  "headline": "Mn\u0113m\u0113 BM25: 10000 docs, index=6000ms, search=37.1ms P50, concurrent=23.6 qps"
+  "headline": "Perseus Vault BM25: 10000 docs, index=6000ms, search=37.1ms P50, concurrent=23.6 qps"
 }

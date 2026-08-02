@@ -34,7 +34,7 @@ filters:
     # - "*.devops/perseus-*/**"  # Perseus connectors/configs
     # - "*.devops/discord-help-scout"
     # - "*.devops/discord-project-discovery"
-    # - "*.devops/mimir-development"
+    # - "*.devops/Perseus Vault-development"
     # - "*.github/github-auth"
     # - "*.github/github-issues"
     # - "*.github/github-pr-workflow"

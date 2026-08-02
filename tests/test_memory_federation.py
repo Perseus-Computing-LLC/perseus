@@ -19,11 +19,11 @@ from conftest import PY_VER, cfg, perseus, _capture_json, _seed_oracle_log
 pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# task-19 (Phase 8.2): Mnēmē Federation
+# task-19 (Phase 8.2): Perseus Vault Federation
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _fed_cfg(tmp_path):
-    """Build a config with all relevant Mnēmē stores rooted in tmp_path."""
+    """Build a config with all relevant Perseus Vault stores rooted in tmp_path."""
     local = cfg()
     local["memory"]["store"] = str(tmp_path / "memory")
     local["memory"]["federation_manifest"] = str(tmp_path / "memory" / "federation.yaml")
@@ -37,7 +37,7 @@ def _fed_cfg(tmp_path):
 def _seed_narrative(workspace: Path, local: dict, body: str = "# Narrative\n\n## Project Arc\n\nHello world\n", updated: str | None = None):
     """Drop a fake narrative file in place for a workspace."""
     workspace.mkdir(parents=True, exist_ok=True)
-    np = perseus._mneme_path(workspace, local)
+    np = perseus._vault_memory_path(workspace, local)
     np.parent.mkdir(parents=True, exist_ok=True)
     if updated is None:
         updated = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -471,7 +471,7 @@ def _seed_unreadable_narrative(workspace: Path, local: dict) -> Path:
     _load_narrative maps to an empty body — the silent-drop path of #650.
     """
     workspace.mkdir(parents=True, exist_ok=True)
-    np = perseus._mneme_path(workspace, local)
+    np = perseus._vault_memory_path(workspace, local)
     np.mkdir(parents=True, exist_ok=True)
     return np
 

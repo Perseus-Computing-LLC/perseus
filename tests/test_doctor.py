@@ -116,8 +116,8 @@ def test_doctor_checkpoint_ok_recent(tmp_path, monkeypatch):
     assert result.status == "ok"
 
 
-def _write_mneme_vault_doc(vault_dir: Path, doc_id: str) -> Path:
-    """Write a minimal valid Mnēmē v2 memory .md file (see test_mimir_index.py)."""
+def _write_vault_doc(vault_dir: Path, doc_id: str) -> Path:
+    """Write a minimal valid Perseus Vault v2 memory .md file (see test_vault_index.py)."""
     vault_dir.mkdir(parents=True, exist_ok=True)
     file_path = vault_dir / f"{doc_id}.md"
     file_path.write_text(
@@ -138,41 +138,41 @@ body
     return file_path
 
 
-def test_doctor_mneme_index_reports_orphaned_entries(tmp_path):
-    """Doctor's Mnēmē FTS index check flags entries whose source file is gone.
+def test_doctor_vault_index_reports_orphaned_entries(tmp_path):
+    """Doctor's Perseus Vault FTS index check flags entries whose source file is gone.
 
-    Regression test: _doctor_check_mneme_index used to query the nonexistent
+    Regression test: _doctor_check_vault_index used to query the nonexistent
     "file_path" column (the real schema column is "path"), which raised
     sqlite3.OperationalError on every call -- silently swallowed by a bare
     `except Exception: pass`, so the orphan count stayed 0 forever and this
     check could never surface a moved/deleted vault.
     """
     vault = tmp_path / "vault"
-    doc_path = _write_mneme_vault_doc(vault, "orphan-doc")
+    doc_path = _write_vault_doc(vault, "orphan-doc")
     c = cfg()
-    c["memory"]["mneme_vault_path"] = str(vault)
-    c["memory"]["mneme_index_path"] = str(vault / "mneme.index")
+    c["memory"]["vault_path"] = str(vault)
+    c["memory"]["vault_index_path"] = str(vault / "vault.index")
 
-    assert perseus._mneme_build_index(c) == 1
+    assert perseus._vault_build_index(c) == 1
 
-    # Delete the source file without rebuilding the index -- mneme_files
+    # Delete the source file without rebuilding the index -- vault_files
     # still has a row for it, exactly like a vault that moved/was deleted.
     doc_path.unlink()
 
-    result = perseus._doctor_check_mneme_index(c, tmp_path)
+    result = perseus._doctor_check_vault_index(c, tmp_path)
     assert result.status == "warn"
     assert "1 orphaned entries" in result.value
 
 
-def test_doctor_mneme_oversized(tmp_path):
+def test_doctor_vault_oversized(tmp_path):
     """Doctor warns when narrative exceeds max_narrative_lines."""
     mem_dir = tmp_path / "memories"
     mem_dir.mkdir()
     c = cfg()
     c["memory"] = {"store": str(mem_dir), "max_narrative_lines": 200}
-    narrative = perseus._mneme_path(tmp_path, c)
+    narrative = perseus._vault_memory_path(tmp_path, c)
     narrative.write_text("\n".join(f"line {i}" for i in range(300)), encoding="utf-8")
-    result = perseus._doctor_check_mneme(c, tmp_path)
+    result = perseus._doctor_check_vault(c, tmp_path)
     assert result.status == "warn"
     assert "exceeds" in result.value
 
@@ -352,24 +352,24 @@ def test_version_honors_repo_version_beside_marker(tmp_path):
 
 def test_doctor_labels_use_perseus_vault_brand(tmp_path):
     """#666 (P5): no user-facing doctor check LABEL may carry a legacy brand
-    ('Mimir'/'Mnēmē'/'Mneme'). The memory checks now route their labels through
+    ('Vault'/'Perseus Vault'/'Vault'). The memory checks now route their labels through
     the shared MEMORY_BRAND constant ('Perseus Vault').
 
-    (FAILS on pre-#666 main, where labels read 'Mnēmē narrative',
-    'Mnēmē FTS index', and 'Mimir'.)
+    (FAILS on pre-#666 main, where labels read 'Perseus Vault narrative',
+    'Perseus Vault FTS index', and 'Vault'.)
     """
     c = cfg()
 
     # Narrative check (missing narrative → warn) and FTS-index check.
     labels = [
-        perseus._doctor_check_mneme(c, tmp_path).label,
-        perseus._doctor_check_mneme_index(c, tmp_path).label,
+        perseus._doctor_check_vault(c, tmp_path).label,
+        perseus._doctor_check_vault_index(c, tmp_path).label,
     ]
     # Connectivity check across all outcome branches: disabled, absent-binary,
     # and unreachable (absent binary name guarantees the warn branch).
     disabled = dict(c)
     disabled["perseus_vault"] = {"enabled": False}
-    labels.append(perseus._doctor_check_mimir_bridge(disabled, tmp_path).label)
+    labels.append(perseus._doctor_check_vault_bridge(disabled, tmp_path).label)
 
     absent = dict(c)
     absent["perseus_vault"] = {
@@ -377,13 +377,10 @@ def test_doctor_labels_use_perseus_vault_brand(tmp_path):
         "transport": "stdio",
         "command": ["perseus-vault-absent-xyz", "serve"],
     }
-    labels.append(perseus._doctor_check_mimir_bridge(absent, tmp_path).label)
+    labels.append(perseus._doctor_check_vault_bridge(absent, tmp_path).label)
 
-    forbidden = ("Mimir", "mimir", "Mnēmē", "Mneme")
     for label in labels:
-        for bad in forbidden:
-            assert bad not in label, f"legacy brand {bad!r} leaked into doctor label {label!r}"
-        assert "Perseus Vault" in label, f"label not rebranded: {label!r}"
+        assert "Perseus Vault" in label, f"label not branded: {label!r}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

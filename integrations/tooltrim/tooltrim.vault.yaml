@@ -1,0 +1,55 @@
+# Tooltrim config — Perseus Vault persistent memory (27 tools → 6 core)
+# Reduces Perseus Vault's 27 MCP tools to the 6 core memory operations most agents need.
+#
+# Usage:
+#   1. Copy to Perseus Vault-tooltrim.config.yaml
+#   2. Point tooltrim at your Perseus Vault server
+#   3. Agent only sees remember/recall/ask/forget/ingest/context — not admin tools
+
+servers:
+  Perseus Vault:
+    transport: stdio
+    command: ["/usr/local/bin/Perseus Vault"]
+    args: ["--db", "/opt/data/webui/minions/.minions-data/Perseus Vault/Perseus Vault.db"]
+
+filters:
+  allow:
+    # === Core memory (always needed — 6 tools) ===
+    - "*.perseus_vault_remember"
+    - "*.perseus_vault_recall"
+    - "*.perseus_vault_ask"
+    - "*.perseus_vault_forget"
+    - "*.perseus_vault_ingest"
+    - "*.perseus_vault_context"
+
+    # === Optional: add these for memory maintenance tasks ===
+    # - "*.perseus_vault_embed"
+    # - "*.perseus_vault_link"
+    # - "*.perseus_vault_unlink"
+    # - "*.perseus_vault_journal"
+    # - "*.perseus_vault_timeline"
+    # - "*.perseus_vault_state_set"
+    # - "*.perseus_vault_state_get"
+    # - "*.perseus_vault_state_list"
+    # - "*.perseus_vault_decay"
+    # - "*.perseus_vault_prune"
+
+    # === Admin tools (rarely needed by agents — keep disabled) ===
+    # - "*.perseus_vault_health"
+    # - "*.perseus_vault_stats"
+    # - "*.perseus_vault_compact"
+    # - "*.perseus_vault_migrate"
+    # - "*.perseus_vault_score"
+    # - "*.perseus_vault_conflicts"
+    # - "*.perseus_vault_export"
+    # - "*.perseus_vault_import"
+    # - "*.perseus_vault_traverse"
+    # - "*.perseus_vault_workspace_list"
+
+shrink:
+  mode: rules
+  maxDescriptionChars: 160
+  dedupeSchemas: true
+
+inbound:
+  stdio: true

@@ -44,7 +44,7 @@ Marketplace from this task; sideload the `.vsix` for smoke testing.
    in the `Perseus Render` output channel.
 8. Run `Perseus: Open Latest Checkpoint`; it should open a checkpoint when one
    exists or show a warning when none exists.
-9. Run `Perseus: Compact Mnēmē Narrative` with `perseus.allowMutations=false`;
+9. Run `Perseus: Compact Perseus Vault Narrative` with `perseus.allowMutations=false`;
    it must warn that mutation commands are disabled.
 10. Enable `perseus.allowMutations`, reload the extension host, and confirm
     compaction is allowed. Disable it again before packaging public builds.

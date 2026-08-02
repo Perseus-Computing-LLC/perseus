@@ -297,7 +297,7 @@ An instruction embedded in the source that is included in AI render mode and str
 
 ### `@memory`
 
-Inject the Mnēmē narrative for the current workspace inline. Reads the
+Inject the Perseus Vault narrative for the current workspace inline. Reads the
 narrative file at `~/.perseus/memory/<workspace-hash>.md`. If no narrative
 exists yet, renders a warning advising the user to run `perseus memory update`.
 If the narrative is stale (age > `checkpoints.ttl_s`), renders a staleness
@@ -320,7 +320,7 @@ access time.
 | `focus` | `"arc"`, `"decisions"`, `"history"` (alias `"tasks"`), `"patterns"`, `"recent"` | Emit only the named `##` section from the narrative body |
 | `ttl` | integer (seconds) | Short-form cache — equivalent to `@cache ttl=N` |
 
-See `spec/components.md` § 4 (Mnēmē) for the CLI surface that produces the
+See `spec/components.md` § 4 (Perseus Vault) for the CLI surface that produces the
 narrative file.
 
 ### `@memory federation` (task-19, Phase 8.2)
@@ -469,16 +469,16 @@ Empty inbox renders `_No new messages._`
 
 ---
 
-## Mnēmē v2 Memory Search
+## Perseus Vault v2 Memory Search
 
-### `@mneme`
+### `@Perseus Vault`
 
-Search the persistent Mnēmē vault via BM25 over SQLite FTS5.
+Search the persistent Perseus Vault store via BM25 over SQLite FTS5.
 
 ```
-@mneme query="deployment pipeline"
-@mneme query="error handling" scope="project" k=10
-@mneme query="decisions" type="decision"
+@Perseus Vault query="deployment pipeline"
+@Perseus Vault query="error handling" scope="project" k=10
+@Perseus Vault query="decisions" type="decision"
 ```
 
 Options:

@@ -163,7 +163,7 @@ on Windows fails with:
 
 ```
 UnicodeEncodeError: 'charmap' codec can't encode character 'ē'
-(`ē`, from "Mnēmē") in position 1397
+(`ē`, from "Perseus Vault") in position 1397
 ```
 
 Same root cause as bug #1 — Python on Windows defaults stdout to
@@ -205,7 +205,7 @@ handshake works. This is real, not stubbed.
 | 1 | `perseus.py:7121` | `Path.write_text(rendered)` ignores encoding | **High** / none |
 | 2 | `perseus.py:1558`, `2941` | Default `shell="/bin/bash"` is unreachable on Windows; can't be repaired via config because `subprocess.run(executable=...)` mangles paths with spaces | **High** / none |
 | 3 | `perseus.py:1619` | `@query` crashes with `'NoneType' object has no attribute 'rstrip'` on undecodable stdout | Medium / Medium |
-| 4 | argparse help text | `perseus --help` crashes on Windows under default locale due to `ē` in "Mnēmē" | **Medium** / none |
+| 4 | argparse help text | `perseus --help` crashes on Windows under default locale due to `ē` in "Perseus Vault" | **Medium** / none |
 
 ### Architectural cliffs (now five)
 

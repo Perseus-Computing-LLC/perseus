@@ -182,11 +182,11 @@ assistant:
 
 ---
 
-## 4. Mnēmē (`perseus memory`) — Narrative Project Memory
+## 4. Perseus Vault (`perseus memory`) — Narrative Project Memory
 
-Mnēmē distills checkpoints and Pythia log entries into a per-workspace narrative
+Perseus Vault distills checkpoints and Pythia log entries into a per-workspace narrative
 markdown file stored at `~/.perseus/memory/<workspace-hash>.md`. Snapshots tell you
-where you are now; Mnēmē tells you how you got here.
+where you are now; Perseus Vault tells you how you got here.
 
 ### Modes
 
@@ -208,7 +208,7 @@ perseus memory query "<question>"  # grep (deterministic) or LLM Q&A
 ### Auto-update
 
 When `memory.auto_update` is true (default), `perseus checkpoint` calls the silent
-Mnēmē update path after writing the checkpoint. A failure in Mnēmē prints a warning
+Perseus Vault update path after writing the checkpoint. A failure in Perseus Vault prints a warning
 and never aborts the checkpoint write.
 
 ### Directive
@@ -437,7 +437,7 @@ perseus serve --generate-token
 |---|---|
 | `/` | HTML index linking to other endpoints |
 | `/context` | `text/markdown` — `perseus render .perseus/context.md` output |
-| `/narrative` | `text/markdown` — Mnēmē narrative body |
+| `/narrative` | `text/markdown` — Perseus Vault narrative body |
 | `/health` | `text/markdown` — health report |
 | `/agora` | `text/markdown` — Agora list |
 | `/checkpoint/latest` | `text/yaml` — workspace pointer or global latest |
@@ -534,7 +534,7 @@ perseus doctor [--workspace <path>] [--json]
 - workspace context file presence
 - render trust gates
 - latest checkpoint age
-- Mnēmē narrative health
+- Perseus Vault narrative health
 - federation manifest/subscription health
 - Pythia log readability
 - serve loopback default
@@ -638,7 +638,7 @@ cacheable directives and must include `@cache ttl=N`, `@cache persist`, or
 
 Adaptive prefetch is disabled by default. When enabled, it scores only
 predeclared `adaptive.candidates`. The deterministic backend reads recent
-accepted Pythia entries and the workspace Mnēmē narrative for pattern matches.
+accepted Pythia entries and the workspace Perseus Vault narrative for pattern matches.
 The `daedalus` backend routes through existing LLM plumbing and falls back to
 deterministic scoring on transport, provider, or parse errors. Daedalus may
 rank candidates; it must not generate new directives or context prose.
@@ -707,10 +707,10 @@ easy lookup.
 
 ---
 
-## 18. Mnēmē Federation (task-19, Phase 8.2)
+## 18. Perseus Vault Federation (task-19, Phase 8.2)
 
 Cross-workspace narrative aggregation. Lets one workspace subscribe to
-another workspace's Mnēmē narrative so curated project memory flows across
+another workspace's Perseus Vault narrative so curated project memory flows across
 related projects on the same filesystem.
 
 **Storage:** `~/.perseus/memory/federation.yaml` (path configurable via

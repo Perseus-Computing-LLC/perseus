@@ -26,19 +26,15 @@ first turn. Local-first, MIT licensed. Published as `perseus-ctx` on PyPI.
   silently swallow errors and misreport "fresh install" when the vault MCP
   was actually unreachable or erroring. Fixed in #542, hardened further in
   #543 (secret redaction coverage) and #544 (fail-safe stdio seam).
-- A rebrand merge (`site/perseus-vault-full-rebrand`, #541) landed same day —
-  Mimir/Mneme naming continues its migration to Perseus Vault across docs.
+- A naming cleanup merge (`site/perseus-vault-full-rebrand`, #541) landed same day —
+  Perseus Vault is now the sole current memory brand across docs.
 
 ## Phase roadmap for Fable 5
 
 ### Phase 1 — Close the loop on the rebrand (near-term)
-- Sweep remaining `mneme`/`mimir` prose references across README, docs/, and
-  ROADMAP.md itself (the roadmap's own header still says "Perseus v1.0.8" /
-  "Current Perseus version: v1.0.6" — stale, should read current tag).
-- Do NOT touch `mimir_*` MCP tool names or the `mneme.v1` proto — those are
-  locked for back-compat with external dependents. (The Python adapter packages
-  were since renamed to the Perseus Vault names — adk-perseus-vault-memory,
-  perseus-vault-haystack, etc. — and the old `*-mimir` PyPI projects archived.)
+- Sweep any remaining non-canonical memory-brand prose across README, docs/, and
+  ROADMAP.md itself. Keep the `perseus_vault_*` MCP surface and Vault protocol
+  names canonical and synchronized with the source.
 
 ### Phase 2 — Public-sector compliance track (standing priority)
 Per the long-standing north-star decision (public sector / RFP / SBIR focus):
@@ -51,11 +47,11 @@ Per the long-standing north-star decision (public sector / RFP / SBIR focus):
 ### Phase 3 — Context-injection relevance (from live dogfooding)
 Real finding from a live session (2026-07-02): the AGENTS.md context block
 injected into every turn currently dumps a *static* "recent activity /
-Mimir context" section regardless of topical relevance to the current
+Perseus Vault context" section regardless of topical relevance to the current
 conversation — confirmed wasting tokens on unrelated domains (e.g. injecting
 dev/infra memory into a personal-health conversation). Concrete fix path:
-1. Stop rendering the blanket "Mimir context" list unconditionally in
-   AGENTS.md; gate it through `mimir_recall_when`-style relevance matching
+1. Stop rendering the blanket "Perseus Vault context" list unconditionally in
+   AGENTS.md; gate it through `perseus_vault_recall_when`-style relevance matching
    against the current user message before injection.
 2. Deduplicate — the AGENTS.md content was observed rendered **twice**,
    verbatim, in the same system prompt. Pure waste, independent of

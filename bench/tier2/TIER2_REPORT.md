@@ -12,7 +12,7 @@
 ## §1 Methodology
 
 **Files read in full (43 source files):**
-- `src/perseus/`: renderer.py, registry.py, mcp.py, mneme_index.py, audit.py, config.py, serve.py, pythia.py, webhooks.py, checkpoint.py, agora.py, inbox.py, mneme_federation.py, mneme_narrative.py, lsp.py, install.py, redaction.py, hooks.py, macros.py, memory.py, html_format.py, assistant_formats.py, cli.py, `__init__.py`
+- `src/perseus/`: renderer.py, registry.py, mcp.py, vault_index.py, audit.py, config.py, serve.py, pythia.py, webhooks.py, checkpoint.py, agora.py, inbox.py, vault_federation.py, vault_narrative.py, lsp.py, install.py, redaction.py, hooks.py, macros.py, memory.py, html_format.py, assistant_formats.py, cli.py, `__init__.py`
 - `src/perseus/directives/`: query.py, agent.py, include.py, read.py, perseus.py, env.py, tool.py, skills.py, waypoint.py, session.py, services.py, misc.py, `__init__.py`
 - `scripts/`: build.py
 - `spec/`: directives.md
@@ -50,9 +50,9 @@
 | 9 | `INTERNAL_IMPORT_RE` single-line only | `build.py:74` — regex only matches single-line `from perseus.X import Y` | **FAIL** — multi-line imports stripped, indented imports NOT |
 | 10 | `@include` re-reads file for size warning | `include.py:58` — `read_bytes()` before `max_include_bytes` check | **FAIL** — full file read before size gate |
 | 11 | FTS5 MATCH expression injection | Verified FTS5 operators via SQLite direct query | **FAIL** — FTS5 operators still interpreted |
-| 12 | Mnēmē rollback inside bare `except` | `mneme_index.py:243` — `except Exception: conn.rollback(); raise` | **PASS** — correct behavior |
-| 13 | `_mneme_delete_document` LIKE escape | `mneme_index.py:153` — id validated with `^[A-Za-z0-9_-]{1,128}$` | **PASS** — id validation prevents injection |
-| 14 | Mnēmē field weighting by repetition | Now uses native FTS5 column BM25 weights (mneme_index.py:42-48) | **PASS** — fixed |
+| 12 | Perseus Vault rollback inside bare `except` | `vault_index.py:243` — `except Exception: conn.rollback(); raise` | **PASS** — correct behavior |
+| 13 | `_vault_delete_document` LIKE escape | `vault_index.py:153` — id validated with `^[A-Za-z0-9_-]{1,128}$` | **PASS** — id validation prevents injection |
+| 14 | Perseus Vault field weighting by repetition | Now uses native FTS5 column BM25 weights (vault_index.py:42-48) | **PASS** — fixed |
 | 15 | Cache `cache_set` non-atomic write | Now uses `NamedTemporaryFile` + `os.replace` (renderer.py:170-179) | **PASS** — fixed |
 | 16 | C1: MCP SIGALRM hard-fails on Windows | Code now uses ThreadPoolExecutor | **PASS** — fixed |
 | 17 | C2: Pipe stages never read cache | Verified in `_execute_pipe` — each stage resolves independently via `_resolve_directive` which checks cache | **PASS** — indirect fix |
@@ -62,7 +62,7 @@
 | 21 | S1: `safe_for_hover` defaults True | `DirectiveSpec.safe_for_hover: bool = False` in registry.py:21 | **PASS** — defaults False |
 | 22 | S5: workspace config can set `cache_dir`/`audit.log_path` | `_safe_cache_dir` constrains to `~/.perseus` or `~/.cache` | **PASS** — path validation added |
 | 23 | S7: Plugin discovery `exec_module` with no sandbox | `registry.py:301` — `spec.loader.exec_module(mod)` no sandbox | **FAIL** — still exec'd without sandboxing |
-| 24 | D1: CHANGELOG 1.0.5 claims `@bastra` directive | Grep: no `@bastra` in source | **FAIL** — CHANGELOG mentions it, code doesn't have it |
+| 24 | D1: CHANGELOG 1.0.5 claims `the obsolete recall directive` directive | Grep: no `the obsolete recall directive` in source | **FAIL** — CHANGELOG mentions it, code doesn't have it |
 
 **Summary:** 12 PASS (fixed), 12 FAIL (still present or partially fixed)
 
@@ -96,7 +96,7 @@ The regex at build.py:148 `r'^(_PERSEUS_VERSION\s*=\s*)".*?"(\s*#.*)?$'` uses `r
 Current smoke: `python perseus.py --version` exit 0. Proposed stronger tests:
 1. `python perseus.py render --source <(echo "# Test\n@date")` — validates render pipeline
 2. `python perseus.py mcp serve --help` — validates MCP init
-3. `python perseus.py memory index rebuild --help` — validates Mnēmē init
+3. `python perseus.py memory index rebuild --help` — validates Perseus Vault init
 
 ---
 
@@ -172,19 +172,19 @@ renderer.py:130: `int(cfg.get("render", {}).get("persist_cache_ttl_s", 3600))` �
 
 ---
 
-## §7 Mnēmē / FTS5 Deep Dive
+## §7 Perseus Vault / FTS5 Deep Dive
 
 ### Schema migration matrix
-The code at mneme_index.py:92-107 checks `PRAGMA table_info(mneme_fts)` and compares against `expected_columns`. If the v1 schema (`id, title, search_text, type, scope, summary, updated`) is detected, it DROPs the table and recreates with v2 schema. This is destructive — all indexed data is lost on migration. The code also deletes `mneme_meta WHERE key LIKE 'schema_%'` which could delete unrelated metadata. Severity: MEDIUM.
+The code at vault_index.py:92-107 checks `PRAGMA table_info(vault_fts)` and compares against `expected_columns`. If the v1 schema (`id, title, search_text, type, scope, summary, updated`) is detected, it DROPs the table and recreates with v2 schema. This is destructive — all indexed data is lost on migration. The code also deletes `vault_meta WHERE key LIKE 'schema_%'` which could delete unrelated metadata. Severity: MEDIUM.
 
 ### FTS5 operator injection
 Testing with `@memory "it's a test"` (with apostrophe): the FTS5 MATCH expression is constructed with the user query passed directly. SQLite's FTS5 interprets `'` as a string delimiter but the code does NOT double-escape apostrophes. Result: FTS5 syntax error when searching for phrases containing apostrophes. CONFIRMED — prior finding #11 still present.
 
 ### Concurrent index access
-mneme_index.py:83: `sqlite3.connect(str(index_path), check_same_thread=False)` — connections are cached per-process (keyed by pid). Two threads in the same process share one connection. SQLite in WAL mode supports concurrent readers but only one writer. If two threads both call `_mneme_build_index`, the second will get `SQLITE_BUSY` and the `except Exception` at line 243 silently rolls back and re-raises. The error propagates to the caller. PASS (correct behavior).
+vault_index.py:83: `sqlite3.connect(str(index_path), check_same_thread=False)` — connections are cached per-process (keyed by pid). Two threads in the same process share one connection. SQLite in WAL mode supports concurrent readers but only one writer. If two threads both call `_vault_build_index`, the second will get `SQLITE_BUSY` and the `except Exception` at line 243 silently rolls back and re-raises. The error propagates to the caller. PASS (correct behavior).
 
-### `_mneme_delete_document` with attacker-controlled id
-mneme_index.py:153 validates `doc_id` against `r'^[A-Za-z0-9_-]{1,128}$'`. Characters like `%`, `_`, `..`, `/` are rejected. PASS — injection blocked by regex validation.
+### `_vault_delete_document` with attacker-controlled id
+vault_index.py:153 validates `doc_id` against `r'^[A-Za-z0-9_-]{1,128}$'`. Characters like `%`, `_`, `..`, `/` are rejected. PASS — injection blocked by regex validation.
 
 ---
 
@@ -276,11 +276,11 @@ serve.py:2606-2620: Unlike the MCP SSE server, the main HTTP serve has NO Host h
 2. **MEDIUM: Prefix-based message lookup non-deterministic** — Two messages sharing prefix can match wrong one.
 3. **LOW: No size limit on message file reads** — OOM on multi-GB YAML.
 
-### 11.6 `mneme_federation.py` (352 lines)
+### 11.6 `vault_federation.py` (352 lines)
 1. **MEDIUM: YAML bomb via manifest file** — `yaml.safe_load` on manifest; no size limit.
 2. **MEDIUM: Race condition on manifest write** — Two concurrent writes to same `.tmp` file.
 
-### 11.7 `mneme_narrative.py` (362 lines)
+### 11.7 `vault_narrative.py` (362 lines)
 1. **MEDIUM: Pythia log read into memory without size cap** — 100MB+ log → OOM.
 2. **MEDIUM: Unredacted Pythia entries sent to LLM** — Sensitive data in prompts sent to Daedalus.
 3. **LOW: Keyword matching false positives** — "must not", "never", "always" match incidental usage.
@@ -333,9 +333,9 @@ serve.py:2606-2620: Unlike the MCP SSE server, the main HTTP serve has NO Host h
 | `@perseus` | Documented | No URL allowlist | 1.0.4+ |
 | `@agent` | Documented | Uses config shell | 1.0.3+ |
 | `@tool` | Documented | Allowlist bypass | 1.0.5+ |
-| `@memory` | Documented | FTS5 injection partial | 1.0.5 "Mnēmē v2" |
-| `@mneme` | Documented | Backward compat | 1.0.5 |
-| `@bastra` | **NOT IN CODE** | **DOES NOT EXIST** | **CHANGELOG claims exists** |
+| `@memory` | Documented | FTS5 injection partial | 1.0.5 "Perseus Vault v2" |
+| `@vault` | Documented | Backward compat | 1.0.5 |
+| `the obsolete recall directive` | **NOT IN CODE** | **DOES NOT EXIST** | **CHANGELOG claims exists** |
 | `@validate` | Documented | Implements spec | 1.0.0+ |
 | `@synthesize` | Documented | LLM integration | 1.0.3+ |
 | `@if/@else/@endif` | Documented (session.py) | Implements spec | 1.0.1+ |
@@ -344,7 +344,7 @@ serve.py:2606-2620: Unlike the MCP SSE server, the main HTTP serve has NO Host h
 | `@skills` | Not in directives.md | Implements skills.py | 1.0.3+ |
 | `@waypoint` | Not in directives.md | Implements waypoint.py | 1.0.3+ |
 
-**Finding D1 (re-confirmed):** CHANGELOG 1.0.5 claims `@bastra` directive for recall integration. No `@bastra` directive exists in any source file or in `DIRECTIVE_REGISTRY`. The `@memory` directive handles Mnēmē recall, and `@mneme` is a backward-compat alias. `@bastra` appears only in CHANGELOG text and in `HANDOFF.md` references to a "bastra-recall integration" task.
+**Finding D1 (re-confirmed):** CHANGELOG 1.0.5 claims `the obsolete recall directive` directive for recall integration. No `the obsolete recall directive` directive exists in any source file or in `DIRECTIVE_REGISTRY`. The `@memory` directive handles Perseus Vault recall, and `@vault` is a backward-compat alias. `the obsolete recall directive` appears only in CHANGELOG text and in `HANDOFF.md` references to a "perseus-vault integration" task.
 
 ---
 
@@ -354,7 +354,7 @@ serve.py:2606-2620: Unlike the MCP SSE server, the main HTTP serve has NO Host h
 `requirements.txt` doesn't explicitly pin `pyyaml`. `yaml.safe_load` is used throughout — this prevents arbitrary code execution from YAML but does NOT prevent resource exhaustion attacks ("billion laughs" YAML equivalent, deeply nested structures).
 
 ### SQLite minimum vs GLOB ESCAPE
-SQLite `GLOB ... ESCAPE` is available since 3.31.0 (2020-01-22). Python 3.12.13 ships with SQLite 3.46.1 — well above the minimum. However, Python 3.10 on Ubuntu 20.04 ships with SQLite 3.31.1 (just barely above the minimum). The code doesn't check the SQLite version, so if run on Python < 3.11 with an older SQLite, `GLOB ... ESCAPE` would fail. Currently, the code uses GLOB ESCAPE for `_mneme_delete_document`'s pattern matching.
+SQLite `GLOB ... ESCAPE` is available since 3.31.0 (2020-01-22). Python 3.12.13 ships with SQLite 3.46.1 — well above the minimum. However, Python 3.10 on Ubuntu 20.04 ships with SQLite 3.31.1 (just barely above the minimum). The code doesn't check the SQLite version, so if run on Python < 3.11 with an older SQLite, `GLOB ... ESCAPE` would fail. Currently, the code uses GLOB ESCAPE for `_vault_delete_document`'s pattern matching.
 
 ### Python minimum vs tomllib
 `tomllib` is stdlib since Python 3.11. The code has fallback to `tomli` for older Python. `pyproject.toml` doesn't specify `requires-python`.
@@ -472,7 +472,7 @@ No code path calls `urllib.request.install_opener()` or creates a custom `HTTPRe
 ### MEDIUM
 
 **M-1: FTS5 apostrophe not escaped**
-- File: mneme_index.py around line 300
+- File: vault_index.py around line 300
 - Failure: `@memory "it's"` produces FTS5 syntax error
 - Patch: Double the apostrophe before FTS5 MATCH
 
@@ -550,7 +550,7 @@ Ranked by impact × ease:
 7. **Fix FTS5 apostrophe escaping** (M-1) — double apostrophe before MATCH
 8. **Fix @tool argument allowlist bypass** (M-2) — split on = before match
 9. **Scope Pythia log to workspace** (M-4) — prevent cross-workspace data leak
-10. **Remove `@bastra` from CHANGELOG or implement it** (D1) — documentation integrity
+10. **Remove `the obsolete recall directive` from CHANGELOG or implement it** (D1) — documentation integrity
 
 ---
 

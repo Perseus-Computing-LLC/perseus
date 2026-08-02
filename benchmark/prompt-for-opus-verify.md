@@ -62,11 +62,11 @@ perseus render .perseus\context.md --output .hermes.md
 Get-Content .hermes.md
 ```
 
-### Bug #4: --help crash (Mnēmē macron)
+### Bug #4: --help crash (Perseus Vault macron)
 ```powershell
 perseus --help
 # If it prints help text without UnicodeEncodeError: PASS
-# You should see "Mnēmē" rendered correctly
+# You should see "Perseus Vault" rendered correctly
 ```
 
 ## Task 2 — Cold vs Warm Benchmark on Windows
