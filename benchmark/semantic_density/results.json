@@ -1,0 +1,152 @@
+{
+  "benchmark": "perseus-semantic-density",
+  "version": 1,
+  "offline": true,
+  "network_calls": 0,
+  "cases": 3,
+  "methods": {
+    "production": {
+      "prompt_tokens": 18.6667,
+      "uncompressed_tokens": 37.0,
+      "task_resumption": 1.0,
+      "exact_fact_accuracy": 1.0,
+      "load_bearing_retention": 1.0,
+      "decoder_recovery": 1.0,
+      "cases": [
+        {
+          "prompt_tokens": 24,
+          "uncompressed_tokens": 44,
+          "task_resumption": 1.0,
+          "exact_fact_accuracy": 1.0,
+          "load_bearing_retention": 1.0,
+          "decoder_recovery": 1.0,
+          "selected_ids": [
+            "mem-deploy-correction"
+          ],
+          "omitted_ids": [
+            "mem-ordinary-deploy"
+          ],
+          "decoder_ids": [
+            "mem-ordinary-deploy"
+          ],
+          "trimmed_ids": [
+            "mem-ordinary-deploy"
+          ],
+          "raw_text": "Do not deploy from this workspace until the signed release artifact has passed the quality gate."
+        },
+        {
+          "prompt_tokens": 16,
+          "uncompressed_tokens": 35,
+          "task_resumption": 1.0,
+          "exact_fact_accuracy": 1.0,
+          "load_bearing_retention": 1.0,
+          "decoder_recovery": 1.0,
+          "selected_ids": [
+            "mem-private-prohibition"
+          ],
+          "omitted_ids": [
+            "mem-private-context"
+          ],
+          "decoder_ids": [
+            "mem-private-context"
+          ],
+          "trimmed_ids": [
+            "mem-private-context"
+          ],
+          "raw_text": "Never expose private evidence or credential values in a handoff."
+        },
+        {
+          "prompt_tokens": 16,
+          "uncompressed_tokens": 32,
+          "task_resumption": 1.0,
+          "exact_fact_accuracy": 1.0,
+          "load_bearing_retention": 1.0,
+          "decoder_recovery": 1.0,
+          "selected_ids": [
+            "mem-release-keystone"
+          ],
+          "omitted_ids": [
+            "mem-release-note"
+          ],
+          "decoder_ids": [
+            "mem-release-note"
+          ],
+          "trimmed_ids": [
+            "mem-release-note"
+          ],
+          "raw_text": "Every release requires a passing quality gate before publication."
+        }
+      ]
+    },
+    "legacy": {
+      "prompt_tokens": 18.0,
+      "uncompressed_tokens": 37.0,
+      "task_resumption": 0.0,
+      "exact_fact_accuracy": 0.0,
+      "load_bearing_retention": 0.0,
+      "decoder_recovery": 0.0,
+      "cases": [
+        {
+          "prompt_tokens": 19,
+          "uncompressed_tokens": 44,
+          "task_resumption": 0.0,
+          "exact_fact_accuracy": 0.0,
+          "load_bearing_retention": 0.0,
+          "decoder_recovery": 0.0,
+          "selected_ids": [
+            "mem-ordinary-deploy"
+          ],
+          "omitted_ids": [
+            "mem-deploy-correction"
+          ],
+          "decoder_ids": [],
+          "trimmed_ids": [],
+          "raw_text": "The staging deployment is green and the service is responding to health checks."
+        },
+        {
+          "prompt_tokens": 19,
+          "uncompressed_tokens": 35,
+          "task_resumption": 0.0,
+          "exact_fact_accuracy": 0.0,
+          "load_bearing_retention": 0.0,
+          "decoder_recovery": 0.0,
+          "selected_ids": [
+            "mem-private-context"
+          ],
+          "omitted_ids": [
+            "mem-private-prohibition"
+          ],
+          "decoder_ids": [],
+          "trimmed_ids": [],
+          "raw_text": "The investigation concerns the current release candidate and its test results."
+        },
+        {
+          "prompt_tokens": 16,
+          "uncompressed_tokens": 32,
+          "task_resumption": 0.0,
+          "exact_fact_accuracy": 0.0,
+          "load_bearing_retention": 0.0,
+          "decoder_recovery": 0.0,
+          "selected_ids": [
+            "mem-release-note"
+          ],
+          "omitted_ids": [
+            "mem-release-keystone"
+          ],
+          "decoder_ids": [],
+          "trimmed_ids": [],
+          "raw_text": "The release notes summarize the changes in the latest candidate."
+        }
+      ]
+    }
+  },
+  "gate": {
+    "pass": true,
+    "requirements": [
+      "production task_resumption == 1.0",
+      "production load_bearing_retention == 1.0",
+      "production decoder_recovery == 1.0"
+    ]
+  },
+  "signature_sha256": "24a7d92a8222aefde4d2c7805c8b43807aae6bee5c8724420ea53682f55f9c6a"
+}
