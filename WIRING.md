@@ -4,6 +4,17 @@ Perseus resolves your project state *before* the AI assistant sees it. This
 guide covers every way to wire Perseus into your workflow so context stays
 live-loaded — no stale files, no "discover what's running" preambles.
 
+## Context, memory, and session terms
+
+Perseus resolves and shapes the active working context; Perseus Vault owns durable-memory persistence and recall.
+
+- **Active working context** is the current, task-relevant workspace state — files, services, tasks, and other facts that can change. Perseus resolves and shapes it at render time before the assistant sees it.
+- **Durable memory** is information intended to survive session boundaries. Perseus Vault owns its persistence and recall.
+- **Recalled memory** is the subset of durable memory returned for a query and shaped into the rendered context. The public `@memory` directive remains the compatibility API name for Vault-backed recall; existing MCP compatibility names remain unchanged.
+- **Session history** is Perseus's recent checkpoint and session-digest record. `@waypoint` and `@session` expose it; it is distinct from durable memory. An explicit capture may persist a checkpoint in Perseus Vault as durable memory.
+
+> **Stable launcher for MCP and schedulers:** Use `~/.local/bin/perseus` in client configurations and scheduled jobs. It remains the same install-managed entry point across upgrades instead of pinning a version-specific Python or Library path. Interactive shell commands may use `perseus`; use `command -v perseus` to discover the resolved executable when diagnosing a path problem.
+
 ---
 
 ## Quick Reference
@@ -12,9 +23,9 @@ live-loaded — no stale files, no "discover what's running" preambles.
 |---------|---------|---------|
 | **One-shot render** | `perseus render .perseus/context.md --output .hermes.md` | Manual |
 | **Watch** | `perseus watch` | Auto on file change |
-| **Systemd timer** | `perseus systemd create … --install --enable` | Every N minutes |
-| **Cron** | `perseus cron create … --install` | Every N minutes |
-| **MCP server** | `perseus mcp serve` | Live on tool call |
+| **Systemd timer** | `~/.local/bin/perseus systemd create … --install --enable` | Every N minutes |
+| **Cron** | `~/.local/bin/perseus cron create … --install` | Every N minutes |
+| **MCP server** | `~/.local/bin/perseus mcp serve` | Live on tool call |
 | **Editor hook** | `perseus install --target claude-code` | Before session start |
 
 ---
@@ -27,7 +38,7 @@ pre-computed snapshots.
 ### stdio (Claude Desktop, Claude Code, Cursor, Codex)
 
 ```bash
-perseus mcp serve
+~/.local/bin/perseus mcp serve
 ```
 
 Add to your assistant's MCP config:
@@ -37,7 +48,7 @@ Add to your assistant's MCP config:
 {
   "mcpServers": {
     "perseus": {
-      "command": "perseus",
+      "command": "~/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }
@@ -49,7 +60,7 @@ Add to your assistant's MCP config:
 {
   "mcpServers": {
     "perseus": {
-      "command": "perseus",
+      "command": "~/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }
@@ -58,13 +69,13 @@ Add to your assistant's MCP config:
 
 Print the exact config:
 ```bash
-perseus mcp config
+~/.local/bin/perseus mcp config
 ```
 
 ### SSE (remote agents, multi-machine)
 
 ```bash
-perseus mcp serve --transport sse --port 8420
+~/.local/bin/perseus mcp serve --transport sse --port 8420
 ```
 
 Then point remote assistants at `http://<host>:8420/sse`.
@@ -144,7 +155,7 @@ Runs in the foreground. For background operation, use systemd or cron.
 
 ```bash
 # Create, install, and enable a systemd timer for every-5-minute refresh
-perseus systemd create .perseus/context.md --output .hermes.md --interval 5m --install --enable
+~/.local/bin/perseus systemd create .perseus/context.md --output .hermes.md --interval 5m --install --enable
 ```
 
 This creates:
@@ -159,17 +170,17 @@ systemctl --user status perseus-render-context.timer
 systemctl --user start perseus-render-context.service
 
 # Remove
-perseus systemd uninstall .perseus/context.md
+~/.local/bin/perseus systemd uninstall .perseus/context.md
 ```
 
 ### Cron (macOS / Linux)
 
 ```bash
 # Install a crontab entry
-perseus cron create .perseus/context.md --output .hermes.md --every 5 --install
+~/.local/bin/perseus cron create .perseus/context.md --output .hermes.md --every 5 --install
 
 # Remove
-perseus cron uninstall .perseus/context.md
+~/.local/bin/perseus cron uninstall .perseus/context.md
 ```
 
 ---
@@ -255,7 +266,7 @@ perseus quickstart
 perseus install --target claude-code
 
 # 3. Set up auto-refresh (Linux)
-perseus systemd create .perseus/context.md \
+~/.local/bin/perseus systemd create .perseus/context.md \
   --output CLAUDE.md \
   --interval 5m \
   --install --enable
@@ -271,8 +282,8 @@ perseus pack validate
 For macOS:
 ```bash
 # Replace step 3 with:
-perseus watch &  # background, or
-perseus launchd create .perseus/context.md \
+~/.local/bin/perseus watch &  # background, or
+~/.local/bin/perseus launchd create .perseus/context.md \
   --output CLAUDE.md \
   --interval 300
 ```

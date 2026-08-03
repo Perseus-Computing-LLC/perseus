@@ -71,9 +71,9 @@ no pre-rendered files.
 ### Starting the MCP Server
 
 ```bash
-perseus mcp serve                          # stdio (default)
-perseus mcp serve --transport sse --port 8420  # SSE for remote agents
-perseus mcp serve --workspace /path/to/project  # scope to a specific workspace
+~/.local/bin/perseus mcp serve                          # stdio (default)
+~/.local/bin/perseus mcp serve --transport sse --port 8420  # SSE for remote agents
+~/.local/bin/perseus mcp serve --workspace /path/to/project  # scope to a specific workspace
 ```
 
 ### Assistant-Specific MCP Config
@@ -84,7 +84,7 @@ perseus mcp serve --workspace /path/to/project  # scope to a specific workspace
 mcp_servers:
   perseus:
     transport: stdio
-    command: perseus
+    command: ~/.local/bin/perseus
     args: ["mcp", "serve"]
 ```
 
@@ -96,7 +96,7 @@ Verify: `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in session.
 {
   "mcpServers": {
     "perseus": {
-      "command": "perseus",
+      "command": "~/.local/bin/perseus",
       "args": ["mcp", "serve", "--workspace", "/path/to/workspace"]
     }
   }
@@ -109,7 +109,7 @@ Verify: `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in session.
 {
   "mcpServers": {
     "perseus": {
-      "command": "perseus",
+      "command": "~/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }
@@ -122,7 +122,7 @@ Verify: `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in session.
 {
   "mcpServers": {
     "perseus": {
-      "command": "perseus",
+      "command": "~/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }
@@ -135,7 +135,7 @@ Verify: `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in session.
 {
   "mcpServers": {
     "perseus": {
-      "command": "perseus",
+      "command": "~/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }
@@ -148,7 +148,7 @@ Verify: `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in session.
 {
   "mcpServers": {
     "perseus": {
-      "command": "perseus",
+      "command": "~/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }
@@ -176,9 +176,9 @@ Prints a POSIX crontab entry on any host and can install it where `crontab` is
 available (macOS, Linux, BSD, WSL).
 
 ```bash
-perseus render .perseus/context.md --output AGENTS.md
-perseus cron .perseus/context.md --output AGENTS.md --every 5
-perseus cron .perseus/context.md --output AGENTS.md --every 5 --install
+~/.local/bin/perseus render .perseus/context.md --output AGENTS.md
+~/.local/bin/perseus cron .perseus/context.md --output AGENTS.md --every 5
+~/.local/bin/perseus cron .perseus/context.md --output AGENTS.md --every 5 --install
 ```
 
 Use this when you want periodic refresh regardless of assistant. Native
@@ -190,7 +190,7 @@ their own scheduler.
 Perseus provides a helper for Mac users:
 
 ```bash
-perseus launchd .perseus/context.md --output AGENTS.md
+~/.local/bin/perseus launchd .perseus/context.md --output AGENTS.md
 ```
 
 This scaffolds a LaunchAgent plist that periodically refreshes the rendered output.
@@ -201,13 +201,13 @@ Perseus scaffolds user-space systemd units for Linux users:
 
 ```bash
 # Print the .service and .timer files to stdout
-perseus systemd .perseus/context.md --output AGENTS.md --interval 5m
+~/.local/bin/perseus systemd .perseus/context.md --output AGENTS.md --interval 5m
 
 # Write them to ~/.config/systemd/user/ and print activation commands
-perseus systemd .perseus/context.md --output AGENTS.md --interval 5m --install
+~/.local/bin/perseus systemd .perseus/context.md --output AGENTS.md --interval 5m --install
 
 # Combined: write + run systemctl --user daemon-reload/enable/start
-perseus systemd .perseus/context.md --output AGENTS.md --install --enable
+~/.local/bin/perseus systemd .perseus/context.md --output AGENTS.md --install --enable
 ```
 
 Interval accepts `Nm` / `Nh` / `Ns` shorthand or any systemd time spec.
