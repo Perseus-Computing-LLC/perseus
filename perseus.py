@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "dcba5c0-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "9378987-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -281,6 +281,11 @@ DEFAULT_CONFIG = {
         "duplicate_checkpoint_window": 5,
         "context_line_warning": 400,
         "include_completed_tasks_older_than_days": 14,
+    },
+    "doctor": {
+        # Optional checkout root for provenance comparison. When unset, doctor
+        # only uses the exact canonical source layout when it is unambiguous.
+        "source_root": None,
     },
     "memory": {
         "store": str(PERSEUS_HOME / "memory"),
@@ -26316,6 +26321,7 @@ class DoctorResult(NamedTuple):
     label: str
     value: str
     remediation: str   # "" if none
+    details: dict | None = None
 
 
 def _doctor_check_config(cfg: dict, workspace: Path) -> DoctorResult:
@@ -26990,6 +26996,222 @@ def _abbrev_home(path_str: str) -> str:
         return path_str
 
 
+_BUILD_SHA_VALUE_RE = re.compile(r"^([0-9a-f]{4,40})(-dirty)?$", re.IGNORECASE)
+
+
+def _parse_build_provenance(value: object) -> dict:
+    """Parse a build SHA literal without treating arbitrary text as metadata.
+
+    Build metadata predates this check in some installed artifacts, so missing,
+    empty, and legacy values are represented as an explicit unknown state. Only
+    a hexadecimal short/full SHA with an optional ``-dirty`` suffix is exposed
+    to doctor output.
+    """
+    if not isinstance(value, str):
+        return {"sha": None, "dirty": None, "state": "unknown"}
+    text = value.strip().lower()
+    if text in {"", "?", "unknown", "legacy", "none"}:
+        return {"sha": None, "dirty": None, "state": "unknown"}
+    match = _BUILD_SHA_VALUE_RE.fullmatch(text)
+    if not match:
+        return {"sha": None, "dirty": None, "state": "unknown"}
+    dirty = bool(match.group(2))
+    return {"sha": match.group(1), "dirty": dirty, "state": "dirty" if dirty else "clean"}
+
+
+def _read_perseus_module_build_sha(path: str) -> str:
+    """Read a build SHA literal from an artifact without importing it.
+
+    Importing a discovered ``perseus.py`` copy could execute stale code and
+    shadow the active module. The build assignment is near the artifact head,
+    so bounded text parsing is sufficient and keeps this check side-effect free.
+    """
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            head = f.read(16384)
+    except Exception:
+        return ""
+    match = re.search(
+        r"^\s*_PERSEUS_BUILD_SHA\s*=\s*(['\"])(.*?)\1\s*(?:#.*)?$",
+        head,
+        re.MULTILINE,
+    )
+    return match.group(2).strip() if match else ""
+
+
+def _read_perseus_module_provenance(path: str) -> dict:
+    """Return sanitized build provenance parsed from an artifact file."""
+    return _parse_build_provenance(_read_perseus_module_build_sha(path))
+
+
+def _doctor_safe_path(path: Path | None) -> str | None:
+    """Return a printable, home-abbreviated path for structured output."""
+    if path is None:
+        return None
+    text = _abbrev_home(str(path))
+    return "".join(char if char.isprintable() and char not in "\r\n\t" else "?" for char in text)
+
+
+def _doctor_source_root(cfg: dict, workspace: Path, artifact_path: Path) -> tuple[Path | None, bool]:
+    """Resolve an explicit or narrowly discoverable source checkout.
+
+    Explicit ``doctor.source_root`` is authoritative. Without it, only the
+    canonical checkout layout at the requested workspace or beside the active
+    root-level artifact is considered; no ancestor or filesystem scan is done.
+    The boolean says whether the root was explicitly configured.
+    """
+    doctor_cfg = cfg.get("doctor", {}) if isinstance(cfg, dict) else {}
+    configured = doctor_cfg.get("source_root") if isinstance(doctor_cfg, dict) else None
+    if configured is not None and str(configured).strip():
+        try:
+            root = Path(configured).expanduser()
+            if not root.is_absolute():
+                root = workspace / root
+            return root.resolve(), True
+        except Exception:
+            return None, True
+
+    candidates: list[Path] = [workspace]
+    if artifact_path.name == "perseus.py":
+        candidates.append(artifact_path.parent)
+    elif artifact_path.name in {"doctor.py", "__init__.py"} and artifact_path.parent.name == "perseus":
+        candidates.append(artifact_path.parent.parent.parent)
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        try:
+            root = candidate.resolve()
+            key = str(root)
+        except Exception:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        if (
+            (root / ".git").exists()
+            and (root / "src" / "perseus").is_dir()
+            and (
+                (root / "VERSION").is_file()
+                or (root / "scripts" / "build.py").is_file()
+            )
+        ):
+            return root, False
+    return None, False
+
+
+def _doctor_read_source_provenance(
+    source_root: Path | None,
+    *,
+    require_markers: bool = False,
+) -> dict:
+    """Read current checkout SHA and cleanliness with fail-closed states."""
+    source = {"root": _doctor_safe_path(source_root), "sha": None, "dirty": None, "state": "unavailable"}
+    if source_root is None:
+        return source
+    if require_markers and not (
+        (source_root / ".git").exists()
+        and (source_root / "src" / "perseus").is_dir()
+        and (
+            (source_root / "VERSION").is_file()
+            or (source_root / "scripts" / "build.py").is_file()
+        )
+    ):
+        return source
+    try:
+        sha_result = subprocess.run(
+            ["git", "-C", str(source_root), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        sha = sha_result.stdout.strip().lower() if sha_result.returncode == 0 else ""
+        if not re.fullmatch(r"[0-9a-f]{4,40}", sha):
+            sha = ""
+
+        status_result = subprocess.run(
+            ["git", "-C", str(source_root), "status", "--porcelain", "--untracked-files=all"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if status_result.returncode == 0:
+            dirty = bool(status_result.stdout.strip())
+            source.update({"sha": sha or None, "dirty": dirty, "state": "dirty" if dirty else "clean"})
+        else:
+            source.update({"sha": sha or None, "state": "unknown"})
+    except Exception:
+        # Doctor must remain useful when git is absent or a checkout is gone.
+        pass
+    return source
+
+
+def _doctor_check_provenance_drift(cfg: dict, workspace: Path) -> DoctorResult:
+    """Compare installed artifact provenance with a known current checkout."""
+    try:
+        artifact_path = Path(__file__).resolve()
+    except Exception:
+        artifact_path = Path(__file__)
+    artifact = _read_perseus_module_provenance(str(artifact_path))
+    artifact["path"] = _doctor_safe_path(artifact_path)
+
+    # A source-package import keeps the build assignment in __init__.py; the
+    # generated single-file artifact keeps it in perseus.py itself.
+    if artifact["state"] == "unknown" and artifact_path.name == "doctor.py" and artifact_path.parent.name == "perseus":
+        package_init = artifact_path.parent / "__init__.py"
+        artifact = _read_perseus_module_provenance(str(package_init))
+        artifact["path"] = _doctor_safe_path(package_init)
+
+    source_root, explicitly_configured = _doctor_source_root(cfg, workspace, artifact_path)
+    source = _doctor_read_source_provenance(
+        source_root,
+        require_markers=not explicitly_configured,
+    )
+
+    reasons: list[str] = []
+    if artifact["dirty"] is True and source["dirty"] is False:
+        reasons.append("artifact_dirty_source_clean")
+    if artifact["sha"] and source["sha"] and artifact["sha"] != source["sha"]:
+        reasons.append("sha_mismatch")
+
+    if reasons:
+        comparison = reasons[0]
+        status = "warn"
+        remediation = (
+            "Reinstall Perseus from the current source checkout to refresh the "
+            "installed artifact provenance."
+        )
+    elif source["state"] == "unavailable":
+        comparison = "artifact_only" if artifact["state"] != "unknown" else "unknown"
+        status = "ok"
+        remediation = ""
+    elif artifact["state"] == "unknown":
+        comparison = "unknown"
+        status = "ok"
+        remediation = ""
+    elif artifact["sha"] and source["sha"] and artifact["sha"] == source["sha"]:
+        comparison = "match" if artifact["dirty"] == source["dirty"] else "state_mismatch"
+        status = "ok"
+        remediation = ""
+    else:
+        comparison = "unknown"
+        status = "ok"
+        remediation = ""
+
+    artifact_state = artifact["state"]
+    artifact_sha = artifact["sha"] or "unknown"
+    artifact_suffix = "-dirty" if artifact["dirty"] is True else ""
+    source_sha = source["sha"] or "unknown"
+    source_state = source["state"]
+    value = (
+        f"artifact g{artifact_sha}{artifact_suffix} ({artifact_state}); "
+        f"source g{source_sha} ({source_state}); comparison={comparison}"
+    )
+    details = {
+        "artifact": artifact,
+        "source": source,
+        "comparison": comparison,
+        "reasons": reasons,
+        "source_root_configured": explicitly_configured,
+    }
+    return DoctorResult("provenance_drift", status, "Build provenance", value, remediation, details)
+
+
 def _doctor_check_render_freshness(cfg: dict, workspace: Path) -> DoctorResult:
     """Warn when a rendered output is older than render.staleness_warn_hours (#431).
 
@@ -27199,6 +27421,7 @@ _DOCTOR_CHECKS = [
     _doctor_check_version_header,
     _doctor_check_stale_shim,
     _doctor_check_duplicate_installs,
+    _doctor_check_provenance_drift,
     _doctor_check_render_freshness,
     _doctor_check_agents_startup_route,
 ]
@@ -27401,6 +27624,7 @@ def run_doctor_checks(cfg: dict, workspace: Path) -> dict:
                 "label": r.label,
                 "value": r.value,
                 **({"remediation": r.remediation} if r.remediation else {}),
+                **({"details": r.details} if r.details is not None else {}),
             }
             for r in results
         ],

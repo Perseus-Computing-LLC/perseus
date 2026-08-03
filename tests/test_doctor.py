@@ -409,6 +409,187 @@ def test_read_perseus_module_version_missing_returns_question(tmp_path):
     assert perseus._read_perseus_module_version(str(tmp_path / "nope.py")) == "?"
 
 
+def test_doctor_provenance_warns_dirty_artifact_against_clean_source(tmp_path, monkeypatch):
+    """A dirty installed artifact is visible when the configured source is clean."""
+    import subprocess
+
+    artifact = tmp_path / "perseus.py"
+    artifact.write_text('_PERSEUS_BUILD_SHA = "abc1234-dirty"\n', encoding="utf-8")
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "-C", str(source), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(source), "config", "user.email", "test@example.invalid"], check=True)
+    subprocess.run(["git", "-C", str(source), "config", "user.name", "Doctor Test"], check=True)
+    (source / "tracked.txt").write_text("clean\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(source), "add", "tracked.txt"], check=True)
+    subprocess.run(["git", "-C", str(source), "commit", "-q", "-m", "initial"], check=True)
+
+    monkeypatch.setattr(perseus, "__file__", str(artifact))
+    c = cfg()
+    c["doctor"] = {"source_root": str(source)}
+    result = perseus._doctor_check_provenance_drift(c, tmp_path)
+
+    assert result.id == "provenance_drift"
+    assert result.status == "warn"
+    assert result.details["artifact"]["sha"] == "abc1234"
+    assert result.details["artifact"]["dirty"] is True
+    assert result.details["source"]["dirty"] is False
+    assert result.details["comparison"] == "artifact_dirty_source_clean"
+
+
+def test_parse_build_provenance_rejects_unknown_metadata():
+    """Only a SHA with an optional dirty marker is exposed as provenance."""
+    assert perseus._parse_build_provenance("abc1234-dirty") == {
+        "sha": "abc1234",
+        "dirty": True,
+        "state": "dirty",
+    }
+    assert perseus._parse_build_provenance("legacy-format") == {
+        "sha": None,
+        "dirty": None,
+        "state": "unknown",
+    }
+
+
+def test_doctor_provenance_unknown_artifact_is_machine_readable(tmp_path, monkeypatch):
+    """A pre-provenance artifact remains an explicit non-error result."""
+    artifact = tmp_path / "perseus.py"
+    artifact.write_text("# artifact without build metadata\n", encoding="utf-8")
+    monkeypatch.setattr(perseus, "__file__", str(artifact))
+
+    result = perseus._doctor_check_provenance_drift(cfg(), tmp_path)
+
+    assert result.status == "ok"
+    assert result.details["artifact"]["state"] == "unknown"
+    assert result.details["source"]["state"] == "unavailable"
+    assert result.details["comparison"] == "unknown"
+    assert "legacy-format" not in result.value
+
+
+def test_doctor_provenance_warns_sha_mismatch_without_ancestry_inference(tmp_path, monkeypatch):
+    """Different short SHAs warn, without claiming an ancestry relationship."""
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "-C", str(source), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(source), "config", "user.email", "test@example.invalid"], check=True)
+    subprocess.run(["git", "-C", str(source), "config", "user.name", "Doctor Test"], check=True)
+    (source / "tracked.txt").write_text("clean\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(source), "add", "tracked.txt"], check=True)
+    subprocess.run(["git", "-C", str(source), "commit", "-q", "-m", "initial"], check=True)
+
+    artifact = tmp_path / "perseus.py"
+    artifact.write_text('_PERSEUS_BUILD_SHA = "deadbeef"\n', encoding="utf-8")
+    monkeypatch.setattr(perseus, "__file__", str(artifact))
+    c = cfg()
+    c["doctor"] = {"source_root": str(source)}
+
+    result = perseus._doctor_check_provenance_drift(c, tmp_path)
+
+    assert result.status == "warn"
+    assert result.details["comparison"] == "sha_mismatch"
+    assert "ancestry" not in result.value.lower()
+
+
+def test_doctor_json_includes_provenance_details_additively(tmp_path, monkeypatch):
+    """The structured provenance payload is additive to the doctor check schema."""
+    artifact = tmp_path / "perseus.py"
+    artifact.write_text('_PERSEUS_BUILD_SHA = "abc1234"\n', encoding="utf-8")
+    monkeypatch.setattr(perseus, "__file__", str(artifact))
+    monkeypatch.setattr(perseus, "_DOCTOR_CHECKS", [perseus._doctor_check_provenance_drift])
+
+    output = perseus.run_doctor_checks(cfg(), tmp_path)
+    check = output["checks"][0]
+
+    assert check["id"] == "provenance_drift"
+    assert check["status"] == "ok"
+    assert check["value"]
+    assert check["details"]["artifact"]["sha"] == "abc1234"
+    assert check["details"]["comparison"] == "artifact_only"
+
+
+def test_doctor_provenance_discovers_only_canonical_workspace_root(tmp_path, monkeypatch):
+    """A requested workspace with the source layout is safe to compare."""
+    source = tmp_path / "repo"
+    (source / "src" / "perseus").mkdir(parents=True)
+    (source / "src" / "perseus" / "__init__.py").write_text("# source\n", encoding="utf-8")
+    (source / "VERSION").write_text("1.0.0\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(source), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(source), "config", "user.email", "test@example.invalid"], check=True)
+    subprocess.run(["git", "-C", str(source), "config", "user.name", "Doctor Test"], check=True)
+    (source / "tracked.txt").write_text("clean\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(source), "add", "tracked.txt", "VERSION", "src/perseus"], check=True)
+    subprocess.run(["git", "-C", str(source), "commit", "-q", "-m", "initial"], check=True)
+    source_sha = subprocess.check_output(
+        ["git", "-C", str(source), "rev-parse", "--short", "HEAD"], text=True,
+    ).strip()
+
+    artifact = tmp_path / "perseus.py"
+    artifact.write_text(f'_PERSEUS_BUILD_SHA = "{source_sha}"\n', encoding="utf-8")
+    monkeypatch.setattr(perseus, "__file__", str(artifact))
+
+    result = perseus._doctor_check_provenance_drift(cfg(), source)
+
+    assert result.status == "ok"
+    assert result.details["source"]["root"] == str(source)
+    assert result.details["comparison"] == "match"
+
+
+def test_doctor_provenance_does_not_walk_parent_for_source(tmp_path, monkeypatch):
+    """An unrelated parent checkout is not guessed from a nested workspace."""
+    source = tmp_path / "repo"
+    (source / ".git").mkdir(parents=True)
+    (source / "src" / "perseus").mkdir(parents=True)
+    workspace = source / "nested"
+    workspace.mkdir()
+    artifact = tmp_path / "perseus.py"
+    artifact.write_text('_PERSEUS_BUILD_SHA = "abc1234"\n', encoding="utf-8")
+    monkeypatch.setattr(perseus, "__file__", str(artifact))
+
+    result = perseus._doctor_check_provenance_drift(cfg(), workspace)
+
+    assert result.status == "ok"
+    assert result.details["source"]["state"] == "unavailable"
+    assert result.details["comparison"] == "artifact_only"
+
+
+def test_doctor_provenance_does_not_accept_source_shaped_unrelated_checkout(tmp_path, monkeypatch):
+    """A same-shaped unrelated checkout without build markers is unavailable."""
+    source = tmp_path / "unrelated"
+    (source / ".git").mkdir(parents=True)
+    (source / "src" / "perseus").mkdir(parents=True)
+    artifact = tmp_path / "perseus.py"
+    artifact.write_text('_PERSEUS_BUILD_SHA = "deadbeef"\n', encoding="utf-8")
+    monkeypatch.setattr(perseus, "__file__", str(artifact))
+
+    result = perseus._doctor_check_provenance_drift(cfg(), source)
+
+    assert result.status == "ok"
+    assert result.details["source"]["state"] == "unavailable"
+    assert result.details["comparison"] == "artifact_only"
+
+
+def test_doctor_provenance_unresolvable_paths_degrade_to_unknown(tmp_path, monkeypatch):
+    """Broken path resolution does not turn provenance into a doctor error."""
+    artifact = tmp_path / "perseus.py"
+    artifact.write_text("# no metadata\n", encoding="utf-8")
+    monkeypatch.setattr(perseus, "__file__", str(artifact))
+
+    def _broken_resolve(_self):
+        raise RuntimeError("symlink loop")
+
+    monkeypatch.setattr(perseus.Path, "resolve", _broken_resolve)
+    result = perseus._doctor_check_provenance_drift(cfg(), tmp_path)
+
+    assert result.status == "ok"
+    assert result.details["artifact"]["state"] == "unknown"
+    assert result.details["comparison"] == "unknown"
+
+
+def test_doctor_default_source_root_is_unset():
+    """Source comparison is opt-in unless a canonical checkout is discoverable."""
+    assert perseus.DEFAULT_CONFIG["doctor"]["source_root"] is None
+
+
 def test_doctor_duplicate_installs_single_is_ok(tmp_path, monkeypatch):
     """Exactly one copy on disk -> ok, no warning."""
     active = _seed_user_install(tmp_path, "3.14", "1.0.22")

@@ -2,6 +2,15 @@
 
 Get from zero to a live rendered context in under 5 minutes.
 
+## Context, memory, and session terms
+
+Perseus resolves and shapes the active working context; Perseus Vault owns durable-memory persistence and recall.
+
+- **Active working context** is the current, task-relevant workspace state — files, services, tasks, and other facts that can change. Perseus resolves and shapes it at render time before the assistant sees it.
+- **Durable memory** is information intended to survive session boundaries. Perseus Vault owns its persistence and recall.
+- **Recalled memory** is the subset of durable memory returned for a query and shaped into the rendered context. The public `@memory` directive remains the compatibility API name for Vault-backed recall; existing MCP compatibility names remain unchanged.
+- **Session history** is Perseus's recent checkpoint and session-digest record. `@waypoint` and `@session` expose it; it is distinct from durable memory. An explicit capture may persist a checkpoint in Perseus Vault as durable memory.
+
 ---
 
 ## 1. Prerequisites
@@ -55,6 +64,12 @@ perseus --version
 ```
 
 > `./scripts/install.sh` still exists for compatibility, but package install is the preferred path for most users.
+
+> **Stable launcher for automation:** Use `~/.local/bin/perseus` in MCP
+> configurations and scheduled jobs. It remains stable across package upgrades,
+> avoiding a version-specific Python or Library path in background configuration.
+> Interactive shell examples may use `perseus`; use `command -v perseus` when
+> discovering or diagnosing the installed executable.
 
 ---
 
@@ -142,6 +157,12 @@ This document was rendered live by Perseus. All values below are current.
 ## Last Session
 @waypoint ttl=86400
 
+## Recalled Memory
+@memory mode=search query="project architecture decisions" k=5
+
+## Session History
+@session count=5 format=digest
+
 ## What's Running
 @query "docker ps --format 'table {{.Names}}\t{{.Status}}'" @cache ttl=60
 
@@ -187,24 +208,26 @@ Re-renders whenever the source file changes.
 
 ```bash
 # Print a crontab entry
-perseus cron .perseus/context.md --output .hermes.md --every 5
+~/.local/bin/perseus cron .perseus/context.md --output .hermes.md --every 5
 
 # Install it (macOS/Linux)
-perseus cron .perseus/context.md --output .hermes.md --every 5 --install
+~/.local/bin/perseus cron .perseus/context.md --output .hermes.md --every 5 --install
 ```
 
 ### Option C — systemd / launchd
 
 ```bash
-perseus systemd .perseus/context.md --output .hermes.md   # Linux
-perseus launchd .perseus/context.md --output .hermes.md   # macOS
+~/.local/bin/perseus systemd .perseus/context.md --output .hermes.md   # Linux
+~/.local/bin/perseus launchd .perseus/context.md --output .hermes.md   # macOS
 ```
 
 ---
 
 ## 8. Write checkpoints
 
-At natural pause points, write a checkpoint so the next session recovers instantly:
+At natural pause points, write a checkpoint so the next session recovers instantly.
+A checkpoint is part of Perseus session history; if you explicitly capture it,
+Perseus Vault can persist it as durable memory for later recalled memory.
 
 ```bash
 perseus checkpoint \
