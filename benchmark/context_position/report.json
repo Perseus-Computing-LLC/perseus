@@ -1,0 +1,2764 @@
+{
+  "benchmark": "perseus-context-position-ablation",
+  "dataset": "perseus-context-position-ablation-mini",
+  "n_fixtures": 6,
+  "n_cells": 90,
+  "positions": [
+    "beginning",
+    "middle",
+    "end",
+    "shuffled",
+    "provenance_ranked"
+  ],
+  "conditions": [
+    "full",
+    "resolver_selected",
+    "resolver_selected_contract_anchor"
+  ],
+  "correctness": 1.0,
+  "abstention_rate": 0.1667,
+  "mean_prompt_tokens": 19.61,
+  "mean_render_latency_ms": 0.005,
+  "negative_control": {
+    "id": "attention-not-provenance",
+    "description": "An attention-weight visualization over evidence items must never be reported as a provenance receipt. The harness asserts the attention metric is recorded as diagnostic only and does not change the correctness or abstention decision.",
+    "assertion": "attention_metric_is_diagnostic_only"
+  },
+  "gates": [
+    {
+      "name": "correctness == 1.0 on non-abstaining cells",
+      "pass": true,
+      "observed": {
+        "correctness": 1.0,
+        "non_abstain_cells": 75
+      },
+      "threshold": ">= 1.0",
+      "severity": "hard"
+    },
+    {
+      "name": "heldout-ood always abstains",
+      "pass": true,
+      "observed": {
+        "ood_abstains": true
+      },
+      "threshold": "all",
+      "severity": "hard"
+    },
+    {
+      "name": "poisoned/quarantined evidence never wins",
+      "pass": true,
+      "observed": {
+        "poisoned_won_cells": 0
+      },
+      "threshold": "0",
+      "severity": "hard"
+    },
+    {
+      "name": "attention metric is diagnostic-only (not provenance)",
+      "pass": true,
+      "observed": {
+        "diagnostic_only": true
+      },
+      "threshold": "all",
+      "severity": "hard"
+    }
+  ],
+  "pass": true,
+  "offline": true,
+  "platform": "Linux-6.12.91-fly-x86_64-with-glibc2.41",
+  "model": "offline-deterministic",
+  "provider": "none",
+  "signature_sha256": "2a2bb4901b7002689b611228e356e6a1dc8529a126821ed5d60051340711932b",
+  "rows": [
+    {
+      "fixture": "single-fact-recall",
+      "position": "beginning",
+      "condition": "full",
+      "answer": "SQLite",
+      "expected_answer": "SQLite",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "vault-db"
+      ],
+      "served_ids": [
+        "vault-db",
+        "distractor-api"
+      ],
+      "prompt_tokens": 23,
+      "render_latency_ms": 0.019,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "beginning",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "single-fact-recall",
+      "position": "beginning",
+      "condition": "resolver_selected",
+      "answer": "SQLite",
+      "expected_answer": "SQLite",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "vault-db"
+      ],
+      "served_ids": [
+        "vault-db",
+        "distractor-api"
+      ],
+      "prompt_tokens": 23,
+      "render_latency_ms": 0.01,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "beginning",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "single-fact-recall",
+      "position": "beginning",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "SQLite",
+      "expected_answer": "SQLite",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "vault-db"
+      ],
+      "served_ids": [
+        "vault-db",
+        "distractor-api"
+      ],
+      "prompt_tokens": 23,
+      "render_latency_ms": 0.007,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "beginning",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "single-fact-recall",
+      "position": "middle",
+      "condition": "full",
+      "answer": "SQLite",
+      "expected_answer": "SQLite",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "vault-db"
+      ],
+      "served_ids": [
+        "distractor-api",
+        "vault-db"
+      ],
+      "prompt_tokens": 23,
+      "render_latency_ms": 0.006,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "middle",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "single-fact-recall",
+      "position": "middle",
+      "condition": "resolver_selected",
+      "answer": "SQLite",
+      "expected_answer": "SQLite",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "vault-db"
+      ],
+      "served_ids": [
+        "distractor-api",
+        "vault-db"
+      ],
+      "prompt_tokens": 23,
+      "render_latency_ms": 0.006,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "middle",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "single-fact-recall",
+      "position": "middle",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "SQLite",
+      "expected_answer": "SQLite",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "vault-db"
+      ],
+      "served_ids": [
+        "distractor-api",
+        "vault-db"
+      ],
+      "prompt_tokens": 23,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "middle",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "single-fact-recall",
+      "position": "end",
+      "condition": "full",
+      "answer": "SQLite",
+      "expected_answer": "SQLite",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "vault-db"
+      ],
+      "served_ids": [
+        "distractor-api",
+        "vault-db"
+      ],
+      "prompt_tokens": 23,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "end",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "single-fact-recall",
+      "position": "end",
+      "condition": "resolver_selected",
+      "answer": "SQLite",
+      "expected_answer": "SQLite",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "vault-db"
+      ],
+      "served_ids": [
+        "distractor-api",
+        "vault-db"
+      ],
+      "prompt_tokens": 23,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "end",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "single-fact-recall",
+      "position": "end",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "SQLite",
+      "expected_answer": "SQLite",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "vault-db"
+      ],
+      "served_ids": [
+        "distractor-api",
+        "vault-db"
+      ],
+      "prompt_tokens": 23,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "end",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "single-fact-recall",
+      "position": "shuffled",
+      "condition": "full",
+      "answer": "SQLite",
+      "expected_answer": "SQLite",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "vault-db"
+      ],
+      "served_ids": [
+        "distractor-api",
+        "vault-db"
+      ],
+      "prompt_tokens": 23,
+      "render_latency_ms": 0.01,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "shuffled",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "single-fact-recall",
+      "position": "shuffled",
+      "condition": "resolver_selected",
+      "answer": "SQLite",
+      "expected_answer": "SQLite",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "vault-db"
+      ],
+      "served_ids": [
+        "distractor-api",
+        "vault-db"
+      ],
+      "prompt_tokens": 23,
+      "render_latency_ms": 0.007,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "shuffled",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "single-fact-recall",
+      "position": "shuffled",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "SQLite",
+      "expected_answer": "SQLite",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "vault-db"
+      ],
+      "served_ids": [
+        "vault-db",
+        "distractor-api"
+      ],
+      "prompt_tokens": 23,
+      "render_latency_ms": 0.006,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "shuffled",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "single-fact-recall",
+      "position": "provenance_ranked",
+      "condition": "full",
+      "answer": "SQLite",
+      "expected_answer": "SQLite",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "vault-db"
+      ],
+      "served_ids": [
+        "distractor-api",
+        "vault-db"
+      ],
+      "prompt_tokens": 23,
+      "render_latency_ms": 0.008,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "provenance_ranked",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "single-fact-recall",
+      "position": "provenance_ranked",
+      "condition": "resolver_selected",
+      "answer": "SQLite",
+      "expected_answer": "SQLite",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "vault-db"
+      ],
+      "served_ids": [
+        "distractor-api",
+        "vault-db"
+      ],
+      "prompt_tokens": 23,
+      "render_latency_ms": 0.007,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "provenance_ranked",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "single-fact-recall",
+      "position": "provenance_ranked",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "SQLite",
+      "expected_answer": "SQLite",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "vault-db"
+      ],
+      "served_ids": [
+        "distractor-api",
+        "vault-db"
+      ],
+      "prompt_tokens": 23,
+      "render_latency_ms": 0.009,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "provenance_ranked",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "stale-superseded",
+      "position": "beginning",
+      "condition": "full",
+      "answer": "Perseus Vault",
+      "expected_answer": "Perseus Vault",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "naming-current"
+      ],
+      "served_ids": [
+        "naming-legacy",
+        "naming-current",
+        "distractor-decay"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "beginning",
+        "weights": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "stale-superseded",
+      "position": "beginning",
+      "condition": "resolver_selected",
+      "answer": "Perseus Vault",
+      "expected_answer": "Perseus Vault",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "naming-current"
+      ],
+      "served_ids": [
+        "naming-current"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.006,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "beginning",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "stale-superseded",
+      "position": "beginning",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "Perseus Vault",
+      "expected_answer": "Perseus Vault",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "naming-current"
+      ],
+      "served_ids": [
+        "naming-current"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "beginning",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "stale-superseded",
+      "position": "middle",
+      "condition": "full",
+      "answer": "Perseus Vault",
+      "expected_answer": "Perseus Vault",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "naming-current"
+      ],
+      "served_ids": [
+        "naming-current",
+        "distractor-decay",
+        "naming-legacy"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "middle",
+        "weights": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "stale-superseded",
+      "position": "middle",
+      "condition": "resolver_selected",
+      "answer": "Perseus Vault",
+      "expected_answer": "Perseus Vault",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "naming-current"
+      ],
+      "served_ids": [
+        "naming-current"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.006,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "middle",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "stale-superseded",
+      "position": "middle",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "Perseus Vault",
+      "expected_answer": "Perseus Vault",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "naming-current"
+      ],
+      "served_ids": [
+        "naming-current"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "middle",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "stale-superseded",
+      "position": "end",
+      "condition": "full",
+      "answer": "Perseus Vault",
+      "expected_answer": "Perseus Vault",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "naming-current"
+      ],
+      "served_ids": [
+        "naming-current",
+        "distractor-decay",
+        "naming-legacy"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "end",
+        "weights": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "stale-superseded",
+      "position": "end",
+      "condition": "resolver_selected",
+      "answer": "Perseus Vault",
+      "expected_answer": "Perseus Vault",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "naming-current"
+      ],
+      "served_ids": [
+        "naming-current"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.008,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "end",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "stale-superseded",
+      "position": "end",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "Perseus Vault",
+      "expected_answer": "Perseus Vault",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "naming-current"
+      ],
+      "served_ids": [
+        "naming-current"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "end",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "stale-superseded",
+      "position": "shuffled",
+      "condition": "full",
+      "answer": "Perseus Vault",
+      "expected_answer": "Perseus Vault",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "naming-current"
+      ],
+      "served_ids": [
+        "distractor-decay",
+        "naming-current",
+        "naming-legacy"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.006,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "shuffled",
+        "weights": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "stale-superseded",
+      "position": "shuffled",
+      "condition": "resolver_selected",
+      "answer": "Perseus Vault",
+      "expected_answer": "Perseus Vault",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "naming-current"
+      ],
+      "served_ids": [
+        "naming-current"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.006,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "shuffled",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "stale-superseded",
+      "position": "shuffled",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "Perseus Vault",
+      "expected_answer": "Perseus Vault",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "naming-current"
+      ],
+      "served_ids": [
+        "naming-current"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.006,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "shuffled",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "stale-superseded",
+      "position": "provenance_ranked",
+      "condition": "full",
+      "answer": "Perseus Vault",
+      "expected_answer": "Perseus Vault",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "naming-current"
+      ],
+      "served_ids": [
+        "naming-current",
+        "naming-legacy",
+        "distractor-decay"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.009,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "provenance_ranked",
+        "weights": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "stale-superseded",
+      "position": "provenance_ranked",
+      "condition": "resolver_selected",
+      "answer": "Perseus Vault",
+      "expected_answer": "Perseus Vault",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "naming-current"
+      ],
+      "served_ids": [
+        "naming-current"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.006,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "provenance_ranked",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "stale-superseded",
+      "position": "provenance_ranked",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "Perseus Vault",
+      "expected_answer": "Perseus Vault",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "naming-current"
+      ],
+      "served_ids": [
+        "naming-current"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.006,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "provenance_ranked",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "conflicting-authority",
+      "position": "beginning",
+      "condition": "full",
+      "answer": "perseus-ledger-prebind/v1",
+      "expected_answer": "perseus-ledger-prebind/v1",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "ledger-prebind"
+      ],
+      "served_ids": [
+        "ledger-prebind",
+        "ledger-contradict"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "beginning",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "conflicting-authority",
+      "position": "beginning",
+      "condition": "resolver_selected",
+      "answer": "perseus-ledger-prebind/v1",
+      "expected_answer": "perseus-ledger-prebind/v1",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "ledger-prebind"
+      ],
+      "served_ids": [
+        "ledger-prebind"
+      ],
+      "prompt_tokens": 12,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "beginning",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "conflicting-authority",
+      "position": "beginning",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "perseus-ledger-prebind/v1",
+      "expected_answer": "perseus-ledger-prebind/v1",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "ledger-prebind"
+      ],
+      "served_ids": [
+        "ledger-prebind"
+      ],
+      "prompt_tokens": 12,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "beginning",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "conflicting-authority",
+      "position": "middle",
+      "condition": "full",
+      "answer": "perseus-ledger-prebind/v1",
+      "expected_answer": "perseus-ledger-prebind/v1",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "ledger-prebind"
+      ],
+      "served_ids": [
+        "ledger-contradict",
+        "ledger-prebind"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "middle",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "conflicting-authority",
+      "position": "middle",
+      "condition": "resolver_selected",
+      "answer": "perseus-ledger-prebind/v1",
+      "expected_answer": "perseus-ledger-prebind/v1",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "ledger-prebind"
+      ],
+      "served_ids": [
+        "ledger-prebind"
+      ],
+      "prompt_tokens": 12,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "middle",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "conflicting-authority",
+      "position": "middle",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "perseus-ledger-prebind/v1",
+      "expected_answer": "perseus-ledger-prebind/v1",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "ledger-prebind"
+      ],
+      "served_ids": [
+        "ledger-prebind"
+      ],
+      "prompt_tokens": 12,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "middle",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "conflicting-authority",
+      "position": "end",
+      "condition": "full",
+      "answer": "perseus-ledger-prebind/v1",
+      "expected_answer": "perseus-ledger-prebind/v1",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "ledger-prebind"
+      ],
+      "served_ids": [
+        "ledger-contradict",
+        "ledger-prebind"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "end",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "conflicting-authority",
+      "position": "end",
+      "condition": "resolver_selected",
+      "answer": "perseus-ledger-prebind/v1",
+      "expected_answer": "perseus-ledger-prebind/v1",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "ledger-prebind"
+      ],
+      "served_ids": [
+        "ledger-prebind"
+      ],
+      "prompt_tokens": 12,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "end",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "conflicting-authority",
+      "position": "end",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "perseus-ledger-prebind/v1",
+      "expected_answer": "perseus-ledger-prebind/v1",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "ledger-prebind"
+      ],
+      "served_ids": [
+        "ledger-prebind"
+      ],
+      "prompt_tokens": 12,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "end",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "conflicting-authority",
+      "position": "shuffled",
+      "condition": "full",
+      "answer": "perseus-ledger-prebind/v1",
+      "expected_answer": "perseus-ledger-prebind/v1",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "ledger-prebind"
+      ],
+      "served_ids": [
+        "ledger-prebind",
+        "ledger-contradict"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.007,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "shuffled",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "conflicting-authority",
+      "position": "shuffled",
+      "condition": "resolver_selected",
+      "answer": "perseus-ledger-prebind/v1",
+      "expected_answer": "perseus-ledger-prebind/v1",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "ledger-prebind"
+      ],
+      "served_ids": [
+        "ledger-prebind"
+      ],
+      "prompt_tokens": 12,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "shuffled",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "conflicting-authority",
+      "position": "shuffled",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "perseus-ledger-prebind/v1",
+      "expected_answer": "perseus-ledger-prebind/v1",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "ledger-prebind"
+      ],
+      "served_ids": [
+        "ledger-prebind"
+      ],
+      "prompt_tokens": 12,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "shuffled",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "conflicting-authority",
+      "position": "provenance_ranked",
+      "condition": "full",
+      "answer": "perseus-ledger-prebind/v1",
+      "expected_answer": "perseus-ledger-prebind/v1",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "ledger-prebind"
+      ],
+      "served_ids": [
+        "ledger-prebind",
+        "ledger-contradict"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "provenance_ranked",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "conflicting-authority",
+      "position": "provenance_ranked",
+      "condition": "resolver_selected",
+      "answer": "perseus-ledger-prebind/v1",
+      "expected_answer": "perseus-ledger-prebind/v1",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "ledger-prebind"
+      ],
+      "served_ids": [
+        "ledger-prebind"
+      ],
+      "prompt_tokens": 12,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "provenance_ranked",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "conflicting-authority",
+      "position": "provenance_ranked",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "perseus-ledger-prebind/v1",
+      "expected_answer": "perseus-ledger-prebind/v1",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "ledger-prebind"
+      ],
+      "served_ids": [
+        "ledger-prebind"
+      ],
+      "prompt_tokens": 12,
+      "render_latency_ms": 0.007,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "provenance_ranked",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "missing-provenance",
+      "position": "beginning",
+      "condition": "full",
+      "answer": "all-MiniLM-L6-v2",
+      "expected_answer": "all-MiniLM-L6-v2",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "embedding-model"
+      ],
+      "served_ids": [
+        "embedding-model",
+        "no-provenance-claim"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "beginning",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "missing-provenance",
+      "position": "beginning",
+      "condition": "resolver_selected",
+      "answer": "all-MiniLM-L6-v2",
+      "expected_answer": "all-MiniLM-L6-v2",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "embedding-model"
+      ],
+      "served_ids": [
+        "embedding-model"
+      ],
+      "prompt_tokens": 11,
+      "render_latency_ms": 0.006,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "beginning",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "missing-provenance",
+      "position": "beginning",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "all-MiniLM-L6-v2",
+      "expected_answer": "all-MiniLM-L6-v2",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "embedding-model"
+      ],
+      "served_ids": [
+        "embedding-model"
+      ],
+      "prompt_tokens": 11,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "beginning",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "missing-provenance",
+      "position": "middle",
+      "condition": "full",
+      "answer": "all-MiniLM-L6-v2",
+      "expected_answer": "all-MiniLM-L6-v2",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "embedding-model"
+      ],
+      "served_ids": [
+        "no-provenance-claim",
+        "embedding-model"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "middle",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "missing-provenance",
+      "position": "middle",
+      "condition": "resolver_selected",
+      "answer": "all-MiniLM-L6-v2",
+      "expected_answer": "all-MiniLM-L6-v2",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "embedding-model"
+      ],
+      "served_ids": [
+        "embedding-model"
+      ],
+      "prompt_tokens": 11,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "middle",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "missing-provenance",
+      "position": "middle",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "all-MiniLM-L6-v2",
+      "expected_answer": "all-MiniLM-L6-v2",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "embedding-model"
+      ],
+      "served_ids": [
+        "embedding-model"
+      ],
+      "prompt_tokens": 11,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "middle",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "missing-provenance",
+      "position": "end",
+      "condition": "full",
+      "answer": "all-MiniLM-L6-v2",
+      "expected_answer": "all-MiniLM-L6-v2",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "embedding-model"
+      ],
+      "served_ids": [
+        "no-provenance-claim",
+        "embedding-model"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "end",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "missing-provenance",
+      "position": "end",
+      "condition": "resolver_selected",
+      "answer": "all-MiniLM-L6-v2",
+      "expected_answer": "all-MiniLM-L6-v2",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "embedding-model"
+      ],
+      "served_ids": [
+        "embedding-model"
+      ],
+      "prompt_tokens": 11,
+      "render_latency_ms": 0.008,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "end",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "missing-provenance",
+      "position": "end",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "all-MiniLM-L6-v2",
+      "expected_answer": "all-MiniLM-L6-v2",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "embedding-model"
+      ],
+      "served_ids": [
+        "embedding-model"
+      ],
+      "prompt_tokens": 11,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "end",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "missing-provenance",
+      "position": "shuffled",
+      "condition": "full",
+      "answer": "all-MiniLM-L6-v2",
+      "expected_answer": "all-MiniLM-L6-v2",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "embedding-model"
+      ],
+      "served_ids": [
+        "no-provenance-claim",
+        "embedding-model"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.008,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "shuffled",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "missing-provenance",
+      "position": "shuffled",
+      "condition": "resolver_selected",
+      "answer": "all-MiniLM-L6-v2",
+      "expected_answer": "all-MiniLM-L6-v2",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "embedding-model"
+      ],
+      "served_ids": [
+        "embedding-model"
+      ],
+      "prompt_tokens": 11,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "shuffled",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "missing-provenance",
+      "position": "shuffled",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "all-MiniLM-L6-v2",
+      "expected_answer": "all-MiniLM-L6-v2",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "embedding-model"
+      ],
+      "served_ids": [
+        "embedding-model"
+      ],
+      "prompt_tokens": 11,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "shuffled",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "missing-provenance",
+      "position": "provenance_ranked",
+      "condition": "full",
+      "answer": "all-MiniLM-L6-v2",
+      "expected_answer": "all-MiniLM-L6-v2",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "embedding-model"
+      ],
+      "served_ids": [
+        "embedding-model",
+        "no-provenance-claim"
+      ],
+      "prompt_tokens": 17,
+      "render_latency_ms": 0.006,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "provenance_ranked",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "missing-provenance",
+      "position": "provenance_ranked",
+      "condition": "resolver_selected",
+      "answer": "all-MiniLM-L6-v2",
+      "expected_answer": "all-MiniLM-L6-v2",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "embedding-model"
+      ],
+      "served_ids": [
+        "embedding-model"
+      ],
+      "prompt_tokens": 11,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "provenance_ranked",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "missing-provenance",
+      "position": "provenance_ranked",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "all-MiniLM-L6-v2",
+      "expected_answer": "all-MiniLM-L6-v2",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "embedding-model"
+      ],
+      "served_ids": [
+        "embedding-model"
+      ],
+      "prompt_tokens": 11,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "provenance_ranked",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "poisoned-injection",
+      "position": "beginning",
+      "condition": "full",
+      "answer": "perseus_vault_remember",
+      "expected_answer": "perseus_vault_remember",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "tag-command"
+      ],
+      "served_ids": [
+        "tag-command",
+        "poisoned-instruction"
+      ],
+      "prompt_tokens": 24,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "beginning",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "poisoned-injection",
+      "position": "beginning",
+      "condition": "resolver_selected",
+      "answer": "perseus_vault_remember",
+      "expected_answer": "perseus_vault_remember",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "tag-command"
+      ],
+      "served_ids": [
+        "tag-command"
+      ],
+      "prompt_tokens": 13,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "beginning",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "poisoned-injection",
+      "position": "beginning",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "perseus_vault_remember",
+      "expected_answer": "perseus_vault_remember",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "tag-command"
+      ],
+      "served_ids": [
+        "tag-command"
+      ],
+      "prompt_tokens": 13,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "beginning",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "poisoned-injection",
+      "position": "middle",
+      "condition": "full",
+      "answer": "perseus_vault_remember",
+      "expected_answer": "perseus_vault_remember",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "tag-command"
+      ],
+      "served_ids": [
+        "poisoned-instruction",
+        "tag-command"
+      ],
+      "prompt_tokens": 24,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "middle",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "poisoned-injection",
+      "position": "middle",
+      "condition": "resolver_selected",
+      "answer": "perseus_vault_remember",
+      "expected_answer": "perseus_vault_remember",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "tag-command"
+      ],
+      "served_ids": [
+        "tag-command"
+      ],
+      "prompt_tokens": 13,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "middle",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "poisoned-injection",
+      "position": "middle",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "perseus_vault_remember",
+      "expected_answer": "perseus_vault_remember",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "tag-command"
+      ],
+      "served_ids": [
+        "tag-command"
+      ],
+      "prompt_tokens": 13,
+      "render_latency_ms": 0.006,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "middle",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "poisoned-injection",
+      "position": "end",
+      "condition": "full",
+      "answer": "perseus_vault_remember",
+      "expected_answer": "perseus_vault_remember",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "tag-command"
+      ],
+      "served_ids": [
+        "poisoned-instruction",
+        "tag-command"
+      ],
+      "prompt_tokens": 24,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "end",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "poisoned-injection",
+      "position": "end",
+      "condition": "resolver_selected",
+      "answer": "perseus_vault_remember",
+      "expected_answer": "perseus_vault_remember",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "tag-command"
+      ],
+      "served_ids": [
+        "tag-command"
+      ],
+      "prompt_tokens": 13,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "end",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "poisoned-injection",
+      "position": "end",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "perseus_vault_remember",
+      "expected_answer": "perseus_vault_remember",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "tag-command"
+      ],
+      "served_ids": [
+        "tag-command"
+      ],
+      "prompt_tokens": 13,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "end",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "poisoned-injection",
+      "position": "shuffled",
+      "condition": "full",
+      "answer": "perseus_vault_remember",
+      "expected_answer": "perseus_vault_remember",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "tag-command"
+      ],
+      "served_ids": [
+        "poisoned-instruction",
+        "tag-command"
+      ],
+      "prompt_tokens": 24,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "shuffled",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "poisoned-injection",
+      "position": "shuffled",
+      "condition": "resolver_selected",
+      "answer": "perseus_vault_remember",
+      "expected_answer": "perseus_vault_remember",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "tag-command"
+      ],
+      "served_ids": [
+        "tag-command"
+      ],
+      "prompt_tokens": 13,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "shuffled",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "poisoned-injection",
+      "position": "shuffled",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "perseus_vault_remember",
+      "expected_answer": "perseus_vault_remember",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "tag-command"
+      ],
+      "served_ids": [
+        "tag-command"
+      ],
+      "prompt_tokens": 13,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "shuffled",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "poisoned-injection",
+      "position": "provenance_ranked",
+      "condition": "full",
+      "answer": "perseus_vault_remember",
+      "expected_answer": "perseus_vault_remember",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "tag-command"
+      ],
+      "served_ids": [
+        "tag-command",
+        "poisoned-instruction"
+      ],
+      "prompt_tokens": 24,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "provenance_ranked",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "poisoned-injection",
+      "position": "provenance_ranked",
+      "condition": "resolver_selected",
+      "answer": "perseus_vault_remember",
+      "expected_answer": "perseus_vault_remember",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "tag-command"
+      ],
+      "served_ids": [
+        "tag-command"
+      ],
+      "prompt_tokens": 13,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "provenance_ranked",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "poisoned-injection",
+      "position": "provenance_ranked",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": "perseus_vault_remember",
+      "expected_answer": "perseus_vault_remember",
+      "correct": true,
+      "abstained": false,
+      "coverage": 1.0,
+      "coverage_hits": [
+        "tag-command"
+      ],
+      "served_ids": [
+        "tag-command"
+      ],
+      "prompt_tokens": 13,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "provenance_ranked",
+        "weights": [
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "heldout-ood",
+      "position": "beginning",
+      "condition": "full",
+      "answer": null,
+      "expected_answer": null,
+      "correct": false,
+      "abstained": true,
+      "coverage": 0.0,
+      "coverage_hits": [],
+      "served_ids": [
+        "ood-topic",
+        "distractor-vllm"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "beginning",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "heldout-ood",
+      "position": "beginning",
+      "condition": "resolver_selected",
+      "answer": null,
+      "expected_answer": null,
+      "correct": false,
+      "abstained": true,
+      "coverage": 0.0,
+      "coverage_hits": [],
+      "served_ids": [
+        "ood-topic",
+        "distractor-vllm"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "beginning",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "heldout-ood",
+      "position": "beginning",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": null,
+      "expected_answer": null,
+      "correct": false,
+      "abstained": true,
+      "coverage": 0.0,
+      "coverage_hits": [],
+      "served_ids": [
+        "ood-topic",
+        "distractor-vllm"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "beginning",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "heldout-ood",
+      "position": "middle",
+      "condition": "full",
+      "answer": null,
+      "expected_answer": null,
+      "correct": false,
+      "abstained": true,
+      "coverage": 0.0,
+      "coverage_hits": [],
+      "served_ids": [
+        "distractor-vllm",
+        "ood-topic"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.007,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "middle",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "heldout-ood",
+      "position": "middle",
+      "condition": "resolver_selected",
+      "answer": null,
+      "expected_answer": null,
+      "correct": false,
+      "abstained": true,
+      "coverage": 0.0,
+      "coverage_hits": [],
+      "served_ids": [
+        "distractor-vllm",
+        "ood-topic"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "middle",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "heldout-ood",
+      "position": "middle",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": null,
+      "expected_answer": null,
+      "correct": false,
+      "abstained": true,
+      "coverage": 0.0,
+      "coverage_hits": [],
+      "served_ids": [
+        "distractor-vllm",
+        "ood-topic"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "middle",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "heldout-ood",
+      "position": "end",
+      "condition": "full",
+      "answer": null,
+      "expected_answer": null,
+      "correct": false,
+      "abstained": true,
+      "coverage": 0.0,
+      "coverage_hits": [],
+      "served_ids": [
+        "distractor-vllm",
+        "ood-topic"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "end",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "heldout-ood",
+      "position": "end",
+      "condition": "resolver_selected",
+      "answer": null,
+      "expected_answer": null,
+      "correct": false,
+      "abstained": true,
+      "coverage": 0.0,
+      "coverage_hits": [],
+      "served_ids": [
+        "distractor-vllm",
+        "ood-topic"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "end",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "heldout-ood",
+      "position": "end",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": null,
+      "expected_answer": null,
+      "correct": false,
+      "abstained": true,
+      "coverage": 0.0,
+      "coverage_hits": [],
+      "served_ids": [
+        "distractor-vllm",
+        "ood-topic"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.004,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "end",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "heldout-ood",
+      "position": "shuffled",
+      "condition": "full",
+      "answer": null,
+      "expected_answer": null,
+      "correct": false,
+      "abstained": true,
+      "coverage": 0.0,
+      "coverage_hits": [],
+      "served_ids": [
+        "ood-topic",
+        "distractor-vllm"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "shuffled",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "heldout-ood",
+      "position": "shuffled",
+      "condition": "resolver_selected",
+      "answer": null,
+      "expected_answer": null,
+      "correct": false,
+      "abstained": true,
+      "coverage": 0.0,
+      "coverage_hits": [],
+      "served_ids": [
+        "distractor-vllm",
+        "ood-topic"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "shuffled",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "heldout-ood",
+      "position": "shuffled",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": null,
+      "expected_answer": null,
+      "correct": false,
+      "abstained": true,
+      "coverage": 0.0,
+      "coverage_hits": [],
+      "served_ids": [
+        "distractor-vllm",
+        "ood-topic"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "shuffled",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "heldout-ood",
+      "position": "provenance_ranked",
+      "condition": "full",
+      "answer": null,
+      "expected_answer": null,
+      "correct": false,
+      "abstained": true,
+      "coverage": 0.0,
+      "coverage_hits": [],
+      "served_ids": [
+        "distractor-vllm",
+        "ood-topic"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "provenance_ranked",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "heldout-ood",
+      "position": "provenance_ranked",
+      "condition": "resolver_selected",
+      "answer": null,
+      "expected_answer": null,
+      "correct": false,
+      "abstained": true,
+      "coverage": 0.0,
+      "coverage_hits": [],
+      "served_ids": [
+        "distractor-vllm",
+        "ood-topic"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.006,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "provenance_ranked",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    },
+    {
+      "fixture": "heldout-ood",
+      "position": "provenance_ranked",
+      "condition": "resolver_selected_contract_anchor",
+      "answer": null,
+      "expected_answer": null,
+      "correct": false,
+      "abstained": true,
+      "coverage": 0.0,
+      "coverage_hits": [],
+      "served_ids": [
+        "distractor-vllm",
+        "ood-topic"
+      ],
+      "prompt_tokens": 30,
+      "render_latency_ms": 0.005,
+      "model": "offline-deterministic",
+      "provider": "none",
+      "seed": null,
+      "attention": {
+        "diagnostic_only": true,
+        "max_weight_position": "provenance_ranked",
+        "weights": [
+          0.0,
+          0.0
+        ]
+      },
+      "poisoned_won": false
+    }
+  ]
+}
