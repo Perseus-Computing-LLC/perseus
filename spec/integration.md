@@ -84,7 +84,7 @@ no pre-rendered files.
 mcp_servers:
   perseus:
     transport: stdio
-    command: ~/.local/bin/perseus
+    command: /home/yourname/.local/bin/perseus
     args: ["mcp", "serve"]
 ```
 
@@ -96,7 +96,7 @@ Verify: `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in session.
 {
   "mcpServers": {
     "perseus": {
-      "command": "~/.local/bin/perseus",
+      "command": "/Users/yourname/.local/bin/perseus",
       "args": ["mcp", "serve", "--workspace", "/path/to/workspace"]
     }
   }
@@ -109,7 +109,7 @@ Verify: `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in session.
 {
   "mcpServers": {
     "perseus": {
-      "command": "~/.local/bin/perseus",
+      "command": "/Users/yourname/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }
@@ -122,7 +122,7 @@ Verify: `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in session.
 {
   "mcpServers": {
     "perseus": {
-      "command": "~/.local/bin/perseus",
+      "command": "/Users/yourname/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }
@@ -135,7 +135,7 @@ Verify: `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in session.
 {
   "mcpServers": {
     "perseus": {
-      "command": "~/.local/bin/perseus",
+      "command": "/Users/yourname/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }
@@ -148,7 +148,7 @@ Verify: `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in session.
 {
   "mcpServers": {
     "perseus": {
-      "command": "~/.local/bin/perseus",
+      "command": "/Users/yourname/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }

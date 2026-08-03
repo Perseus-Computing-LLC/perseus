@@ -13,7 +13,7 @@ Perseus resolves and shapes the active working context; Perseus Vault owns durab
 - **Recalled memory** is the subset of durable memory returned for a query and shaped into the rendered context. The public `@memory` directive remains the compatibility API name for Vault-backed recall; existing MCP compatibility names remain unchanged.
 - **Session history** is Perseus's recent checkpoint and session-digest record. `@waypoint` and `@session` expose it; it is distinct from durable memory. An explicit capture may persist a checkpoint in Perseus Vault as durable memory.
 
-> **Stable launcher for MCP and schedulers:** Use `~/.local/bin/perseus` in client configurations and scheduled jobs. It remains the same install-managed entry point across upgrades instead of pinning a version-specific Python or Library path. Interactive shell commands may use `perseus`; use `command -v perseus` to discover the resolved executable when diagnosing a path problem.
+> **Stable launcher for MCP and schedulers:** Use `~/.local/bin/perseus` in shell commands. In JSON/YAML MCP `command` fields, replace `~` with your home directory because exec-style clients do not perform shell expansion. It remains the same install-managed entry point across upgrades instead of pinning a version-specific Python or Library path. Interactive shell commands may use `perseus`; use `command -v perseus` to discover the resolved executable when diagnosing a path problem.
 
 ---
 
@@ -48,7 +48,7 @@ Add to your assistant's MCP config:
 {
   "mcpServers": {
     "perseus": {
-      "command": "~/.local/bin/perseus",
+      "command": "/Users/yourname/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }
@@ -60,7 +60,7 @@ Add to your assistant's MCP config:
 {
   "mcpServers": {
     "perseus": {
-      "command": "~/.local/bin/perseus",
+      "command": "/Users/yourname/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }
