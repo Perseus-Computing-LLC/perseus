@@ -868,7 +868,7 @@ def _doctor_safe_path(path: Path | None) -> str | None:
     """Return a printable, home-abbreviated path for structured output."""
     if path is None:
         return None
-    text = _abbrev_home(str(path))
+    text = str(path)
     return "".join(char if char.isprintable() and char not in "\r\n\t" else "?" for char in text)
 
 

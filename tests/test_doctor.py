@@ -530,7 +530,7 @@ def test_doctor_provenance_discovers_only_canonical_workspace_root(tmp_path, mon
     result = perseus._doctor_check_provenance_drift(cfg(), source)
 
     assert result.status == "ok"
-    assert result.details["source"]["root"] == str(source)
+    assert Path(result.details["source"]["root"]).resolve() == source.resolve()
     assert result.details["comparison"] == "match"
 
 

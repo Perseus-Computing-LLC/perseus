@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "9378987-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "27bfa21-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -27048,7 +27048,7 @@ def _doctor_safe_path(path: Path | None) -> str | None:
     """Return a printable, home-abbreviated path for structured output."""
     if path is None:
         return None
-    text = _abbrev_home(str(path))
+    text = str(path)
     return "".join(char if char.isprintable() and char not in "\r\n\t" else "?" for char in text)
 
 
