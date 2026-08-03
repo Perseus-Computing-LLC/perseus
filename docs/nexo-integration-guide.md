@@ -114,7 +114,7 @@ Nexo's `nexo_startup` tool can call Perseus's MCP server via stdio:
 {
   "mcpServers": {
     "perseus": {
-      "command": "perseus",
+      "command": "~/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }

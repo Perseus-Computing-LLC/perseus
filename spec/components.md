@@ -539,6 +539,24 @@ perseus doctor [--workspace <path>] [--json]
 - Pythia log readability
 - serve loopback default
 - directive registry invariants
+- installed build provenance versus the current source checkout (when the
+  checkout root is unambiguous or configured)
+
+The provenance row is `provenance_drift`. Its `--json` check object keeps the
+existing `id`, `status`, `label`, and `value` fields and adds a `details`
+mapping:
+
+```yaml
+doctor:
+  source_root: /path/to/perseus  # optional; otherwise use the exact canonical checkout layout
+```
+
+`details.artifact` and `details.source` report sanitized `sha`, `dirty`, and
+`state` values. `details.comparison` is `match`, `state_mismatch`,
+`artifact_dirty_source_clean`, `sha_mismatch`, `artifact_only`, or `unknown`.
+Missing/legacy artifact metadata and unavailable source checkouts are explicit
+unknown/artifact-only results, not doctor errors. SHA comparison is literal;
+the check does not infer ancestry from short SHAs.
 
 ---
 
