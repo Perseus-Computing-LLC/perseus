@@ -27,11 +27,21 @@ and Synthesis.
 5. **(Optional) LLM configured** — if you chose a free backend during the prompt,
    Perseus is ready for `perseus suggest` and `perseus synthesize`
 
-## Add Persistent Memory (optional)
+## Context, memory, and session terms
 
-Cross-session memory is a separate, optional component — the **Perseus Vault**
-MCP server. `perseus quickstart` already wires the connector in your config; to
-install the engine (prebuilt binary, Linux/macOS):
+Perseus resolves and shapes the active working context; Perseus Vault owns durable-memory persistence and recall.
+
+- **Active working context** is the current, task-relevant workspace state — files, services, tasks, and other facts that can change. Perseus resolves and shapes it at render time before the assistant sees it.
+- **Durable memory** is information intended to survive session boundaries. Perseus Vault owns its persistence and recall.
+- **Recalled memory** is the subset of durable memory returned for a query and shaped into the rendered context. The public `@memory` directive remains the compatibility API name for Vault-backed recall; existing MCP compatibility names remain unchanged.
+- **Session history** is Perseus's recent checkpoint and session-digest record. `@waypoint` and `@session` expose it; it is distinct from durable memory. An explicit capture may persist a checkpoint in Perseus Vault as durable memory.
+
+## Add Durable Memory (optional)
+
+Cross-session durable memory is a separate, optional component — the **Perseus Vault**
+MCP server. Perseus resolves and shapes the active working context; Perseus Vault
+owns durable-memory persistence and recall. `perseus quickstart` already wires the
+connector in your config; to install the engine (prebuilt binary, Linux/macOS):
 
 ```bash
 curl -sSf https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/install.sh | sh
@@ -150,9 +160,15 @@ start.
 
 ### MCP Server
 
+For MCP configurations and scheduled jobs, use the stable launcher
+`~/.local/bin/perseus`. It remains the same entry point across package upgrades,
+so background jobs do not pin a version-specific Python or Library path. Bare
+`perseus` remains fine for interactive shells; use `command -v perseus` to
+inspect the resolved installation when diagnosing a path problem.
+
 ```bash
-perseus mcp config    # Print MCP client config for Claude Desktop, Cursor, etc.
-perseus mcp serve     # Run as an MCP server over stdio
+~/.local/bin/perseus mcp config    # Print MCP client config for Claude Desktop, Cursor, etc.
+~/.local/bin/perseus mcp serve     # Run as an MCP server over stdio
 ```
 
 ## CI/CD Integration
@@ -161,7 +177,7 @@ Add to your CI pipeline (GitHub Actions, etc.):
 
 ```yaml
 - name: Refresh Perseus context
-  run: perseus render .perseus/context.md --output .hermes.md --strict
+  run: ~/.local/bin/perseus render .perseus/context.md --output .hermes.md --strict
 ```
 
 The `--strict` flag fails the build if any directive emits a warning.

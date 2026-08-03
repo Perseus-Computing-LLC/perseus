@@ -223,6 +223,34 @@ Failure:
 }
 ```
 
+## `perseus doctor --json` provenance details
+
+The additive `provenance_drift` check reports the installed artifact separately
+from the current source checkout when the source root is unambiguous. The
+canonical source layout is recognized only at the requested workspace (or an
+explicit `doctor.source_root` may be configured):
+
+```yaml
+doctor:
+  source_root: /path/to/perseus
+```
+
+Its optional `details` mapping uses JSON-safe values:
+
+```json
+{
+  "artifact": {"path": "~/.local/.../perseus.py", "sha": "abc1234", "dirty": true, "state": "dirty"},
+  "source": {"root": "/path/to/perseus", "sha": "abc1234", "dirty": false, "state": "clean"},
+  "comparison": "artifact_dirty_source_clean",
+  "reasons": ["artifact_dirty_source_clean"],
+  "source_root_configured": true
+}
+```
+
+Unknown/legacy metadata or an unavailable source produces `unknown` or
+`artifact_only` comparison details without turning the check into an error.
+Short SHAs are compared literally; no ancestry is inferred.
+
 ## MCP health/context surfaces (CLI ↔ MCP mapping)
 
 The MCP server exposes health/context tools that mirror the CLI health
