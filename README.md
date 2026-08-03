@@ -154,7 +154,7 @@ PR Pilot — 5-agent autonomous PR review pipeline. Gemini API, Google Cloud Run
 
 Perseus implements the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP), exposing tools over stdio or SSE transport. Every tool resolves live workspace state at invocation time — no stale cache, no pre-computed snapshots.
 
-> **Stable launcher for MCP and schedulers:** Use `~/.local/bin/perseus` in MCP configurations and scheduled jobs. This install-managed launcher stays stable across package upgrades instead of baking a version-specific Python or Library path into background configuration. Interactive shell commands may still use `perseus`; verify the resolved entry point with `command -v perseus` when diagnosing an installation.
+> **Stable launcher for MCP and schedulers:** Use `~/.local/bin/perseus` in shell commands. In JSON/YAML MCP `command` fields, replace `~` with your home directory because exec-style clients do not perform shell expansion. This install-managed launcher stays stable across package upgrades instead of baking a version-specific Python or Library path into background configuration. Interactive shell commands may still use `perseus`; verify the resolved entry point with `command -v perseus` when diagnosing an installation.
 
 > **⚠️ Security Gate:** Shell-executing directives (`@query`, `@agent`, `@services command:`) require `export PERSEUS_ALLOW_DANGEROUS=1`. Without it, shell directives are silently skipped.
 
@@ -175,7 +175,7 @@ Pick your assistant and add the config block shown:
 ```yaml
 mcp_servers:
   perseus:
-    command: ~/.local/bin/perseus
+    command: /home/yourname/.local/bin/perseus
     args: ["mcp", "serve", "--workspace", "/path/to/workspace"]
 ```
 
@@ -189,7 +189,7 @@ Then verify with `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in y
 {
   "mcpServers": {
     "perseus": {
-      "command": "~/.local/bin/perseus",
+      "command": "/Users/yourname/.local/bin/perseus",
       "args": ["mcp", "serve", "--workspace", "/path/to/workspace"]
     }
   }
@@ -202,7 +202,7 @@ Then verify with `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in y
 {
   "mcpServers": {
     "perseus": {
-      "command": "~/.local/bin/perseus",
+      "command": "/Users/yourname/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }
@@ -215,7 +215,7 @@ Then verify with `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in y
 {
   "mcpServers": {
     "perseus": {
-      "command": "~/.local/bin/perseus",
+      "command": "/Users/yourname/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }
@@ -228,7 +228,7 @@ Then verify with `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in y
 {
   "mcpServers": {
     "perseus": {
-      "command": "~/.local/bin/perseus",
+      "command": "/Users/yourname/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }
@@ -241,7 +241,7 @@ Then verify with `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in y
 {
   "mcpServers": {
     "perseus": {
-      "command": "~/.local/bin/perseus",
+      "command": "/Users/yourname/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }

@@ -98,8 +98,11 @@ pip install -e .
 Use `~/.local/bin/perseus` as the launcher in MCP configurations and scheduled
 jobs. This install-managed entry point stays stable across package upgrades and
 avoids pinning a version-specific Python or Library path into background
-configuration. Interactive shell commands may use `perseus`; run `command -v
-perseus` when you need to discover or diagnose the resolved executable.
+configuration. Shell commands may use this path directly. In JSON/YAML MCP
+`command` fields, replace `~` with your home directory because exec-style
+clients do not perform shell expansion. Interactive shell commands may use
+`perseus`; run `command -v perseus` when you need to discover or diagnose the
+resolved executable.
 
 ---
 
@@ -401,7 +404,7 @@ Your system prompt goes here. This is injected before the rendered content.
 > Perseus Vault context is injected automatically by the render pipeline when `perseus_vault.enabled: true` is set in `.perseus/config.yaml`.
 
 ## Recent Sessions
-@session count=5 format=digest
+@session count=5
 
 > **Note:** `@session` reads from Perseus's own session store (`~/.perseus/sessions/`).
 > It does not automatically ingest Hermes Agent sessions, Claude Code sessions, or any
@@ -774,7 +777,7 @@ In addition to AGENTS.md auto-injection, Hermes can wire Perseus as an MCP serve
 ```yaml
 mcp_servers:
   perseus:
-    command: ~/.local/bin/perseus   # stable launcher; expand ~ if this client requires an absolute path
+    command: /home/yourname/.local/bin/perseus   # absolute path for exec-style clients
     args:
       - mcp
       - serve
@@ -812,7 +815,7 @@ Add Perseus MCP to your MCP config at `~/.rovodev/mcp.json`:
 {
   "mcpServers": {
     "perseus": {
-      "command": "~/.local/bin/perseus",
+      "command": "/Users/yourname/.local/bin/perseus",
       "args": ["mcp", "serve", "--workspace", "/Users/yourname"]
     }
   }
@@ -828,7 +831,7 @@ Perseus also auto-renders AGENTS.md at session start if the launchd job is confi
 ~/.local/bin/perseus mcp config
 
 # Or use the MCP server directly in any MCP-compatible client:
-# command: ~/.local/bin/perseus mcp serve --workspace /path/to/workspace
+# command: /home/yourname/.local/bin/perseus mcp serve --workspace /path/to/workspace
 ```
 
 ---
