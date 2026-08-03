@@ -20,6 +20,15 @@ Perseus is a **compile-before-context engine** — it runs a set of directives i
 
 The key insight: **the AI reads the rendered output, not the directives**. Perseus solves the problem of giving an AI accurate "what is happening right now" context without relying on the AI to go fetch it.
 
+## Context, memory, and session terms
+
+Perseus resolves and shapes the active working context; Perseus Vault owns durable-memory persistence and recall.
+
+- **Active working context** is the current, task-relevant workspace state — files, services, tasks, and other facts that can change. Perseus resolves and shapes it at render time before the assistant sees it.
+- **Durable memory** is information intended to survive session boundaries. Perseus Vault owns its persistence and recall.
+- **Recalled memory** is the subset of durable memory returned for a query and shaped into the rendered context. The public `@memory` directive remains the compatibility API name for Vault-backed recall; existing MCP compatibility names remain unchanged.
+- **Session history** is Perseus's recent checkpoint and session-digest record. `@waypoint` and `@session` expose it; it is distinct from durable memory. An explicit capture may persist a checkpoint in Perseus Vault as durable memory.
+
 ### Token Efficiency
 
 Perseus is a **long-session efficiency play**. Context is injected once at session start and reused across all turns — the LLM never wastes turns asking "what machine is this?" or "what tools do I have?"
@@ -83,6 +92,14 @@ git clone https://github.com/Perseus-Computing-LLC/perseus.git
 cd perseus
 pip install -e .
 ```
+
+### Stable launcher for automation
+
+Use `~/.local/bin/perseus` as the launcher in MCP configurations and scheduled
+jobs. This install-managed entry point stays stable across package upgrades and
+avoids pinning a version-specific Python or Library path into background
+configuration. Interactive shell commands may use `perseus`; run `command -v
+perseus` when you need to discover or diagnose the resolved executable.
 
 ---
 
@@ -157,8 +174,10 @@ in `.perseus/config.yaml`.
 > **Rovo Dev users:** The "two-file problem" — Rovo Dev CLI reads `~/.rovodev/AGENTS.md` while
 > the Rovo web agent reads `~/AGENTS.md`. Keep them in sync via the automation section below.
 >
-> **Cross-platform paths:** All examples below use macOS-style `/Users/yourname/...` paths.
-> Substitute as needed:
+> **Cross-platform paths:** Workspace examples below use macOS-style `/Users/yourname/...` paths.
+> Substitute as needed. Automation examples intentionally use the stable
+> `~/.local/bin/perseus` launcher; expand it only when an MCP client requires a
+> fully resolved path:
 > - **Windows (git-bash):** `C:/Users/yourname/...` or `/c/Users/yourname/...`
 > - **Linux:** `/home/yourname/...`
 > - **Docker:** `/opt/data/...` or wherever `$HERMES_HOME` points
@@ -204,7 +223,7 @@ trust:
 > ```bash
 > export PERSEUS_ALLOW_DANGEROUS=1
 > # or per-command:
-> PERSEUS_ALLOW_DANGEROUS=1 perseus render ~/.perseus/context.md --output ~/AGENTS.md
+> PERSEUS_ALLOW_DANGEROUS=1 ~/.local/bin/perseus render ~/.perseus/context.md --output ~/AGENTS.md
 > ```
 > If missing, these directives will render as disabled even when `render.allow_query_shell: true`.
 
@@ -755,7 +774,7 @@ In addition to AGENTS.md auto-injection, Hermes can wire Perseus as an MCP serve
 ```yaml
 mcp_servers:
   perseus:
-    command: /home/yourname/.local/bin/perseus   # Linux/Docker; use /Users/… on macOS
+    command: ~/.local/bin/perseus   # stable launcher; expand ~ if this client requires an absolute path
     args:
       - mcp
       - serve
@@ -773,7 +792,7 @@ mcp_servers:
 > reload. Smoke-test with:
 > ```bash
 > echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | \
->   timeout 3 /home/yourname/.local/bin/perseus mcp serve --workspace /home/yourname
+>   timeout 3 ~/.local/bin/perseus mcp serve --workspace /home/yourname
 > ```
 
 ### Claude Code (hooks-based injection)
@@ -793,7 +812,7 @@ Add Perseus MCP to your MCP config at `~/.rovodev/mcp.json`:
 {
   "mcpServers": {
     "perseus": {
-      "command": "/Users/yourname/Library/Python/3.13/bin/perseus",
+      "command": "~/.local/bin/perseus",
       "args": ["mcp", "serve", "--workspace", "/Users/yourname"]
     }
   }
@@ -806,10 +825,10 @@ Perseus also auto-renders AGENTS.md at session start if the launchd job is confi
 
 ```bash
 # Print MCP client config for your editor
-perseus mcp config
+~/.local/bin/perseus mcp config
 
 # Or use the MCP server directly in any MCP-compatible client:
-# command: perseus mcp serve --workspace /path/to/workspace
+# command: ~/.local/bin/perseus mcp serve --workspace /path/to/workspace
 ```
 
 ---
@@ -828,7 +847,7 @@ If you're already using Hermes Agent, its built-in cron scheduler is the simples
 #!/bin/bash
 # Silent on success, alerts on failure (designed for no_agent=true cron)
 export PATH="$HOME/.local/bin:$PATH"
-PERSEUS_ALLOW_DANGEROUS=1 perseus render "$HOME/.perseus/context.md" --output "$HOME/AGENTS.md" >/dev/null 2>&1
+PERSEUS_ALLOW_DANGEROUS=1 ~/.local/bin/perseus render "$HOME/.perseus/context.md" --output "$HOME/AGENTS.md" >/dev/null 2>&1
 exit_code=$?
 if [ $exit_code -ne 0 ]; then
     echo "Perseus render FAILED (exit $exit_code)"
@@ -888,7 +907,7 @@ Create `~/Library/LaunchAgents/com.yourname.perseus.render.plist`:
     <array>
         <string>/bin/sh</string>
         <string>-c</string>
-        <string>/Users/yourname/.local/bin/perseus render /Users/yourname/.perseus/context.md --output /Users/yourname/AGENTS.md</string>
+        <string>~/.local/bin/perseus render /Users/yourname/.perseus/context.md --output /Users/yourname/AGENTS.md</string>
     </array>
     <key>StartInterval</key>
     <integer>1800</integer>
@@ -920,7 +939,7 @@ Description=Perseus context render
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c '/home/yourname/.local/bin/perseus render /home/yourname/.perseus/context.md --output /home/yourname/AGENTS.md'
+ExecStart=/bin/sh -c '~/.local/bin/perseus render /home/yourname/.perseus/context.md --output /home/yourname/AGENTS.md'
 
 # ~/.config/systemd/user/perseus-render.timer
 [Unit]
@@ -943,7 +962,7 @@ systemctl --user enable --now perseus-render.timer
 ```bash
 crontab -e
 # Add:
-*/30 * * * * /full/path/to/perseus render /home/yourname/.perseus/context.md --output /home/yourname/AGENTS.md
+*/30 * * * * ~/.local/bin/perseus render /home/yourname/.perseus/context.md --output /home/yourname/AGENTS.md
 ```
 
 ---
@@ -994,13 +1013,13 @@ Perseus can run as an MCP server over stdio, or as an HTTP server with a dashboa
 
 ```bash
 # MCP server (stdio, JSON-RPC 2.0) — exposes directives as tools
-perseus mcp serve --workspace /path/to/workspace
+~/.local/bin/perseus mcp serve --workspace /path/to/workspace
 
 # Print MCP client config for Claude Desktop / Cursor
-perseus mcp config
+~/.local/bin/perseus mcp config
 
 # HTTP server with dashboard at http://127.0.0.1:7991
-perseus serve --port 7991 --workspace /path/to/workspace
+~/.local/bin/perseus serve --port 7991 --workspace /path/to/workspace
 ```
 
 HTTP endpoints:
@@ -1230,7 +1249,7 @@ cd ~/my-project && perseus init
 
 # Render context to AGENTS.md (Hermes, Claude Code, Rovo web agent)
 # Requires PERSEUS_ALLOW_DANGEROUS=1 for @query, @agent, @services command: directives
-PERSEUS_ALLOW_DANGEROUS=1 perseus render ~/.perseus/context.md --output ~/AGENTS.md
+PERSEUS_ALLOW_DANGEROUS=1 ~/.local/bin/perseus render ~/.perseus/context.md --output ~/AGENTS.md
 perseus render ~/.perseus/context.md --output ~/AGENTS.md
 
 # Render to .hermes.md (Hermes high-priority context)
@@ -1264,7 +1283,7 @@ perseus memory show
 perseus memory status
 
 # MCP server
-perseus mcp serve --workspace ~
+~/.local/bin/perseus mcp serve --workspace ~
 
 # Hermes cronjob (automated render every 30 min)
 hermes cron create "every 30m" --name "Perseus render" --script perseus-render.sh --no-agent

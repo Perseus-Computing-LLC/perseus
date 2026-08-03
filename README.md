@@ -28,6 +28,15 @@ start (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, ...). Keep it live with
 - **Local-first by default** — the core renderer reads your workspace locally; no account or hosted service is required.
 - **MCP-native when you need it** — expose the same live context as a stdio or SSE MCP server, with shell-executing tools opt-in.
 
+### Context, memory, and session terms
+
+Perseus resolves and shapes the active working context; Perseus Vault owns durable-memory persistence and recall.
+
+- **Active working context** is the current, task-relevant workspace state — files, services, tasks, and other facts that can change. Perseus resolves and shapes it at render time before the assistant sees it.
+- **Durable memory** is information intended to survive session boundaries. Perseus Vault owns its persistence and recall.
+- **Recalled memory** is the subset of durable memory returned for a query and shaped into the rendered context. The public `@memory` directive remains the compatibility API name for Vault-backed recall; existing MCP compatibility names remain unchanged.
+- **Session history** is Perseus's recent checkpoint and session-digest record. `@waypoint` and `@session` expose it; it is distinct from durable memory. An explicit capture may persist a checkpoint in Perseus Vault as durable memory.
+
 ### Fastest path
 
 ```bash
@@ -145,14 +154,16 @@ PR Pilot — 5-agent autonomous PR review pipeline. Gemini API, Google Cloud Run
 
 Perseus implements the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP), exposing tools over stdio or SSE transport. Every tool resolves live workspace state at invocation time — no stale cache, no pre-computed snapshots.
 
+> **Stable launcher for MCP and schedulers:** Use `~/.local/bin/perseus` in MCP configurations and scheduled jobs. This install-managed launcher stays stable across package upgrades instead of baking a version-specific Python or Library path into background configuration. Interactive shell commands may still use `perseus`; verify the resolved entry point with `command -v perseus` when diagnosing an installation.
+
 > **⚠️ Security Gate:** Shell-executing directives (`@query`, `@agent`, `@services command:`) require `export PERSEUS_ALLOW_DANGEROUS=1`. Without it, shell directives are silently skipped.
 
 ### Quick Start (MCP Server)
 
 ```bash
 pip install perseus-ctx
-perseus mcp serve                          # stdio (Claude Desktop, Claude Code, Cursor, Codex)
-perseus mcp serve --transport sse --port 8420  # SSE (remote agents, multi-machine)
+~/.local/bin/perseus mcp serve                          # stdio (Claude Desktop, Claude Code, Cursor, Codex)
+~/.local/bin/perseus mcp serve --transport sse --port 8420  # SSE (remote agents, multi-machine)
 ```
 
 ### Assistant-Specific Wiring
@@ -164,13 +175,13 @@ Pick your assistant and add the config block shown:
 ```yaml
 mcp_servers:
   perseus:
-    command: perseus
+    command: ~/.local/bin/perseus
     args: ["mcp", "serve", "--workspace", "/path/to/workspace"]
 ```
 
 Then verify with `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in your session.
 
-> Use an absolute path for `--workspace`. Perseus's non-interactive shell context has a limited PATH — a bare `perseus` command works in the Hermes MCP config because Hermes resolves it from the user's environment, but the workspace path must be absolute.
+> Use an absolute path for `--workspace`. Perseus's non-interactive shell context has a limited PATH, so the stable launcher above avoids relying on interactive-shell lookup.
 
 **Claude Desktop** (`claude_desktop_config.json`):
 
@@ -178,7 +189,7 @@ Then verify with `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in y
 {
   "mcpServers": {
     "perseus": {
-      "command": "perseus",
+      "command": "~/.local/bin/perseus",
       "args": ["mcp", "serve", "--workspace", "/path/to/workspace"]
     }
   }
@@ -191,7 +202,7 @@ Then verify with `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in y
 {
   "mcpServers": {
     "perseus": {
-      "command": "perseus",
+      "command": "~/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }
@@ -204,7 +215,7 @@ Then verify with `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in y
 {
   "mcpServers": {
     "perseus": {
-      "command": "perseus",
+      "command": "~/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }
@@ -217,7 +228,7 @@ Then verify with `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in y
 {
   "mcpServers": {
     "perseus": {
-      "command": "perseus",
+      "command": "~/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }
@@ -230,7 +241,7 @@ Then verify with `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in y
 {
   "mcpServers": {
     "perseus": {
-      "command": "perseus",
+      "command": "~/.local/bin/perseus",
       "args": ["mcp", "serve"]
     }
   }
@@ -360,13 +371,13 @@ Keep it fresh with cron, launchd, systemd, or `perseus watch`:
 
 ```bash
 # Linux systemd (auto-refresh every 5 minutes)
-perseus systemd .perseus/context.md --output AGENTS.md --interval 5m --install --enable
+~/.local/bin/perseus systemd .perseus/context.md --output AGENTS.md --interval 5m --install --enable
 
 # macOS launchd
-perseus launchd .perseus/context.md --output AGENTS.md
+~/.local/bin/perseus launchd .perseus/context.md --output AGENTS.md
 
 # Cron (any POSIX host)
-perseus cron .perseus/context.md --output AGENTS.md --every 5 --install
+~/.local/bin/perseus cron .perseus/context.md --output AGENTS.md --every 5 --install
 ```
 
 See the [Integration Guide](https://github.com/Perseus-Computing-LLC/perseus/blob/main/docs/HERMES_INTEGRATION.md) for Hermes-specific auto-refresh setups and [adapter patterns](https://github.com/Perseus-Computing-LLC/perseus/blob/main/spec/integration.md) for full integration details.

@@ -135,6 +135,11 @@ DEFAULT_CONFIG = {
         "context_line_warning": 400,
         "include_completed_tasks_older_than_days": 14,
     },
+    "doctor": {
+        # Optional checkout root for provenance comparison. When unset, doctor
+        # only uses the exact canonical source layout when it is unambiguous.
+        "source_root": None,
+    },
     "memory": {
         "store": str(PERSEUS_HOME / "memory"),
         "recent_keep": 5,           # raw checkpoints to include in Recent Activity
