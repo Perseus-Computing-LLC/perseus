@@ -42,7 +42,7 @@ def test_public_docs_use_the_stable_launcher_for_automation():
     for path in LAUNCHER_DOCS:
         text = path.read_text(encoding="utf-8")
         rel = path.relative_to(ROOT)
-        assert "~/.local/bin/perseus" in text, f"{rel} lacks the stable launcher"
+        assert "~/.local/bin/perseus" in text or "/Users/yourname/.local/bin/perseus" in text, f"{rel} lacks the stable launcher"
         assert not re.search(r"(?i)library/python|python/3\.", text), (
             f"{rel} contains a version-specific launcher path"
         )
@@ -50,3 +50,30 @@ def test_public_docs_use_the_stable_launcher_for_automation():
             r"(?m)^\s*['\"]?command['\"]?\s*:\s*['\"]?perseus['\"]?\s*$",
             text,
         ), f"{rel} contains a bare MCP launcher"
+
+
+def test_mcp_command_fields_are_absolute_paths():
+    """Exec-style MCP command fields must not rely on shell tilde expansion."""
+    command_fields = re.compile(
+        r"(?m)^\s*(?:['\"]command['\"]|command)\s*:\s*['\"]?([^'\"\s#,]+)"
+    )
+    for path in LAUNCHER_DOCS:
+        text = path.read_text(encoding="utf-8")
+        rel = path.relative_to(ROOT)
+        for command in command_fields.findall(text):
+            if "perseus-vault" in command.lower():
+                continue
+            if "perseus" not in command.lower():
+                continue
+            assert command.startswith("/"), (
+                f"{rel} has a non-absolute exec-style command: {command}"
+            )
+
+
+def test_session_examples_use_supported_modifiers():
+    """Quickstart session examples match the @session directive contract."""
+    for path in (ROOT / "SETUP-GUIDE.md", ROOT / "docs" / "quickstart.md"):
+        text = path.read_text(encoding="utf-8")
+        assert not re.search(r"@session\b[^\n]*\bformat=", text), (
+            f"{path.relative_to(ROOT)} uses an unsupported @session modifier"
+        )

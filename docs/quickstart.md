@@ -161,7 +161,7 @@ This document was rendered live by Perseus. All values below are current.
 @memory mode=search query="project architecture decisions" k=5
 
 ## Session History
-@session count=5 format=digest
+@session count=5
 
 ## What's Running
 @query "docker ps --format 'table {{.Names}}\t{{.Status}}'" @cache ttl=60
