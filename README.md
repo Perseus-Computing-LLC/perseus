@@ -417,6 +417,35 @@ The `O_CREAT | O_EXCL` checkpoint locking is atomic on local POSIX filesystems. 
 
 ---
 
+## 📚 Research Basis
+
+Perseus's design — resolve and validate context *before* the model sees it — is supported
+by a growing body of independent research:
+
+- **Protocol-Driven Development** ([arXiv:2605.12981](https://arxiv.org/abs/2605.12981)) —
+  the durable artifact should be a machine-enforceable protocol of structural, behavioral,
+  and operational invariants, not prose. Perseus's `schema=` validation, `@constraint`
+  rules, and bounded/freshness directives implement exactly this framing for context
+  documents. See [Protocol-Style Context Contracts](docs/PROTOCOL_CONTRACTS.md).
+- **ContextNest** ([arXiv:2607.02116](https://arxiv.org/abs/2607.02116)) — governed context
+  selection (deterministic selector grammar, hash-chained version histories, consumption
+  audit) Pareto-dominates BM25 at 97% vs 93–90% answer-quality pass at **~1/3 the
+  input-token cost**: the empirical case for governed, validated context over ungoverned
+  retrieval.
+- **HiSkill** ([arXiv:2607.25853](https://arxiv.org/abs/2607.25853)) — compact, structured,
+  relation-aware context reached **+17.33% success at −78.75% inference tokens** vs the
+  strongest baseline: the token-efficiency case for bounded, structured rendering (see the
+  52.63% measured prompt-token reduction above).
+- **Breaking the Protocol** ([arXiv:2601.17549](https://arxiv.org/abs/2601.17549)) — MCP's
+  architectural weaknesses include missing capability attestation and unauthenticated
+  bidirectional sampling; Perseus documents capability attestation for its MCP surfaces as
+  an operational invariant.
+
+These are research *evidence* for the architecture, not guarantees; every quantitative
+claim in this README still traces to a committed artifact via `claims.json`.
+
+---
+
 ## How Perseus Works
 
 You write this:
