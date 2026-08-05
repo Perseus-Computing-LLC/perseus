@@ -33,7 +33,7 @@ jobs:
       id-token: write      # sign build provenance via Sigstore (OIDC)
       attestations: write  # write the attestation to the repo's store
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
         uses: actions/setup-python@v5

@@ -384,6 +384,12 @@ DEFAULT_CONFIG = {
     "mcp": {
         "tool_allowlist": [],     # empty = all non-sensitive tools allowed
         "tool_blocklist": [],     # explicit blocklist (overrides allowlist)
+        # Context state mutations require an identity supplied by the serving
+        # transport and present in trusted_transport_identities. The identity
+        # is never accepted from a tools/call argument.
+        "trusted_transport_identities": [],
+        "stdio_transport_identity": "",
+        "sse_transport_identity": "",
     },
     "update": {
         # Self-update: pull latest from the Perseus git repository.
