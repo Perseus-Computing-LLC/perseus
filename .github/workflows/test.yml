@@ -21,7 +21,7 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -31,7 +31,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyyaml pytest coverage hypothesis tiktoken
+          pip install pyyaml jsonschema pytest coverage hypothesis tiktoken
 
       - name: Verify build artifact is in sync
         # The committed perseus.py must match a fresh build from scripts/. We
@@ -118,7 +118,7 @@ jobs:
       PERSEUS_ALLOW_DANGEROUS: "1"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -128,10 +128,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyyaml pytest coverage hypothesis
-
-      - name: Rebuild build artifact
-        run: python scripts/build.py
+          pip install pyyaml jsonschema pytest coverage hypothesis
 
       - name: Verify build artifact is in sync
         run: python scripts/build.py --check
@@ -146,7 +143,7 @@ jobs:
     # against frozen ground truth in benchmark/selection/dataset.json.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -158,8 +155,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyyaml
 
-      - name: Build artifact
-        run: python scripts/build.py
+      - name: Verify build artifact is in sync
+        run: python scripts/build.py --check
 
       - name: Context-selection eval (offline gate)
         # No pipe — the script's non-zero exit must propagate to fail the job.

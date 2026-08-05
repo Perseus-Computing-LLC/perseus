@@ -125,6 +125,226 @@ _PARAM_DESCRIPTIONS: dict[str, dict[str, str]] = {
 }
 
 
+def _context_contract_output_schema() -> dict:
+    """Return the closed output contract shared by the six context tools.
+
+    The runtime contract is intentionally a union because failures are first
+    class results. Every object is closed explicitly so an MCP client cannot
+    interpret an unadvertised/raw field as part of the public projection.
+    """
+    def obj(properties: dict, required: tuple[str, ...] = ()) -> dict:
+        schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": properties,
+        }
+        if required:
+            schema["required"] = list(required)
+        return schema
+
+    string_id = {"type": "string", "minLength": 1, "maxLength": 160}
+    sha256 = {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    commitment = {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+    scope = obj({
+        "tenant": {"type": "string", "maxLength": 160},
+        "workspace": {"type": "string", "maxLength": 160},
+        "topic": {"type": "string", "maxLength": 160},
+        "agent": {"type": "string", "maxLength": 160},
+        "request_class": {"type": "string", "maxLength": 64},
+        "scope": {"type": "string", "maxLength": 160},
+    })
+    evidence = obj({
+        "source_id": string_id,
+        "content_sha256": sha256,
+        "provenance_class": {"type": "string", "maxLength": 64},
+        "valid_at": {"type": "string", "maxLength": 64},
+        "recorded_at": {"type": "string", "maxLength": 64},
+        "observed_at": {"type": "string", "maxLength": 64},
+    }, required=("source_id", "provenance_class"))
+    uncertainty = obj({
+        "class": {"type": "string", "maxLength": 64},
+        "score": {"type": "number", "minimum": 0, "maximum": 1},
+    }, required=("class", "score"))
+    rank_candidate = obj({
+        "candidate_id": string_id,
+        "rank": {"type": "integer", "minimum": 1},
+        "score": {"type": "number"},
+        "rank_reasons": {"type": "array", "maxItems": 16, "items": {"type": "string", "maxLength": 256}},
+        "evidence": {"type": "array", "maxItems": 64, "items": evidence},
+        "uncertainty": uncertainty,
+    }, required=("candidate_id", "rank", "rank_reasons", "evidence", "uncertainty"))
+    projection_item = obj({
+        "candidate_id": string_id,
+        "text": {"type": "string", "maxLength": 4096},
+        "source_refs": {"type": "array", "maxItems": 64, "items": string_id},
+        "content_sha256": sha256,
+        "provenance_class": {"type": "string", "maxLength": 64},
+        "valid_at": {"type": "string", "maxLength": 64},
+        "recorded_at": {"type": "string", "maxLength": 64},
+        "topic": {"type": "string", "maxLength": 160},
+        "selection_reason": {"type": "string", "maxLength": 256},
+        "uncertainty": uncertainty,
+    }, required=("candidate_id", "text", "source_refs", "provenance_class", "uncertainty"))
+    selection = obj({
+        "candidate_id": string_id,
+        "rank": {"type": "integer", "minimum": 1},
+        "score": {"type": "number"},
+        "rank_reasons": {"type": "array", "maxItems": 16, "items": {"type": "string", "maxLength": 256}},
+        "evidence": {"type": "array", "maxItems": 64, "items": evidence},
+        "uncertainty": uncertainty,
+    }, required=("candidate_id", "rank", "score", "rank_reasons", "evidence", "uncertainty"))
+    redaction_policy = obj({
+        "version": {"type": "string", "maxLength": 64},
+        "enabled": {"type": "boolean"},
+        "default_rules": {"type": "boolean"},
+        "custom_rule_count": {"type": "integer", "minimum": 0},
+        "allow_private": {"type": "boolean"},
+    })
+    route = obj({
+        "schema_version": {"type": "string", "const": "perseus-front-door-route/v1"},
+        "request_class": {"type": "string", "enum": ["direct", "retrieve", "decide", "create", "verify", "act"]},
+        "capabilities": {"type": "array", "maxItems": 8, "items": {"type": "string", "maxLength": 96}},
+        "delegation_reason": {"type": "string", "maxLength": 256},
+        "integration_state": obj({
+            "vault": {"type": "string", "enum": ["active", "unavailable", "not_configured"]},
+            "ledger": {"type": "string", "enum": ["active", "unavailable", "not_configured"]},
+        }),
+        "degraded_mode": {"type": ["string", "null"], "maxLength": 128},
+        "guarantees": {"type": "array", "maxItems": 8, "items": {"type": "string", "maxLength": 96}},
+        "trace_payload": {"type": "string", "maxLength": 2048},
+        "trace_sha256": sha256,
+    })
+    context_decision = obj({
+        "route": {"type": "string", "enum": ["inline", "reduced_text", "artifact_pointer", "retrieve_on_demand"]},
+        "reason": {"type": "string", "maxLength": 256},
+        "fidelity": {"type": "string", "enum": ["exact", "selective", "summary"]},
+        "actual_tokens": {"type": "integer", "minimum": 0},
+        "counterfactual_tokens": {"type": "integer", "minimum": 0},
+        "cache_assumption": {"type": "string", "enum": ["warm", "cold", "unknown"]},
+        "source_refs": {"type": "array", "maxItems": 64, "items": string_id},
+        "token_accounting": {"type": "string", "maxLength": 256},
+    })
+    budget = obj({
+        "max_items": {"type": "integer", "minimum": 1, "maximum": 64},
+        "max_chars": {"type": "integer", "minimum": 1, "maximum": 8192},
+        "returned_items": {"type": "integer", "minimum": 0, "maximum": 64},
+    })
+    permissions = obj({
+        "preview": {"type": "boolean"},
+        "release": {"type": "boolean"},
+    }, required=("preview", "release"))
+    cache = obj({
+        "hit": {"type": "boolean"},
+        "key": commitment,
+    })
+    projection = obj({
+        "schema_version": {"type": "string", "const": "perseus-agent-projection/v1"},
+        "agent_id": string_id,
+        "scope": scope,
+        "request_class": {"type": "string", "maxLength": 64},
+        "task_sha256": sha256,
+        "policy_version": {"type": "string", "maxLength": 160},
+        "policy_commitment": commitment,
+        "permissions_commitment": commitment,
+        "revocation_epoch": {"type": "integer", "minimum": 0},
+        "redaction_policy": redaction_policy,
+        "items": {"type": "array", "maxItems": 64, "items": projection_item},
+    }, required=("schema_version", "agent_id", "scope", "task_sha256", "items"))
+    receipt = obj({
+        "schema_version": {"type": "string", "const": "perseus-context-release/v1"},
+        "receipt_id": commitment,
+        "projection_digest": sha256,
+        "release_decision": {"type": "string", "enum": ["released", "degraded"]},
+        "status": {"type": "string", "enum": ["complete", "degraded"]},
+        "selected_source_ids": {"type": "array", "maxItems": 64, "items": string_id},
+        "selected_content_commitments": {"type": "array", "maxItems": 64, "items": sha256},
+        "agent_id": string_id,
+        "scope": scope,
+        "scope_commitment": commitment,
+        "topic": {"type": ["string", "null"], "maxLength": 160},
+        "request_class": {"type": "string", "maxLength": 64},
+        "policy_version": {"type": "string", "maxLength": 160},
+        "redaction_policy": redaction_policy,
+        "items": {"type": "array", "maxItems": 64, "items": projection_item},
+        "provenance_classes": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 64}},
+        "valid_at": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 64}},
+        "recorded_at": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 64}},
+        "revocation_epoch": {"type": "integer", "minimum": 0},
+    }, required=("schema_version", "receipt_id", "projection_digest", "release_decision", "status"))
+
+    return obj({
+        "schema_version": {"type": "string", "enum": [
+            "perseus-context-rank/v1", "perseus-context-ask/v1",
+            "perseus-agent-projection/v1", "perseus-context-release/v1",
+            "perseus-agent-projection-consent/v1", "perseus-agent-projection-revoke/v1",
+        ]},
+        "operation": {"type": "string", "enum": [
+            "context_rank", "context_ask", "agent_projection_preview",
+            "agent_projection_release", "agent_projection_consent", "agent_projection_revoke",
+        ]},
+        "status": {"type": "string", "enum": [
+            "complete", "degraded", "abstain", "review", "unavailable", "invalid_input",
+            "granted", "paused", "revoked", "resumed",
+        ]},
+        "failure_state": {"type": ["string", "null"], "enum": [
+            None, "invalid_input", "candidate_limit_exceeded", "context_limit_exceeded",
+            "duplicate_candidate_id", "scope_mismatch", "permission_denied", "consent_required",
+            "revoked", "paused", "source_stale", "contradictory_evidence", "insufficient_evidence",
+            "vault_unavailable", "ledger_unavailable", "timeout", "budget_exhausted",
+            "out_of_domain", "no_eligible_context", "projection_empty", "source_unavailable",
+            "invalid_projection_digest", "ambiguous_tie",
+        ]},
+        "agent_id": string_id,
+        "scope": scope,
+        "scope_commitment": commitment,
+        "request_class": {"type": "string", "maxLength": 64},
+        "policy_version": {"type": "string", "maxLength": 160},
+        "task_sha256": sha256,
+        "candidates": {"type": "array", "maxItems": 64, "items": rank_candidate},
+        "excluded_candidate_ids": {"type": "array", "maxItems": 64, "items": string_id},
+        "ties": {"type": "array", "maxItems": 64, "items": {"type": "array", "maxItems": 64, "items": string_id}},
+        "scoring": obj({
+            "mode": {"type": "string", "maxLength": 64},
+            "model_assisted": {"type": "boolean"},
+            "calibrated": {"type": "boolean"},
+        }),
+        "route": route,
+        "context_decision": context_decision,
+        "budget": budget,
+        "outcome": {"type": ["string", "null"], "maxLength": 64},
+        "answer": {"type": ["string", "null"], "maxLength": 4096},
+        "source_refs": {"type": "array", "maxItems": 64, "items": string_id},
+        "validity_state": {"type": "string", "enum": ["observed", "derived", "inferred", "stale", "contradictory", "unavailable", "unknown"]},
+        "confidence": uncertainty,
+        "uncertainty": uncertainty,
+        "selection_reason": {"type": "array", "maxItems": 16, "items": {"type": "string", "maxLength": 256}},
+        "evidence": {"type": "array", "maxItems": 64, "items": evidence},
+        "projection": projection,
+        "projection_digest": sha256,
+        "selection": {"type": "array", "maxItems": 64, "items": selection},
+        "provenance": {"type": "array", "maxItems": 64, "items": {"type": "array", "maxItems": 64, "items": evidence}},
+        "release_decision": {"type": "string", "enum": [
+            "ready", "consent_required", "permission_denied", "scope_mismatch", "paused", "revoked",
+            "released", "complete", "degraded", "review", "abstain", "unavailable",
+        ]},
+        "receipt": receipt,
+        "cache": cache,
+        "topics": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 160}},
+        "permissions": permissions,
+        "revision": {"type": "integer", "minimum": 1},
+        "consent_commitment": commitment,
+        "topic": {"type": ["string", "null"], "maxLength": 160},
+        "revocation_epoch": {"type": "integer", "minimum": 0},
+        "cache_invalidated": {"type": "boolean"},
+        "invalidated_entries": {"type": "integer", "minimum": 0},
+        "cache_hit": {"type": "boolean"},
+        "key": commitment,
+        "grantor_id": string_id,
+        "authority_method": {"type": "string", "maxLength": 64},
+        "error": {"type": "string", "maxLength": 256},
+    }, required=("schema_version", "operation", "status"))
+
+
 def _build_output_schema(tool_name: str, spec) -> dict | None:
     """Return a structured output schema for a tool, if applicable."""
     # Tools that return structured data get output schemas
@@ -402,6 +622,12 @@ def _build_output_schema(tool_name: str, spec) -> dict | None:
                 "rendered": {"type": "string", "description": "System prompt block content"}
             }
         }
+    if tool_name in {
+        "perseus_context_rank", "perseus_context_ask",
+        "perseus_agent_projection_preview", "perseus_agent_projection_consent",
+        "perseus_agent_projection_release", "perseus_agent_projection_revoke",
+    }:
+        return _context_contract_output_schema()
     return None
 
 
@@ -549,8 +775,124 @@ LEGACY_MCP_TOOLS: list[dict] = [
     # registered". Re-add it here only once a real trace implementation exists.
 ]
 
-# Sensitive tools — require explicit config opt-in
-_MCP_SENSITIVE_TOOLS = {"perseus_query", "perseus_agent"}
+# ── Versioned context contract tools (#916/#917) ─────────────────────────────
+# These operations are host-side, bounded, and read-only with respect to source
+# memory. Release/consent/revoke only manage the sanitized projection boundary;
+# they never create a second memory authority.
+_CONTEXT_CONTRACT_MCP_TOOLS: list[dict] = [
+    _tool_schema(
+        "perseus_context_rank",
+        "Rank at most 64 caller-supplied candidates for one task and scope. "
+        "Deterministic policy ranking preserves candidate identity, returns only "
+        "provenance commitments, and never exports raw private memory.",
+        {
+            "candidates": {"type": "array", "maxItems": 64, "items": {"type": "object"}},
+            "task": {"type": "string", "maxLength": 512},
+            "scope": {"type": "object"},
+            "policy": {"type": "object"},
+            "budget": {"type": "object"},
+            "integrations": {"type": "object"},
+        },
+        required=["candidates", "task"],
+        output_schema=_context_contract_output_schema(),
+        annotations={"readOnlyHint": True},
+    ),
+    _tool_schema(
+        "perseus_context_ask",
+        "Answer one narrow question from at most 64 scoped context records. "
+        "Returns evidence-linked validity/confidence or an explicit abstain, "
+        "review, degraded, or unavailable state; no full profile is exported.",
+        {
+            "question": {"type": "string", "maxLength": 512},
+            "context": {"type": "array", "maxItems": 64, "items": {"type": "object"}},
+            "scope": {"type": "object"}, "policy": {"type": "object"},
+            "budget": {"type": "object"}, "integrations": {"type": "object"},
+        },
+        required=["question", "context"],
+        output_schema=_context_contract_output_schema(),
+        annotations={"readOnlyHint": True},
+    ),
+    _tool_schema(
+        "perseus_agent_projection_preview",
+        "Compile a bounded task-scoped agent_projection preview. The projection is "
+        "sanitized and exact for the agent view; provenance/selection reasons are "
+        "shown separately and durable receipts contain hashes/references only.",
+        {
+            "records": {"type": "array", "maxItems": 64, "items": {"type": "object"}},
+            "agent_id": {"type": "string"}, "scope": {"type": "object"},
+            "task": {"type": "string", "maxLength": 512},
+            "request_class": {"type": "string"}, "policy_version": {"type": "string"},
+            "policy": {"type": "object"}, "budget": {"type": "object"},
+            "integrations": {"type": "object"},
+        },
+        required=["records", "agent_id", "scope"],
+        output_schema=_context_contract_output_schema(),
+        annotations={"readOnlyHint": True},
+    ),
+    _tool_schema(
+        "perseus_agent_projection_consent",
+        "Grant preview/release permission for one agent and exact scope/topic. "
+        "Consent is explicit, bounded, and revocable.",
+        {
+            "agent_id": {"type": "string", "minLength": 1, "maxLength": 160}, "scope": {"type": "object"},
+            "permissions": {
+                "type": "object",
+                "required": ["preview", "release"],
+                "properties": {"preview": {"type": "boolean"}, "release": {"type": "boolean"}},
+                "additionalProperties": False,
+            },
+            "topics": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 160}},
+            "policy_version": {"type": "string", "maxLength": 160},
+        },
+        required=["agent_id", "scope", "permissions"],
+        output_schema=_context_contract_output_schema(),
+        annotations={"destructiveHint": True},
+    ),
+    _tool_schema(
+        "perseus_agent_projection_release",
+        "Release a previously previewed sanitized projection only after matching "
+        "per-scope consent/permission. The release receipt is metadata-only and "
+        "never stores prompts, private bodies, secrets, or tool arguments.",
+        {
+            "preview": {"type": "object"}, "records": {"type": "array", "maxItems": 64, "items": {"type": "object"}},
+            "agent_id": {"type": "string"}, "scope": {"type": "object"},
+            "task": {"type": "string", "maxLength": 512}, "request_class": {"type": "string"},
+            "policy_version": {"type": "string"}, "policy": {"type": "object"},
+            "budget": {"type": "object"}, "integrations": {"type": "object"},
+        },
+        output_schema=_context_contract_output_schema(),
+        annotations={"readOnlyHint": True},
+    ),
+    _tool_schema(
+        "perseus_agent_projection_revoke",
+        "Pause or revoke an agent projection for an exact scope/topic. Revocation "
+        "denies later release and invalidates prefetched/warm sanitized projections.",
+        {
+            "agent_id": {"type": "string"}, "scope": {"type": "object"},
+            "topic": {"type": "string"}, "pause": {"type": "boolean"}, "resume": {"type": "boolean"},
+        },
+        required=["agent_id", "scope"],
+        output_schema=_context_contract_output_schema(),
+        annotations={"destructiveHint": True},
+    ),
+]
+
+# Sensitive tools — require explicit config opt-in. Consent/revocation mutate
+# authorization state and must never be exposed by the default tool set.
+_MCP_SENSITIVE_TOOLS = {
+    "perseus_query", "perseus_agent",
+    "perseus_agent_projection_consent", "perseus_agent_projection_revoke",
+}
+
+# State-changing context operations require both explicit MCP exposure and an
+# authenticated authority. The authority is deliberately transport/config
+# data, never a caller-supplied identity field.
+_MCP_AUTHORITY_TOOLS = {
+    "perseus_agent_projection_consent",
+    "perseus_agent_projection_release",
+    "perseus_agent_projection_revoke",
+}
+
 
 # Reverse mapping: MCP tool name → directive name (normalizes hyphen→underscore)
 _TOOL_TO_DIRECTIVE = {
@@ -572,6 +914,46 @@ def _mcp_tool_allowed(tool_name: str, cfg: dict) -> tuple[bool, str]:
     if tool_name in _MCP_SENSITIVE_TOOLS and tool_name not in allowlist:
         return False, f"tool {tool_name} requires explicit mcp.tool_allowlist opt-in"
     return True, ""
+
+
+def _mcp_authority_for_mutation(
+    tool_name: str,
+    arguments: dict,
+    cfg: dict,
+    *,
+    transport_identity: str | None = None,
+) -> tuple[dict[str, str] | None, str | None]:
+    """Authorize an MCP context-state mutation without trusting caller identity.
+
+    The identity must be supplied by the serving transport after authentication
+    and must be present in the configured trusted-identity set. Request
+    arguments, including historical authority-token/grantor fields, are never
+    consulted, so a caller cannot self-assert trust.
+    """
+    mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
+    trusted = mcp_cfg.get("trusted_transport_identities") or []
+    if isinstance(trusted, str):
+        trusted = [trusted]
+    trusted_ids = {str(value).strip() for value in trusted if str(value).strip()}
+    if transport_identity and str(transport_identity).strip() in trusted_ids:
+        identity = str(transport_identity).strip()
+        return {
+            "grantor_id": identity,
+            "authority_method": "trusted_transport_identity",
+        }, None
+
+    return None, "authenticated transport authority is required for context state mutation"
+
+
+def _mcp_transport_identity(cfg: dict, transport: str) -> str | None:
+    """Return the server-derived identity configured for one MCP transport."""
+    mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
+    value = mcp_cfg.get(f"{transport}_transport_identity")
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value or None
+
 
 # ── Tool list builder ────────────────────────────────────────────────────────
 
@@ -620,6 +1002,15 @@ def _get_all_mcp_tools(cfg: dict) -> list[dict]:
             continue
         tools.append(tool)
 
+    # Versioned context contracts (#916/#917). Authorization mutators are
+    # opt-in via the same allowlist gate as shell/agent execution.
+    for tool in _CONTEXT_CONTRACT_MCP_TOOLS:
+        name = tool["name"]
+        allowed, _reason = _mcp_tool_allowed(name, cfg)
+        if not allowed:
+            continue
+        tools.append(tool)
+
     if _sig is not None:
         _MCP_TOOL_LIST_CACHE[_sig] = tools
     return tools
@@ -651,6 +1042,35 @@ def _build_server_card(cfg: dict) -> dict:
 
 
 # ── Tool dispatch ────────────────────────────────────────────────────────────
+
+_CONTEXT_CONTRACT_RESULT_META = {
+    "perseus_context_rank": ("perseus-context-rank/v1", "context_rank"),
+    "perseus_context_ask": ("perseus-context-ask/v1", "context_ask"),
+    "perseus_agent_projection_preview": ("perseus-agent-projection/v1", "agent_projection_preview"),
+    "perseus_agent_projection_consent": ("perseus-agent-projection-consent/v1", "agent_projection_consent"),
+    "perseus_agent_projection_release": ("perseus-context-release/v1", "agent_projection_release"),
+    "perseus_agent_projection_revoke": ("perseus-context-release/v1", "agent_projection_revoke"),
+}
+
+
+def _context_contract_error_payload(
+    tool_name: str,
+    failure_state: str = "invalid_input",
+    status: str = "invalid_input",
+    error: str | None = None,
+) -> dict:
+    schema_version, operation = _CONTEXT_CONTRACT_RESULT_META.get(
+        tool_name, ("perseus-context-release/v1", "agent_projection_release")
+    )
+    payload = {
+        "schema_version": schema_version,
+        "operation": operation,
+        "status": status,
+        "failure_state": failure_state,
+    }
+    if error:
+        payload["error"] = str(error)[:256]
+    return payload
 
 def _mcp_quote(value: str) -> str:
     """Escape a string for safe embedding in a double-quoted directive arg.
@@ -766,7 +1186,102 @@ def _mcp_redact(result: str, cfg: dict) -> str:
         return result
 
 
-def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> str:
+def _context_contract_dispatch(
+    tool_name: str,
+    arguments: dict,
+    cfg: dict,
+    *,
+    authority: dict[str, str] | None = None,
+) -> str | None:
+    """Dispatch the versioned context tools without routing their JSON through a directive.
+
+    They still use the shared routing/budget/provenance helpers in
+    ``context_contract.py``; this small MCP adapter only shapes the transport.
+    """
+    names = {
+        "perseus_context_rank", "perseus_context_ask",
+        "perseus_agent_projection_preview", "perseus_agent_projection_consent",
+        "perseus_agent_projection_release", "perseus_agent_projection_revoke",
+    }
+    if tool_name not in names:
+        return None
+    args = dict(arguments or {})
+    try:
+        if tool_name == "perseus_context_rank":
+            result = context_rank(args, cfg=cfg)
+        elif tool_name == "perseus_context_ask":
+            result = context_ask(args, cfg=cfg)
+        elif tool_name == "perseus_agent_projection_preview":
+            records = args.get("records", args.get("context", []))
+            result = agent_projection_preview(
+                records,
+                agent_id=args.get("agent_id"), scope=args.get("scope"),
+                task=args.get("task", ""), request_class=args.get("request_class", "decide"),
+                policy_version=args.get("policy_version", "policy-v1"), policy=args.get("policy"),
+                budget=args.get("budget"), integrations=args.get("integrations"), cfg=cfg,
+            )
+        elif tool_name == "perseus_agent_projection_consent":
+            result = agent_projection_consent(
+                agent_id=args.get("agent_id"), scope=args.get("scope"),
+                permissions=args.get("permissions"), topics=args.get("topics"),
+                policy_version=args.get("policy_version", "policy-v1"),
+                _authority_verified=bool(authority),
+                _grantor_id=(authority or {}).get("grantor_id"),
+                _authority_method=(authority or {}).get("authority_method"),
+                _strict_scope=True,
+            )
+        elif tool_name == "perseus_agent_projection_release":
+            preview = args.get("preview")
+            records = args.get("records", args.get("context", []))
+            release_input = preview if isinstance(preview, dict) else records
+            result = agent_projection_release(
+                release_input,
+                agent_id=args.get("agent_id"), scope=args.get("scope"), task=args.get("task", ""),
+                request_class=args.get("request_class", "decide"),
+                policy_version=args.get("policy_version", "policy-v1"), policy=args.get("policy"),
+                budget=args.get("budget"), integrations=args.get("integrations"), cfg=cfg,
+            )
+        else:
+            if args.get("resume"):
+                result = agent_projection_resume(
+                    agent_id=args.get("agent_id"), scope=args.get("scope"), topic=args.get("topic", ""),
+                    _authority_verified=bool(authority),
+                )
+            elif args.get("pause"):
+                # The public wrapper intentionally exposes revoke as the durable
+                # state transition; pause is represented by the same boundary
+                # and remains fail-closed for later release.
+                if not authority:
+                    result = agent_projection_revoke(
+                        _authority_verified=False,
+                    )
+                else:
+                    result = _DEFAULT_PROJECTION_BOUNDARY.pause(
+                        agent_id=args.get("agent_id"), scope=args.get("scope"), topic=args.get("topic", ""),
+                    )
+            else:
+                result = agent_projection_revoke(
+                    agent_id=args.get("agent_id"), scope=args.get("scope"), topic=args.get("topic", ""),
+                    _authority_verified=bool(authority),
+                )
+        return json.dumps(result, sort_keys=True, ensure_ascii=False)
+    except Exception as exc:
+        return json.dumps(
+            _context_contract_error_payload(
+                tool_name, failure_state="invalid_input", status="invalid_input", error=str(exc)
+            ),
+            sort_keys=True,
+        )
+
+
+def _call_tool(
+    tool_name: str,
+    arguments: dict,
+    cfg: dict,
+    workspace: Path,
+    *,
+    transport_identity: str | None = None,
+) -> str:
     """Resolve an MCP tool call through the Perseus directive resolver.
 
     #166 (v1.0.6): every successful return path goes through
@@ -778,6 +1293,26 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
     allowed, reason = _mcp_tool_allowed(tool_name, cfg)
     if not allowed:
         return f"Error: {reason}"
+
+    authority = None
+    if tool_name in _MCP_AUTHORITY_TOOLS:
+        authority, authority_error = _mcp_authority_for_mutation(
+            tool_name,
+            dict(arguments or {}),
+            cfg,
+            transport_identity=transport_identity,
+        )
+        if authority_error:
+            return f"Error: {authority_error}"
+
+    contract_result = _context_contract_dispatch(
+        tool_name,
+        arguments,
+        cfg,
+        authority=authority,
+    )
+    if contract_result is not None:
+        return _mcp_redact(contract_result, cfg)
 
     # Legacy tools
     if tool_name == "perseus_get_context":
@@ -1123,11 +1658,23 @@ def _structured_content_for(tool_name: str, arguments: dict, result_text: str):
       - `perseus_get_health` basic (markdown report) results are wrapped into
         the declared {status, report} shape, with status derived from the
         report's warning markers.
-    Returns None when there is no sensible structured payload (e.g. error
-    strings), in which case the result stays text-only.
+    Contract tools always receive a schema-valid envelope, including errors.
+    Other tools return None when there is no sensible structured payload.
     """
     if not isinstance(result_text, str):
         return None
+    if tool_name in _CONTEXT_CONTRACT_RESULT_META:
+        try:
+            parsed = json.loads(result_text)
+            if isinstance(parsed, dict):
+                return parsed
+        except (ValueError, TypeError):
+            pass
+        if result_text.startswith("Error:"):
+            return _context_contract_error_payload(
+                tool_name, failure_state="permission_denied", status="review"
+            )
+        return _context_contract_error_payload(tool_name)
     if result_text.startswith("Error:") or result_text.startswith("No context file"):
         return None
     try:
@@ -1151,14 +1698,28 @@ def _structured_content_for(tool_name: str, arguments: dict, result_text: str):
     return None
 
 
-def _handle_tools_call(msg: dict, cfg: dict, workspace: Path) -> dict:
+def _handle_tools_call(
+    msg: dict,
+    cfg: dict,
+    workspace: Path,
+    *,
+    transport_identity: str | None = None,
+) -> dict:
     params = msg.get("params", {})
     tool_name = params.get("name", "")
     arguments = params.get("arguments", {})
-    result_text = _call_tool(tool_name, arguments, cfg, workspace)
+    result_text = _call_tool(
+        tool_name,
+        arguments,
+        cfg,
+        workspace,
+        transport_identity=transport_identity,
+    )
     result: dict = {
         "content": [{"type": "text", "text": result_text}],
     }
+    if result_text.startswith("Error:"):
+        result["isError"] = True
     # #851: when the tool advertises an output schema, attach a matching
     # structuredContent payload so strict bridges stop warning and clients
     # get machine-readable output.
@@ -1175,6 +1736,7 @@ def serve_mcp(cfg: dict, workspace: Path | None = None) -> int:
     """Run the Perseus MCP server over stdio. Blocks until stdin closes."""
     ws = workspace or Path.cwd()
     version = cfg.get("version", SERVER_VERSION)
+    transport_identity = _mcp_transport_identity(cfg, "stdio")
 
     # Ensure plugins are loaded so plugin directives appear in MCP tools
     try:
@@ -1213,7 +1775,9 @@ def serve_mcp(cfg: dict, workspace: Path | None = None) -> int:
             elif method == "tools/list":
                 _write_message(_handle_tools_list(msg, cfg))
             elif method == "tools/call":
-                _write_message(_handle_tools_call(msg, cfg, ws))
+                _write_message(
+                    _handle_tools_call(msg, cfg, ws, transport_identity=transport_identity)
+                )
             elif method == "ping":
                 _write_message(_make_response(msg_id, {}))
             elif is_notification:
@@ -1251,6 +1815,7 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
             file=sys.stderr,
         )
         sys.exit(2)
+    transport_identity = _mcp_transport_identity(cfg, "sse")
 
     def _check_auth(handler) -> bool:
         """Verify Bearer token if auth is configured. Also validate Host header."""
@@ -1332,7 +1897,9 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
                     elif method == "tools/list":
                         resp = _handle_tools_list(msg, cfg)
                     elif method == "tools/call":
-                        resp = _handle_tools_call(msg, cfg, ws)
+                        resp = _handle_tools_call(
+                            msg, cfg, ws, transport_identity=transport_identity
+                        )
                     elif method == "ping":
                         resp = _make_response(msg_id, {})
                     else:
