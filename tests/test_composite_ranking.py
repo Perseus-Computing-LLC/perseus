@@ -122,6 +122,9 @@ class TestGoldenVectors:
         assert is_identifier("perseus-vault#730")
         assert is_identifier("---")
         assert not is_identifier("plain_token")
+        # Preserve Python-regex ``\\d`` semantics: superscript digits are
+        # Unicode digits to str.isdigit(), but are not decimal digits.
+        assert not is_identifier("plain²")
 
     def test_weights_are_tunable(self):
         """Same vectors, different weights → different winner (spec §3)."""

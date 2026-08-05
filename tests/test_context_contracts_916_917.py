@@ -1,6 +1,7 @@
 """Focused contract tests for Perseus issues #916 and #917."""
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -412,6 +413,107 @@ def test_projection_release_rejects_tampered_preview_and_redacts_bare_credential
     assert rejected["failure_state"] == "invalid_projection_digest"
 
 
+def test_projection_release_rejects_self_consistent_forged_preview():
+    boundary = perseus.AgentProjectionBoundary()
+    boundary.grant_consent(
+        agent_id="agent-forge",
+        scope=_SCOPE,
+        permissions={"preview": True, "release": True},
+        topics=["release"],
+    )
+    preview = boundary.preview(
+        [_candidate("forged-item", "safe summary", topic="release")],
+        agent_id="agent-forge",
+        scope=_SCOPE,
+        task="release",
+    )
+
+    forged = copy.deepcopy(preview)
+    forged["projection"]["items"][0]["text"] = "FORGED-RAW-SECRET"
+    projection = forged["projection"]
+    normalized_scope = perseus._cc_validate_scope_contract(projection["scope"])
+    scope_fp = perseus._cc_sha(normalized_scope)
+    forged["projection_digest"] = perseus._cc_sha({
+        "schema_version": perseus.AGENT_PROJECTION_SCHEMA_VERSION,
+        "agent_id": projection["agent_id"],
+        "scope": normalized_scope,
+        "request_class": perseus._cc_safe_id(projection["request_class"], fallback="decide"),
+        "task_sha256": str(projection["task_sha256"]),
+        "policy_version": perseus._cc_safe_id(projection["policy_version"], fallback="policy-v1") or "policy-v1",
+        "policy_commitment": str(projection["policy_commitment"]),
+        "redaction_policy": projection["redaction_policy"],
+        "permissions_commitment": str(projection["permissions_commitment"]),
+        "revocation_epoch": boundary._revocation_epoch("agent-forge", scope_fp, "release"),
+        "items": projection["items"],
+        "selection": forged["selection"],
+    })
+
+    rejected = boundary.release(forged)
+
+    assert rejected["status"] == "review"
+    assert rejected["failure_state"] == "invalid_projection_digest"
+    assert "FORGED-RAW-SECRET" not in json.dumps(rejected)
+
+
+def test_projection_omits_compact_raw_material_markers_from_agent_text():
+    boundary = perseus.AgentProjectionBoundary()
+    marker = json.dumps({
+        "prompt": "PROMPT-SECRET",
+        "body": "BODY-SECRET",
+        "credentials": "CRED-SECRET",
+    })
+
+    preview = boundary.preview(
+        [_candidate("json-marker", marker, topic="release")],
+        agent_id="agent-marker",
+        scope=_SCOPE,
+        task="prompt body credentials",
+    )
+
+    assert preview["status"] == "abstain"
+    assert preview["failure_state"] == "projection_empty"
+    assert preview["projection"]["items"] == []
+    serialized = json.dumps(preview)
+    assert "PROMPT-SECRET" not in serialized
+    assert "BODY-SECRET" not in serialized
+    assert "CRED-SECRET" not in serialized
+
+
+def test_projection_omits_unicode_escaped_raw_material_markers():
+    boundary = perseus.AgentProjectionBoundary()
+    marker = 'prefix {"\\u0070rompt":"ESCAPED-PROMPT"}'
+
+    preview = boundary.preview(
+        [_candidate("escaped-marker", marker, topic="release")],
+        agent_id="agent-escaped-marker",
+        scope=_SCOPE,
+        task="prompt",
+    )
+
+    assert preview["status"] == "abstain"
+    assert preview["failure_state"] == "projection_empty"
+    assert "ESCAPED-PROMPT" not in json.dumps(preview)
+
+
+def test_issued_preview_registry_is_bounded():
+    boundary = perseus.AgentProjectionBoundary()
+    boundary.grant_consent(
+        agent_id="agent-cache",
+        scope=_SCOPE,
+        permissions={"preview": True, "release": True},
+        topics=["release"],
+    )
+    records = [_candidate("cache-item", "safe summary", topic="release")]
+    previews = [
+        boundary.preview(records, agent_id="agent-cache", scope=_SCOPE, task=f"task-{index}")
+        for index in range(perseus.PROJECTION_MAX_RECORDS + 1)
+    ]
+
+    assert len(boundary._previews) <= perseus.PROJECTION_MAX_RECORDS
+    assert boundary.release(previews[0])["failure_state"] == "invalid_projection_digest"
+    assert boundary.release(previews[-1])["status"] == "complete"
+
+
 def test_context_operations_are_advertised_and_callable_over_mcp(tmp_path):
     names = {tool["name"] for tool in perseus._get_all_mcp_tools(cfg())}
     assert {
@@ -538,6 +640,30 @@ def test_mcp_consent_requires_explicit_allowlist_and_transport_authority(tmp_pat
     assert payload["grantor_id"] == "operator-a"
     assert payload["authority_method"] == "trusted_transport_identity"
     assert "authority-test-token" not in granted
+
+
+def test_projection_authority_wrappers_require_literal_true_boolean():
+    consent = perseus.agent_projection_consent(
+        agent_id="typed-authority-agent",
+        scope=_SCOPE,
+        permissions={"preview": True, "release": True},
+        _authority_verified="false",
+        _grantor_id="operator-a",
+    )
+    revoke = perseus.agent_projection_revoke(
+        agent_id="typed-authority-agent",
+        scope=_SCOPE,
+        _authority_verified="false",
+    )
+    resume = perseus.agent_projection_resume(
+        agent_id="typed-authority-agent",
+        scope=_SCOPE,
+        _authority_verified="false",
+    )
+
+    assert consent["failure_state"] == "permission_denied"
+    assert revoke["failure_state"] == "permission_denied"
+    assert resume["failure_state"] == "permission_denied"
 
 
 def test_evidence_metadata_is_closed_and_sensitive_values_are_not_emitted():

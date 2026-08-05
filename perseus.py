@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "58eb06c-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "d3adf99-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -19882,7 +19882,7 @@ STALENESS_HORIZON_DAYS = 365.0
 # backtracking regex here would make repeated punctuation needlessly expensive.
 def _is_identifier_token(token: str) -> bool:
     return any(
-        char.isdigit()
+        char.isdecimal()
         or (not (char.isalnum() or char == "_") and not char.isspace())
         for char in token
     )
@@ -33654,6 +33654,7 @@ redaction, and provenance commitments. They never persist source bodies, prompts
 credentials, or tool arguments.
 """
 
+import copy
 import hashlib
 import json
 import re
@@ -33693,6 +33694,14 @@ _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$")
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 _ISO_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$")
 _TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_+./:#-]*")
+_RAW_MATERIAL_KEY_RE = re.compile(
+    r'(?i)(?:"(?:prompt|body|content|credentials?|tool[_-]?(?:args?|arguments?)|private[_-]?body|raw[_-]?payload)"\s*:|\b(?:prompt|body|content|credentials?|tool[_-]?(?:args?|arguments?)|private[_-]?body|raw[_-]?payload)\s*[:=])'
+)
+_RAW_MATERIAL_KEYS = frozenset({
+    "prompt", "body", "content", "credential", "credentials", "tool_arg",
+    "tool_args", "tool_argument", "tool_arguments", "private_body", "raw",
+    "raw_payload",
+})
 _STOP_WORDS = frozenset({
     "a", "an", "and", "are", "be", "before", "by", "for", "from", "how", "in", "is",
     "it", "of", "on", "or", "should", "the", "this", "to", "use", "was", "what", "which",
@@ -33725,6 +33734,41 @@ def _cc_clean_text(value: Any, limit: int = CONTEXT_MAX_TEXT_CHARS) -> str:
     return text
 
 
+def _cc_contains_raw_material(text: str) -> bool:
+    """Detect raw-material fields in agent-facing strings, including JSON."""
+    if _RAW_MATERIAL_KEY_RE.search(text):
+        return True
+    decoded = re.sub(
+        r"\\(?:u([0-9a-fA-F]{4})|U([0-9a-fA-F]{8}))",
+        lambda match: chr(int(match.group(1) or match.group(2), 16)),
+        text,
+    )
+    if decoded != text and _RAW_MATERIAL_KEY_RE.search(decoded):
+        return True
+    stripped = text.lstrip()
+    if not stripped.startswith(("{", "[")):
+        return False
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError):
+        return False
+
+    def contains(value: Any) -> bool:
+        if isinstance(value, Mapping):
+            for key, nested in value.items():
+                if isinstance(key, str) and key.casefold() in _RAW_MATERIAL_KEYS:
+                    return True
+                if contains(nested):
+                    return True
+        elif isinstance(value, list):
+            return any(contains(item) for item in value)
+        elif isinstance(value, str):
+            return bool(_RAW_MATERIAL_KEY_RE.search(value))
+        return False
+
+    return contains(parsed)
+
+
 def _cc_redact(value: Any, cfg: Mapping[str, Any] | None = None) -> str:
     """Force secret redaction for agent-facing text, even if render is opt-out."""
     text = _cc_clean_text(value)
@@ -33750,6 +33794,8 @@ def _cc_redact(value: Any, cfg: Mapping[str, Any] | None = None) -> str:
         text,
     )
     text = re.sub(r"(?i)(\bbearer\s+)[^\s,;]+", r"\1[REDACTED]", text)
+    if _cc_contains_raw_material(text):
+        return ""
     return text
 
 
@@ -34531,6 +34577,7 @@ class AgentProjectionBoundary:
         self._pause_epochs: dict[tuple[str, str, str], int] = {}
         self._pauses: set[tuple[str, str, str]] = set()
         self._cache: dict[str, dict[str, Any]] = {}
+        self._previews: dict[str, dict[str, Any]] = {}
         self._revision = 0
 
     def _identity(self, agent_id: Any, scope: Any, *, strict_scope: bool = False) -> tuple[str, dict[str, str], str]:
@@ -34769,6 +34816,10 @@ class AgentProjectionBoundary:
         try:
             result = self._compile(records, agent_id=agent_id, scope=scope, task=task, request_class=request_class, policy_version=policy_version, policy=policy, budget=budget, integrations=integrations, cfg=cfg)
             result.pop("_scope_fp", None)
+            if result.get("projection_digest") and result.get("projection", {}).get("items"):
+                self._previews[result["projection_digest"]] = copy.deepcopy(result)
+                while len(self._previews) > PROJECTION_MAX_RECORDS:
+                    self._previews.pop(next(iter(self._previews)), None)
             return result
         except (ContextContractError, TypeError, ValueError):
             # Invalid identity/input results must remain valid contract envelopes.
@@ -34812,7 +34863,6 @@ class AgentProjectionBoundary:
         """Release only a previously reviewable projection after consent checks."""
         if isinstance(preview_or_records, Mapping) and "projection" in preview_or_records and "projection_digest" in preview_or_records:
             preview = dict(preview_or_records)
-            safe_agent = str(preview.get("agent_id", ""))
             preview_status = preview.get("status")
             preview_failure = preview.get("failure_state")
             supplied_digest = preview.get("projection_digest")
@@ -34831,6 +34881,17 @@ class AgentProjectionBoundary:
                     "failure_state": "invalid_projection_digest",
                     "cache": {"hit": False},
                 }
+            issued_preview = self._previews.get(supplied_digest)
+            if issued_preview is None or _cc_json(issued_preview) != _cc_json(preview):
+                return {
+                    "schema_version": CONTEXT_RELEASE_SCHEMA_VERSION,
+                    "operation": "agent_projection_release",
+                    "status": "review",
+                    "failure_state": "invalid_projection_digest",
+                    "cache": {"hit": False},
+                }
+            preview = copy.deepcopy(issued_preview)
+            safe_agent = str(preview.get("agent_id", ""))
             normalized_scope = _cc_validate_scope_contract(preview.get("scope", {}))
             scope_fp = _cc_sha(normalized_scope)
             topic = _cc_safe_id(preview.get("topic")) or normalized_scope.get("topic", "")
@@ -34956,6 +35017,7 @@ class AgentProjectionBoundary:
 
     def clear_cache(self) -> None:
         self._cache.clear()
+        self._previews.clear()
 
 
 _DEFAULT_PROJECTION_BOUNDARY = AgentProjectionBoundary()
@@ -34970,11 +35032,11 @@ def agent_projection_release(preview_or_records: Any, **kwargs: Any) -> dict[str
 
 
 def agent_projection_consent(**kwargs: Any) -> dict[str, Any]:
-    authority_verified = bool(kwargs.pop("_authority_verified", False))
+    authority_verified = kwargs.pop("_authority_verified", False)
     grantor_id = kwargs.pop("_grantor_id", None)
     authority_method = kwargs.pop("_authority_method", None)
     kwargs["strict_scope"] = bool(kwargs.pop("_strict_scope", False))
-    if not authority_verified or not grantor_id:
+    if authority_verified is not True or not grantor_id:
         return {
             "schema_version": PROJECTION_CONSENT_SCHEMA_VERSION,
             "operation": "agent_projection_consent",
@@ -34997,8 +35059,8 @@ def agent_projection_consent(**kwargs: Any) -> dict[str, Any]:
 
 
 def agent_projection_revoke(**kwargs: Any) -> dict[str, Any]:
-    authority_verified = bool(kwargs.pop("_authority_verified", False))
-    if not authority_verified:
+    authority_verified = kwargs.pop("_authority_verified", False)
+    if authority_verified is not True:
         return {
             "schema_version": CONTEXT_RELEASE_SCHEMA_VERSION,
             "operation": "agent_projection_revoke",
@@ -35019,8 +35081,8 @@ def agent_projection_revoke(**kwargs: Any) -> dict[str, Any]:
 
 
 def agent_projection_resume(**kwargs: Any) -> dict[str, Any]:
-    authority_verified = bool(kwargs.pop("_authority_verified", False))
-    if not authority_verified:
+    authority_verified = kwargs.pop("_authority_verified", False)
+    if authority_verified is not True:
         return {
             "schema_version": CONTEXT_RELEASE_SCHEMA_VERSION,
             "operation": "agent_projection_revoke",

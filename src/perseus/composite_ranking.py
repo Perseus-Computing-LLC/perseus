@@ -52,7 +52,7 @@ STALENESS_HORIZON_DAYS = 365.0
 # backtracking regex here would make repeated punctuation needlessly expensive.
 def _is_identifier_token(token: str) -> bool:
     return any(
-        char.isdigit()
+        char.isdecimal()
         or (not (char.isalnum() or char == "_") and not char.isspace())
         for char in token
     )
