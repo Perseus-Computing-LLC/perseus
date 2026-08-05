@@ -31,7 +31,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyyaml pytest coverage hypothesis tiktoken
+          pip install pyyaml jsonschema pytest coverage hypothesis tiktoken
 
       - name: Verify build artifact is in sync
         # The committed perseus.py must match a fresh build from scripts/. We
@@ -128,10 +128,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyyaml pytest coverage hypothesis
-
-      - name: Rebuild build artifact
-        run: python scripts/build.py
+          pip install pyyaml jsonschema pytest coverage hypothesis
 
       - name: Verify build artifact is in sync
         run: python scripts/build.py --check
@@ -158,8 +155,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyyaml
 
-      - name: Build artifact
-        run: python scripts/build.py
+      - name: Verify build artifact is in sync
+        run: python scripts/build.py --check
 
       - name: Context-selection eval (offline gate)
         # No pipe — the script's non-zero exit must propagate to fail the job.

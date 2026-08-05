@@ -30,7 +30,7 @@ requires-python = ">=3.10"
 dependencies = ["pyyaml>=6.0.1,<7"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0", "coverage", "hypothesis"]
+dev = ["pytest>=8.0.0", "coverage", "hypothesis", "jsonschema>=4.0"]
 mcp = ["mcp"]
 
 [project.urls]

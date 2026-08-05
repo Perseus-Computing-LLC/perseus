@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "61bad0b"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "8404ec2-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -531,6 +531,12 @@ DEFAULT_CONFIG = {
     "mcp": {
         "tool_allowlist": [],     # empty = all non-sensitive tools allowed
         "tool_blocklist": [],     # explicit blocklist (overrides allowlist)
+        # Context state mutations require an identity supplied by the serving
+        # transport and present in trusted_transport_identities. The identity
+        # is never accepted from a tools/call argument.
+        "trusted_transport_identities": [],
+        "stdio_transport_identity": "",
+        "sse_transport_identity": "",
     },
     "update": {
         # Self-update: pull latest from the Perseus git repository.
@@ -9275,6 +9281,226 @@ _PARAM_DESCRIPTIONS: dict[str, dict[str, str]] = {
 }
 
 
+def _context_contract_output_schema() -> dict:
+    """Return the closed output contract shared by the six context tools.
+
+    The runtime contract is intentionally a union because failures are first
+    class results. Every object is closed explicitly so an MCP client cannot
+    interpret an unadvertised/raw field as part of the public projection.
+    """
+    def obj(properties: dict, required: tuple[str, ...] = ()) -> dict:
+        schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": properties,
+        }
+        if required:
+            schema["required"] = list(required)
+        return schema
+
+    string_id = {"type": "string", "minLength": 1, "maxLength": 160}
+    sha256 = {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    commitment = {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+    scope = obj({
+        "tenant": {"type": "string", "maxLength": 160},
+        "workspace": {"type": "string", "maxLength": 160},
+        "topic": {"type": "string", "maxLength": 160},
+        "agent": {"type": "string", "maxLength": 160},
+        "request_class": {"type": "string", "maxLength": 64},
+        "scope": {"type": "string", "maxLength": 160},
+    })
+    evidence = obj({
+        "source_id": string_id,
+        "content_sha256": sha256,
+        "provenance_class": {"type": "string", "maxLength": 64},
+        "valid_at": {"type": "string", "maxLength": 64},
+        "recorded_at": {"type": "string", "maxLength": 64},
+        "observed_at": {"type": "string", "maxLength": 64},
+    }, required=("source_id", "provenance_class"))
+    uncertainty = obj({
+        "class": {"type": "string", "maxLength": 64},
+        "score": {"type": "number", "minimum": 0, "maximum": 1},
+    }, required=("class", "score"))
+    rank_candidate = obj({
+        "candidate_id": string_id,
+        "rank": {"type": "integer", "minimum": 1},
+        "score": {"type": "number"},
+        "rank_reasons": {"type": "array", "maxItems": 16, "items": {"type": "string", "maxLength": 256}},
+        "evidence": {"type": "array", "maxItems": 64, "items": evidence},
+        "uncertainty": uncertainty,
+    }, required=("candidate_id", "rank", "rank_reasons", "evidence", "uncertainty"))
+    projection_item = obj({
+        "candidate_id": string_id,
+        "text": {"type": "string", "maxLength": 4096},
+        "source_refs": {"type": "array", "maxItems": 64, "items": string_id},
+        "content_sha256": sha256,
+        "provenance_class": {"type": "string", "maxLength": 64},
+        "valid_at": {"type": "string", "maxLength": 64},
+        "recorded_at": {"type": "string", "maxLength": 64},
+        "topic": {"type": "string", "maxLength": 160},
+        "selection_reason": {"type": "string", "maxLength": 256},
+        "uncertainty": uncertainty,
+    }, required=("candidate_id", "text", "source_refs", "provenance_class", "uncertainty"))
+    selection = obj({
+        "candidate_id": string_id,
+        "rank": {"type": "integer", "minimum": 1},
+        "score": {"type": "number"},
+        "rank_reasons": {"type": "array", "maxItems": 16, "items": {"type": "string", "maxLength": 256}},
+        "evidence": {"type": "array", "maxItems": 64, "items": evidence},
+        "uncertainty": uncertainty,
+    }, required=("candidate_id", "rank", "score", "rank_reasons", "evidence", "uncertainty"))
+    redaction_policy = obj({
+        "version": {"type": "string", "maxLength": 64},
+        "enabled": {"type": "boolean"},
+        "default_rules": {"type": "boolean"},
+        "custom_rule_count": {"type": "integer", "minimum": 0},
+        "allow_private": {"type": "boolean"},
+    })
+    route = obj({
+        "schema_version": {"type": "string", "const": "perseus-front-door-route/v1"},
+        "request_class": {"type": "string", "enum": ["direct", "retrieve", "decide", "create", "verify", "act"]},
+        "capabilities": {"type": "array", "maxItems": 8, "items": {"type": "string", "maxLength": 96}},
+        "delegation_reason": {"type": "string", "maxLength": 256},
+        "integration_state": obj({
+            "vault": {"type": "string", "enum": ["active", "unavailable", "not_configured"]},
+            "ledger": {"type": "string", "enum": ["active", "unavailable", "not_configured"]},
+        }),
+        "degraded_mode": {"type": ["string", "null"], "maxLength": 128},
+        "guarantees": {"type": "array", "maxItems": 8, "items": {"type": "string", "maxLength": 96}},
+        "trace_payload": {"type": "string", "maxLength": 2048},
+        "trace_sha256": sha256,
+    })
+    context_decision = obj({
+        "route": {"type": "string", "enum": ["inline", "reduced_text", "artifact_pointer", "retrieve_on_demand"]},
+        "reason": {"type": "string", "maxLength": 256},
+        "fidelity": {"type": "string", "enum": ["exact", "selective", "summary"]},
+        "actual_tokens": {"type": "integer", "minimum": 0},
+        "counterfactual_tokens": {"type": "integer", "minimum": 0},
+        "cache_assumption": {"type": "string", "enum": ["warm", "cold", "unknown"]},
+        "source_refs": {"type": "array", "maxItems": 64, "items": string_id},
+        "token_accounting": {"type": "string", "maxLength": 256},
+    })
+    budget = obj({
+        "max_items": {"type": "integer", "minimum": 1, "maximum": 64},
+        "max_chars": {"type": "integer", "minimum": 1, "maximum": 8192},
+        "returned_items": {"type": "integer", "minimum": 0, "maximum": 64},
+    })
+    permissions = obj({
+        "preview": {"type": "boolean"},
+        "release": {"type": "boolean"},
+    }, required=("preview", "release"))
+    cache = obj({
+        "hit": {"type": "boolean"},
+        "key": commitment,
+    })
+    projection = obj({
+        "schema_version": {"type": "string", "const": "perseus-agent-projection/v1"},
+        "agent_id": string_id,
+        "scope": scope,
+        "request_class": {"type": "string", "maxLength": 64},
+        "task_sha256": sha256,
+        "policy_version": {"type": "string", "maxLength": 160},
+        "policy_commitment": commitment,
+        "permissions_commitment": commitment,
+        "revocation_epoch": {"type": "integer", "minimum": 0},
+        "redaction_policy": redaction_policy,
+        "items": {"type": "array", "maxItems": 64, "items": projection_item},
+    }, required=("schema_version", "agent_id", "scope", "task_sha256", "items"))
+    receipt = obj({
+        "schema_version": {"type": "string", "const": "perseus-context-release/v1"},
+        "receipt_id": commitment,
+        "projection_digest": sha256,
+        "release_decision": {"type": "string", "enum": ["released", "degraded"]},
+        "status": {"type": "string", "enum": ["complete", "degraded"]},
+        "selected_source_ids": {"type": "array", "maxItems": 64, "items": string_id},
+        "selected_content_commitments": {"type": "array", "maxItems": 64, "items": sha256},
+        "agent_id": string_id,
+        "scope": scope,
+        "scope_commitment": commitment,
+        "topic": {"type": ["string", "null"], "maxLength": 160},
+        "request_class": {"type": "string", "maxLength": 64},
+        "policy_version": {"type": "string", "maxLength": 160},
+        "redaction_policy": redaction_policy,
+        "items": {"type": "array", "maxItems": 64, "items": projection_item},
+        "provenance_classes": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 64}},
+        "valid_at": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 64}},
+        "recorded_at": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 64}},
+        "revocation_epoch": {"type": "integer", "minimum": 0},
+    }, required=("schema_version", "receipt_id", "projection_digest", "release_decision", "status"))
+
+    return obj({
+        "schema_version": {"type": "string", "enum": [
+            "perseus-context-rank/v1", "perseus-context-ask/v1",
+            "perseus-agent-projection/v1", "perseus-context-release/v1",
+            "perseus-agent-projection-consent/v1", "perseus-agent-projection-revoke/v1",
+        ]},
+        "operation": {"type": "string", "enum": [
+            "context_rank", "context_ask", "agent_projection_preview",
+            "agent_projection_release", "agent_projection_consent", "agent_projection_revoke",
+        ]},
+        "status": {"type": "string", "enum": [
+            "complete", "degraded", "abstain", "review", "unavailable", "invalid_input",
+            "granted", "paused", "revoked", "resumed",
+        ]},
+        "failure_state": {"type": ["string", "null"], "enum": [
+            None, "invalid_input", "candidate_limit_exceeded", "context_limit_exceeded",
+            "duplicate_candidate_id", "scope_mismatch", "permission_denied", "consent_required",
+            "revoked", "paused", "source_stale", "contradictory_evidence", "insufficient_evidence",
+            "vault_unavailable", "ledger_unavailable", "timeout", "budget_exhausted",
+            "out_of_domain", "no_eligible_context", "projection_empty", "source_unavailable",
+            "invalid_projection_digest", "ambiguous_tie",
+        ]},
+        "agent_id": string_id,
+        "scope": scope,
+        "scope_commitment": commitment,
+        "request_class": {"type": "string", "maxLength": 64},
+        "policy_version": {"type": "string", "maxLength": 160},
+        "task_sha256": sha256,
+        "candidates": {"type": "array", "maxItems": 64, "items": rank_candidate},
+        "excluded_candidate_ids": {"type": "array", "maxItems": 64, "items": string_id},
+        "ties": {"type": "array", "maxItems": 64, "items": {"type": "array", "maxItems": 64, "items": string_id}},
+        "scoring": obj({
+            "mode": {"type": "string", "maxLength": 64},
+            "model_assisted": {"type": "boolean"},
+            "calibrated": {"type": "boolean"},
+        }),
+        "route": route,
+        "context_decision": context_decision,
+        "budget": budget,
+        "outcome": {"type": ["string", "null"], "maxLength": 64},
+        "answer": {"type": ["string", "null"], "maxLength": 4096},
+        "source_refs": {"type": "array", "maxItems": 64, "items": string_id},
+        "validity_state": {"type": "string", "enum": ["observed", "derived", "inferred", "stale", "contradictory", "unavailable", "unknown"]},
+        "confidence": uncertainty,
+        "uncertainty": uncertainty,
+        "selection_reason": {"type": "array", "maxItems": 16, "items": {"type": "string", "maxLength": 256}},
+        "evidence": {"type": "array", "maxItems": 64, "items": evidence},
+        "projection": projection,
+        "projection_digest": sha256,
+        "selection": {"type": "array", "maxItems": 64, "items": selection},
+        "provenance": {"type": "array", "maxItems": 64, "items": {"type": "array", "maxItems": 64, "items": evidence}},
+        "release_decision": {"type": "string", "enum": [
+            "ready", "consent_required", "permission_denied", "scope_mismatch", "paused", "revoked",
+            "released", "complete", "degraded", "review", "abstain", "unavailable",
+        ]},
+        "receipt": receipt,
+        "cache": cache,
+        "topics": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 160}},
+        "permissions": permissions,
+        "revision": {"type": "integer", "minimum": 1},
+        "consent_commitment": commitment,
+        "topic": {"type": ["string", "null"], "maxLength": 160},
+        "revocation_epoch": {"type": "integer", "minimum": 0},
+        "cache_invalidated": {"type": "boolean"},
+        "invalidated_entries": {"type": "integer", "minimum": 0},
+        "cache_hit": {"type": "boolean"},
+        "key": commitment,
+        "grantor_id": string_id,
+        "authority_method": {"type": "string", "maxLength": 64},
+        "error": {"type": "string", "maxLength": 256},
+    }, required=("schema_version", "operation", "status"))
+
+
 def _build_output_schema(tool_name: str, spec) -> dict | None:
     """Return a structured output schema for a tool, if applicable."""
     # Tools that return structured data get output schemas
@@ -9552,6 +9778,12 @@ def _build_output_schema(tool_name: str, spec) -> dict | None:
                 "rendered": {"type": "string", "description": "System prompt block content"}
             }
         }
+    if tool_name in {
+        "perseus_context_rank", "perseus_context_ask",
+        "perseus_agent_projection_preview", "perseus_agent_projection_consent",
+        "perseus_agent_projection_release", "perseus_agent_projection_revoke",
+    }:
+        return _context_contract_output_schema()
     return None
 
 
@@ -9699,8 +9931,124 @@ LEGACY_MCP_TOOLS: list[dict] = [
     # registered". Re-add it here only once a real trace implementation exists.
 ]
 
-# Sensitive tools — require explicit config opt-in
-_MCP_SENSITIVE_TOOLS = {"perseus_query", "perseus_agent"}
+# ── Versioned context contract tools (#916/#917) ─────────────────────────────
+# These operations are host-side, bounded, and read-only with respect to source
+# memory. Release/consent/revoke only manage the sanitized projection boundary;
+# they never create a second memory authority.
+_CONTEXT_CONTRACT_MCP_TOOLS: list[dict] = [
+    _tool_schema(
+        "perseus_context_rank",
+        "Rank at most 64 caller-supplied candidates for one task and scope. "
+        "Deterministic policy ranking preserves candidate identity, returns only "
+        "provenance commitments, and never exports raw private memory.",
+        {
+            "candidates": {"type": "array", "maxItems": 64, "items": {"type": "object"}},
+            "task": {"type": "string", "maxLength": 512},
+            "scope": {"type": "object"},
+            "policy": {"type": "object"},
+            "budget": {"type": "object"},
+            "integrations": {"type": "object"},
+        },
+        required=["candidates", "task"],
+        output_schema=_context_contract_output_schema(),
+        annotations={"readOnlyHint": True},
+    ),
+    _tool_schema(
+        "perseus_context_ask",
+        "Answer one narrow question from at most 64 scoped context records. "
+        "Returns evidence-linked validity/confidence or an explicit abstain, "
+        "review, degraded, or unavailable state; no full profile is exported.",
+        {
+            "question": {"type": "string", "maxLength": 512},
+            "context": {"type": "array", "maxItems": 64, "items": {"type": "object"}},
+            "scope": {"type": "object"}, "policy": {"type": "object"},
+            "budget": {"type": "object"}, "integrations": {"type": "object"},
+        },
+        required=["question", "context"],
+        output_schema=_context_contract_output_schema(),
+        annotations={"readOnlyHint": True},
+    ),
+    _tool_schema(
+        "perseus_agent_projection_preview",
+        "Compile a bounded task-scoped agent_projection preview. The projection is "
+        "sanitized and exact for the agent view; provenance/selection reasons are "
+        "shown separately and durable receipts contain hashes/references only.",
+        {
+            "records": {"type": "array", "maxItems": 64, "items": {"type": "object"}},
+            "agent_id": {"type": "string"}, "scope": {"type": "object"},
+            "task": {"type": "string", "maxLength": 512},
+            "request_class": {"type": "string"}, "policy_version": {"type": "string"},
+            "policy": {"type": "object"}, "budget": {"type": "object"},
+            "integrations": {"type": "object"},
+        },
+        required=["records", "agent_id", "scope"],
+        output_schema=_context_contract_output_schema(),
+        annotations={"readOnlyHint": True},
+    ),
+    _tool_schema(
+        "perseus_agent_projection_consent",
+        "Grant preview/release permission for one agent and exact scope/topic. "
+        "Consent is explicit, bounded, and revocable.",
+        {
+            "agent_id": {"type": "string", "minLength": 1, "maxLength": 160}, "scope": {"type": "object"},
+            "permissions": {
+                "type": "object",
+                "required": ["preview", "release"],
+                "properties": {"preview": {"type": "boolean"}, "release": {"type": "boolean"}},
+                "additionalProperties": False,
+            },
+            "topics": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 160}},
+            "policy_version": {"type": "string", "maxLength": 160},
+        },
+        required=["agent_id", "scope", "permissions"],
+        output_schema=_context_contract_output_schema(),
+        annotations={"destructiveHint": True},
+    ),
+    _tool_schema(
+        "perseus_agent_projection_release",
+        "Release a previously previewed sanitized projection only after matching "
+        "per-scope consent/permission. The release receipt is metadata-only and "
+        "never stores prompts, private bodies, secrets, or tool arguments.",
+        {
+            "preview": {"type": "object"}, "records": {"type": "array", "maxItems": 64, "items": {"type": "object"}},
+            "agent_id": {"type": "string"}, "scope": {"type": "object"},
+            "task": {"type": "string", "maxLength": 512}, "request_class": {"type": "string"},
+            "policy_version": {"type": "string"}, "policy": {"type": "object"},
+            "budget": {"type": "object"}, "integrations": {"type": "object"},
+        },
+        output_schema=_context_contract_output_schema(),
+        annotations={"readOnlyHint": True},
+    ),
+    _tool_schema(
+        "perseus_agent_projection_revoke",
+        "Pause or revoke an agent projection for an exact scope/topic. Revocation "
+        "denies later release and invalidates prefetched/warm sanitized projections.",
+        {
+            "agent_id": {"type": "string"}, "scope": {"type": "object"},
+            "topic": {"type": "string"}, "pause": {"type": "boolean"}, "resume": {"type": "boolean"},
+        },
+        required=["agent_id", "scope"],
+        output_schema=_context_contract_output_schema(),
+        annotations={"destructiveHint": True},
+    ),
+]
+
+# Sensitive tools — require explicit config opt-in. Consent/revocation mutate
+# authorization state and must never be exposed by the default tool set.
+_MCP_SENSITIVE_TOOLS = {
+    "perseus_query", "perseus_agent",
+    "perseus_agent_projection_consent", "perseus_agent_projection_revoke",
+}
+
+# State-changing context operations require both explicit MCP exposure and an
+# authenticated authority. The authority is deliberately transport/config
+# data, never a caller-supplied identity field.
+_MCP_AUTHORITY_TOOLS = {
+    "perseus_agent_projection_consent",
+    "perseus_agent_projection_release",
+    "perseus_agent_projection_revoke",
+}
+
 
 # Reverse mapping: MCP tool name → directive name (normalizes hyphen→underscore)
 _TOOL_TO_DIRECTIVE = {
@@ -9722,6 +10070,46 @@ def _mcp_tool_allowed(tool_name: str, cfg: dict) -> tuple[bool, str]:
     if tool_name in _MCP_SENSITIVE_TOOLS and tool_name not in allowlist:
         return False, f"tool {tool_name} requires explicit mcp.tool_allowlist opt-in"
     return True, ""
+
+
+def _mcp_authority_for_mutation(
+    tool_name: str,
+    arguments: dict,
+    cfg: dict,
+    *,
+    transport_identity: str | None = None,
+) -> tuple[dict[str, str] | None, str | None]:
+    """Authorize an MCP context-state mutation without trusting caller identity.
+
+    The identity must be supplied by the serving transport after authentication
+    and must be present in the configured trusted-identity set. Request
+    arguments, including historical authority-token/grantor fields, are never
+    consulted, so a caller cannot self-assert trust.
+    """
+    mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
+    trusted = mcp_cfg.get("trusted_transport_identities") or []
+    if isinstance(trusted, str):
+        trusted = [trusted]
+    trusted_ids = {str(value).strip() for value in trusted if str(value).strip()}
+    if transport_identity and str(transport_identity).strip() in trusted_ids:
+        identity = str(transport_identity).strip()
+        return {
+            "grantor_id": identity,
+            "authority_method": "trusted_transport_identity",
+        }, None
+
+    return None, "authenticated transport authority is required for context state mutation"
+
+
+def _mcp_transport_identity(cfg: dict, transport: str) -> str | None:
+    """Return the server-derived identity configured for one MCP transport."""
+    mcp_cfg = cfg.get("mcp", {}) if isinstance(cfg, dict) else {}
+    value = mcp_cfg.get(f"{transport}_transport_identity")
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value or None
+
 
 # ── Tool list builder ────────────────────────────────────────────────────────
 
@@ -9770,6 +10158,15 @@ def _get_all_mcp_tools(cfg: dict) -> list[dict]:
             continue
         tools.append(tool)
 
+    # Versioned context contracts (#916/#917). Authorization mutators are
+    # opt-in via the same allowlist gate as shell/agent execution.
+    for tool in _CONTEXT_CONTRACT_MCP_TOOLS:
+        name = tool["name"]
+        allowed, _reason = _mcp_tool_allowed(name, cfg)
+        if not allowed:
+            continue
+        tools.append(tool)
+
     if _sig is not None:
         _MCP_TOOL_LIST_CACHE[_sig] = tools
     return tools
@@ -9801,6 +10198,35 @@ def _build_server_card(cfg: dict) -> dict:
 
 
 # ── Tool dispatch ────────────────────────────────────────────────────────────
+
+_CONTEXT_CONTRACT_RESULT_META = {
+    "perseus_context_rank": ("perseus-context-rank/v1", "context_rank"),
+    "perseus_context_ask": ("perseus-context-ask/v1", "context_ask"),
+    "perseus_agent_projection_preview": ("perseus-agent-projection/v1", "agent_projection_preview"),
+    "perseus_agent_projection_consent": ("perseus-agent-projection-consent/v1", "agent_projection_consent"),
+    "perseus_agent_projection_release": ("perseus-context-release/v1", "agent_projection_release"),
+    "perseus_agent_projection_revoke": ("perseus-context-release/v1", "agent_projection_revoke"),
+}
+
+
+def _context_contract_error_payload(
+    tool_name: str,
+    failure_state: str = "invalid_input",
+    status: str = "invalid_input",
+    error: str | None = None,
+) -> dict:
+    schema_version, operation = _CONTEXT_CONTRACT_RESULT_META.get(
+        tool_name, ("perseus-context-release/v1", "agent_projection_release")
+    )
+    payload = {
+        "schema_version": schema_version,
+        "operation": operation,
+        "status": status,
+        "failure_state": failure_state,
+    }
+    if error:
+        payload["error"] = str(error)[:256]
+    return payload
 
 def _mcp_quote(value: str) -> str:
     """Escape a string for safe embedding in a double-quoted directive arg.
@@ -9915,7 +10341,102 @@ def _mcp_redact(result: str, cfg: dict) -> str:
         return result
 
 
-def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> str:
+def _context_contract_dispatch(
+    tool_name: str,
+    arguments: dict,
+    cfg: dict,
+    *,
+    authority: dict[str, str] | None = None,
+) -> str | None:
+    """Dispatch the versioned context tools without routing their JSON through a directive.
+
+    They still use the shared routing/budget/provenance helpers in
+    ``context_contract.py``; this small MCP adapter only shapes the transport.
+    """
+    names = {
+        "perseus_context_rank", "perseus_context_ask",
+        "perseus_agent_projection_preview", "perseus_agent_projection_consent",
+        "perseus_agent_projection_release", "perseus_agent_projection_revoke",
+    }
+    if tool_name not in names:
+        return None
+    args = dict(arguments or {})
+    try:
+        if tool_name == "perseus_context_rank":
+            result = context_rank(args, cfg=cfg)
+        elif tool_name == "perseus_context_ask":
+            result = context_ask(args, cfg=cfg)
+        elif tool_name == "perseus_agent_projection_preview":
+            records = args.get("records", args.get("context", []))
+            result = agent_projection_preview(
+                records,
+                agent_id=args.get("agent_id"), scope=args.get("scope"),
+                task=args.get("task", ""), request_class=args.get("request_class", "decide"),
+                policy_version=args.get("policy_version", "policy-v1"), policy=args.get("policy"),
+                budget=args.get("budget"), integrations=args.get("integrations"), cfg=cfg,
+            )
+        elif tool_name == "perseus_agent_projection_consent":
+            result = agent_projection_consent(
+                agent_id=args.get("agent_id"), scope=args.get("scope"),
+                permissions=args.get("permissions"), topics=args.get("topics"),
+                policy_version=args.get("policy_version", "policy-v1"),
+                _authority_verified=bool(authority),
+                _grantor_id=(authority or {}).get("grantor_id"),
+                _authority_method=(authority or {}).get("authority_method"),
+                _strict_scope=True,
+            )
+        elif tool_name == "perseus_agent_projection_release":
+            preview = args.get("preview")
+            records = args.get("records", args.get("context", []))
+            release_input = preview if isinstance(preview, dict) else records
+            result = agent_projection_release(
+                release_input,
+                agent_id=args.get("agent_id"), scope=args.get("scope"), task=args.get("task", ""),
+                request_class=args.get("request_class", "decide"),
+                policy_version=args.get("policy_version", "policy-v1"), policy=args.get("policy"),
+                budget=args.get("budget"), integrations=args.get("integrations"), cfg=cfg,
+            )
+        else:
+            if args.get("resume"):
+                result = agent_projection_resume(
+                    agent_id=args.get("agent_id"), scope=args.get("scope"), topic=args.get("topic", ""),
+                    _authority_verified=bool(authority),
+                )
+            elif args.get("pause"):
+                # The public wrapper intentionally exposes revoke as the durable
+                # state transition; pause is represented by the same boundary
+                # and remains fail-closed for later release.
+                if not authority:
+                    result = agent_projection_revoke(
+                        _authority_verified=False,
+                    )
+                else:
+                    result = _DEFAULT_PROJECTION_BOUNDARY.pause(
+                        agent_id=args.get("agent_id"), scope=args.get("scope"), topic=args.get("topic", ""),
+                    )
+            else:
+                result = agent_projection_revoke(
+                    agent_id=args.get("agent_id"), scope=args.get("scope"), topic=args.get("topic", ""),
+                    _authority_verified=bool(authority),
+                )
+        return json.dumps(result, sort_keys=True, ensure_ascii=False)
+    except Exception as exc:
+        return json.dumps(
+            _context_contract_error_payload(
+                tool_name, failure_state="invalid_input", status="invalid_input", error=str(exc)
+            ),
+            sort_keys=True,
+        )
+
+
+def _call_tool(
+    tool_name: str,
+    arguments: dict,
+    cfg: dict,
+    workspace: Path,
+    *,
+    transport_identity: str | None = None,
+) -> str:
     """Resolve an MCP tool call through the Perseus directive resolver.
 
     #166 (v1.0.6): every successful return path goes through
@@ -9927,6 +10448,26 @@ def _call_tool(tool_name: str, arguments: dict, cfg: dict, workspace: Path) -> s
     allowed, reason = _mcp_tool_allowed(tool_name, cfg)
     if not allowed:
         return f"Error: {reason}"
+
+    authority = None
+    if tool_name in _MCP_AUTHORITY_TOOLS:
+        authority, authority_error = _mcp_authority_for_mutation(
+            tool_name,
+            dict(arguments or {}),
+            cfg,
+            transport_identity=transport_identity,
+        )
+        if authority_error:
+            return f"Error: {authority_error}"
+
+    contract_result = _context_contract_dispatch(
+        tool_name,
+        arguments,
+        cfg,
+        authority=authority,
+    )
+    if contract_result is not None:
+        return _mcp_redact(contract_result, cfg)
 
     # Legacy tools
     if tool_name == "perseus_get_context":
@@ -10272,11 +10813,23 @@ def _structured_content_for(tool_name: str, arguments: dict, result_text: str):
       - `perseus_get_health` basic (markdown report) results are wrapped into
         the declared {status, report} shape, with status derived from the
         report's warning markers.
-    Returns None when there is no sensible structured payload (e.g. error
-    strings), in which case the result stays text-only.
+    Contract tools always receive a schema-valid envelope, including errors.
+    Other tools return None when there is no sensible structured payload.
     """
     if not isinstance(result_text, str):
         return None
+    if tool_name in _CONTEXT_CONTRACT_RESULT_META:
+        try:
+            parsed = json.loads(result_text)
+            if isinstance(parsed, dict):
+                return parsed
+        except (ValueError, TypeError):
+            pass
+        if result_text.startswith("Error:"):
+            return _context_contract_error_payload(
+                tool_name, failure_state="permission_denied", status="review"
+            )
+        return _context_contract_error_payload(tool_name)
     if result_text.startswith("Error:") or result_text.startswith("No context file"):
         return None
     try:
@@ -10300,14 +10853,28 @@ def _structured_content_for(tool_name: str, arguments: dict, result_text: str):
     return None
 
 
-def _handle_tools_call(msg: dict, cfg: dict, workspace: Path) -> dict:
+def _handle_tools_call(
+    msg: dict,
+    cfg: dict,
+    workspace: Path,
+    *,
+    transport_identity: str | None = None,
+) -> dict:
     params = msg.get("params", {})
     tool_name = params.get("name", "")
     arguments = params.get("arguments", {})
-    result_text = _call_tool(tool_name, arguments, cfg, workspace)
+    result_text = _call_tool(
+        tool_name,
+        arguments,
+        cfg,
+        workspace,
+        transport_identity=transport_identity,
+    )
     result: dict = {
         "content": [{"type": "text", "text": result_text}],
     }
+    if result_text.startswith("Error:"):
+        result["isError"] = True
     # #851: when the tool advertises an output schema, attach a matching
     # structuredContent payload so strict bridges stop warning and clients
     # get machine-readable output.
@@ -10324,6 +10891,7 @@ def serve_mcp(cfg: dict, workspace: Path | None = None) -> int:
     """Run the Perseus MCP server over stdio. Blocks until stdin closes."""
     ws = workspace or Path.cwd()
     version = cfg.get("version", SERVER_VERSION)
+    transport_identity = _mcp_transport_identity(cfg, "stdio")
 
     # Ensure plugins are loaded so plugin directives appear in MCP tools
     try:
@@ -10361,7 +10929,9 @@ def serve_mcp(cfg: dict, workspace: Path | None = None) -> int:
             elif method == "tools/list":
                 _write_message(_handle_tools_list(msg, cfg))
             elif method == "tools/call":
-                _write_message(_handle_tools_call(msg, cfg, ws))
+                _write_message(
+                    _handle_tools_call(msg, cfg, ws, transport_identity=transport_identity)
+                )
             elif method == "ping":
                 _write_message(_make_response(msg_id, {}))
             elif is_notification:
@@ -10399,6 +10969,7 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
             file=sys.stderr,
         )
         sys.exit(2)
+    transport_identity = _mcp_transport_identity(cfg, "sse")
 
     def _check_auth(handler) -> bool:
         """Verify Bearer token if auth is configured. Also validate Host header."""
@@ -10480,7 +11051,9 @@ def serve_mcp_sse(cfg: dict, workspace: Path | None = None, port: int = 8420) ->
                     elif method == "tools/list":
                         resp = _handle_tools_list(msg, cfg)
                     elif method == "tools/call":
-                        resp = _handle_tools_call(msg, cfg, ws)
+                        resp = _handle_tools_call(
+                            msg, cfg, ws, transport_identity=transport_identity
+                        )
                     elif method == "ping":
                         resp = _make_response(msg_id, {})
                     else:
@@ -33066,6 +33639,1417 @@ __all__ = ["front_door_response", "route_front_door", "route_request"]
 
 def _frontdoor_module_exports() -> tuple[str, ...]:
     return tuple(__all__)
+"""Versioned, privacy-bounded context operations (#916/#917).
+
+The operations in this module are deliberately host-side and deterministic. They
+reuse the existing front-door route, composite ranking, render-budget decision,
+redaction, and provenance commitments. They never persist source bodies, prompts,
+credentials, or tool arguments.
+"""
+
+import hashlib
+import json
+import re
+from collections.abc import Mapping, Sequence
+from typing import Any
+
+
+
+CONTEXT_RANK_SCHEMA_VERSION = "perseus-context-rank/v1"
+CONTEXT_ASK_SCHEMA_VERSION = "perseus-context-ask/v1"
+AGENT_PROJECTION_SCHEMA_VERSION = "perseus-agent-projection/v1"
+CONTEXT_RELEASE_SCHEMA_VERSION = "perseus-context-release/v1"
+PROJECTION_CONSENT_SCHEMA_VERSION = "perseus-agent-projection-consent/v1"
+
+CONTEXT_RANK_MAX_CANDIDATES = 64
+CONTEXT_ASK_MAX_CONTEXT = 64
+CONTEXT_MAX_TEXT_CHARS = 4096
+CONTEXT_MAX_QUESTION_CHARS = 512
+CONTEXT_MAX_TASK_CHARS = 512
+PROJECTION_MAX_RECORDS = 64
+PROJECTION_MAX_CHARS = 8192
+
+_VALIDITY_STATES = frozenset({
+    "observed", "derived", "inferred", "stale", "contradictory", "unavailable", "unknown",
+})
+_FAILURE_STATES = frozenset({
+    "invalid_input", "candidate_limit_exceeded", "context_limit_exceeded",
+    "duplicate_candidate_id", "scope_mismatch", "permission_denied", "consent_required",
+    "revoked", "paused", "source_stale", "contradictory_evidence", "insufficient_evidence",
+    "vault_unavailable", "ledger_unavailable", "timeout", "budget_exhausted",
+    "out_of_domain", "no_eligible_context", "projection_empty", "source_unavailable",
+})
+_OUTPUT_STATUSES = frozenset({
+    "complete", "degraded", "abstain", "review", "unavailable", "invalid_input",
+})
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$")
+_SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+_ISO_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$")
+_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_+./:#-]*")
+_STOP_WORDS = frozenset({
+    "a", "an", "and", "are", "be", "before", "by", "for", "from", "how", "in", "is",
+    "it", "of", "on", "or", "should", "the", "this", "to", "use", "was", "what", "which",
+    "with", "would", "your",
+})
+
+
+class ContextContractError(ValueError):
+    """Raised only by explicit consent-management calls with invalid identity."""
+
+
+def _cc_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str)
+
+
+def _cc_sha(value: Any) -> str:
+    return hashlib.sha256(_cc_json(value).encode("utf-8")).hexdigest()
+
+
+def _cc_text_sha(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8", errors="replace")).hexdigest()
+
+
+def _cc_clean_text(value: Any, limit: int = CONTEXT_MAX_TEXT_CHARS) -> str:
+    text = str(value or "").replace("\x00", " ")
+    text = re.sub(r"[\x01-\x08\x0b\x0c\x0e-\x1f\x7f]", " ", text)
+    max_length = max(1, int(limit))
+    if len(text) > max_length:
+        return text[:max_length].rstrip()
+    return text
+
+
+def _cc_redact(value: Any, cfg: Mapping[str, Any] | None = None) -> str:
+    """Force secret redaction for agent-facing text, even if render is opt-out."""
+    text = _cc_clean_text(value)
+    redaction_cfg = dict((cfg or {}).get("redaction", {}) or {})
+    redaction_cfg["enabled"] = True
+    redaction_cfg.setdefault("include_defaults", True)
+    redact_cfg = dict(cfg or {})
+    redact_cfg["redaction"] = redaction_cfg
+    redactor = globals().get("redact_text")
+    if callable(redactor):
+        try:
+            text, _report = redactor(text, redact_cfg)
+        except Exception:
+            # The contract remains safe by omission below if a redactor fails.
+            return ""
+    text = _cc_clean_text(text)
+    # The projection boundary fails closed even when the host redactor has no
+    # matching custom rule. Never emit common credential assignments or bearer
+    # tokens from a caller-provided record.
+    text = re.sub(
+        r"(?i)(\b(?:api[_-]?key|password|passwd|secret|token|authorization|bearer|credential)\s*[:=]\s*)([^\s,;]+)",
+        r"\1[REDACTED]",
+        text,
+    )
+    text = re.sub(r"(?i)(\bbearer\s+)[^\s,;]+", r"\1[REDACTED]", text)
+    return text
+
+
+def _cc_safe_id(value: Any, *, fallback: str = "") -> str:
+    raw = str(value or fallback).strip()
+    if not raw:
+        return ""
+    # A source identifier is a commitment, not a place to carry arbitrary text.
+    if not _SAFE_ID_RE.fullmatch(raw):
+        return "sha256:" + _cc_text_sha(raw)
+    safe = _cc_redact(raw)
+    if not safe or safe != raw:
+        return "sha256:" + _cc_text_sha(raw)
+    return raw[:160]
+
+
+def _cc_safe_value(value: Any, limit: int = 256) -> str | None:
+    if value is None:
+        return None
+    text = _cc_redact(_cc_clean_text(value, limit))
+    return text if text else None
+
+
+def _cc_safe_timestamp(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text if _ISO_TIMESTAMP_RE.fullmatch(text) else None
+
+
+def _cc_provenance_class(record: Mapping[str, Any], validity: str) -> str:
+    raw = str(record.get("provenance_class") or "").strip().lower().replace("-", "_")
+    allowed = _VALIDITY_STATES | frozenset({"vault", "ledger", "mcp", "connector", "capture", "operator"})
+    if raw in allowed:
+        return raw
+    return validity if validity in _VALIDITY_STATES else "unknown"
+
+
+def _cc_scope(value: Any, *, strict: bool = False) -> dict[str, str]:
+    if value is None:
+        return {}
+    if isinstance(value, str):
+        text = value.strip()
+        return {"workspace": text[:160]} if text else {}
+    if not isinstance(value, Mapping):
+        raise ValueError("scope must be a string or object")
+    allowed = ("tenant", "workspace", "topic", "agent", "request_class")
+    if strict:
+        unknown = sorted(str(key) for key in value if key not in allowed)
+        if unknown:
+            raise ContextContractError("scope contains unsupported fields")
+    result: dict[str, str] = {}
+    for key in allowed:
+        if value.get(key) is not None and str(value.get(key)).strip():
+            result[key] = _cc_safe_id(value[key])
+    return result
+
+
+def _cc_validate_scope_contract(value: Any) -> dict[str, str]:
+    """Normalize explicit scopes and reject unsupported caller aliases."""
+    if value is None:
+        return {}
+    if isinstance(value, Mapping) and "scope" in value:
+        raise ContextContractError("scope object must use workspace/tenant fields")
+    return _cc_scope(value, strict=True)
+
+
+def _cc_record_scope(record: Mapping[str, Any]) -> dict[str, str] | None:
+    """Normalize nested and top-level scope fields without accepting conflicts."""
+    candidate = _cc_scope(record.get("scope"))
+    top_level_topic = _cc_safe_id(record.get("topic"))
+    nested_topic = candidate.get("topic", "")
+    if top_level_topic:
+        # A top-level topic is the explicit record label.  When it disagrees
+        # with a stale nested scope topic, retain the explicit label instead of
+        # dropping the record: broad workspace projections must surface the
+        # resulting multi-topic ambiguity, while an exact topic scope still
+        # excludes the record through the normal scope comparison.
+        candidate["topic"] = top_level_topic
+    return candidate
+
+
+def _cc_scope_match(record: Mapping[str, Any], requested: Mapping[str, str]) -> bool:
+    # A topic is part of the caller's scope only when it is requested. For a
+    # broader workspace/tenant projection, retain both topic values so the
+    # projection layer can surface an ambiguous topic instead of silently
+    # narrowing the candidate set.
+    candidate = _cc_record_scope(record)
+    if candidate is None:
+        return False
+    if not requested:
+        return True
+    return all(candidate.get(key) == value for key, value in requested.items())
+
+
+def _cc_tokens(value: Any) -> list[str]:
+    tokens = []
+    for token in _TOKEN_RE.findall(str(value or "").lower()):
+        if token not in _STOP_WORDS:
+            tokens.append(token)
+    return tokens
+
+
+def _cc_validity(record: Mapping[str, Any]) -> str:
+    raw = record.get("validity_state", record.get("validity", record.get("state", "unknown")))
+    value = str(raw or "unknown").strip().lower().replace("-", "_")
+    if value in {"verified", "available", "current", "fresh"}:
+        return "observed"
+    if value in _VALIDITY_STATES:
+        return value
+    return "unknown"
+
+
+def _cc_record_id(record: Mapping[str, Any]) -> str:
+    return _cc_safe_id(record.get("candidate_id") or record.get("id") or record.get("key"))
+
+
+def _cc_topic(record: Mapping[str, Any]) -> str:
+    return _cc_safe_id(record.get("topic") or record.get("scope", {}).get("topic", "")) if isinstance(record.get("scope", {}), Mapping) else _cc_safe_id(record.get("topic"))
+
+
+def _cc_private(record: Mapping[str, Any], policy: Mapping[str, Any]) -> bool:
+    if bool(policy.get("allow_private", False)):
+        return False
+    if bool(record.get("private") or record.get("contains_sensitive_data")):
+        return True
+    sensitivity = str(record.get("sensitivity", record.get("visibility", "")) or "").lower()
+    return sensitivity in {"private", "secret", "sensitive", "credential"}
+
+
+def _cc_record_text(record: Mapping[str, Any], *, allow_content: bool = False) -> str:
+    # `agent_text` and `summary` are explicit projection fields. Raw content/body
+    # is used for local scoring only and never copied into durable output.
+    for key in ("agent_text", "summary", "answer", "title", "label"):
+        value = record.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    if allow_content:
+        for key in ("text", "content"):
+            value = record.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+    return ""
+
+
+def _cc_scoring_text(record: Mapping[str, Any]) -> str:
+    values = []
+    for key in ("id", "candidate_id", "summary", "agent_text", "answer", "title", "label", "content", "body"):
+        value = record.get(key)
+        if isinstance(value, str):
+            values.append(value)
+    return " ".join(values)
+
+
+def _cc_content_commitment(record: Mapping[str, Any]) -> str | None:
+    supplied = record.get("content_sha256") or record.get("content_hash")
+    if supplied is not None and (not isinstance(supplied, str) or not _SHA256_RE.fullmatch(supplied)):
+        raise ValueError("content_sha256 must be a 64-hex digest")
+    if isinstance(supplied, str) and _SHA256_RE.fullmatch(supplied):
+        content_values: list[str] = [
+            value
+            for key in ("content", "body", "raw", "private_body")
+            for value in [record.get(key)]
+            if isinstance(value, str) and value
+        ]
+        if content_values and any(_cc_text_sha(value) != supplied.lower() for value in content_values):
+            raise ValueError("content_sha256 does not match supplied content")
+        return supplied.lower()
+    for key in ("content", "body", "raw", "private_body"):
+        value = record.get(key)
+        if isinstance(value, str) and value:
+            return _cc_text_sha(value)
+    return None
+
+
+def _cc_source_ids(record: Mapping[str, Any], candidate_id: str) -> list[str]:
+    values: list[Any] = []
+    for key in ("source_id", "source_ref", "provenance_id"):
+        if record.get(key):
+            values.append(record[key])
+    refs = record.get("source_refs")
+    if isinstance(refs, (list, tuple)):
+        values.extend(refs)
+    provenance = record.get("provenance")
+    if isinstance(provenance, Mapping):
+        for key in ("source_id", "source_ref", "id"):
+            if provenance.get(key):
+                values.append(provenance[key])
+    evidence = record.get("evidence")
+    if isinstance(evidence, Mapping):
+        for key in ("source_id", "source_ref", "id"):
+            if evidence.get(key):
+                values.append(evidence[key])
+    if not values:
+        values = [f"candidate:{candidate_id}"]
+    result = sorted({_cc_safe_id(item) for item in values if _cc_safe_id(item)})
+    return result
+
+
+def _cc_validate_commitments(records: Any) -> None:
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes, bytearray)):
+        return
+    for record in records:
+        if isinstance(record, Mapping):
+            _cc_content_commitment(record)
+
+
+def _cc_evidence(record: Mapping[str, Any], candidate_id: str, validity: str) -> list[dict[str, Any]]:
+    refs = _cc_source_ids(record, candidate_id)
+    content_hash = _cc_content_commitment(record)
+    result = []
+    for source_id in refs:
+        item: dict[str, Any] = {
+            "source_id": source_id,
+            "provenance_class": _cc_provenance_class(record, validity),
+        }
+        if content_hash:
+            item["content_sha256"] = content_hash
+        for key in ("valid_at", "recorded_at", "observed_at"):
+            safe = _cc_safe_timestamp(record.get(key))
+            if safe:
+                item[key] = safe
+        result.append(item)
+    return result
+
+
+def _cc_policy(policy: Any) -> dict[str, Any]:
+    if policy is None:
+        return {}
+    if not isinstance(policy, Mapping):
+        raise ValueError("policy must be an object")
+    return dict(policy)
+
+
+def _cc_budget(budget: Any, *, default_items: int, default_chars: int) -> tuple[int, int]:
+    if budget is None:
+        return default_items, default_chars
+    if isinstance(budget, int):
+        return max(1, min(default_items, int(budget))), default_chars
+    if not isinstance(budget, Mapping):
+        raise ValueError("budget must be an integer or object")
+    raw_items = budget.get("max_items", budget.get("max_candidates", default_items))
+    raw_chars = budget.get("max_chars", default_chars)
+    try:
+        items = max(1, min(default_items, int(raw_items)))
+        chars = max(1, min(PROJECTION_MAX_CHARS, int(raw_chars)))
+    except (TypeError, ValueError):
+        raise ValueError("budget limits must be integers") from None
+    return items, chars
+
+
+def _cc_integrations(integrations: Any) -> dict[str, str]:
+    if integrations is None:
+        return {"vault": "active", "ledger": "active"}
+    if not isinstance(integrations, Mapping):
+        raise ValueError("integrations must be an object")
+    result = {"vault": str(integrations.get("vault", "active")), "ledger": str(integrations.get("ledger", "active"))}
+    allowed = {"active", "unavailable", "not_configured", "timeout"}
+    if result["vault"] not in allowed or result["ledger"] not in allowed:
+        raise ValueError("integration state must be active, unavailable, not_configured, or timeout")
+    return result
+
+
+def _cc_route(request_class: str, integrations: Any) -> dict[str, Any]:
+    states = _cc_integrations(integrations)
+    # The existing front door has a deliberately smaller integration-state
+    # vocabulary. Map timeout to its fail-closed unavailable route while the
+    # operation result retains the more precise timeout failure state.
+    route_states = {
+        key: ("unavailable" if value == "timeout" else value)
+        for key, value in states.items()
+    }
+    return route_front_door(
+        request_class,
+        available_capabilities={"perseus_vault_recall", "ledger_verify", "evidence_claim_gate", "aar_authorize"},
+        integrations=route_states,
+    )
+
+
+def _cc_failure_for_integrations(integrations: Mapping[str, str]) -> str | None:
+    if integrations.get("vault") == "timeout" or integrations.get("ledger") == "timeout":
+        return "timeout"
+    if integrations.get("vault") == "unavailable":
+        return "vault_unavailable"
+    if integrations.get("ledger") == "unavailable":
+        return "ledger_unavailable"
+    return None
+
+
+def _cc_uncertainty(validity: str, verified: bool, tie: bool = False) -> dict[str, Any]:
+    if validity == "observed" and verified:
+        cls, value = "high", 0.9
+    elif validity in {"observed", "derived"}:
+        cls, value = "medium", 0.65
+    elif validity in {"stale", "inferred"}:
+        cls, value = validity, 0.35
+    else:
+        cls, value = "low", 0.2
+    if tie:
+        cls, value = "tie", 0.5
+    return {"class": cls, "score": value}
+
+
+def _cc_prepare_records(records: Any, scope: Any, policy: Mapping[str, Any], limit: int) -> tuple[list[dict[str, Any]], list[str], list[str], str | None]:
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes, bytearray)):
+        return [], [], [], "invalid_input"
+    if len(records) > limit:
+        return [], [], [], "candidate_limit_exceeded"
+    prepared: list[dict[str, Any]] = []
+    excluded: list[str] = []
+    contradictory: list[str] = []
+    seen: set[str] = set()
+    requested_scope = _cc_validate_scope_contract(scope)
+    allowed_ids = {_cc_safe_id(x) for x in (policy.get("allowed_candidate_ids") or [])}
+    denied_ids = {_cc_safe_id(x) for x in (policy.get("denied_candidate_ids") or [])}
+    allowed_topics = {_cc_safe_id(x) for x in (policy.get("allowed_topics") or [])}
+    for raw in records:
+        if not isinstance(raw, Mapping):
+            return [], [], [], "invalid_input"
+        candidate_id = _cc_record_id(raw)
+        if not candidate_id:
+            return [], [], [], "invalid_input"
+        if candidate_id in seen:
+            return [], [], [], "duplicate_candidate_id"
+        seen.add(candidate_id)
+        if not _cc_scope_match(raw, requested_scope):
+            excluded.append(candidate_id)
+            continue
+        if allowed_ids and candidate_id not in allowed_ids:
+            excluded.append(candidate_id)
+            continue
+        if candidate_id in denied_ids or _cc_private(raw, policy):
+            excluded.append(candidate_id)
+            continue
+        topic = _cc_topic(raw)
+        if allowed_topics and topic not in allowed_topics:
+            excluded.append(candidate_id)
+            continue
+        if raw.get("allowed") is False or raw.get("authorized") is False:
+            excluded.append(candidate_id)
+            continue
+        validity = _cc_validity(raw)
+        if validity == "contradictory":
+            contradictory.append(candidate_id)
+            continue
+        if validity == "unavailable":
+            excluded.append(candidate_id)
+            continue
+        item = dict(raw)
+        item["_contract_id"] = candidate_id
+        item["_contract_validity"] = validity
+        prepared.append(item)
+    return prepared, excluded, contradictory, None
+
+
+def _cc_rank_score(record: Mapping[str, Any], task: str, scope: Mapping[str, str]) -> tuple[float, dict[str, float]]:
+    """Use the existing composite-ranking policy with an adapter, not a second ranker."""
+    class _Candidate:
+        pass
+    candidate = _Candidate()
+    candidate.summary = _cc_scoring_text(record)
+    candidate.content = ""
+    candidate.key = str(record.get("_contract_id", ""))
+    candidate.category = str(record.get("category", record.get("topic", "")) or "")
+    candidate.workspace_hash = str(scope.get("workspace", ""))
+    candidate.relevance = float(record.get("relevance", record.get("semantic_score", 0.0)) or 0.0)
+    candidate.decay_score = float(record.get("decay_score", 1.0) or 1.0)
+    candidate.verified = bool(record.get("verified", False))
+    candidate.links = []
+    candidate.last_accessed_unix_ms = None
+    candidate.created_at_unix_ms = None
+    weights = dict(DEFAULT_WEIGHTS) if "DEFAULT_WEIGHTS" in globals() else {
+        "lexical": 1.0, "structural": 0.8, "semantic": 1.0, "freshness": 0.6,
+        "support": 0.5, "confidence": 0.4, "staleness": 0.7, "contradiction": 1.2,
+    }
+    score, components = composite_score(candidate, task, scope.get("workspace"), weights, now_ms=0)
+    validity = record.get("_contract_validity")
+    if validity == "stale":
+        score -= 0.35
+    elif validity == "inferred":
+        score -= 0.15
+    elif validity == "observed":
+        score += 0.05
+    return round(score, 6), {key: round(float(value), 6) for key, value in components.items()}
+
+
+def _cc_rank_candidate(record: Mapping[str, Any], rank: int, score: float, components: Mapping[str, float], tie: bool) -> dict[str, Any]:
+    candidate_id = str(record["_contract_id"])
+    validity = str(record["_contract_validity"])
+    reasons = ["scope_match", "policy_allowed"]
+    if components.get("lexical", 0.0) > 0:
+        reasons.append("task_term_match")
+    if bool(record.get("verified")):
+        reasons.append("verified_source")
+    if validity == "stale":
+        reasons.append("stale_source_requires_review")
+    elif validity in {"inferred", "derived"}:
+        reasons.append(f"{validity}_source")
+    else:
+        reasons.append("source_validity")
+    return {
+        "candidate_id": candidate_id,
+        "rank": rank,
+        "score": score,
+        "rank_reasons": reasons,
+        "evidence": _cc_evidence(record, candidate_id, validity),
+        "uncertainty": _cc_uncertainty(validity, bool(record.get("verified")), tie),
+    }
+
+
+def _cc_decision(*, actual_chars: int, counterfactual_chars: int, source_refs: list[str], budget_chars: int, policy: Mapping[str, Any], integrations: Mapping[str, str]) -> dict[str, Any]:
+    return decide_context_route(
+        actual_tokens=max(0, (int(actual_chars) + 3) // 4),
+        counterfactual_tokens=max(0, (int(counterfactual_chars) + 3) // 4),
+        fidelity=str(policy.get("fidelity", "selective")),
+        cache_assumption=str(policy.get("cache_assumption", "unknown")),
+        source_refs=source_refs,
+        declared_budget=max(1, (int(budget_chars) + 3) // 4),
+        requires_exact=bool(policy.get("requires_exact", False)),
+        contains_sensitive_data=False,
+        artifact_available=bool(policy.get("artifact_available", False)),
+        retrieval_available=integrations.get("vault") == "active",
+        reduction_available=True,
+    )
+
+
+def context_rank(
+    candidates: Any,
+    task: str = "",
+    *,
+    scope: Any = None,
+    policy: Any = None,
+    budget: Any = None,
+    integrations: Any = None,
+    request_class: str = "decide",
+    cfg: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Rank a bounded, caller-supplied candidate set without inventing entries."""
+    # Accept the MCP-shaped request object as a convenience for direct callers.
+    if isinstance(candidates, Mapping) and ("candidates" in candidates or "items" in candidates):
+        request = dict(candidates)
+        candidates = request.get("candidates", request.get("items"))
+        task = str(request.get("task", task) or "")
+        scope = request.get("scope", scope)
+        policy = request.get("policy", policy)
+        budget = request.get("budget", budget)
+        integrations = request.get("integrations", integrations)
+        request_class = str(request.get("request_class", request_class) or request_class)
+    try:
+        task = _cc_clean_text(task, CONTEXT_MAX_TASK_CHARS)
+        if not task:
+            return {"schema_version": CONTEXT_RANK_SCHEMA_VERSION, "operation": "context_rank", "status": "invalid_input", "failure_state": "invalid_input", "candidates": []}
+        policy_map = _cc_policy(policy)
+        max_candidates = min(CONTEXT_RANK_MAX_CANDIDATES, max(1, int(policy_map.get("max_candidates", CONTEXT_RANK_MAX_CANDIDATES))))
+        max_items, max_chars = _cc_budget(budget, default_items=max_candidates, default_chars=PROJECTION_MAX_CHARS)
+        requested_scope = _cc_validate_scope_contract(scope)
+        _cc_validate_commitments(candidates)
+        prepared, excluded, contradictory, preparation_failure = _cc_prepare_records(candidates, requested_scope, policy_map, max_candidates)
+        if preparation_failure:
+            return {
+                "schema_version": CONTEXT_RANK_SCHEMA_VERSION,
+                "operation": "context_rank",
+                "status": "invalid_input",
+                "failure_state": preparation_failure,
+                "candidates": [],
+            }
+        states = _cc_integrations(integrations)
+        route = _cc_route(request_class, states)
+        scored = []
+        for index, record in enumerate(prepared):
+            score, components = _cc_rank_score(record, task, requested_scope)
+            scored.append((record, score, components, index))
+        scored.sort(key=lambda value: (-value[1], str(value[0]["_contract_id"]), value[3]))
+        tie_groups: list[list[str]] = []
+        previous: tuple[float, list[str]] | None = None
+        for record, score, _components, _index in scored:
+            if previous is not None and score == previous[0]:
+                previous[1].append(str(record["_contract_id"]))
+            else:
+                previous = (score, [str(record["_contract_id"])])
+                tie_groups.append(previous[1])
+        tie_ids = {candidate_id for group in tie_groups if len(group) > 1 for candidate_id in group}
+        output: list[dict[str, Any]] = []
+        excluded_by_budget: list[str] = []
+        for index, (record, score, components, _original) in enumerate(scored):
+            if index >= max_items:
+                excluded_by_budget.append(str(record["_contract_id"]))
+                continue
+            output.append(_cc_rank_candidate(record, len(output) + 1, score, components, str(record["_contract_id"]) in tie_ids))
+        if excluded_by_budget:
+            excluded.extend(excluded_by_budget)
+        source_refs = sorted({ref for item in output for evidence in item["evidence"] for ref in [evidence["source_id"]]})
+        counterfactual_chars = sum(len(_cc_scoring_text(record)) for record, _score, _components, _index in scored)
+        actual_chars = len(_cc_json(output))
+        decision = _cc_decision(
+            actual_chars=actual_chars,
+            counterfactual_chars=counterfactual_chars,
+            source_refs=source_refs,
+            budget_chars=max_chars,
+            policy=policy_map,
+            integrations=states,
+        )
+        integration_failure = _cc_failure_for_integrations(states)
+        if contradictory:
+            status, failure_state = "review", "contradictory_evidence"
+        elif not output:
+            status, failure_state = ("unavailable", "vault_unavailable") if integration_failure else ("abstain", "no_eligible_context")
+        elif integration_failure:
+            status, failure_state = "degraded", integration_failure
+        elif excluded_by_budget:
+            status, failure_state = "degraded", "budget_exhausted"
+        elif any(item["uncertainty"]["class"] == "stale" for item in output):
+            status, failure_state = "degraded", "source_stale"
+        else:
+            status, failure_state = "complete", None
+        if policy_map.get("abstain_on_tie") and tie_ids:
+            status, failure_state = "abstain", "ambiguous_tie"
+        result = {
+            "schema_version": CONTEXT_RANK_SCHEMA_VERSION,
+            "operation": "context_rank",
+            "status": status,
+            "failure_state": failure_state,
+            "candidates": output,
+            "excluded_candidate_ids": sorted(set(excluded)),
+            "ties": [group for group in tie_groups if len(group) > 1],
+            "scope_commitment": "sha256:" + _cc_sha(requested_scope),
+            "scoring": {"mode": "deterministic", "model_assisted": False, "calibrated": False},
+            "route": route,
+            "context_decision": decision,
+            "budget": {"max_items": max_items, "max_chars": max_chars, "returned_items": len(output)},
+        }
+        return result
+    except (TypeError, ValueError) as exc:
+        message = str(exc)
+        failure = "invalid_input"
+        for candidate_failure in _FAILURE_STATES:
+            if candidate_failure in message:
+                failure = candidate_failure
+                break
+        return {"schema_version": CONTEXT_RANK_SCHEMA_VERSION, "operation": "context_rank", "status": "invalid_input", "failure_state": failure, "candidates": []}
+
+
+def context_ask(
+    question: Any,
+    context: Any = None,
+    *,
+    candidates: Any = None,
+    scope: Any = None,
+    policy: Any = None,
+    budget: Any = None,
+    integrations: Any = None,
+    request_class: str = "decide",
+    cfg: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Answer one narrow question from bounded evidence, or abstain explicitly."""
+    if isinstance(question, Mapping):
+        request = dict(question)
+        question = request.get("question", "")
+        context = request.get("context", request.get("candidates", context))
+        scope = request.get("scope", scope)
+        policy = request.get("policy", policy)
+        budget = request.get("budget", budget)
+        integrations = request.get("integrations", integrations)
+        request_class = str(request.get("request_class", request_class) or request_class)
+    try:
+        question_text = _cc_clean_text(question, CONTEXT_MAX_QUESTION_CHARS)
+        if not question_text:
+            return {"schema_version": CONTEXT_ASK_SCHEMA_VERSION, "operation": "context_ask", "status": "invalid_input", "failure_state": "invalid_input", "answer": None, "source_refs": []}
+        policy_map = _cc_policy(policy)
+        max_items, max_chars = _cc_budget(budget, default_items=CONTEXT_ASK_MAX_CONTEXT, default_chars=1024)
+        records = context if context is not None else candidates
+        if isinstance(records, Mapping):
+            records = records.get("records", records.get("items", records.get("candidates", [])))
+        prepared, excluded, contradictory, preparation_failure = _cc_prepare_records(records, scope, policy_map, CONTEXT_ASK_MAX_CONTEXT)
+        if preparation_failure:
+            failure = "context_limit_exceeded" if preparation_failure == "candidate_limit_exceeded" else preparation_failure
+            return {"schema_version": CONTEXT_ASK_SCHEMA_VERSION, "operation": "context_ask", "status": "invalid_input", "failure_state": failure, "answer": None, "source_refs": []}
+        states = _cc_integrations(integrations)
+        route = _cc_route(request_class, states)
+        requested_scope = _cc_validate_scope_contract(scope)
+        scored = []
+        question_terms = set(_cc_tokens(question_text))
+        for index, record in enumerate(prepared):
+            text = _cc_record_text(record, allow_content=bool(policy_map.get("allow_content", False)))
+            overlap = len(question_terms.intersection(set(_cc_tokens(text + " " + _cc_scoring_text(record)))))
+            score, components = _cc_rank_score(record, question_text, requested_scope)
+            score += min(0.4, overlap * 0.08)
+            scored.append((record, round(score, 6), components, overlap, index))
+        scored.sort(key=lambda value: (-value[1], str(value[0]["_contract_id"]), value[4]))
+        if contradictory:
+            return {
+                "schema_version": CONTEXT_ASK_SCHEMA_VERSION,
+                "operation": "context_ask",
+                "status": "review",
+                "failure_state": "contradictory_evidence",
+                "outcome": "review",
+                "answer": None,
+                "source_refs": [],
+                "excluded_candidate_ids": sorted(set(excluded)),
+                "route": route,
+            }
+        if not scored:
+            integration_failure = _cc_failure_for_integrations(states)
+            failure = integration_failure or ("scope_mismatch" if excluded else "insufficient_evidence")
+            status = "unavailable" if integration_failure else "abstain"
+            return {
+                "schema_version": CONTEXT_ASK_SCHEMA_VERSION,
+                "operation": "context_ask",
+                "status": status,
+                "failure_state": failure,
+                "outcome": "insufficient_evidence" if not integration_failure else "unavailable",
+                "answer": None,
+                "source_refs": [],
+                "excluded_candidate_ids": sorted(set(excluded)),
+                "route": route,
+            }
+        best, score, components, overlap, _index = scored[0]
+        if overlap <= 0 or score < float(policy_map.get("min_score", 0.2)):
+            return {
+                "schema_version": CONTEXT_ASK_SCHEMA_VERSION,
+                "operation": "context_ask",
+                "status": "abstain",
+                "failure_state": "out_of_domain",
+                "outcome": "insufficient_evidence",
+                "answer": None,
+                "source_refs": [],
+                "excluded_candidate_ids": sorted(set(excluded)),
+                "route": route,
+            }
+        validity = str(best["_contract_validity"])
+        raw_answer = _cc_record_text(best, allow_content=bool(policy_map.get("allow_content", False)))
+        answer = _cc_redact(raw_answer, cfg)
+        status = "complete"
+        failure_state = None
+        if not answer:
+            status, failure_state = "abstain", "insufficient_evidence"
+        if len(answer) > max_chars:
+            answer = _cc_clean_text(answer, max_chars)
+            status, failure_state = "degraded", "budget_exhausted"
+        integration_failure = _cc_failure_for_integrations(states)
+        if integration_failure:
+            # Preserve the dependency failure even when the local answer also
+            # hit a response budget; callers must not mistake unavailable
+            # evidence for an ordinary truncation.
+            status, failure_state = "degraded", integration_failure
+        source_refs = _cc_source_ids(best, str(best["_contract_id"]))
+        confidence = _cc_uncertainty(validity, bool(best.get("verified")), len(scored) > 1 and scored[1][1] == score)
+        decision = _cc_decision(
+            actual_chars=len(answer),
+            counterfactual_chars=len(_cc_scoring_text(best)),
+            source_refs=source_refs,
+            budget_chars=max_chars,
+            policy=policy_map,
+            integrations=states,
+        )
+        return {
+            "schema_version": CONTEXT_ASK_SCHEMA_VERSION,
+            "operation": "context_ask",
+            "status": status,
+            "failure_state": failure_state,
+            "outcome": "answered" if status in {"complete", "degraded"} else "insufficient_evidence",
+            "answer": answer if answer else None,
+            "source_refs": source_refs,
+            "validity_state": validity,
+            "confidence": confidence,
+            "uncertainty": confidence,
+            "selection_reason": ["scope_match", "policy_allowed", "question_term_match", "evidence_linked"],
+            "evidence": _cc_evidence(best, str(best["_contract_id"]), validity),
+            "route": route,
+            "context_decision": decision,
+            "budget": {"max_items": max_items, "max_chars": max_chars},
+        }
+    except (TypeError, ValueError):
+        return {"schema_version": CONTEXT_ASK_SCHEMA_VERSION, "operation": "context_ask", "status": "invalid_input", "failure_state": "invalid_input", "answer": None, "source_refs": []}
+
+
+def _cc_permission_map(permissions: Any) -> dict[str, bool]:
+    if permissions is None:
+        return {"preview": False, "release": False}
+    if isinstance(permissions, Mapping):
+        values = {}
+        for key in ("preview", "release"):
+            value = permissions.get(key, False)
+            if not isinstance(value, bool):
+                raise ContextContractError("permission values must be booleans")
+            values[key] = value
+        return values
+    raise ContextContractError("permissions must be an object")
+
+
+def _cc_topic_list(topics: Any, scope: Mapping[str, str]) -> list[str]:
+    if topics is None:
+        return [scope["topic"]] if scope.get("topic") else []
+    if not isinstance(topics, list) or len(topics) > 64:
+        raise ContextContractError("topics must be a list of at most 64 strings")
+    if any(not isinstance(topic, str) for topic in topics):
+        raise ContextContractError("topics must contain strings")
+    return sorted({_cc_safe_id(topic) for topic in topics if _cc_safe_id(topic)})
+
+
+def _cc_projection_redaction_policy(cfg: Mapping[str, Any] | None, policy: Mapping[str, Any]) -> dict[str, Any]:
+    redaction = dict((cfg or {}).get("redaction", {}) or {})
+    return {
+        "version": "perseus-redaction/v1",
+        "enabled": True,
+        "default_rules": bool(redaction.get("include_defaults", True)),
+        "custom_rule_count": len(redaction.get("patterns") or []) if isinstance(redaction.get("patterns"), list) else 0,
+        "allow_private": bool(policy.get("allow_private", False)),
+    }
+
+
+def _cc_projection_items(rank_result: Mapping[str, Any], records: Mapping[str, Mapping[str, Any]], policy: Mapping[str, Any], max_chars: int, cfg: Mapping[str, Any] | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
+    items: list[dict[str, Any]] = []
+    selection: list[dict[str, Any]] = []
+    spent = 0
+    budget_exhausted = False
+    for ranked in rank_result.get("candidates", []):
+        candidate_id = ranked["candidate_id"]
+        record = records[candidate_id]
+        raw_text = _cc_record_text(record, allow_content=bool(policy.get("allow_content", False)))
+        safe_text = _cc_redact(raw_text, cfg)
+        if not safe_text:
+            continue
+        remaining = max_chars - spent
+        if remaining <= 0:
+            budget_exhausted = True
+            continue
+        if len(safe_text) > remaining:
+            safe_text = _cc_clean_text(safe_text, remaining)
+            budget_exhausted = True
+        evidence = ranked.get("evidence", [])
+        item: dict[str, Any] = {
+            "candidate_id": candidate_id,
+            "text": safe_text,
+            "source_refs": [e["source_id"] for e in evidence],
+            "provenance_class": _cc_validity(record),
+            "uncertainty": ranked.get("uncertainty", {}),
+        }
+        content_hash = _cc_content_commitment(record)
+        if content_hash:
+            item["content_sha256"] = content_hash
+        for key in ("valid_at", "recorded_at"):
+            safe = _cc_safe_timestamp(record.get(key))
+            if safe:
+                item[key] = safe
+        topic = _cc_topic(record)
+        if topic:
+            item["topic"] = topic
+        reason = _cc_redact(record.get("selection_reason") or "; ".join(ranked.get("rank_reasons", [])), cfg)
+        if any(marker in reason.casefold() for marker in ('"prompt"', '"context"', '"content"', '"body"', '"credentials"', 'raw_payload', 'body_json')):
+            reason = ""
+        if reason:
+            item["selection_reason"] = _cc_clean_text(reason, 256)
+        items.append(item)
+        spent += len(safe_text)
+        selection.append({
+            "candidate_id": candidate_id,
+            "rank": ranked.get("rank"),
+            "score": ranked.get("score"),
+            "rank_reasons": list(ranked.get("rank_reasons", [])),
+            "evidence": evidence,
+            "uncertainty": ranked.get("uncertainty", {}),
+        })
+    return items, selection, budget_exhausted
+
+
+class AgentProjectionBoundary:
+    """Reviewable projection/release coordinator, not a memory authority.
+
+    Consent and revocation are scoped control state; the only cached material is
+    already-sanitized agent output. Vault/Ledger/AAR remain the source of truth
+    for records, evidence, and external authorization.
+    """
+
+    def __init__(self, *, max_records: int = PROJECTION_MAX_RECORDS) -> None:
+        self.max_records = max(1, min(PROJECTION_MAX_RECORDS, int(max_records)))
+        self._consents: dict[tuple[str, str], dict[str, Any]] = {}
+        self._revocations: dict[tuple[str, str, str], int] = {}
+        self._pause_epochs: dict[tuple[str, str, str], int] = {}
+        self._pauses: set[tuple[str, str, str]] = set()
+        self._cache: dict[str, dict[str, Any]] = {}
+        self._revision = 0
+
+    def _identity(self, agent_id: Any, scope: Any, *, strict_scope: bool = False) -> tuple[str, dict[str, str], str]:
+        safe_agent = _cc_safe_id(agent_id)
+        if not safe_agent:
+            raise ContextContractError("agent_id is required")
+        normalized_scope = _cc_validate_scope_contract(scope) if strict_scope else _cc_scope(scope)
+        if not normalized_scope.get("workspace") and not normalized_scope.get("tenant"):
+            raise ContextContractError("scope requires workspace or tenant")
+        if normalized_scope.get("agent") and normalized_scope["agent"] != safe_agent:
+            raise ContextContractError("scope agent does not match agent_id")
+        return safe_agent, normalized_scope, _cc_sha(normalized_scope)
+
+    def _revocation_epoch(self, agent_id: str, scope_fp: str, topic: str = "") -> int:
+        permanent = int(self._revocations.get((agent_id, scope_fp, topic), 0) or self._revocations.get((agent_id, scope_fp, ""), 0))
+        # Pauses invalidate the preview that existed at pause time, but a
+        # resume permits a fresh release of the same projection.  The epoch
+        # therefore tracks permanent revocation only; pause state is checked
+        # separately by _consent_decision.
+        return permanent
+
+    def grant_consent(
+        self,
+        *,
+        agent_id: Any,
+        scope: Any,
+        permissions: Any = None,
+        topics: Any = None,
+        policy_version: str = "",
+        grantor_id: Any = None,
+        authority_method: str | None = None,
+        strict_scope: bool = False,
+    ) -> dict[str, Any]:
+        safe_agent, normalized_scope, scope_fp = self._identity(agent_id, scope, strict_scope=strict_scope)
+        permission_map = _cc_permission_map(permissions)
+        topic_list = _cc_topic_list(topics, normalized_scope)
+        safe_grantor = _cc_safe_id(grantor_id) if grantor_id is not None else ""
+        if grantor_id is not None and not safe_grantor:
+            raise ContextContractError("grantor_id is required")
+        if safe_grantor and safe_grantor == safe_agent:
+            raise ContextContractError("grantor_id must be distinct from agent_id")
+        safe_authority_method = _cc_safe_id(authority_method) if authority_method else ""
+        self._revision += 1
+        record = {
+            "schema_version": PROJECTION_CONSENT_SCHEMA_VERSION,
+            "operation": "agent_projection_consent",
+            "status": "granted",
+            "agent_id": safe_agent,
+            "scope": normalized_scope,
+            "topics": topic_list,
+            "permissions": permission_map,
+            "policy_version": _cc_safe_id(policy_version, fallback="policy-v1") or "policy-v1",
+            "revision": self._revision,
+        }
+        if safe_grantor:
+            record["grantor_id"] = safe_grantor
+        if safe_authority_method:
+            record["authority_method"] = safe_authority_method
+        record["consent_commitment"] = "sha256:" + _cc_sha(record)
+        self._consents[(safe_agent, scope_fp)] = record
+        return dict(record)
+
+    def resume(self, *, agent_id: Any, scope: Any, topic: str = "") -> dict[str, Any]:
+        """Clear a pause without clearing a separate revocation epoch."""
+        safe_agent, normalized_scope, scope_fp = self._identity(agent_id, scope)
+        safe_topic = _cc_safe_id(topic)
+        key = (safe_agent, scope_fp, safe_topic)
+        self._pauses.discard(key)
+        consent = self._consents.get((safe_agent, scope_fp))
+        return {
+            "schema_version": CONTEXT_RELEASE_SCHEMA_VERSION,
+            "operation": "agent_projection_revoke",
+            "status": "resumed",
+            "agent_id": safe_agent,
+            "scope": normalized_scope,
+            "topic": safe_topic or None,
+            "revocation_epoch": self._revocation_epoch(safe_agent, scope_fp, safe_topic),
+            "cache_invalidated": False,
+            "invalidated_entries": 0,
+        }
+
+    def pause(self, *, agent_id: Any, scope: Any, topic: str = "") -> dict[str, Any]:
+        return self._revoke_or_pause(agent_id=agent_id, scope=scope, topic=topic, state="paused")
+
+    def revoke(self, *, agent_id: Any, scope: Any, topic: str = "") -> dict[str, Any]:
+        return self._revoke_or_pause(agent_id=agent_id, scope=scope, topic=topic, state="revoked")
+
+    def _revoke_or_pause(self, *, agent_id: Any, scope: Any, topic: str, state: str) -> dict[str, Any]:
+        safe_agent, normalized_scope, scope_fp = self._identity(agent_id, scope)
+        safe_topic = _cc_safe_id(topic)
+        key = (safe_agent, scope_fp, safe_topic)
+        if state == "paused":
+            self._pauses.add(key)
+            self._pause_epochs[key] = self._pause_epochs.get(key, 0) + 1
+        else:
+            self._pauses.discard(key)
+            self._pause_epochs.pop(key, None)
+            self._revocations[key] = self._revocations.get(key, 0) + 1
+        invalidated = 0
+        for digest, entry in list(self._cache.items()):
+            if entry.get("agent_id") != safe_agent or entry.get("scope_fp") != scope_fp:
+                continue
+            if safe_topic and entry.get("topic") != safe_topic:
+                continue
+            self._cache.pop(digest, None)
+            invalidated += 1
+        if not safe_topic:
+            self._consents.pop((safe_agent, scope_fp), None)
+        return {
+            "schema_version": CONTEXT_RELEASE_SCHEMA_VERSION,
+            "operation": "agent_projection_revoke",
+            "status": state,
+            "agent_id": safe_agent,
+            "scope": normalized_scope,
+            "topic": safe_topic or None,
+            "revocation_epoch": self._revocation_epoch(safe_agent, scope_fp, safe_topic),
+            "cache_invalidated": bool(invalidated),
+            "invalidated_entries": invalidated,
+        }
+
+    def _consent_decision(self, agent_id: str, scope: Mapping[str, str], scope_fp: str, topic: str, permission: str) -> str | None:
+        if (agent_id, scope_fp, topic) in self._pauses or (agent_id, scope_fp, "") in self._pauses:
+            return "paused"
+        if self._revocations.get((agent_id, scope_fp, topic), 0) or self._revocations.get((agent_id, scope_fp, ""), 0):
+            return "revoked"
+        consent = self._consents.get((agent_id, scope_fp))
+        if not consent:
+            return "consent_required"
+        if not consent.get("permissions", {}).get(permission, False):
+            return "permission_denied"
+        topics = consent.get("topics", [])
+        if topics and (not topic or topic not in topics):
+            return "scope_mismatch"
+        return None
+
+    def _compile(self, records: Any, *, agent_id: Any, scope: Any, task: Any, request_class: str, policy_version: str, policy: Any, budget: Any, integrations: Any, cfg: Mapping[str, Any] | None) -> dict[str, Any]:
+        safe_agent, normalized_scope, scope_fp = self._identity(agent_id, scope)
+        policy_map = _cc_policy(policy)
+        task_text = _cc_clean_text(task, CONTEXT_MAX_TASK_CHARS)
+        policy_version_safe = _cc_safe_id(policy_version, fallback="policy-v1") or "policy-v1"
+        max_items, max_chars = _cc_budget(budget, default_items=self.max_records, default_chars=PROJECTION_MAX_CHARS)
+        if max_items > self.max_records:
+            max_items = self.max_records
+        rank = context_rank(
+            records,
+            task=task_text or "select relevant context",
+            scope=normalized_scope,
+            policy={**policy_map, "max_candidates": self.max_records, "max_items": max_items},
+            budget={"max_items": max_items, "max_chars": max_chars},
+            integrations=integrations,
+            request_class=request_class,
+            cfg=cfg,
+        )
+        record_map: dict[str, Mapping[str, Any]] = {}
+        if isinstance(records, Sequence) and not isinstance(records, (str, bytes, bytearray)):
+            for record in records:
+                if isinstance(record, Mapping):
+                    identifier = _cc_record_id(record)
+                    if identifier:
+                        record_map[identifier] = record
+        items, selection, budget_exhausted = _cc_projection_items(rank, record_map, policy_map, max_chars, cfg)
+        topics = sorted({_cc_topic(record_map[item["candidate_id"]]) for item in items if _cc_topic(record_map[item["candidate_id"]])})
+        topic = topics[0] if len(topics) == 1 else ""
+        consent_topics = self._consents.get((safe_agent, scope_fp), {}).get("topics", [])
+        if consent_topics and (not topic or any(candidate_topic not in consent_topics for candidate_topic in topics)):
+            topic = ""
+        states = _cc_integrations(integrations)
+        route = rank.get("route", {})
+        digest_payload = {
+            "schema_version": AGENT_PROJECTION_SCHEMA_VERSION,
+            "agent_id": safe_agent,
+            "scope": normalized_scope,
+            "request_class": _cc_safe_id(request_class, fallback="decide"),
+            "task_sha256": _cc_text_sha(task_text),
+            "policy_version": policy_version_safe,
+            "policy_commitment": "sha256:" + _cc_sha({key: value for key, value in policy_map.items() if key not in {"raw", "prompt", "tool_args"}}),
+            "redaction_policy": _cc_projection_redaction_policy(cfg, policy_map),
+            "permissions_commitment": "sha256:" + _cc_sha(self._consents.get((safe_agent, scope_fp), {}).get("permissions", {})),
+            "revocation_epoch": self._revocation_epoch(safe_agent, scope_fp, topic),
+            "items": items,
+            "selection": selection,
+        }
+        projection_digest = _cc_sha(digest_payload)
+        integration_failure = _cc_failure_for_integrations(states)
+        if not items:
+            status, failure_state = ("unavailable", "vault_unavailable") if integration_failure else ("abstain", "projection_empty")
+        elif rank.get("failure_state") == "contradictory_evidence":
+            status, failure_state = "review", "contradictory_evidence"
+        elif integration_failure:
+            status, failure_state = "degraded", integration_failure
+        elif budget_exhausted or rank.get("failure_state") == "budget_exhausted":
+            status, failure_state = "degraded", "budget_exhausted"
+        elif rank.get("failure_state") == "source_stale":
+            status, failure_state = "degraded", "source_stale"
+        else:
+            status, failure_state = "complete", None
+        projection = {
+            "schema_version": AGENT_PROJECTION_SCHEMA_VERSION,
+            "agent_id": safe_agent,
+            "scope": normalized_scope,
+            "request_class": _cc_safe_id(request_class, fallback="decide"),
+            "task_sha256": _cc_text_sha(task_text),
+            "policy_version": policy_version_safe,
+            "policy_commitment": digest_payload["policy_commitment"],
+            "permissions_commitment": digest_payload["permissions_commitment"],
+            "revocation_epoch": digest_payload["revocation_epoch"],
+            "redaction_policy": digest_payload["redaction_policy"],
+            "items": items,
+        }
+        consent_failure = self._consent_decision(safe_agent, normalized_scope, scope_fp, topic, "release")
+        release_decision = "ready" if consent_failure is None and status in {"complete", "degraded"} else (consent_failure or status)
+        return {
+            "schema_version": AGENT_PROJECTION_SCHEMA_VERSION,
+            "operation": "agent_projection_preview",
+            "status": status,
+            "failure_state": failure_state,
+            "projection": projection,
+            "projection_digest": projection_digest,
+            "selection": selection,
+            "provenance": [item["evidence"] for item in selection],
+            "release_decision": release_decision,
+            "agent_id": safe_agent,
+            "scope": normalized_scope,
+            "scope_commitment": "sha256:" + scope_fp,
+            "topic": topic or None,
+            "request_class": projection["request_class"],
+            "policy_version": policy_version_safe,
+            "route": route,
+            "context_decision": rank.get("context_decision", {}),
+            "budget": {"max_items": max_items, "max_chars": max_chars, "returned_items": len(items)},
+            "_scope_fp": scope_fp,
+        }
+
+    def preview(self, records: Any, *, agent_id: Any, scope: Any, task: Any = "", request_class: str = "decide", policy_version: str = "policy-v1", policy: Any = None, budget: Any = None, integrations: Any = None, cfg: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """Compile and return exactly the sanitized representation an agent may see."""
+        try:
+            result = self._compile(records, agent_id=agent_id, scope=scope, task=task, request_class=request_class, policy_version=policy_version, policy=policy, budget=budget, integrations=integrations, cfg=cfg)
+            result.pop("_scope_fp", None)
+            return result
+        except (ContextContractError, TypeError, ValueError):
+            # Invalid identity/input results must remain valid contract envelopes.
+            # Omit the projection payload and digest rather than emitting a
+            # partial projection that cannot satisfy the versioned schema.
+            return {
+                "schema_version": AGENT_PROJECTION_SCHEMA_VERSION,
+                "operation": "agent_projection_preview",
+                "status": "invalid_input",
+                "failure_state": "invalid_input",
+            }
+
+    def _receipt(self, preview: Mapping[str, Any], scope_fp: str, topic: str) -> dict[str, Any]:
+        projection = preview.get("projection", {})
+        items = projection.get("items", []) if isinstance(projection, Mapping) else []
+        source_ids = sorted({source_id for item in items if isinstance(item, Mapping) for source_id in (item.get("source_refs") or []) if isinstance(source_id, str)})
+        commitments = sorted({item.get("content_sha256") for item in items if isinstance(item, Mapping) and item.get("content_sha256")})
+        receipt = {
+            "schema_version": CONTEXT_RELEASE_SCHEMA_VERSION,
+            "receipt_id": "sha256:" + _cc_sha({"digest": preview.get("projection_digest"), "agent_id": preview.get("agent_id"), "scope": preview.get("scope"), "topic": topic}),
+            "projection_digest": preview.get("projection_digest", ""),
+            "agent_id": preview.get("agent_id", ""),
+            "scope": preview.get("scope", {}),
+            "scope_commitment": "sha256:" + scope_fp,
+            "topic": topic or None,
+            "request_class": preview.get("request_class", "decide"),
+            "policy_version": preview.get("policy_version", ""),
+            "redaction_policy": preview.get("projection", {}).get("redaction_policy", {}),
+            "selected_source_ids": source_ids,
+            "selected_content_commitments": commitments,
+            "provenance_classes": sorted({str(item.get("provenance_class")) for item in items if isinstance(item, Mapping) and item.get("provenance_class")}),
+            "valid_at": sorted({str(item.get("valid_at")) for item in items if isinstance(item, Mapping) and item.get("valid_at")}),
+            "recorded_at": sorted({str(item.get("recorded_at")) for item in items if isinstance(item, Mapping) and item.get("recorded_at")}),
+            "release_decision": "released",
+            "status": "complete",
+            "revocation_epoch": self._revocation_epoch(str(preview.get("agent_id", "")), scope_fp, topic),
+        }
+        return receipt
+
+    def release(self, preview_or_records: Any, *, agent_id: Any = None, scope: Any = None, task: Any = "", request_class: str = "decide", policy_version: str = "policy-v1", policy: Any = None, budget: Any = None, integrations: Any = None, cfg: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """Release only a previously reviewable projection after consent checks."""
+        if isinstance(preview_or_records, Mapping) and "projection" in preview_or_records and "projection_digest" in preview_or_records:
+            preview = dict(preview_or_records)
+            safe_agent = str(preview.get("agent_id", ""))
+            preview_status = preview.get("status")
+            preview_failure = preview.get("failure_state")
+            supplied_digest = preview.get("projection_digest")
+            if (
+                preview.get("schema_version") != AGENT_PROJECTION_SCHEMA_VERSION
+                or preview.get("operation") != "agent_projection_preview"
+                or preview_status not in _OUTPUT_STATUSES
+                or (preview_failure is not None and preview_failure not in _FAILURE_STATES)
+                or not isinstance(supplied_digest, str)
+                or not _SHA256_RE.fullmatch(supplied_digest)
+            ):
+                return {
+                    "schema_version": CONTEXT_RELEASE_SCHEMA_VERSION,
+                    "operation": "agent_projection_release",
+                    "status": "review",
+                    "failure_state": "invalid_projection_digest",
+                    "cache": {"hit": False},
+                }
+            normalized_scope = _cc_validate_scope_contract(preview.get("scope", {}))
+            scope_fp = _cc_sha(normalized_scope)
+            topic = _cc_safe_id(preview.get("topic")) or normalized_scope.get("topic", "")
+            # Consent, pause, and revoke are evaluated before trusting a
+            # supplied preview. A stale/tampered preview must not mask the
+            # current control decision (and a paused/revoked topic must remain
+            # fail-closed even when the digest can no longer be reconstructed).
+            preflight_denied = self._consent_decision(safe_agent, normalized_scope, scope_fp, topic, "release")
+            if preflight_denied:
+                status = "abstain" if preflight_denied == "revoked" else "review"
+                return {
+                    "schema_version": CONTEXT_RELEASE_SCHEMA_VERSION,
+                    "operation": "agent_projection_release",
+                    "status": status,
+                    "failure_state": preflight_denied,
+                    "projection_digest": supplied_digest,
+                    "agent_id": safe_agent,
+                    "scope": normalized_scope,
+                    "cache": {"hit": False},
+                }
+            projection = preview.get("projection", {})
+            if not isinstance(projection, Mapping):
+                return {
+                    "schema_version": CONTEXT_RELEASE_SCHEMA_VERSION,
+                    "operation": "agent_projection_release",
+                    "status": "review",
+                    "failure_state": "invalid_projection_digest",
+                    "cache": {"hit": False},
+                }
+            if (
+                projection.get("agent_id") != safe_agent
+                or _cc_validate_scope_contract(projection.get("scope")) != normalized_scope
+                or preview.get("request_class") != projection.get("request_class")
+                or preview.get("policy_version") != projection.get("policy_version")
+            ):
+                return {
+                    "schema_version": CONTEXT_RELEASE_SCHEMA_VERSION,
+                    "operation": "agent_projection_release",
+                    "status": "review",
+                    "failure_state": "invalid_projection_digest",
+                    "cache": {"hit": False},
+                }
+            expected_digest = _cc_sha({
+                "schema_version": AGENT_PROJECTION_SCHEMA_VERSION,
+                "agent_id": projection.get("agent_id"),
+                "scope": _cc_validate_scope_contract(projection.get("scope")),
+                "request_class": _cc_safe_id(projection.get("request_class"), fallback="decide"),
+                "task_sha256": str(projection.get("task_sha256", "")),
+                "policy_version": _cc_safe_id(projection.get("policy_version"), fallback="policy-v1") or "policy-v1",
+                "policy_commitment": str(projection.get("policy_commitment", "")),
+                "redaction_policy": projection.get("redaction_policy", {}),
+                "permissions_commitment": str(projection.get("permissions_commitment", "")),
+                "revocation_epoch": self._revocation_epoch(safe_agent, scope_fp, topic),
+                "items": projection.get("items", []),
+                "selection": preview.get("selection", []),
+            })
+            if str(preview.get("projection_digest")) != expected_digest or not projection.get("items"):
+                return {
+                    "schema_version": CONTEXT_RELEASE_SCHEMA_VERSION,
+                    "operation": "agent_projection_release",
+                    "status": "review",
+                    "failure_state": "invalid_projection_digest",
+                    "cache": {"hit": False},
+                }
+        else:
+            if agent_id is None or scope is None:
+                return {"schema_version": CONTEXT_RELEASE_SCHEMA_VERSION, "operation": "agent_projection_release", "status": "review", "failure_state": "consent_required", "cache": {"hit": False}}
+            preview = self._compile(preview_or_records, agent_id=agent_id, scope=scope, task=task, request_class=request_class, policy_version=policy_version, policy=policy, budget=budget, integrations=integrations, cfg=cfg)
+            safe_agent = str(preview.get("agent_id", ""))
+            normalized_scope = _cc_validate_scope_contract(preview.get("scope", {}))
+            scope_fp = str(preview.get("_scope_fp") or _cc_sha(normalized_scope))
+            topic = _cc_safe_id(preview.get("topic")) or normalized_scope.get("topic", "")
+        denied = self._consent_decision(safe_agent, normalized_scope, scope_fp, topic, "release")
+        if denied:
+            status = "abstain" if denied == "revoked" else "review"
+            return {
+                "schema_version": CONTEXT_RELEASE_SCHEMA_VERSION,
+                "operation": "agent_projection_release",
+                "status": status,
+                "failure_state": denied,
+                "projection_digest": preview.get("projection_digest", ""),
+                "agent_id": safe_agent,
+                "scope": normalized_scope,
+                "cache": {"hit": False},
+            }
+        if preview.get("status") not in {"complete", "degraded"}:
+            return {
+                "schema_version": CONTEXT_RELEASE_SCHEMA_VERSION,
+                "operation": "agent_projection_release",
+                "status": preview.get("status", "review"),
+                "failure_state": preview.get("failure_state") or "projection_empty",
+                "projection_digest": preview.get("projection_digest", ""),
+                "agent_id": safe_agent,
+                "scope": normalized_scope,
+                "cache": {"hit": False},
+            }
+        digest = str(preview.get("projection_digest", ""))
+        cached = self._cache.get(digest)
+        if cached is not None:
+            result = dict(cached["result"])
+            result["cache"] = {"hit": True, "key": "sha256:" + digest}
+            return result
+        receipt = self._receipt(preview, scope_fp, topic)
+        receipt["status"] = preview.get("status", "complete")
+        receipt["release_decision"] = "released" if preview.get("status") == "complete" else "degraded"
+        result = {
+            "schema_version": CONTEXT_RELEASE_SCHEMA_VERSION,
+            "operation": "agent_projection_release",
+            "status": preview.get("status", "complete"),
+            "failure_state": preview.get("failure_state"),
+            "projection": preview.get("projection", {}),
+            "projection_digest": digest,
+            "receipt": receipt,
+            "agent_id": safe_agent,
+            "scope": normalized_scope,
+            "cache": {"hit": False, "key": "sha256:" + digest},
+        }
+        self._cache[digest] = {"result": dict(result), "agent_id": safe_agent, "scope_fp": scope_fp, "topic": topic}
+        return result
+
+    def cache_stats(self) -> dict[str, int]:
+        return {"entries": len(self._cache)}
+
+    def clear_cache(self) -> None:
+        self._cache.clear()
+
+
+_DEFAULT_PROJECTION_BOUNDARY = AgentProjectionBoundary()
+
+
+def agent_projection_preview(records: Any, **kwargs: Any) -> dict[str, Any]:
+    return _DEFAULT_PROJECTION_BOUNDARY.preview(records, **kwargs)
+
+
+def agent_projection_release(preview_or_records: Any, **kwargs: Any) -> dict[str, Any]:
+    return _DEFAULT_PROJECTION_BOUNDARY.release(preview_or_records, **kwargs)
+
+
+def agent_projection_consent(**kwargs: Any) -> dict[str, Any]:
+    authority_verified = bool(kwargs.pop("_authority_verified", False))
+    grantor_id = kwargs.pop("_grantor_id", None)
+    authority_method = kwargs.pop("_authority_method", None)
+    kwargs["strict_scope"] = bool(kwargs.pop("_strict_scope", False))
+    if not authority_verified or not grantor_id:
+        return {
+            "schema_version": PROJECTION_CONSENT_SCHEMA_VERSION,
+            "operation": "agent_projection_consent",
+            "status": "review",
+            "failure_state": "permission_denied",
+        }
+    try:
+        return _DEFAULT_PROJECTION_BOUNDARY.grant_consent(
+            **kwargs,
+            grantor_id=grantor_id,
+            authority_method=authority_method,
+        )
+    except (ContextContractError, TypeError, ValueError):
+        return {
+            "schema_version": PROJECTION_CONSENT_SCHEMA_VERSION,
+            "operation": "agent_projection_consent",
+            "status": "invalid_input",
+            "failure_state": "invalid_input",
+        }
+
+
+def agent_projection_revoke(**kwargs: Any) -> dict[str, Any]:
+    authority_verified = bool(kwargs.pop("_authority_verified", False))
+    if not authority_verified:
+        return {
+            "schema_version": CONTEXT_RELEASE_SCHEMA_VERSION,
+            "operation": "agent_projection_revoke",
+            "status": "review",
+            "failure_state": "permission_denied",
+            "cache_invalidated": False,
+        }
+    try:
+        return _DEFAULT_PROJECTION_BOUNDARY.revoke(**kwargs)
+    except (ContextContractError, TypeError, ValueError):
+        return {
+            "schema_version": CONTEXT_RELEASE_SCHEMA_VERSION,
+            "operation": "agent_projection_revoke",
+            "status": "invalid_input",
+            "failure_state": "invalid_input",
+            "cache_invalidated": False,
+        }
+
+
+def agent_projection_resume(**kwargs: Any) -> dict[str, Any]:
+    authority_verified = bool(kwargs.pop("_authority_verified", False))
+    if not authority_verified:
+        return {
+            "schema_version": CONTEXT_RELEASE_SCHEMA_VERSION,
+            "operation": "agent_projection_revoke",
+            "status": "review",
+            "failure_state": "permission_denied",
+            "cache_invalidated": False,
+        }
+    try:
+        return _DEFAULT_PROJECTION_BOUNDARY.resume(**kwargs)
+    except (ContextContractError, TypeError, ValueError):
+        return {
+            "schema_version": CONTEXT_RELEASE_SCHEMA_VERSION,
+            "operation": "agent_projection_revoke",
+            "status": "invalid_input",
+            "failure_state": "invalid_input",
+            "cache_invalidated": False,
+        }
+
+
+def clear_agent_projection_cache() -> None:
+    _DEFAULT_PROJECTION_BOUNDARY.clear_cache()
+
+
+# Compatibility spellings for hosts that call the contract as a context release.
+preview_context_release = agent_projection_preview
+release_context = agent_projection_release
+revoke_context_release = agent_projection_revoke
+build_agent_projection = agent_projection_preview
+
+__all__ = [
+    "AGENT_PROJECTION_SCHEMA_VERSION", "AgentProjectionBoundary", "CONTEXT_ASK_SCHEMA_VERSION",
+    "CONTEXT_RANK_SCHEMA_VERSION", "CONTEXT_RELEASE_SCHEMA_VERSION", "agent_projection_consent",
+    "agent_projection_preview", "agent_projection_release", "agent_projection_revoke", "agent_projection_resume", "build_agent_projection",
+    "clear_agent_projection_cache", "context_ask", "context_rank", "preview_context_release",
+    "release_context", "revoke_context_release",
+]
 # ───────────────────── Prompt-size forensics (#606) ──────────────────────────
 #
 # `perseus prompt-size` / `@budget` — byte-accurate, network-free breakdown of
