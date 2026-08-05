@@ -87,6 +87,7 @@ MODULE_ORDER = [
     "src/perseus/context_decision.py",  # ← #890: deterministic explainable context routing
     "src/perseus/claims.py",            # ← #895: runtime-owned evidence claim verification
     "src/perseus/frontdoor.py",         # ← #896: single front-door routing and degraded modes
+    "src/perseus/context_contract.py",  # ← #916/#917: bounded Rank/Ask and sanitized agent projection/release
     "src/perseus/promptsize.py",        # ← #606: perseus prompt-size + @budget forensics (depends on renderer, compress, serve helpers)
     "src/perseus/cli.py",  # includes _bind_registry() call before dispatch
 ]

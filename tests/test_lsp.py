@@ -18,6 +18,14 @@ from conftest import PY_VER, cfg, perseus, _capture_json, _seed_oracle_log
 
 pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
 
+# The generated single-file CLI must compile/import before it can accept an
+# LSP connection.  Under a loaded CI host that cold start can exceed five
+# seconds even when the server is healthy; keep the integration deadline above
+# that startup cost so failures report protocol problems rather than scheduler
+# contention.
+LSP_STARTUP_TIMEOUT_S = 15
+LSP_REQUEST_TIMEOUT_S = 5
+
 # ─── task-23: Perseus LSP server ───────────────────────────────────────────
 
 
@@ -151,7 +159,7 @@ class LSPHarness:
                 stderr=subprocess.PIPE,
                 env=env,
             )
-            deadline = time.time() + 5
+            deadline = time.time() + LSP_STARTUP_TIMEOUT_S
             last_error = None
             while time.time() < deadline:
                 if self.proc.poll() is not None:
@@ -232,7 +240,7 @@ class LSPHarness:
     def _read_byte(self, deadline: float) -> bytes:
         return self._read_exact(1, deadline)
 
-    def read(self, timeout: float = 5) -> dict:
+    def read(self, timeout: float = LSP_REQUEST_TIMEOUT_S) -> dict:
         deadline = time.time() + timeout
         headers = b""
         while not headers.endswith(b"\r\n\r\n"):
@@ -253,7 +261,7 @@ class LSPHarness:
         body = json.dumps(obj).encode("utf-8")
         self.write_raw(f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body)
 
-    def request(self, method: str, params: dict | None = None) -> dict:
+    def request(self, method: str, params: dict | None = None, *, timeout: float = LSP_REQUEST_TIMEOUT_S) -> dict:
         self._next_id += 1
         req_id = self._next_id
         self.send({"jsonrpc": "2.0", "id": req_id, "method": method, "params": params or {}})
@@ -261,7 +269,7 @@ class LSPHarness:
             if pending.get("id") == req_id:
                 return self._pending.pop(i)
         while True:
-            msg = self.read()
+            msg = self.read(timeout=timeout)
             if msg.get("id") == req_id:
                 return msg
             self._pending.append(msg)
@@ -283,7 +291,7 @@ class LSPHarness:
         return self.request("initialize", {
             "rootUri": self.workspace.as_uri(),
             "capabilities": {},
-        })
+        }, timeout=LSP_STARTUP_TIMEOUT_S)
 
     def shutdown(self) -> dict:
         rsp = self.request("shutdown", {})

@@ -1,0 +1,331 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "https://perseus.observer/schemas/context-contract/v1"
+title: Perseus versioned context contracts
+version: "perseus-context-contract/v1"
+type: object
+additionalProperties: false
+required: [schema_version, operation, status]
+properties:
+  schema_version:
+    type: string
+    enum:
+      - perseus-context-rank/v1
+      - perseus-context-ask/v1
+      - perseus-agent-projection/v1
+      - perseus-context-release/v1
+      - perseus-agent-projection-consent/v1
+      - perseus-agent-projection-revoke/v1
+  operation:
+    type: string
+    enum:
+      - context_rank
+      - context_ask
+      - agent_projection_preview
+      - agent_projection_release
+      - agent_projection_consent
+      - agent_projection_revoke
+  status:
+    type: string
+    enum: [complete, degraded, abstain, review, unavailable, invalid_input, granted, paused, revoked, resumed]
+  failure_state:
+    type: [string, "null"]
+    enum:
+      - null
+      - invalid_input
+      - candidate_limit_exceeded
+      - context_limit_exceeded
+      - duplicate_candidate_id
+      - scope_mismatch
+      - permission_denied
+      - consent_required
+      - revoked
+      - paused
+      - source_stale
+      - contradictory_evidence
+      - insufficient_evidence
+      - vault_unavailable
+      - ledger_unavailable
+      - timeout
+      - budget_exhausted
+      - out_of_domain
+      - no_eligible_context
+      - projection_empty
+      - source_unavailable
+      - invalid_projection_digest
+      - ambiguous_tie
+  agent_id: {type: string, minLength: 1, maxLength: 160}
+  scope: {$ref: "#/$defs/scope"}
+  scope_commitment: {type: string, pattern: "^sha256:[0-9a-f]{64}$"}
+  request_class: {type: string, maxLength: 64}
+  policy_version: {type: string, maxLength: 160}
+  task_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+  candidates:
+    type: array
+    maxItems: 64
+    items: {$ref: "#/$defs/rank_candidate"}
+  excluded_candidate_ids:
+    type: array
+    maxItems: 64
+    items: {type: string, minLength: 1, maxLength: 160}
+  ties:
+    type: array
+    items:
+      type: array
+      items: {type: string, minLength: 1, maxLength: 160}
+  scoring: {$ref: "#/$defs/scoring"}
+  route: {$ref: "#/$defs/route"}
+  context_decision: {$ref: "#/$defs/context_decision"}
+  budget: {$ref: "#/$defs/budget"}
+  outcome: {type: [string, "null"]}
+  answer: {type: [string, "null"], maxLength: 4096}
+  source_refs:
+    type: array
+    maxItems: 64
+    items: {type: string, minLength: 1, maxLength: 160}
+  validity_state:
+    type: string
+    enum: [observed, derived, inferred, stale, contradictory, unavailable, unknown]
+  confidence: {$ref: "#/$defs/uncertainty"}
+  uncertainty: {$ref: "#/$defs/uncertainty"}
+  selection_reason:
+    type: array
+    items: {type: string, maxLength: 256}
+  evidence:
+    type: array
+    items: {$ref: "#/$defs/evidence"}
+  projection: {$ref: "#/$defs/projection"}
+  projection_digest: {type: string, pattern: "^[0-9a-f]{64}$"}
+  selection:
+    type: array
+    maxItems: 64
+    items: {$ref: "#/$defs/selection"}
+  provenance:
+    type: array
+    items:
+      type: array
+      items: {$ref: "#/$defs/evidence"}
+  release_decision: {type: string, enum: [ready, consent_required, permission_denied, scope_mismatch, paused, revoked, released, complete, degraded, review, abstain, unavailable]}
+  receipt: {$ref: "#/$defs/receipt"}
+  cache: {$ref: "#/$defs/cache"}
+  topics:
+    type: array
+    maxItems: 64
+    items: {type: string, maxLength: 160}
+  permissions:
+    type: object
+    required: [preview, release]
+    properties:
+      preview: {type: boolean}
+      release: {type: boolean}
+    additionalProperties: false
+  revision: {type: integer, minimum: 1}
+  consent_commitment: {type: string, pattern: "^sha256:[0-9a-f]{64}$"}
+  topic: {type: [string, "null"], maxLength: 160}
+  revocation_epoch: {type: integer, minimum: 0}
+  cache_invalidated: {type: boolean}
+  invalidated_entries: {type: integer, minimum: 0}
+  cache_hit: {type: boolean}
+  key: {type: string, pattern: "^sha256:[0-9a-f]{64}$"}
+  grantor_id: {type: string, minLength: 1, maxLength: 160}
+  authority_method: {type: string, maxLength: 64}
+  error: {type: string, maxLength: 256}
+$defs:
+  scope:
+    type: object
+    additionalProperties: false
+    properties:
+      tenant: {type: string, maxLength: 160}
+      workspace: {type: string, maxLength: 160}
+      topic: {type: string, maxLength: 160}
+      agent: {type: string, maxLength: 160}
+      request_class: {type: string, maxLength: 64}
+      scope: {type: string, maxLength: 160}
+  redaction_policy:
+    type: object
+    additionalProperties: false
+    properties:
+      version: {type: string, maxLength: 64}
+      enabled: {type: boolean}
+      default_rules: {type: boolean}
+      custom_rule_count: {type: integer, minimum: 0}
+      allow_private: {type: boolean}
+  scoring:
+    type: object
+    additionalProperties: false
+    properties:
+      mode: {type: string, maxLength: 64}
+      model_assisted: {type: boolean}
+      calibrated: {type: boolean}
+  route:
+    type: object
+    additionalProperties: false
+    properties:
+      schema_version: {type: string, const: perseus-front-door-route/v1}
+      request_class: {type: string, enum: [direct, retrieve, decide, create, verify, act]}
+      capabilities:
+        type: array
+        maxItems: 8
+        items: {type: string, maxLength: 96}
+      delegation_reason: {type: string, maxLength: 256}
+      integration_state:
+        type: object
+        additionalProperties: false
+        properties:
+          vault: {type: string, enum: [active, unavailable, not_configured]}
+          ledger: {type: string, enum: [active, unavailable, not_configured]}
+      degraded_mode: {type: [string, "null"], maxLength: 128}
+      guarantees:
+        type: array
+        maxItems: 8
+        items: {type: string, maxLength: 96}
+      trace_payload: {type: string, maxLength: 2048}
+      trace_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+  context_decision:
+    type: object
+    additionalProperties: false
+    properties:
+      route: {type: string, enum: [inline, reduced_text, artifact_pointer, retrieve_on_demand]}
+      reason: {type: string, maxLength: 256}
+      fidelity: {type: string, enum: [exact, selective, summary]}
+      actual_tokens: {type: integer, minimum: 0}
+      counterfactual_tokens: {type: integer, minimum: 0}
+      cache_assumption: {type: string, enum: [warm, cold, unknown]}
+      source_refs:
+        type: array
+        maxItems: 64
+        items: {type: string, minLength: 1, maxLength: 160}
+      token_accounting: {type: string, maxLength: 256}
+  budget:
+    type: object
+    additionalProperties: false
+    properties:
+      max_items: {type: integer, minimum: 1, maximum: 64}
+      max_chars: {type: integer, minimum: 1, maximum: 8192}
+      returned_items: {type: integer, minimum: 0, maximum: 64}
+  cache:
+    type: object
+    additionalProperties: false
+    properties:
+      hit: {type: boolean}
+      key: {type: string, pattern: "^sha256:[0-9a-f]{64}$"}
+  evidence:
+    type: object
+    required: [source_id, provenance_class]
+    additionalProperties: false
+    properties:
+      source_id: {type: string, minLength: 1, maxLength: 160}
+      content_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+      provenance_class: {type: string, maxLength: 64}
+      valid_at: {type: string, maxLength: 64}
+      recorded_at: {type: string, maxLength: 64}
+      observed_at: {type: string, maxLength: 64}
+  uncertainty:
+    type: object
+    required: [class, score]
+    additionalProperties: false
+    properties:
+      class: {type: string, maxLength: 64}
+      score: {type: number, minimum: 0, maximum: 1}
+  rank_candidate:
+    type: object
+    required: [candidate_id, rank, rank_reasons, evidence, uncertainty]
+    additionalProperties: false
+    properties:
+      candidate_id: {type: string, minLength: 1, maxLength: 160}
+      rank: {type: integer, minimum: 1}
+      score: {type: number}
+      rank_reasons:
+        type: array
+        items: {type: string, maxLength: 256}
+      evidence:
+        type: array
+        items: {$ref: "#/$defs/evidence"}
+      uncertainty: {$ref: "#/$defs/uncertainty"}
+  projection:
+    type: object
+    required: [schema_version, agent_id, scope, task_sha256, items]
+    additionalProperties: false
+    properties:
+      schema_version: {const: perseus-agent-projection/v1}
+      agent_id: {type: string, minLength: 1, maxLength: 160}
+      scope: {$ref: "#/$defs/scope"}
+      request_class: {type: string, maxLength: 64}
+      task_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+      policy_version: {type: string, maxLength: 160}
+      policy_commitment: {type: string, pattern: "^sha256:[0-9a-f]{64}$"}
+      permissions_commitment: {type: string, pattern: "^sha256:[0-9a-f]{64}$"}
+      revocation_epoch: {type: integer, minimum: 0}
+      redaction_policy: {$ref: "#/$defs/redaction_policy"}
+      items:
+        type: array
+        maxItems: 64
+        items: {$ref: "#/$defs/projection_item"}
+  projection_item:
+    type: object
+    required: [candidate_id, text, source_refs, provenance_class, uncertainty]
+    additionalProperties: false
+    properties:
+      candidate_id: {type: string, minLength: 1, maxLength: 160}
+      text: {type: string, maxLength: 4096}
+      source_refs:
+        type: array
+        items: {type: string, minLength: 1, maxLength: 160}
+      content_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+      provenance_class: {type: string, maxLength: 64}
+      valid_at: {type: string, maxLength: 64}
+      recorded_at: {type: string, maxLength: 64}
+      topic: {type: string, maxLength: 160}
+      selection_reason: {type: string, maxLength: 256}
+      uncertainty: {$ref: "#/$defs/uncertainty"}
+  selection:
+    type: object
+    required: [candidate_id, rank, score, rank_reasons, evidence, uncertainty]
+    additionalProperties: false
+    properties:
+      candidate_id: {type: string, minLength: 1, maxLength: 160}
+      rank: {type: integer, minimum: 1}
+      score: {type: number}
+      rank_reasons:
+        type: array
+        items: {type: string, maxLength: 256}
+      evidence:
+        type: array
+        items: {$ref: "#/$defs/evidence"}
+      uncertainty: {$ref: "#/$defs/uncertainty"}
+  receipt:
+    type: object
+    required: [schema_version, receipt_id, projection_digest, release_decision, status]
+    additionalProperties: false
+    properties:
+      schema_version: {const: perseus-context-release/v1}
+      receipt_id: {type: string, pattern: "^sha256:[0-9a-f]{64}$"}
+      projection_digest: {type: string, pattern: "^[0-9a-f]{64}$"}
+      release_decision: {type: string, enum: [released, degraded]}
+      status: {type: string, enum: [complete, degraded]}
+      selected_source_ids:
+        type: array
+        items: {type: string, maxLength: 160}
+      selected_content_commitments:
+        type: array
+        items: {type: string, pattern: "^[0-9a-f]{64}$"}
+      agent_id: {type: string, maxLength: 160}
+      scope: {$ref: "#/$defs/scope"}
+      scope_commitment: {type: string, pattern: "^sha256:[0-9a-f]{64}$"}
+      topic: {type: [string, "null"], maxLength: 160}
+      request_class: {type: string, maxLength: 64}
+      policy_version: {type: string, maxLength: 160}
+      redaction_policy: {$ref: "#/$defs/redaction_policy"}
+      items:
+        type: array
+        maxItems: 64
+        items: {$ref: "#/$defs/projection_item"}
+      provenance_classes:
+        type: array
+        items: {type: string, maxLength: 64}
+      valid_at:
+        type: array
+        items: {type: string, maxLength: 64}
+      recorded_at:
+        type: array
+        items: {type: string, maxLength: 64}
+      revocation_epoch: {type: integer, minimum: 0}
