@@ -30,7 +30,7 @@ jobs:
   runtime-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true   # non-gating: dev-toolchain CVEs are surfaced, not blocking
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install osv-scanner
         run: |
           curl -sSL -o /usr/local/bin/osv-scanner \
