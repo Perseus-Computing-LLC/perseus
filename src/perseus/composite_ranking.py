@@ -47,8 +47,15 @@ SUPPORT_SATURATION = 3
 STALENESS_HORIZON_DAYS = 365.0
 
 # Tokens with digits, symbols, or path/PR/KEY-123 shapes behave as
-# identifiers: exact hits on them dominate the lexical component.
-_IDENTIFIER_RE = re.compile(r"(?:[\w-]*\d[\w-]*|[^\w\s])")
+# identifiers: exact hits on them dominate the lexical component. Keep this
+# as a linear character scan: the token is caller-provided query text, and a
+# backtracking regex here would make repeated punctuation needlessly expensive.
+def _is_identifier_token(token: str) -> bool:
+    return any(
+        char.isdigit()
+        or (not (char.isalnum() or char == "_") and not char.isspace())
+        for char in token
+    )
 
 
 @dataclass
@@ -97,7 +104,7 @@ def _lexical(query: str, hit: Any) -> float:
     got = 0.0
     total = 0.0
     for t in terms:
-        w = 2.0 if _IDENTIFIER_RE.search(t) else 1.0
+        w = 2.0 if _is_identifier_token(t) else 1.0
         total += w
         if t in text:
             got += w

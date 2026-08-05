@@ -116,6 +116,13 @@ class TestGoldenVectors:
                                None, cfg(), now_ms=NOW_MS)
         assert out[0] is exact
 
+    def test_identifier_token_detection_is_linear_and_semantic(self):
+        """Punctuation and digit tokens are identifiers without regex backtracking."""
+        is_identifier = composite_ranking._is_identifier_token
+        assert is_identifier("perseus-vault#730")
+        assert is_identifier("---")
+        assert not is_identifier("plain_token")
+
     def test_weights_are_tunable(self):
         """Same vectors, different weights → different winner (spec §3)."""
         a = FakeHit(summary="alpha", relevance=0.9, decay_score=0.1)
