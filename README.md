@@ -4,6 +4,8 @@
 
 # Perseus™ 🪞 — One command. Zero orientation.
 
+[![MCP Toplist](https://mcptoplist.com/badge/io.github.Perseus-Computing-LLC%2Fperseus.svg)](https://mcptoplist.com/server/io.github.Perseus-Computing-LLC%2Fperseus)
+
 [![smithery badge](https://smithery.ai/badge/Perseus-Computing-LLC/perseus)](https://smithery.ai/servers/Perseus-Computing-LLC/perseus)
 **`pip install perseus-ctx && cd your-project && perseus quickstart`**
 
