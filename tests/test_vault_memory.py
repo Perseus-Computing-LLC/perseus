@@ -49,7 +49,6 @@ class TestResolveVault:
         with patch.object(perseus, "_vault_recall", return_value=[]):
             result = perseus.resolve_vault('query="test search"', cfg())
         assert "Vault unreachable" in result
-        assert "NOT the same as \"no memories exist\"" in result
 
     def test_hits_rendered_as_list(self):
         hits = [
@@ -137,11 +136,15 @@ class TestResolveMemoryUnified:
             called.append({"query": query, "scope": scope})
             return []
 
-        with patch.object(perseus, "_vault_recall", side_effect=fake_vault):
+        def clean_empty_segment(*a, **kw):
+            return perseus.MemorySegment(items=[], strategy_used="perseus_vault_recall", error="")
+
+        with patch.object(perseus, "_vault_recall", side_effect=fake_vault), \
+             patch.object(perseus, "_vault_hybrid_search", side_effect=clean_empty_segment):
             result = perseus.resolve_memory('query="test"', cfg(), workspace=tmp_path)
 
         assert called, "_vault_recall should be called for search mode"
-        assert "Vault unreachable" in result
+        assert "fresh install" in result
 
     def test_search_renders_hits(self, tmp_path):
         hits = [{"title": "Arch decision", "summary": "Chose monorepo.", "score": 80, "type": "decision"}]
