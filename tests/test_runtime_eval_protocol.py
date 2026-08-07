@@ -151,6 +151,22 @@ def _spec(script, family="prompt_only"):
     )
 
 
+def _pid_gone(pid: int) -> bool:
+    """Return True when a PID no longer answers a liveness probe.
+
+    POSIX raises ProcessLookupError for a dead PID; Windows os.kill(pid, 0)
+    raises OSError (WinError 87) both for dead PIDs and for PIDs that cannot
+    be opened, so treat those as gone too.
+    """
+    try:
+        os.kill(pid, 0)
+        return False
+    except PermissionError:
+        return False  # exists, just owned by another user
+    except OSError:
+        return True
+
+
 def test_runner_is_offline_by_default_and_adapts_result_without_raw_payload(tmp_path):
     script = _script(
         tmp_path,
@@ -467,9 +483,7 @@ def test_timeout_kills_descendant_process_group(tmp_path):
         assert state["status"] == protocol.Status.FAILED.value
         deadline = time.time() + 2
         while time.time() < deadline and pid_file.exists():
-            try:
-                os.kill(int(pid_file.read_text()), 0)
-            except ProcessLookupError:
+            if _pid_gone(int(pid_file.read_text())):
                 break
             time.sleep(0.05)
         if pid_file.exists():
@@ -482,7 +496,7 @@ def test_timeout_kills_descendant_process_group(tmp_path):
         if pid_file.exists():
             try:
                 os.kill(int(pid_file.read_text()), 9)
-            except (ProcessLookupError, ValueError):
+            except (ProcessLookupError, ValueError, OSError):
                 pass
 
 
@@ -504,8 +518,10 @@ def test_timeout_kills_sigterm_ignoring_descendant(tmp_path):
         deadline = time.time() + 2
         while time.time() < deadline:
             try:
-                os.kill(int(pid_file.read_text()), 0)
-            except (FileNotFoundError, ProcessLookupError):
+                pid = int(pid_file.read_text())
+            except FileNotFoundError:
+                break
+            if _pid_gone(pid):
                 break
             time.sleep(0.05)
         pid = int(pid_file.read_text())
@@ -517,7 +533,7 @@ def test_timeout_kills_sigterm_ignoring_descendant(tmp_path):
         if pid_file.exists():
             try:
                 os.kill(int(pid_file.read_text()), 9)
-            except (ProcessLookupError, ValueError):
+            except (ProcessLookupError, ValueError, OSError):
                 pass
 
 
@@ -597,8 +613,10 @@ def test_timeout_kills_descendant_that_started_its_own_session(tmp_path):
         deadline = time.time() + 2
         while time.time() < deadline:
             try:
-                os.kill(int(pid_file.read_text()), 0)
-            except (FileNotFoundError, ProcessLookupError):
+                pid = int(pid_file.read_text())
+            except FileNotFoundError:
+                break
+            if _pid_gone(pid):
                 break
             time.sleep(0.05)
         pid = int(pid_file.read_text())
@@ -610,7 +628,7 @@ def test_timeout_kills_descendant_that_started_its_own_session(tmp_path):
         if pid_file.exists():
             try:
                 os.kill(int(pid_file.read_text()), 9)
-            except (ProcessLookupError, ValueError):
+            except (ProcessLookupError, ValueError, OSError):
                 pass
 
 
@@ -892,8 +910,9 @@ def test_recovery_uses_persisted_owned_process_identity_after_leader_exit(tmp_pa
     while not pid_file.exists() and time.time() < deadline:
         time.sleep(0.01)
     child_pid = int(pid_file.read_text())
-    stat = Path(f"/proc/{child_pid}/stat").read_text().split()
-    start_time = int(stat[21])
+    identity = protocol.process_identity(child_pid)
+    assert identity is not None
+    start_time = identity["start_time"]
     store = protocol.RunStore(tmp_path / "runs")
     state = store.create(_manifest(source_artifact))
     store.transition(state["run_id"], protocol.Status.RUNNING)
@@ -903,8 +922,10 @@ def test_recovery_uses_persisted_owned_process_identity_after_leader_exit(tmp_pa
         assert recovered[0]["status"] == protocol.Status.RUNNING.value
         assert "recovery_failure" in recovered[0]
     finally:
-        if Path(f"/proc/{child_pid}/stat").exists():
+        try:
             os.kill(child_pid, 9)
+        except OSError:
+            pass
 
 
 def test_authoritative_usage_missing_counters_are_not_zero_filled(tmp_path, monkeypatch):
@@ -979,7 +1000,9 @@ def test_context_reduction_rejects_fractional_explicit_counts(monkeypatch, tmp_p
 
 def test_persisted_process_group_identity_mismatch_is_not_signaled(monkeypatch):
     calls = []
-    monkeypatch.setattr(protocol.os, "killpg", lambda *args: calls.append(args))
+    # raising=False keeps the probe meaningful on Windows, where os.killpg
+    # does not exist and the NT cleanup path never signals a process group.
+    monkeypatch.setattr(protocol.os, "killpg", lambda *args: calls.append(args), raising=False)
     protocol._terminate_persisted_process({"pid": 999999, "pgid": 999999, "pid_start_time": 1, "owned_processes": []})
     assert calls == []
 
@@ -1083,7 +1106,7 @@ def test_requeue_clears_process_ownership_atomically(tmp_path, source_artifact, 
 
 
 def test_persisted_pgid_must_match_leader_identity(monkeypatch):
-    calls = []; monkeypatch.setattr(protocol.os, "killpg", lambda *args: calls.append(args))
+    calls = []; monkeypatch.setattr(protocol.os, "killpg", lambda *args: calls.append(args), raising=False)
     identity = protocol.process_identity(os.getpid())
     protocol._terminate_persisted_process({"pid": os.getpid(), "pgid": os.getpid() + 1000, "pid_start_time": identity["start_time"], "owned_processes": []})
     assert calls == []
