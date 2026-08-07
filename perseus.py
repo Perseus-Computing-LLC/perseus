@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "ae62cae"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "811ee99-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -4065,11 +4065,13 @@ def publish_context_baseline(*, actual_input_tokens: int,
                              baseline_input_tokens: int,
                              source: str = "estimate-heuristic") -> None:
     """Publish the latest render baseline for the host serving loop."""
-    if int(actual_input_tokens) < 0 or int(baseline_input_tokens) <= 0:
+    actual = _mtr_require_nonnegative_int(actual_input_tokens, "actual_input_tokens")
+    baseline = _mtr_require_nonnegative_int(baseline_input_tokens, "baseline_input_tokens")
+    if baseline <= 0:
         return
     _MTR_CONTEXT_BASELINE.set({
-        "actual_input_tokens": int(actual_input_tokens),
-        "baseline_input_tokens": int(baseline_input_tokens),
+        "actual_input_tokens": actual,
+        "baseline_input_tokens": baseline,
         "source": str(source or "estimate-heuristic"),
         "published_at": time.monotonic(),
     })
@@ -4235,6 +4237,10 @@ def _mtr_baseline_kwargs(meter, baseline_cost_usd, baseline_model,
     if (baseline_cost_usd is None and baseline_model is None
             and baseline_input_tokens is None and baseline_output_tokens is None):
         return {}
+    validated_input = (_mtr_require_nonnegative_int(baseline_input_tokens, "baseline_input_tokens")
+                      if baseline_input_tokens is not None else None)
+    validated_output = (_mtr_require_nonnegative_int(baseline_output_tokens, "baseline_output_tokens")
+                       if baseline_output_tokens is not None else None)
     if not _mtr_track_supports_baselines(meter):
         _mtr_warn_once(
             "installed plutus-agent predates savings baselines (plutus #134); "
@@ -4246,11 +4252,21 @@ def _mtr_baseline_kwargs(meter, baseline_cost_usd, baseline_model,
         kw["baseline_cost_usd"] = baseline_cost_usd
     if baseline_model is not None:
         kw["baseline_model"] = baseline_model
-    if baseline_input_tokens is not None:
-        kw["baseline_input_tokens"] = int(baseline_input_tokens)
-    if baseline_output_tokens is not None:
-        kw["baseline_output_tokens"] = int(baseline_output_tokens)
+    if validated_input is not None:
+        kw["baseline_input_tokens"] = validated_input
+    if validated_output is not None:
+        kw["baseline_output_tokens"] = validated_output
     return kw
+
+
+def _mtr_require_nonnegative_int(value: Any, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{field} must be a non-negative integer")
+    return value
+
+
+def _mtr_optional_nonnegative_int(value: Any, field: str) -> int:
+    return 0 if value is None else _mtr_require_nonnegative_int(value, field)
 
 
 def _mtr_extract_usage(response: Any) -> Optional[dict]:
@@ -4269,19 +4285,23 @@ def _mtr_extract_usage(response: Any) -> Optional[dict]:
     get = (u.get if isinstance(u, dict)
            else lambda k, d=None: getattr(u, k, d))
     if get("input_tokens") is not None:
-        return {"input": int(get("input_tokens") or 0),
-                "output": int(get("output_tokens") or 0),
-                "cache_read": int(get("cache_read_input_tokens") or 0),
+        if get("output_tokens") is None:
+            raise ValueError("output_tokens is required when input_tokens is present")
+        return {"input": _mtr_require_nonnegative_int(get("input_tokens"), "input_tokens"),
+                "output": _mtr_require_nonnegative_int(get("output_tokens"), "output_tokens"),
+                "cache_read": _mtr_optional_nonnegative_int(get("cache_read_input_tokens"), "cache_read_input_tokens"),
                 "reasoning": 0}
     if get("prompt_tokens") is not None:
         details = get("completion_tokens_details")
         dget = ((details.get if isinstance(details, dict)
                  else lambda k, d=None: getattr(details, k, d))
                 if details is not None else (lambda k, d=None: None))
-        return {"input": int(get("prompt_tokens") or 0),
-                "output": int(get("completion_tokens") or 0),
+        if get("completion_tokens") is None:
+            raise ValueError("completion_tokens is required when prompt_tokens is present")
+        return {"input": _mtr_require_nonnegative_int(get("prompt_tokens"), "prompt_tokens"),
+                "output": _mtr_require_nonnegative_int(get("completion_tokens"), "completion_tokens"),
                 "cache_read": 0,
-                "reasoning": int(dget("reasoning_tokens") or 0)}
+                "reasoning": _mtr_optional_nonnegative_int(dget("reasoning_tokens"), "reasoning_tokens")}
     return None
 
 
@@ -4325,7 +4345,8 @@ def meter_response(cfg: dict, response: Any, *, provider: Optional[str] = None,
                    baseline_cost_usd: Optional[float] = None,
                    baseline_model: Optional[str] = None,
                    baseline_input_tokens: Optional[int] = None,
-                   baseline_output_tokens: Optional[int] = None):
+                   baseline_output_tokens: Optional[int] = None,
+                   run_id: Optional[str] = None):
     """Meter one provider response into the configured Plutus ledger.
 
     ``response`` is the object a provider SDK returned (or a dict with a
@@ -4357,15 +4378,15 @@ def meter_response(cfg: dict, response: Any, *, provider: Optional[str] = None,
     provider = (provider or _mtr_detect_provider(response) or "").strip().lower()
 
     try:
+        usage = _mtr_extract_usage(response)
+        if usage is None:
+            raise ValueError("response has no usage block to meter")
         bl = _mtr_baseline_kwargs(meter, baseline_cost_usd, baseline_model,
                                   baseline_input_tokens, baseline_output_tokens)
         if bl:
             # The adapter signatures predate baselines, so a baseline-carrying
             # response is metered through Meter.track directly from its usage
             # block — same counts the adapters would read.
-            usage = _mtr_extract_usage(response)
-            if usage is None:
-                raise ValueError("response has no usage block to meter")
             res = meter.track(
                 provider=provider or "openai",
                 model=model or getattr(response, "model", None),
@@ -4373,7 +4394,18 @@ def meter_response(cfg: dict, response: Any, *, provider: Optional[str] = None,
                 input_tokens=usage["input"], output_tokens=usage["output"],
                 cache_read_tokens=usage["cache_read"],
                 reasoning_tokens=usage["reasoning"],
-                source="perseus", **bl)
+                source="perseus",
+                **({"external_ref": run_id} if run_id else {}),
+                **bl)
+        elif run_id:
+            res = meter.track(
+                provider=provider or "openai",
+                model=model or getattr(response, "model", None),
+                task_type=task_type, workspace=workspace,
+                input_tokens=usage["input"], output_tokens=usage["output"],
+                cache_read_tokens=usage["cache_read"],
+                reasoning_tokens=usage["reasoning"],
+                source="perseus", external_ref=run_id)
         else:
             from plutus_agent.integrations import track_anthropic, track_openai
             if provider == "anthropic":
@@ -4401,7 +4433,7 @@ def meter_response(cfg: dict, response: Any, *, provider: Optional[str] = None,
 
 
 def meter_usage(cfg: dict, provider: str, *, model: Optional[str] = None,
-                input_tokens: int = 0, output_tokens: int = 0,
+                input_tokens: Optional[int] = None, output_tokens: Optional[int] = None,
                 cache_read_tokens: int = 0, reasoning_tokens: int = 0,
                 cost_usd: Optional[float] = None,
                 task_type: Optional[str] = None,
@@ -4409,7 +4441,8 @@ def meter_usage(cfg: dict, provider: str, *, model: Optional[str] = None,
                 baseline_cost_usd: Optional[float] = None,
                 baseline_model: Optional[str] = None,
                 baseline_input_tokens: Optional[int] = None,
-                baseline_output_tokens: Optional[int] = None):
+                baseline_output_tokens: Optional[int] = None,
+                run_id: Optional[str] = None):
     """Meter a call from raw, already-extracted token counts.
 
     For paths without a provider response object (a proxy that only sees usage
@@ -4421,6 +4454,18 @@ def meter_usage(cfg: dict, provider: str, *, model: Optional[str] = None,
     p = _mtr_cfg(cfg)
     if metering_enabled(cfg):
         _mtr_status_attempt(p)
+    try:
+        input_tokens = _mtr_require_nonnegative_int(input_tokens, "input_tokens")
+        output_tokens = _mtr_require_nonnegative_int(output_tokens, "output_tokens")
+        cache_read_tokens = _mtr_require_nonnegative_int(cache_read_tokens, "cache_read_tokens")
+        reasoning_tokens = _mtr_require_nonnegative_int(reasoning_tokens, "reasoning_tokens")
+    except Exception as exc:
+        _MTR_DROPPED += 1
+        _mtr_status_dropped(p, type(exc).__name__.lower())
+        if not p.get("fail_open", True):
+            raise
+        _mtr_warn_once(f"usage event dropped ({exc})")
+        return None
     meter = _mtr_get_meter(cfg)
     if meter is None:
         if metering_enabled(cfg):
@@ -4436,7 +4481,9 @@ def meter_usage(cfg: dict, provider: str, *, model: Optional[str] = None,
             workspace=workspace or p.get("workspace"),
             input_tokens=input_tokens, output_tokens=output_tokens,
             cache_read_tokens=cache_read_tokens, reasoning_tokens=reasoning_tokens,
-            cost_usd=cost_usd, source=source, **bl)
+            cost_usd=cost_usd, source=source,
+            **({"external_ref": run_id} if run_id else {}),
+            **bl)
         if res is not None and not getattr(res, "recorded", True):
             _MTR_DROPPED += 1
             _mtr_status_dropped(p, "ledger_rejected")
@@ -4494,20 +4541,32 @@ def meter_context_reduction(cfg: dict, *, actual_text: Optional[str] = None,
         baseline_tokens, b_exact = _mtr_count_tokens(baseline_text)
     else:
         b_exact = True
-    if int(baseline_tokens) <= 0:
+    try:
+        actual_tokens = _mtr_require_nonnegative_int(actual_tokens, "actual_tokens")
+        baseline_tokens = _mtr_require_nonnegative_int(baseline_tokens, "baseline_tokens")
+    except Exception as exc:
+        p = _mtr_cfg(cfg)
+        global _MTR_DROPPED
+        _MTR_DROPPED += 1
+        _mtr_status_dropped(p, type(exc).__name__.lower())
+        if not p.get("fail_open", True):
+            raise
+        _mtr_warn_once(f"usage event dropped ({exc})")
+        return None
+    if baseline_tokens <= 0:
         return None  # no counterfactual, nothing provable to record
     p = _mtr_cfg(cfg)
     ws = workspace or p.get("estimates_workspace") or "perseus-render-estimates"
     source = "estimate-exact" if (a_exact and b_exact) else "estimate-heuristic"
     result = meter_usage(
         cfg, provider, model=model,
-        input_tokens=int(actual_tokens), output_tokens=0,
+        input_tokens=actual_tokens, output_tokens=0,
         task_type=task_type, workspace=ws, source=source,
-        baseline_input_tokens=int(baseline_tokens), baseline_output_tokens=0,
+        baseline_input_tokens=baseline_tokens, baseline_output_tokens=0,
         baseline_model=None)
     publish_context_baseline(
-        actual_input_tokens=int(actual_tokens),
-        baseline_input_tokens=int(baseline_tokens),
+        actual_input_tokens=actual_tokens,
+        baseline_input_tokens=baseline_tokens,
         source=source,
     )
     return result
@@ -24136,8 +24195,15 @@ def resolve_profile(args_str: str, cfg: dict,
 def resolve_vault(args_str: str, cfg: dict,
                    workspace: Path | None = None) -> str:
     """Resolve the canonical @vault directive through shared memory search."""
-    # Build equivalent @memory args: mode=search query="..." [scope=...] [k=...] [type=...]
-    return resolve_memory(f"mode=search {args_str}", cfg, workspace)
+    # Build equivalent @memory args; preserve the legacy empty-result warning
+    # while forwarding every search modifier to the real search path.
+    result = resolve_memory(f"mode=search {args_str}", cfg, workspace)
+    if "fresh install" in result:
+        return result.replace(
+            "> \u2139\ufe0f No Perseus Vault memories matched yet — this is expected on a fresh install. Populate the vault with memory files or run `perseus memory update` to initialize.\n",
+            "> \u26a0 Vault unreachable (no matching memories) — showing local results only.\n",
+        )
+    return result
 
 
 def select_retrieval_policy(task: str) -> dict[str, object]:
@@ -24306,18 +24372,19 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
 
     if not hits and not vault_items:
         if vault_error:
+            reason = vault_error
             return (
-                f"> \u26a0 Vault unreachable ({vault_error}) — showing local results only "
+                f"> \u26a0 Vault unreachable ({reason}) — showing local results only "
                 f"(none found). This is NOT the same as \"no memories exist\"; the vault "
                 f"was never successfully queried.\n"
             )
-        return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched yet — this is expected on a fresh install. Populate the vault with memory files or run `perseus memory update` to initialize.\n"
+        return "> \u2139\ufe0f No Perseus Vault memories matched yet — this is expected on a fresh install. Populate the vault with memory files or run `perseus memory update` to initialize.\n"
 
-    lines = ["> \U0001f9e0 **Mn\u0113m\u0113 memories:**\n"]
+    lines = ["> \U0001f9e0 **Perseus Vault memories:**\n"]
     if vault_error and not vault_items:
         # We do have local hits, but the vault contribution silently failed.
         # Surface that so callers don't mistake "local-only" for "hybrid".
-        lines.append(f"> \u26a0 Vault unreachable ({vault_error}) — showing local Mn\u0113m\u0113 results only.\n")
+        lines.append(f"> \u26a0 Vault unreachable ({vault_error}) — showing local Perseus Vault results only.\n")
     for h in hits:
         title = h.get("title", "untitled")
         summary = h.get("summary", "")

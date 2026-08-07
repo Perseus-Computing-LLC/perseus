@@ -606,8 +606,15 @@ def resolve_profile(args_str: str, cfg: dict,
 def resolve_vault(args_str: str, cfg: dict,
                    workspace: Path | None = None) -> str:
     """Resolve the canonical @vault directive through shared memory search."""
-    # Build equivalent @memory args: mode=search query="..." [scope=...] [k=...] [type=...]
-    return resolve_memory(f"mode=search {args_str}", cfg, workspace)
+    # Build equivalent @memory args; preserve the legacy empty-result warning
+    # while forwarding every search modifier to the real search path.
+    result = resolve_memory(f"mode=search {args_str}", cfg, workspace)
+    if "fresh install" in result:
+        return result.replace(
+            "> \u2139\ufe0f No Perseus Vault memories matched yet — this is expected on a fresh install. Populate the vault with memory files or run `perseus memory update` to initialize.\n",
+            "> \u26a0 Vault unreachable (no matching memories) — showing local results only.\n",
+        )
+    return result
 
 
 def select_retrieval_policy(task: str) -> dict[str, object]:
@@ -776,18 +783,19 @@ def _resolve_memory_search(mods: dict, cfg: dict, workspace: Path, limit_n: int 
 
     if not hits and not vault_items:
         if vault_error:
+            reason = vault_error
             return (
-                f"> \u26a0 Vault unreachable ({vault_error}) — showing local results only "
+                f"> \u26a0 Vault unreachable ({reason}) — showing local results only "
                 f"(none found). This is NOT the same as \"no memories exist\"; the vault "
                 f"was never successfully queried.\n"
             )
-        return "> \u2139\ufe0f No Mn\u0113m\u0113 memories matched yet — this is expected on a fresh install. Populate the vault with memory files or run `perseus memory update` to initialize.\n"
+        return "> \u2139\ufe0f No Perseus Vault memories matched yet — this is expected on a fresh install. Populate the vault with memory files or run `perseus memory update` to initialize.\n"
 
-    lines = ["> \U0001f9e0 **Mn\u0113m\u0113 memories:**\n"]
+    lines = ["> \U0001f9e0 **Perseus Vault memories:**\n"]
     if vault_error and not vault_items:
         # We do have local hits, but the vault contribution silently failed.
         # Surface that so callers don't mistake "local-only" for "hybrid".
-        lines.append(f"> \u26a0 Vault unreachable ({vault_error}) — showing local Mn\u0113m\u0113 results only.\n")
+        lines.append(f"> \u26a0 Vault unreachable ({vault_error}) — showing local Perseus Vault results only.\n")
     for h in hits:
         title = h.get("title", "untitled")
         summary = h.get("summary", "")
