@@ -413,6 +413,32 @@ def test_aggregate_results_rejects_mixed_families_and_summarizes_one_family():
         protocol.aggregate_results([passed, {"status": "passed", "family": "stateful"}])
 
 
+def test_windows_cleanup_uses_taskkill_without_signal_sigkill(monkeypatch, tmp_path):
+    """Windows has no SIGKILL; timeout cleanup must use taskkill /T /F."""
+    calls = []
+
+    class FakeProcess:
+        pid = 1234
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            raise AssertionError("POSIX terminate path used on Windows")
+
+        def kill(self):
+            raise AssertionError("POSIX kill path used on Windows")
+
+    monkeypatch.setattr(runner_module.os, "name", "nt", raising=False)
+    monkeypatch.setattr(runner_module.protocol, "process_identity", lambda pid: {"start_time": 1, "pgid": 1234})
+    monkeypatch.setattr(runner_module.subprocess, "run", lambda argv, **kw: calls.append(argv))
+    monkeypatch.setattr(runner_module, "_process_descendants", lambda pid: set())
+    assert runner_module._terminate_process_group(
+        FakeProcess(), expected_start_time=1, expected_pgid=1234
+    ) == set()
+    assert calls == [["taskkill", "/PID", "1234", "/T", "/F"]]
+
+
 def test_timeout_kills_descendant_process_group(tmp_path):
     pid_file = tmp_path / "child.pid"
     script = _script(

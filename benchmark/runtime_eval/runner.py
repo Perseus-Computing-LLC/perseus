@@ -153,6 +153,16 @@ def _terminate_process_group(process: subprocess.Popen, *, force: bool = False, 
                     and leader["start_time"] == expected_start_time
                     and leader["pgid"] == expected_pgid)
     pids = _process_descendants(process.pid) if leader_valid else set()
+    if os.name == "nt":
+        if leader_valid:
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+            except (OSError, subprocess.SubprocessError):
+                pass
+        return pids
     sig = signal.SIGKILL if force else signal.SIGTERM
     if leader_valid:
         try:

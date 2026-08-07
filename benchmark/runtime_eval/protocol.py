@@ -960,6 +960,16 @@ def _terminate_persisted_process(state: Mapping[str, Any]) -> bool:
         if targets - {pid}:
             break
         time.sleep(0.01)
+    if os.name == "nt":
+        if leader_valid:
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/T", "/F"],
+                    check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+            except (OSError, subprocess.SubprocessError):
+                pass
+        return bool(leader_valid or targets)
     if leader_valid and isinstance(pgid, int) and pgid > 0:
         try:
             os.killpg(pgid, signal.SIGTERM)
