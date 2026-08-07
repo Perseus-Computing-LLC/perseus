@@ -552,7 +552,25 @@ class RuntimeEvalRunner:
                 protocol._terminate_persisted_process(state)
             if state["status"] == protocol.Status.CANCELLED.value or job.cancel_requested:
                 self._set_manifest_times(run_id, finished=True)
-                self.store.update_if_attempt(run_id, job.attempt, expected_status=protocol.Status.CANCELLED.value, logs=logs, exit_code=return_code, pid=None, pgid=None, pid_start_time=None, owned_processes=[], result_artifact=result_meta, partial=True)
+                # The watcher normally races cancel() while the run is still
+                # "running", so expected_status must be RUNNING here — a
+                # CANCELLED expectation can never match and would silently drop
+                # the cleanup bookkeeping.  If cancel() already took the run to
+                # CANCELLED, persist the same fields without touching lifecycle.
+                persisted = self.store.update_if_attempt(
+                    run_id, job.attempt, expected_status=protocol.Status.RUNNING.value,
+                    logs=logs, exit_code=return_code, pid=None, pgid=None,
+                    pid_start_time=None, owned_processes=[], result_artifact=result_meta,
+                    partial=True,
+                )
+                if not persisted:
+                    current = self.store.load(run_id)
+                    if int(current.get("attempt", 1)) == job.attempt:
+                        self.store.update(
+                            run_id, logs=logs, exit_code=return_code, pid=None, pgid=None,
+                            pid_start_time=None, owned_processes=[], result_artifact=result_meta,
+                            partial=True,
+                        )
                 self._events.setdefault(run_id, threading.Event()).set()
                 return
             if job.timed_out:

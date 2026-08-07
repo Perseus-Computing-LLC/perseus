@@ -322,9 +322,14 @@ def process_identity(pid: int) -> dict[str, int] | None:
         return None
     if os.name == "nt":
         try:
+            # Embed the PID directly in the command.  Trailing arguments after
+            # a powershell -Command *string* are not reliably bound to $args,
+            # so "(Get-Process -Id $args[0]).Id" would probe $null, error out,
+            # and make the caller treat a live leader as untrackable — leaving
+            # taskkill cleanup disabled.  The PID is int-validated above.
             completed = subprocess.run(
                 ["powershell", "-NoProfile", "-NonInteractive", "-Command",
-                 "(Get-Process -Id $args[0]).Id", str(pid)],
+                 f"(Get-Process -Id {int(pid)}).Id"],
                 capture_output=True, text=True, check=False,
             )
             if completed.returncode == 0 and completed.stdout.strip() == str(pid):
