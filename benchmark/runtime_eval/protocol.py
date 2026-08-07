@@ -1148,6 +1148,10 @@ class RunStore:
         return self._write(state)
 
     def update(self, run_id: str, **fields: Any) -> dict[str, Any]:
+        with self._lock:
+            return self._update_unlocked(run_id, **fields)
+
+    def _update_unlocked(self, run_id: str, **fields: Any) -> dict[str, Any]:
         state = self.load(run_id)
         for key, value in fields.items():
             if key in {"run_id", "state_version", "manifest", "status", "attempt"}:
