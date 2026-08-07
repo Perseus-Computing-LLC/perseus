@@ -107,6 +107,7 @@ jobs:
 
   test-windows:
     runs-on: windows-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -134,7 +135,12 @@ jobs:
         run: python scripts/build.py --check
 
       - name: Run test suite
-        run: python -m pytest tests/ -q
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = "Stop"
+          python -m pytest tests/ -q --durations=20
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   selection-eval:
     # Offline, deterministic gate: tier-based context selection must be exact.
