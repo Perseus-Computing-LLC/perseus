@@ -315,12 +315,28 @@ def artifact_metadata(path: str | os.PathLike[str], *, root: str | os.PathLike[s
 
 
 def process_identity(pid: int) -> dict[str, int] | None:
-    """Return a PID plus Linux start-time identity for safe restart cleanup."""
+    """Return a PID plus platform-specific identity for safe cleanup."""
     try:
-        text = Path(f"/proc/{int(pid)}/stat").read_text()
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return None
+    if os.name == "nt":
+        try:
+            completed = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 "(Get-Process -Id $args[0]).Id", str(pid)],
+                capture_output=True, text=True, check=False,
+            )
+            if completed.returncode == 0 and completed.stdout.strip() == str(pid):
+                return {"pid": pid, "start_time": pid, "pgid": pid}
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return None
+    try:
+        text = Path(f"/proc/{pid}/stat").read_text()
         closing = text.rfind(")")
         fields = text[closing + 2 :].split()
-        return {"pid": int(pid), "start_time": int(fields[19]), "pgid": int(fields[2])}
+        return {"pid": pid, "start_time": int(fields[19]), "pgid": int(fields[2])}
     except (FileNotFoundError, OSError, ValueError, IndexError):
         return None
 

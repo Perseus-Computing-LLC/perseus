@@ -413,6 +413,17 @@ def test_aggregate_results_rejects_mixed_families_and_summarizes_one_family():
         protocol.aggregate_results([passed, {"status": "passed", "family": "stateful"}])
 
 
+def test_windows_process_identity_uses_platform_probe(monkeypatch):
+    """Windows cleanup must not depend on Linux /proc identity files."""
+    class Completed:
+        returncode = 0
+        stdout = "1234\n"
+
+    monkeypatch.setattr(protocol.os, "name", "nt", raising=False)
+    monkeypatch.setattr(protocol.subprocess, "run", lambda *a, **kw: Completed())
+    assert protocol.process_identity(1234) == {"pid": 1234, "start_time": 1234, "pgid": 1234}
+
+
 def test_windows_cleanup_uses_taskkill_without_signal_sigkill(monkeypatch, tmp_path):
     """Windows has no SIGKILL; timeout cleanup must use taskkill /T /F."""
     calls = []
