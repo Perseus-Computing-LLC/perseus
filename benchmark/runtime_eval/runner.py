@@ -100,12 +100,17 @@ def _drain_stream(source: Any, target: Any) -> None:
                 break
             if retained < limit:
                 keep = chunk[: limit - retained]
-                target.write(keep)
-                retained += len(keep)
+                try:
+                    target.write(keep)
+                    retained += len(keep)
+                except (ValueError, OSError):
+                    break
         try:
             target.flush()
         except (ValueError, OSError):
             pass
+    except (ValueError, OSError):
+        pass
     finally:
         try:
             source.close()
