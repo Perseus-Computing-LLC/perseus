@@ -24,7 +24,11 @@ jobs:
       - name: Build Vault quality benchmark
         working-directory: perseus-vault
         run: |
-          cargo build --no-default-features
+          # Default features: the quality benchmark's recall-outcome and
+          # replay cases exercise the bundled embedding backend, so a
+          # no-default-features binary cannot pass them. GIT_HASH is read by
+          # main.rs at compile time (same contract as the vault's own CI).
+          GIT_HASH="$(git rev-parse HEAD)" cargo build --locked
           python3 benchmark/quality/run.py --bin target/debug/perseus-vault --out /tmp/vault-quality-report.json
           python3 benchmark/quality/scorecard.py /tmp/vault-quality-report.json --out /tmp/vault-quality-scorecard.json
       - name: Enforce Vault scorecard
