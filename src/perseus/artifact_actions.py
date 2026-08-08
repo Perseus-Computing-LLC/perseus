@@ -148,6 +148,10 @@ class ArtifactActionStore:
         normalized_scope = _aa_scope(scope)
         exact = self._matching(ref, normalized_scope)
         prior = self._same_identity(ref, normalized_scope)
+        all_prior = [
+            item for item in self._records
+            if isinstance(item.get("artifact"), Mapping) and item["artifact"].get("identity_key") == ref.get("identity_key")
+        ]
         latest = exact[-1] if exact else None
         return {
             "schema_version": _AA_SCHEMA,
@@ -157,6 +161,7 @@ class ArtifactActionStore:
             "state": latest.get("outcome", "unknown") if latest else "unknown",
             "receipt_ids": [str(item["receipt_id"]) for item in exact if item.get("receipt_id")],
             "prior_receipt_ids": sorted({str(item["receipt_id"]) for item in prior if item.get("receipt_id")}),
+            "scope_mismatch_receipt_ids": sorted({str(item["receipt_id"]) for item in all_prior if item.get("receipt_id") and not self._scope_equal(item.get("scope", {}), normalized_scope)}),
             "matched": bool(latest),
         }
 
@@ -167,6 +172,10 @@ class ArtifactActionStore:
             decision = "duplicate"
         elif lookup["state"] in {"attempted", "failed", "cancelled"}:
             decision = "allow_retry"
+        elif lookup["matched"]:
+            decision = "allow"
+        elif lookup["scope_mismatch_receipt_ids"]:
+            decision = "scope_mismatch"
         elif lookup["prior_receipt_ids"]:
             decision = "new_version"
         else:
@@ -198,7 +207,7 @@ class ArtifactActionStore:
         record = {
             "schema_version": _AA_SCHEMA,
             "sequence": seq,
-            "artifact": {key: ref[key] for key in ("schema_version", "source_system", "artifact_type", "artifact_id", "version", "identity_key", "artifact_key") if key in ref},
+            "artifact": {key: ref[key] for key in ("schema_version", "source_system", "artifact_type", "artifact_id", "version", "content_sha256", "identity_key", "artifact_key") if key in ref},
             "scope": normalized_scope,
             "outcome": normalized_outcome,
             "receipt_id": rid,

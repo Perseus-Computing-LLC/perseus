@@ -37,6 +37,21 @@ def test_code_graph_is_incremental_deterministic_and_budgeted(tmp_path):
     assert changed["removed_files"] == []
 
 
+def test_code_graph_honors_hard_byte_budget_and_reports_actual_spend(tmp_path):
+    (tmp_path / "huge.py").write_text("\n".join(f"def symbol_{i}(value):\n    return value\n" for i in range(300)), encoding="utf-8")
+    result = perseus.CodeGraphIndex(tmp_path).select("symbol", max_items=4, max_bytes=512)
+    assert result["bytes"] <= 512
+    assert all(len(json.dumps(item, sort_keys=True, separators=(",", ":")).encode()) <= 512 for item in result["candidates"])
+    assert result["bytes"] == sum(len(json.dumps(item, sort_keys=True, separators=(",", ":")).encode()) for item in result["candidates"])
+
+
+def test_code_graph_capped_discovery_is_path_sorted(tmp_path):
+    (tmp_path / "z.py").write_text("def target():\n    pass\n", encoding="utf-8")
+    (tmp_path / "a.py").write_text("def target():\n    pass\n", encoding="utf-8")
+    index = perseus.CodeGraphIndex(tmp_path, max_files=1)
+    assert index.refresh()["updated_files"] == ["a.py"]
+
+
 def test_exact_identifier_prefers_structural_match_over_fuzzy_file(tmp_path):
     (tmp_path / "near.py").write_text("def deploy_receipt():\n    pass\n", encoding="utf-8")
     (tmp_path / "far.py").write_text("# deployment receipt processing\n", encoding="utf-8")

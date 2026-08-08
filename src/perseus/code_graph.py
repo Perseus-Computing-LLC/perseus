@@ -6,11 +6,11 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from perseus.context_contract import context_rank
 
-_CG_EXTENSIONS = frozenset({".py", ".js", ".jsx", ".ts", ".tsx", ".rs", ".go", ".java", ".rb"})
+_CG_EXTENSIONS = frozenset({".py", ".js", ".jsx", ".ts", ".tsx", ".rs", ".go", ".java", ".rb", ".c", ".cc", ".cpp", ".h", ".hpp", ".php", ".swift", ".kt", ".scala", ".sh"})
 _CG_SYMBOL_RE = re.compile(r"^\s*(?:async\s+def|def|class|function|fn|func|type|struct|interface)\s+([A-Za-z_][A-Za-z0-9_]*)")
 _CG_IMPORT_RE = re.compile(r"^\s*(?:from|import|use|require\s*\(|#include)\s+([^\s;,)]+)")
 _CG_TERM_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_./:-]*")
@@ -30,13 +30,14 @@ def _cg_terms(value: str) -> list[str]:
 
 
 def _cg_language(path: Path) -> str:
-    return {".py": "python", ".js": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".rs": "rust", ".go": "go", ".java": "java", ".rb": "ruby"}.get(path.suffix.lower(), "unknown")
+    return {".py": "python", ".js": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".rs": "rust", ".go": "go", ".java": "java", ".rb": "ruby", ".c": "c", ".cc": "cpp", ".cpp": "cpp", ".h": "c-header", ".hpp": "cpp-header", ".php": "php", ".swift": "swift", ".kt": "kotlin", ".scala": "scala", ".sh": "shell"}.get(path.suffix.lower(), "unknown")
 
 
 def _cg_parse(path: Path, rel: str, text: str) -> dict[str, Any]:
     symbols: list[dict[str, Any]] = []
     imports: set[str] = set()
     calls: set[str] = set()
+    parser = "lexical"
     if path.suffix.lower() == ".py":
         try:
             tree = ast.parse(text, filename=rel)
@@ -51,6 +52,7 @@ def _cg_parse(path: Path, rel: str, text: str) -> dict[str, Any]:
                     fn = node.func.attr if isinstance(node.func, ast.Attribute) else node.func.id if isinstance(node.func, ast.Name) else ""
                     if fn:
                         calls.add(fn)
+            parser = "ast"
         except SyntaxError:
             # Fall through to the dependency-light lexical parser.
             symbols = []
@@ -63,12 +65,37 @@ def _cg_parse(path: Path, rel: str, text: str) -> dict[str, Any]:
         match = _CG_IMPORT_RE.match(line)
         if match:
             imports.add(match.group(1).strip("\"'"))
+    sorted_symbols = sorted(symbols, key=lambda item: (item["line_start"], item["name"]))
+    sorted_imports = sorted(imports)
+    sorted_calls = sorted(calls)
     return {
-        "path": rel, "language": _cg_language(path), "sha256": _cg_sha_bytes(text.encode("utf-8", errors="replace")),
+        "path": rel, "language": _cg_language(path), "parser": parser, "degraded": parser != "ast" and path.suffix.lower() == ".py", "metadata_truncated": len(sorted_symbols) > 128 or len(sorted_imports) > 256 or len(sorted_calls) > 256, "sha256": _cg_sha_bytes(text.encode("utf-8", errors="replace")),
         "line_count": len(text.splitlines()), "bytes": len(text.encode("utf-8", errors="replace")),
-        "symbols": sorted(symbols, key=lambda item: (item["line_start"], item["name"])),
-        "imports": sorted(imports), "calls": sorted(calls),
+        "symbols": sorted_symbols[:128],
+        "imports": sorted_imports[:256], "calls": sorted_calls[:256],
     }
+
+
+def _cg_candidate_cost(candidate: Mapping[str, Any]) -> int:
+    return len(json.dumps(candidate, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+
+def _cg_bound_candidate(candidate: dict[str, Any], *, rank: int, max_bytes: int) -> dict[str, Any] | None:
+    bounded = json.loads(json.dumps(candidate, sort_keys=True))
+    bounded["rank"] = int(rank)
+    # Preserve the highest-signal symbol/edge prefix while making the provider
+    # a hard byte-budget boundary rather than a best-effort hint.
+    for width in (32, 16, 8, 4, 2, 1, 0):
+        bounded["symbols"] = bounded.get("symbols", [])[:width]
+        bounded["line_ranges"] = bounded.get("line_ranges", [])[:width]
+        bounded["dependency_edges"] = bounded.get("dependency_edges", [])[:width]
+        bounded["summary"] = str(bounded.get("summary", ""))[: max(32, width * 32)]
+        bounded["agent_text"] = str(bounded.get("agent_text", ""))[: max(24, width * 24)]
+        if _cg_candidate_cost(bounded) <= max_bytes:
+            return bounded
+    # If even the immutable identity cannot fit, abstain instead of returning
+    # a candidate that violates the declared contract.
+    return None
 
 
 def _cg_workspace_hash(root: Path) -> str:
@@ -95,9 +122,7 @@ class CodeGraphIndex:
             if any(part in {".git", ".perseus", ".venv", "__pycache__", "node_modules", "target"} for part in rel_parts):
                 continue
             result.append(path)
-            if len(result) >= self.max_files:
-                break
-        return sorted(result, key=lambda item: item.relative_to(self.workspace).as_posix())
+        return sorted(result, key=lambda item: item.relative_to(self.workspace).as_posix())[: self.max_files]
 
     def refresh(self) -> dict[str, Any]:
         current: dict[str, str] = {}
@@ -118,6 +143,7 @@ class CodeGraphIndex:
                 self._records[rel] = _cg_parse(path, rel, path.read_text(encoding="utf-8", errors="replace"))
                 updated.append(rel)
             except OSError:
+                self._records.pop(rel, None)
                 continue
         removed = sorted(set(self._records) - set(current))
         for rel in removed:
@@ -166,6 +192,7 @@ class CodeGraphIndex:
                 "agent_text": rel + " [" + ", ".join(item["name"] for item in record["symbols"]) + "]",
                 "source_refs": ["file:" + rel], "content_sha256": record["sha256"], "workspace_hash": workspace_hash,
                 "scope": {"workspace": workspace_hash}, "validity_state": "observed", "verified": True,
+                "parser": record.get("parser", "lexical"), "degraded": bool(record.get("degraded", False)), "metadata_truncated": bool(record.get("metadata_truncated", False)),
                 "symbols": record["symbols"], "line_ranges": [{"start": item["line_start"], "end": item["line_end"], "symbol": item["name"]} for item in record["symbols"]],
                 "dependency_edges": edges, "bytes": record["bytes"], "selection_reason": "; ".join(reasons),
             }
@@ -176,11 +203,13 @@ class CodeGraphIndex:
         for rank, (_score, _rel, candidate, _reasons) in enumerate(scored, start=1):
             if len(selected) >= limit:
                 break
-            cost = len(json.dumps(candidate, sort_keys=True, separators=(",", ":")).encode("utf-8"))
-            if selected and spent + cost > byte_limit:
+            bounded = _cg_bound_candidate(candidate, rank=rank, max_bytes=byte_limit)
+            if bounded is None:
                 continue
-            candidate["rank"] = rank
-            selected.append(candidate)
+            cost = _cg_candidate_cost(bounded)
+            if spent + cost > byte_limit:
+                continue
+            selected.append(bounded)
             spent += cost
         pipeline = context_rank(selected, task=query_text or "workspace structure", scope={"workspace": workspace_hash}, budget={"max_items": limit, "max_chars": byte_limit}, integrations={"vault": "not_configured", "ledger": "not_configured"}) if selected else {"status": "abstain", "candidates": []}
         return {"schema_version": "perseus-code-graph/v1", "workspace": str(self.workspace), "workspace_hash": workspace_hash, "fingerprint": self._last_fingerprint, "query": query_text, "candidates": selected, "bytes": spent, "budget_bytes": byte_limit, "context_pipeline": pipeline, "contribution": {"source_kind": "code_graph", "candidate_count": len(selected), "bytes": spent, "tokens_estimate": (spent + 3) // 4}}

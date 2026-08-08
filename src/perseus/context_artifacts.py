@@ -129,18 +129,45 @@ def _ca_budgeted(value: dict[str, Any], budget_tokens: int | None) -> tuple[dict
     return body, {"max_tokens": budget, "estimated_tokens": estimated, "within_budget": True, "truncated": True}
 
 
-def _ca_finalize(schema: str, kind: str, sections: dict[str, Any], *, budget_tokens: int | None = None) -> dict[str, Any]:
+def _ca_envelope_tokens(value: Mapping[str, Any]) -> int:
+    return max(1, math.ceil(len(_ca_json(value).encode("utf-8")) / 4))
+
+
+def _ca_finalize(schema: str, kind: str, sections: dict[str, Any], *, budget_tokens: int | None = None, metadata: Mapping[str, Any] | None = None) -> dict[str, Any]:
     present = sum(bool(value) for value in sections.values())
     quality = {
         "field_coverage": round(present / max(1, len(sections)), 4),
         "ambiguity_count": len(sections.get("unresolved_questions", [])) if isinstance(sections.get("unresolved_questions"), list) else 0,
         "citation_density": round(len(sections.get("evidence_anchors", sections.get("sources", []))) / max(1, sum(len(value) for value in sections.values() if isinstance(value, list))), 4),
     }
-    body = {"schema_version": schema, "kind": kind, "sections": sections, "quality": quality}
-    manifest_values = sections.get("sources", sections.get("evidence_anchors", []))
-    body["source_manifest_sha256"] = _ca_sha(manifest_values)
+    safe_metadata = {}
+    if metadata:
+        safe_metadata = {str(key): _ca_id(value, f"metadata.{key}") for key, value in metadata.items() if str(key) in {"project", "profile", "revision"} and value is not None}
+    body: dict[str, Any] = {"schema_version": schema, "kind": kind, "sections": sections, "quality": quality}
+    if safe_metadata:
+        body["metadata"] = safe_metadata
+    # Reserve the final envelope while trimming. Hash placeholders have the same
+    # byte width as their finalized values, so the declared token budget is for
+    # the complete portable artifact, not only its sections.
+    body["source_manifest_sha256"] = "0" * 64
+    body["budget"] = {"max_tokens": max(1, int(budget_tokens)) if budget_tokens is not None else None, "estimated_tokens": 0, "within_budget": True, "truncated": False}
+    body["artifact_sha256"] = "0" * 64
     body, budget = _ca_budgeted(body, budget_tokens)
-    body["budget"] = budget
+    manifest_values = body["sections"].get("sources", body["sections"].get("evidence_anchors", []))
+    body["source_manifest_sha256"] = _ca_sha(manifest_values)
+    body["budget"] = dict(budget)
+    body["artifact_sha256"] = "0" * 64
+    estimated = _ca_envelope_tokens(body)
+    for _ in range(3):
+        body["budget"]["estimated_tokens"] = estimated
+        revised = _ca_envelope_tokens(body)
+        if revised == estimated:
+            break
+        estimated = revised
+    body["budget"]["estimated_tokens"] = estimated
+    if budget_tokens is not None and estimated > int(budget_tokens):
+        raise ContextArtifactError("artifact cannot fit declared token budget including its final envelope")
+    body.pop("artifact_sha256", None)
     body["artifact_sha256"] = _ca_sha(body)
     return body
 
@@ -154,11 +181,7 @@ def build_agent_context_artifact(*, intent: str, constraints: Any = None, entiti
         "examples": _ca_list(examples, "examples"),
         "action_boundaries": _ca_list(action_boundaries, "action_boundaries"),
     }
-    artifact = _ca_finalize(_CA_SCHEMA, "agent_context", sections, budget_tokens=budget_tokens)
-    if metadata:
-        artifact["metadata"] = {str(key): _ca_id(value, f"metadata.{key}") for key, value in metadata.items() if str(key) in {"project", "profile", "revision"} and value is not None}
-        artifact["artifact_sha256"] = _ca_sha({key: value for key, value in artifact.items() if key != "artifact_sha256"})
-    return artifact
+    return _ca_finalize(_CA_SCHEMA, "agent_context", sections, budget_tokens=budget_tokens, metadata=metadata)
 
 
 def build_memento_artifact(*, objective: str, constraints: Any = None, unresolved_questions: Any = None, evidence_anchors: Any = None, next_steps: Any = None, budget_tokens: int | None = None) -> dict[str, Any]:
@@ -180,6 +203,27 @@ def load_context_artifact(payload: Mapping[str, Any] | str) -> dict[str, Any]:
         raise ContextArtifactError("artifact JSON is invalid") from exc
     if not isinstance(value, dict) or value.get("schema_version") not in {_CA_SCHEMA, _CA_MEMENTO_SCHEMA}:
         raise ContextArtifactError("unsupported context artifact schema")
+    allowed_top = {"schema_version", "kind", "sections", "quality", "source_manifest_sha256", "budget", "artifact_sha256", "metadata"}
+    if set(value) - allowed_top:
+        raise ContextArtifactError("artifact contains unsupported fields")
+    expected_kind = "agent_context" if value["schema_version"] == _CA_SCHEMA else "memento"
+    if value.get("kind") != expected_kind or not isinstance(value.get("sections"), dict):
+        raise ContextArtifactError("artifact kind or sections are invalid")
+    required_sections = {"intent", "constraints", "entities", "sources", "examples", "action_boundaries"} if expected_kind == "agent_context" else {"objective", "constraints", "unresolved_questions", "evidence_anchors", "next_steps"}
+    if set(value["sections"]) != required_sections:
+        raise ContextArtifactError("artifact sections do not match its schema")
+    if not isinstance(value.get("quality"), dict) or not isinstance(value.get("source_manifest_sha256"), str):
+        raise ContextArtifactError("artifact quality or source manifest is invalid")
+    budget = value.get("budget")
+    if not isinstance(budget, dict) or set(budget) != {"max_tokens", "estimated_tokens", "within_budget", "truncated"}:
+        raise ContextArtifactError("artifact budget is invalid")
+    max_tokens = budget["max_tokens"]
+    if max_tokens is not None and (not isinstance(max_tokens, int) or isinstance(max_tokens, bool) or max_tokens < 1):
+        raise ContextArtifactError("artifact budget maximum is invalid")
+    if not isinstance(budget["estimated_tokens"], int) or isinstance(budget["estimated_tokens"], bool) or budget["estimated_tokens"] < 1 or not isinstance(budget["within_budget"], bool) or not isinstance(budget["truncated"], bool):
+        raise ContextArtifactError("artifact budget values are invalid")
+    if max_tokens is not None and budget["estimated_tokens"] > max_tokens:
+        raise ContextArtifactError("artifact exceeds its declared token budget")
     supplied = value.get("artifact_sha256")
     if not isinstance(supplied, str):
         raise ContextArtifactError("artifact_sha256 is required")
@@ -187,6 +231,10 @@ def load_context_artifact(payload: Mapping[str, Any] | str) -> dict[str, Any]:
     unsigned.pop("artifact_sha256", None)
     if _ca_sha(unsigned) != supplied:
         raise ContextArtifactError("artifact commitment mismatch")
+    sections = value["sections"]
+    manifest_values = sections.get("sources", sections.get("evidence_anchors", []))
+    if value.get("source_manifest_sha256") != _ca_sha(manifest_values):
+        raise ContextArtifactError("source manifest commitment mismatch")
     return value
 
 

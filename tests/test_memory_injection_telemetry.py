@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 from conftest import perseus
@@ -32,6 +33,9 @@ def test_telemetry_has_denominators_and_distinguishes_degraded_states():
     assert report["denominators"]["events"] == 3
     assert report["states"] == {"degraded": 1, "empty": 1, "measured": 1}
     assert "short context" not in str(report)
+    raw = telemetry.record(session_id="s4", surface="recall", trigger="task", delivered_tokens=0, baseline_tokens=0, baseline_definition="SECRET-BASELINE", state="empty", reason="SECRET-REASON")
+    assert "SECRET-BASELINE" not in json.dumps(raw, sort_keys=True)
+    assert "SECRET-REASON" not in json.dumps(telemetry.report(), sort_keys=True)
 
 
 def test_memory_injection_benchmark_is_offline_and_citation_ready():
@@ -42,3 +46,4 @@ def test_memory_injection_benchmark_is_offline_and_citation_ready():
     assert report["methodology"]["baseline_definition"]
     assert report["summary"]["measured_events"] > 0
     assert report["summary"]["degraded_events"] >= 1
+    assert report["artifact_sha256"] == run.perseus._mit_sha({key: value for key, value in report.items() if key != "artifact_sha256"})

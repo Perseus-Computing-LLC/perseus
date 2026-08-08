@@ -13,9 +13,11 @@ import perseus  # noqa: E402
 
 def run_benchmark():
     report = perseus.build_memory_injection_report()
-    # The telemetry builder is the product surface; this wrapper adds a stable
-    # benchmark name and does not re-count or reinterpret events.
-    return {**report, "benchmark": "memory-injection-efficiency", "methodology": {**report["methodology"], "artifact_command": "python benchmark/memory_injection/run.py --out report.json"}}
+    # Recompute the outer commitment after adding benchmark metadata; retaining
+    # the product report's inner commitment preserves both provenance layers.
+    result = {**report, "benchmark": "memory-injection-efficiency", "methodology": {**report["methodology"], "artifact_command": "python benchmark/memory_injection/run.py --out report.json"}}
+    result["artifact_sha256"] = perseus._mit_sha({key: value for key, value in result.items() if key != "artifact_sha256"})
+    return result
 
 
 def main(argv=None):

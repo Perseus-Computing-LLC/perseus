@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from conftest import perseus
 
 
@@ -75,5 +77,35 @@ def test_context_artifact_benchmark_is_offline_and_quality_gated():
     report = module.run_benchmark()
     assert report["offline"] is True
     assert report["quality_gate"]["status"] == "pass"
+    assert report["quality_gate"]["artifact_verification"] is True
+    assert report["quality_gate"]["required_fields_ok"] is True
+    assert report["quality_gate"]["budget_ok"] is True
     assert any(arm["method"] == "memento" and arm["field_retention"] == 1.0 for arm in report["arms"])
     assert report["artifact_sha256"]
+
+
+def test_context_artifact_budget_counts_final_envelope_and_rejects_forgery():
+    with pytest.raises(ValueError):
+        perseus.build_memento_artifact(
+            objective="x" * 40, constraints=["offline"] * 8,
+            unresolved_questions=["q" * 40] * 8, evidence_anchors=["receipt:x"] * 8,
+            next_steps=["step" * 20] * 8, budget_tokens=120,
+        )
+    artifact = perseus.build_memento_artifact(
+        objective="release service", constraints=["offline"],
+        unresolved_questions=["which host?"], evidence_anchors=["receipt:x"],
+        next_steps=["run tests"], budget_tokens=180,
+    )
+    actual = (len(json.dumps(artifact, sort_keys=True, separators=(",", ":")).encode()) + 3) // 4
+    assert artifact["budget"]["estimated_tokens"] == actual
+    assert actual <= artifact["budget"]["max_tokens"]
+    forged = dict(artifact)
+    forged["source_manifest_sha256"] = "0" * 64
+    forged["artifact_sha256"] = perseus._ca_sha({key: value for key, value in forged.items() if key != "artifact_sha256"})
+    with pytest.raises(ValueError):
+        perseus.load_context_artifact(forged)
+    unknown = dict(artifact)
+    unknown["prompt"] = "secret"
+    unknown["artifact_sha256"] = perseus._ca_sha({key: value for key, value in unknown.items() if key != "artifact_sha256"})
+    with pytest.raises(ValueError):
+        perseus.load_context_artifact(unknown)

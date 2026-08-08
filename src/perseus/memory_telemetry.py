@@ -25,6 +25,11 @@ def _mit_sha(value: Any) -> str:
     return hashlib.sha256(_mit_json(value).encode("utf-8")).hexdigest()
 
 
+def _mit_hash_label(value: Any, field: str) -> str:
+    text = str(value or "unspecified")[:512]
+    return "sha256:" + _mit_sha({"field": field, "value": text})
+
+
 def _mit_id(value: Any, field: str) -> str:
     if not isinstance(value, str) or not value.strip() or len(value.strip()) > 160 or any(ord(ch) < 32 for ch in value):
         raise MemoryTelemetryError(f"{field} must be a bounded identifier")
@@ -64,12 +69,12 @@ class MemoryInjectionTelemetry:
             "schema_version": _MIT_SCHEMA, "event_index": len(self._events) + 1,
             "session_id": sid, "surface": surf, "trigger": trig, "profile": _mit_id(profile or "default", "profile"),
             "state": normalized_state, "tokens_served": served, "baseline_tokens": baseline,
-            "baseline_definition": str(baseline_definition or "unspecified")[:160],
+            "baseline_definition_sha256": _mit_hash_label(baseline_definition, "baseline_definition"),
             "tokens_avoided": avoided, "savings_ratio": ratio,
             "source_count": max(0, int(source_count)), "corpus_size": max(0, int(corpus_size)),
         }
         if reason:
-            event["reason"] = str(reason)[:160]
+            event["reason_sha256"] = _mit_hash_label(reason, "reason")
         if provider_usage:
             safe_usage = {str(k): int(v) for k, v in provider_usage.items() if str(k) in {"input_tokens", "output_tokens", "total_tokens"} and isinstance(v, int) and not isinstance(v, bool) and v >= 0}
             if safe_usage:

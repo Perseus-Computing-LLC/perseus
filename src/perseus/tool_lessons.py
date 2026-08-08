@@ -126,13 +126,23 @@ class ToolLessonStore:
             self._telemetry["dropped"] += 1
             return {"schema_version": _TL_SCHEMA, "status": "dropped", "reason": "queue_full", "failure_signature": signature, "deduplicated": False}
         identity = {"tool": _tl_id(tool, "tool"), "operation": _tl_id(operation, "operation"), "resource": _tl_id(resource, "resource", required=False)}
-        lesson_id = "lesson:" + _tl_sha({"signature": signature, "scope": normalized_scope})[:32]
+        base_id = {"signature": signature, "scope": normalized_scope}
+        lesson_id = "lesson:" + _tl_sha(base_id)[:32]
+        prior_lesson_id = None
+        if lesson_id in self._records:
+            prior_lesson_id = lesson_id
+            generation = 1
+            while lesson_id in self._records:
+                lesson_id = "lesson:" + _tl_sha({**base_id, "generation": generation})[:32]
+                generation += 1
         item = {
             "schema_version": _TL_SCHEMA, "lesson_id": lesson_id, "status": "proposed",
             "tool": identity["tool"], "operation": identity["operation"], "resource": identity["resource"],
-            "tool_identity": identity, "failure_signature": signature, "scope": normalized_scope,
+            "tool_identity": identity, "provider": _tl_id(provider or "local", "provider"), "tool_version": _tl_id(tool_version or "unknown", "tool_version"), "failure_signature": signature, "scope": normalized_scope,
             "observed_count": 1, "injection_refs": [], "evidence_refs": [],
         }
+        if prior_lesson_id:
+            item["prior_lesson_id"] = prior_lesson_id
         self._records[lesson_id] = item
         self._persist()
         return {**item, "deduplicated": False}
@@ -153,7 +163,7 @@ class ToolLessonStore:
         item = self._records.get(_tl_id(lesson_id, "lesson_id"))
         if item is None:
             raise ToolLessonError("unknown lesson")
-        same = item["tool"] == tool and item["operation"] == operation and item.get("resource", "") == resource and item.get("scope", {}) == _tl_scope(scope)
+        same = item["tool"] == tool and item["operation"] == operation and item.get("resource", "") == resource and item.get("scope", {}) == _tl_scope(scope) and item.get("provider", "local") == _tl_id(provider or "local", "provider") and item.get("tool_version", "unknown") == _tl_id(tool_version or "unknown", "tool_version")
         classification = "temporal_correlation" if same and success else ("matching_failure" if same else "unrelated")
         if evidence_ref:
             ref = _tl_id(evidence_ref, "evidence_ref")
@@ -171,6 +181,8 @@ class ToolLessonStore:
         refs = [_tl_id(ref, "evidence_ref") for ref in evidence_refs]
         if not refs:
             raise ToolLessonError("governed admission requires evidence")
+        if item.get("status") in {"decayed", "rejected", "superseded"}:
+            raise ToolLessonError("terminal lesson cannot be admitted")
         item["evidence_refs"] = sorted(set(item["evidence_refs"]) | set(refs))
         item["status"] = "active"
         self._persist()

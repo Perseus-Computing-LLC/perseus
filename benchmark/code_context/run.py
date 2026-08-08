@@ -27,11 +27,19 @@ def _tokens(text):
     return max(1, math.ceil(len(text.encode("utf-8")) / 4))
 
 
+# Text-source allowlist: the corpus is code-context source files only. A bare
+# rglob("*") would also read compiled bytecode (e.g. __pycache__/*.pyc left by
+# `compileall`) and crash the benchmark — or, worse, silently change its
+# fingerprint if a binary file ever landed in the fixture.
+_CORPUS_SUFFIXES = frozenset({".py", ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".cfg", ".ini", ".rst", ".sh"})
+
+
 def _corpus():
     files = {}
     for path in sorted(FIXTURE_ROOT.rglob("*")):
-        if path.is_file():
-            files[path.relative_to(FIXTURE_ROOT).as_posix()] = path.read_text(encoding="utf-8")
+        if not path.is_file() or path.suffix.lower() not in _CORPUS_SUFFIXES:
+            continue
+        files[path.relative_to(FIXTURE_ROOT).as_posix()] = path.read_text(encoding="utf-8")
     return files
 
 
