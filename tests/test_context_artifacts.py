@@ -109,3 +109,33 @@ def test_context_artifact_budget_counts_final_envelope_and_rejects_forgery():
     unknown["artifact_sha256"] = perseus._ca_sha({key: value for key, value in unknown.items() if key != "artifact_sha256"})
     with pytest.raises(ValueError):
         perseus.load_context_artifact(unknown)
+
+
+def test_context_artifact_rejects_forged_quality_and_doctored_estimate():
+    artifact = perseus.build_agent_context_artifact(intent="resume")
+    # CA-001: quality must match the schema exactly — wrong keys, types, and
+    # ranges are rejected even when the outer hash is honestly recomputed.
+    bad_quality = dict(artifact)
+    bad_quality["quality"] = {"field_coverage": "not-a-number"}
+    bad_quality["artifact_sha256"] = perseus._ca_sha({key: value for key, value in bad_quality.items() if key != "artifact_sha256"})
+    with pytest.raises(ValueError):
+        perseus.load_context_artifact(bad_quality)
+    bad_range = dict(artifact)
+    bad_range["quality"] = {**artifact["quality"], "citation_density": 1.5}
+    bad_range["artifact_sha256"] = perseus._ca_sha({key: value for key, value in bad_range.items() if key != "artifact_sha256"})
+    with pytest.raises(ValueError):
+        perseus.load_context_artifact(bad_range)
+    bad_count = dict(artifact)
+    bad_count["quality"] = {**artifact["quality"], "ambiguity_count": -1}
+    bad_count["artifact_sha256"] = perseus._ca_sha({key: value for key, value in bad_count.items() if key != "artifact_sha256"})
+    with pytest.raises(ValueError):
+        perseus.load_context_artifact(bad_count)
+    # CA-002: the declared estimate must equal the actual envelope size — a
+    # doctored low estimate that still fits the budget is rejected.
+    doctored = dict(artifact)
+    doctored["budget"] = {**artifact["budget"], "estimated_tokens": 1}
+    doctored["artifact_sha256"] = perseus._ca_sha({key: value for key, value in doctored.items() if key != "artifact_sha256"})
+    with pytest.raises(ValueError):
+        perseus.load_context_artifact(doctored)
+    # Honest artifacts still round-trip.
+    assert perseus.load_context_artifact(artifact)["budget"]["estimated_tokens"] == artifact["budget"]["estimated_tokens"]

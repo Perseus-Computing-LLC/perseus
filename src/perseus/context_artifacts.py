@@ -214,6 +214,18 @@ def load_context_artifact(payload: Mapping[str, Any] | str) -> dict[str, Any]:
         raise ContextArtifactError("artifact sections do not match its schema")
     if not isinstance(value.get("quality"), dict) or not isinstance(value.get("source_manifest_sha256"), str):
         raise ContextArtifactError("artifact quality or source manifest is invalid")
+    quality = value["quality"]
+    if set(quality) != {"field_coverage", "ambiguity_count", "citation_density"}:
+        raise ContextArtifactError("artifact quality fields are invalid")
+    field_coverage = quality["field_coverage"]
+    citation_density = quality["citation_density"]
+    ambiguity_count = quality["ambiguity_count"]
+    if isinstance(field_coverage, bool) or not isinstance(field_coverage, (int, float)) or not 0 <= field_coverage <= 1:
+        raise ContextArtifactError("artifact quality field_coverage is invalid")
+    if isinstance(citation_density, bool) or not isinstance(citation_density, (int, float)) or not 0 <= citation_density <= 1:
+        raise ContextArtifactError("artifact quality citation_density is invalid")
+    if isinstance(ambiguity_count, bool) or not isinstance(ambiguity_count, int) or ambiguity_count < 0:
+        raise ContextArtifactError("artifact quality ambiguity_count is invalid")
     budget = value.get("budget")
     if not isinstance(budget, dict) or set(budget) != {"max_tokens", "estimated_tokens", "within_budget", "truncated"}:
         raise ContextArtifactError("artifact budget is invalid")
@@ -231,6 +243,11 @@ def load_context_artifact(payload: Mapping[str, Any] | str) -> dict[str, Any]:
     unsigned.pop("artifact_sha256", None)
     if _ca_sha(unsigned) != supplied:
         raise ContextArtifactError("artifact commitment mismatch")
+    # The declared estimate must equal the canonical envelope size of the
+    # finished artifact (hash width included), not merely be in range: a
+    # rehashed artifact with a doctored low estimate must not load.
+    if budget["estimated_tokens"] != _ca_envelope_tokens(value):
+        raise ContextArtifactError("artifact token estimate does not match its envelope")
     sections = value["sections"]
     manifest_values = sections.get("sources", sections.get("evidence_anchors", []))
     if value.get("source_manifest_sha256") != _ca_sha(manifest_values):
