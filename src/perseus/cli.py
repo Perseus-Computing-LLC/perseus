@@ -126,8 +126,36 @@ def main():
                          help="Cache assumption for a context decision (default: unknown)")
     p_psize.add_argument("--source-ref", action="append", default=[],
                          help="Visibility-safe file:/vault:/artifact: source reference (repeatable)")
+    p_psize.add_argument("--code-query", default=None,
+                         help="Optional #921 code-graph query; reported as a separate context contribution")
+    p_psize.add_argument("--code-limit", type=int, default=12, help="Maximum code-graph candidates")
+    p_psize.add_argument("--code-budget-bytes", type=int, default=16384, dest="code_budget_bytes",
+                         help="Maximum code-graph metadata bytes")
 
-    # watch (Phase 20C)
+    # code-map (#921) — optional symbol/dependency-aware context candidates
+    p_code_map = sub.add_parser(
+        "code-map",
+        help="Build a bounded local code graph and show symbol/dependency context candidates",
+    )
+    p_code_map.add_argument("query", nargs="?", default="", help="Identifier, symbol, or task query")
+    p_code_map.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_code_map.add_argument("--limit", type=int, default=12, help="Maximum candidates (default: 12)")
+    p_code_map.add_argument("--budget-bytes", type=int, default=16384, dest="budget_bytes", help="Candidate metadata budget")
+    p_code_map.add_argument("--include-calls", action="store_true", help="Include call edges when available")
+    p_code_map.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+
+    # context artifacts (#923/#924) — portable structured or memento projection
+    p_artifact = sub.add_parser("context-artifact", help="Build a bounded portable machine-legible context artifact")
+    p_artifact.add_argument("input", help="JSON input file containing artifact fields")
+    p_artifact.add_argument("--kind", choices=["structured", "memento"], default="structured")
+    p_artifact.add_argument("--format", choices=["json", "markdown", "portable"], default="json")
+    p_artifact.add_argument("--output", "-o", default=None, help="Write the artifact to a file")
+    p_artifact.add_argument("--json", action="store_true", help="Write JSON to stdout even when --output is used")
+
+    # memory-efficiency (#929) — deterministic citation-ready telemetry artifact
+    p_memory_efficiency = sub.add_parser("memory-efficiency", help="Emit the offline Vault memory-injection efficiency report")
+    p_memory_efficiency.add_argument("--output", "-o", default=None, help="Write the JSON report to a file")
+    p_memory_efficiency.add_argument("--json", action="store_true", help="Emit the complete JSON report")
     p_watch = sub.add_parser("watch", help="Poll and refresh render outputs when context sources change")
     p_watch.add_argument("--source", default=None, help="Source file (default: .perseus/context.md, unless a context pack is present)")
     p_watch.add_argument("--output", "-o", default=None, help="Rendered output file (default: .hermes.md)")
@@ -689,6 +717,12 @@ def main():
         return cmd_preview(args, cfg)
     elif args.command == "prompt-size":
         return cmd_prompt_size(args, cfg)
+    elif args.command == "code-map":
+        return cmd_code_map(args, cfg)
+    elif args.command == "context-artifact":
+        return cmd_context_artifact(args, cfg)
+    elif args.command == "memory-efficiency":
+        return cmd_memory_efficiency(args, cfg)
     elif args.command == "watch":
         return cmd_watch(args, cfg)
     elif args.command == "graph":
