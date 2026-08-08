@@ -1,5 +1,6 @@
 # stdlib imports available from build artifact header
 from perseus.context_decision import decision_from_prompt_size
+from perseus.code_graph import CodeGraphIndex, CodeGraphError
 # ───────────────────── Prompt-size forensics (#606) ──────────────────────────
 #
 # `perseus prompt-size` / `@budget` — byte-accurate, network-free breakdown of
@@ -560,6 +561,45 @@ def cmd_prompt_size(args, cfg):
 
     report = compute_prompt_size(text, cfg, workspace, max_tier=max_tier,
                                  no_cache=no_cache, source_name=source_path.name)
+    # #921: code-graph retrieval is an optional, separately accounted context
+    # contribution. The graph returns only bounded metadata/line ranges here;
+    # source bodies remain behind the normal read/retrieval path.
+    code_query = getattr(args, "code_query", None)
+    if code_query:
+        try:
+            graph = CodeGraphIndex(workspace).select(
+                code_query,
+                max_items=getattr(args, "code_limit", 12),
+                max_bytes=getattr(args, "code_budget_bytes", 16_384),
+                include_calls=False,
+            )
+            report["code_graph"] = {
+                "enabled": True,
+                "query": str(code_query),
+                "fingerprint": graph.get("fingerprint"),
+                "candidate_count": len(graph.get("candidates", [])),
+                "candidates": [
+                    {
+                        "candidate_id": item.get("candidate_id"),
+                        "source_refs": item.get("source_refs", []),
+                        "line_ranges": item.get("line_ranges", []),
+                        "selection_reason": item.get("selection_reason", ""),
+                        "bytes": item.get("bytes", 0),
+                    }
+                    for item in graph.get("candidates", [])
+                ],
+                "contribution": graph.get("contribution", {}),
+                "context_decision": (graph.get("context_pipeline") or {}).get("context_decision", {}),
+            }
+        except (CodeGraphError, OSError, ValueError) as exc:
+            report["code_graph"] = {
+                "enabled": True, "query": str(code_query), "status": "unavailable",
+                "reason": str(exc)[:160], "contribution": {"bytes": 0, "tokens_estimate": 0},
+            }
+    else:
+        report["code_graph"] = {
+            "enabled": False, "contribution": {"bytes": 0, "tokens_estimate": 0},
+        }
     source_refs = list(getattr(args, "source_ref", []) or [])
     counterfactual = getattr(args, "counterfactual_tokens", None)
     counterfactual = report["total"]["tokens"] if counterfactual is None else counterfactual
@@ -625,6 +665,12 @@ def cmd_prompt_size(args, cfg):
           f"volatile {split['volatile_bytes']} B "
           f"(attributed {acc['attributed_bytes']} + static {acc['static_bytes']} "
           f"= {acc['total_bytes']} — exact)")
+    graph_report = report.get("code_graph", {})
+    if graph_report.get("enabled"):
+        contribution = graph_report.get("contribution", {})
+        print(f"code-graph: {graph_report.get('candidate_count', 0)} candidates, "
+              f"{contribution.get('bytes', 0)} bytes / "
+              f"{contribution.get('tokens_estimate', 0)} estimated tokens")
 
     if rows:
         print("\nPer directive (largest first):")

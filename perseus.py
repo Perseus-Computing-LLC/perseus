@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "811ee99-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "b5154dc"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -4591,6 +4591,979 @@ def _mtr_reset_for_tests() -> None:
         "last_error_at": None,
         "last_error": None,
     })
+"""Exact external-artifact prior-action projections (#925).
+
+This module is intentionally a hash-only adapter. Ledger receipts remain the
+source of truth for external actions; the local store only answers the exact
+identity question needed before a duplicate action is attempted.
+"""
+
+import hashlib
+import json
+import re
+from pathlib import Path
+from typing import Any, Mapping
+
+_AA_SCHEMA = "perseus-artifact-action/v1"
+_AA_OUTCOMES = frozenset({"handled", "attempted", "failed", "cancelled", "unknown", "superseded"})
+_AA_DIGEST = re.compile(r"^[0-9a-fA-F]{64}$")
+_AA_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$")
+
+
+class ArtifactActionError(ValueError):
+    """Raised when an exact-artifact contract cannot be normalized safely."""
+
+
+def _aa_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+
+
+def _aa_sha(value: Any) -> str:
+    return hashlib.sha256(_aa_json(value).encode("utf-8")).hexdigest()
+
+
+def _aa_text(value: Any, field: str, *, required: bool = True) -> str:
+    if not isinstance(value, str):
+        if required:
+            raise ArtifactActionError(f"{field} must be a string")
+        return ""
+    text = value.strip()
+    if required and not text:
+        raise ArtifactActionError(f"{field} is required")
+    if len(text) > 160 or any(ord(ch) < 32 for ch in text):
+        raise ArtifactActionError(f"{field} is invalid")
+    return text
+
+
+def _aa_id(value: Any, field: str) -> str:
+    text = _aa_text(value, field)
+    if not _AA_ID.fullmatch(text):
+        raise ArtifactActionError(f"{field} must be an opaque identifier")
+    return text
+
+
+def _aa_scope(scope: Any) -> dict[str, str]:
+    if scope is None:
+        return {}
+    if not isinstance(scope, Mapping):
+        raise ArtifactActionError("scope must be an object")
+    allowed = ("workspace", "agent", "destination", "actor")
+    unknown = [str(key) for key in scope if key not in allowed]
+    if unknown:
+        raise ArtifactActionError("scope contains unsupported fields")
+    return {key: _aa_id(scope[key], f"scope.{key}") for key in allowed if scope.get(key) is not None and str(scope[key]).strip()}
+
+
+def _aa_digest(value: Any) -> str | None:
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str) or not _AA_DIGEST.fullmatch(value):
+        raise ArtifactActionError("content_sha256 must be a 64-hex digest")
+    return value.lower()
+
+
+def artifact_ref(
+    source_system: str,
+    artifact_type: str,
+    artifact_id: str,
+    *,
+    version: str = "v1",
+    content_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Build a stable artifact identity without accepting a body or payload."""
+    system = _aa_id(source_system, "source_system")
+    kind = _aa_id(artifact_type, "artifact_type")
+    ident = _aa_id(artifact_id, "artifact_id")
+    ver = _aa_id(version, "version")
+    digest = _aa_digest(content_sha256)
+    identity = {"source_system": system, "artifact_type": kind, "artifact_id": ident}
+    exact = {**identity, "version": ver}
+    if digest:
+        exact["content_sha256"] = digest
+    return {
+        "schema_version": _AA_SCHEMA,
+        **exact,
+        "identity_key": "sha256:" + _aa_sha(identity),
+        "artifact_key": "sha256:" + _aa_sha(exact),
+    }
+
+
+class ArtifactActionStore:
+    """Bounded hash-only interaction projection with exact-scope lookup."""
+
+    def __init__(self, path: str | Path | None = None, *, max_records: int = 2048) -> None:
+        self.path = Path(path) if path is not None else None
+        self.max_records = max(1, min(100_000, int(max_records)))
+        self._records: list[dict[str, Any]] = []
+        self._load()
+
+    def _load(self) -> None:
+        if self.path is None or not self.path.exists():
+            return
+        try:
+            for line in self.path.read_text(encoding="utf-8").splitlines()[-self.max_records:]:
+                item = json.loads(line)
+                if isinstance(item, dict) and item.get("schema_version") == _AA_SCHEMA:
+                    self._records.append(item)
+        except (OSError, ValueError):
+            # An unreadable optional projection is not evidence of prior action.
+            self._records = []
+
+    def _persist(self) -> None:
+        if self.path is None:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        lines = "".join(_aa_json(item) + "\n" for item in self._records[-self.max_records:])
+        self.path.write_text(lines, encoding="utf-8")
+
+    @staticmethod
+    def _scope_equal(left: Mapping[str, str], right: Mapping[str, str]) -> bool:
+        return dict(left) == dict(right)
+
+    def _matching(self, ref: Mapping[str, Any], scope: Mapping[str, str]) -> list[dict[str, Any]]:
+        return [
+            item for item in self._records
+            if isinstance(item.get("artifact"), Mapping)
+            and item["artifact"].get("artifact_key") == ref.get("artifact_key")
+            and self._scope_equal(item.get("scope", {}), scope)
+        ]
+
+    def _same_identity(self, ref: Mapping[str, Any], scope: Mapping[str, str]) -> list[dict[str, Any]]:
+        return [
+            item for item in self._records
+            if isinstance(item.get("artifact"), Mapping)
+            and item["artifact"].get("identity_key") == ref.get("identity_key")
+            and self._scope_equal(item.get("scope", {}), scope)
+        ]
+
+    def lookup(self, ref: Mapping[str, Any], *, scope: Any = None) -> dict[str, Any]:
+        normalized_scope = _aa_scope(scope)
+        exact = self._matching(ref, normalized_scope)
+        prior = self._same_identity(ref, normalized_scope)
+        all_prior = [
+            item for item in self._records
+            if isinstance(item.get("artifact"), Mapping) and item["artifact"].get("identity_key") == ref.get("identity_key")
+        ]
+        latest = exact[-1] if exact else None
+        return {
+            "schema_version": _AA_SCHEMA,
+            "artifact_key": ref.get("artifact_key"),
+            "identity_key": ref.get("identity_key"),
+            "scope": normalized_scope,
+            "state": latest.get("outcome", "unknown") if latest else "unknown",
+            "receipt_ids": [str(item["receipt_id"]) for item in exact if item.get("receipt_id")],
+            "prior_receipt_ids": sorted({str(item["receipt_id"]) for item in prior if item.get("receipt_id")}),
+            "scope_mismatch_receipt_ids": sorted({str(item["receipt_id"]) for item in all_prior if item.get("receipt_id") and not self._scope_equal(item.get("scope", {}), normalized_scope)}),
+            "matched": bool(latest),
+        }
+
+    def pre_action_check(self, ref: Mapping[str, Any], *, scope: Any = None) -> dict[str, Any]:
+        normalized_scope = _aa_scope(scope)
+        lookup = self.lookup(ref, scope=normalized_scope)
+        if lookup["state"] == "handled":
+            decision = "duplicate"
+        elif lookup["state"] in {"attempted", "failed", "cancelled"}:
+            decision = "allow_retry"
+        elif lookup["matched"]:
+            decision = "allow"
+        elif lookup["scope_mismatch_receipt_ids"]:
+            decision = "scope_mismatch"
+        elif lookup["prior_receipt_ids"]:
+            decision = "new_version"
+        else:
+            decision = "allow"
+        return {**lookup, "decision": decision}
+
+    def record_action(
+        self,
+        ref: Mapping[str, Any],
+        *,
+        outcome: str,
+        scope: Any = None,
+        receipt_id: str | None = None,
+        actor: str | None = None,
+        destination: str | None = None,
+    ) -> dict[str, Any]:
+        if not isinstance(ref, Mapping) or ref.get("schema_version") != _AA_SCHEMA:
+            raise ArtifactActionError("ref must be an artifact_ref result")
+        normalized_outcome = _aa_text(outcome, "outcome").lower()
+        if normalized_outcome not in _AA_OUTCOMES:
+            raise ArtifactActionError("unsupported action outcome")
+        normalized_scope = _aa_scope(scope)
+        if actor is not None:
+            normalized_scope.setdefault("actor", _aa_id(actor, "actor"))
+        if destination is not None:
+            normalized_scope.setdefault("destination", _aa_id(destination, "destination"))
+        seq = len(self._records) + 1
+        rid = _aa_id(receipt_id, "receipt_id") if receipt_id else "receipt:" + _aa_sha({"ref": ref["artifact_key"], "scope": normalized_scope, "seq": seq})[:32]
+        record = {
+            "schema_version": _AA_SCHEMA,
+            "sequence": seq,
+            "artifact": {key: ref[key] for key in ("schema_version", "source_system", "artifact_type", "artifact_id", "version", "content_sha256", "identity_key", "artifact_key") if key in ref},
+            "scope": normalized_scope,
+            "outcome": normalized_outcome,
+            "receipt_id": rid,
+        }
+        record["action_digest"] = "sha256:" + _aa_sha(record)
+        self._records.append(record)
+        self._records = self._records[-self.max_records:]
+        self._persist()
+        return dict(record)
+"""Bounded evidence-linked tool-lesson lifecycle (#926)."""
+
+import hashlib
+import json
+import re
+from pathlib import Path
+from typing import Any, Mapping
+
+_TL_SCHEMA = "perseus-tool-lesson/v1"
+_TL_STATUSES = frozenset({"proposed", "injected", "correlated", "active", "decayed", "rejected", "superseded"})
+_TL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$")
+
+
+class ToolLessonError(ValueError):
+    """Raised when a lesson boundary cannot be represented safely."""
+
+
+def _tl_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+
+
+def _tl_sha(value: Any) -> str:
+    return hashlib.sha256(_tl_json(value).encode("utf-8")).hexdigest()
+
+
+def _tl_id(value: Any, field: str, *, required: bool = True) -> str:
+    if not isinstance(value, str):
+        if required:
+            raise ToolLessonError(f"{field} must be a string")
+        return ""
+    text = value.strip()
+    if required and not text:
+        raise ToolLessonError(f"{field} is required")
+    if len(text) > 160 or any(ord(ch) < 32 for ch in text) or not _TL_ID.fullmatch(text):
+        raise ToolLessonError(f"{field} is invalid")
+    return text
+
+
+def _tl_scope(scope: Any) -> dict[str, str]:
+    if scope is None:
+        return {}
+    if not isinstance(scope, Mapping):
+        raise ToolLessonError("scope must be an object")
+    allowed = ("workspace", "agent", "provider", "resource")
+    if any(key not in allowed for key in scope):
+        raise ToolLessonError("scope contains unsupported fields")
+    return {key: _tl_id(scope[key], f"scope.{key}") for key in allowed if scope.get(key) is not None and str(scope[key]).strip()}
+
+
+def tool_failure_signature(
+    *, tool: str, operation: str, resource: str = "", error_type: str = "", tool_version: str = "", provider: str = "", status: int | str | None = None,
+) -> str:
+    """Hash normalized tool identity and failure class; never stores raw args."""
+    payload = {
+        "tool": _tl_id(tool, "tool"),
+        "operation": _tl_id(operation, "operation"),
+        "resource": _tl_id(resource, "resource", required=False),
+        "error_type": _tl_id(error_type or "unknown", "error_type"),
+        "tool_version": _tl_id(tool_version or "unknown", "tool_version"),
+        "provider": _tl_id(provider or "local", "provider"),
+        "status": str(status) if status is not None else "",
+    }
+    return "sha256:" + _tl_sha(payload)
+
+
+class ToolLessonStore:
+    """Hash-only queue with explicit admission and causal-verification states."""
+
+    def __init__(self, path: str | Path | None = None, *, max_proposals: int = 256) -> None:
+        self.path = Path(path) if path is not None else None
+        self.max_proposals = max(1, min(10_000, int(max_proposals)))
+        self._records: dict[str, dict[str, Any]] = {}
+        self._telemetry = {"observed_failures": 0, "deduplicated_failures": 0, "queued": 0, "dropped": 0}
+        self._load()
+
+    def _load(self) -> None:
+        if self.path is None or not self.path.exists():
+            return
+        try:
+            for line in self.path.read_text(encoding="utf-8").splitlines()[-self.max_proposals:]:
+                item = json.loads(line)
+                if isinstance(item, dict) and item.get("schema_version") == _TL_SCHEMA and item.get("lesson_id"):
+                    self._records[str(item["lesson_id"])] = item
+        except (OSError, ValueError):
+            self._records = {}
+
+    def _persist(self) -> None:
+        if self.path is None:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text("".join(_tl_json(item) + "\n" for item in self._records.values()), encoding="utf-8")
+
+    def telemetry(self) -> dict[str, int]:
+        return {**self._telemetry, "queued": sum(item.get("status") == "proposed" for item in self._records.values())}
+
+    def get(self, lesson_id: str) -> dict[str, Any]:
+        item = self._records.get(_tl_id(lesson_id, "lesson_id"))
+        if item is None:
+            raise ToolLessonError("unknown lesson")
+        return dict(item)
+
+    def lookup(self, *, tool: str, operation: str, resource: str = "", scope: Any = None) -> dict[str, Any] | None:
+        normalized_scope = _tl_scope(scope)
+        signature = tool_failure_signature(tool=tool, operation=operation, resource=resource, error_type="unknown")
+        # The exact error class is not known at lookup time; match identity fields.
+        for item in self._records.values():
+            if item.get("tool") == tool and item.get("operation") == operation and item.get("resource", "") == resource and item.get("scope", {}) == normalized_scope:
+                if item.get("failure_signature") == signature or item.get("tool_identity") == {"tool": tool, "operation": operation, "resource": resource}:
+                    return dict(item)
+        return None
+
+    def observe_failure(
+        self, *, tool: str, operation: str, resource: str = "", error_type: str = "unknown", tool_version: str = "unknown", provider: str = "local", status: int | str | None = None, scope: Any = None,
+    ) -> dict[str, Any]:
+        normalized_scope = _tl_scope(scope)
+        signature = tool_failure_signature(tool=tool, operation=operation, resource=resource, error_type=error_type, tool_version=tool_version, provider=provider, status=status)
+        self._telemetry["observed_failures"] += 1
+        for item in self._records.values():
+            if item.get("failure_signature") == signature and item.get("scope", {}) == normalized_scope and item.get("status") not in {"decayed", "rejected", "superseded"}:
+                item["observed_count"] = int(item.get("observed_count", 1)) + 1
+                self._telemetry["deduplicated_failures"] += 1
+                self._persist()
+                return {**item, "deduplicated": True}
+        if len(self._records) >= self.max_proposals:
+            self._telemetry["dropped"] += 1
+            return {"schema_version": _TL_SCHEMA, "status": "dropped", "reason": "queue_full", "failure_signature": signature, "deduplicated": False}
+        identity = {"tool": _tl_id(tool, "tool"), "operation": _tl_id(operation, "operation"), "resource": _tl_id(resource, "resource", required=False)}
+        base_id = {"signature": signature, "scope": normalized_scope}
+        lesson_id = "lesson:" + _tl_sha(base_id)[:32]
+        prior_lesson_id = None
+        if lesson_id in self._records:
+            prior_lesson_id = lesson_id
+            generation = 1
+            while lesson_id in self._records:
+                lesson_id = "lesson:" + _tl_sha({**base_id, "generation": generation})[:32]
+                generation += 1
+        item = {
+            "schema_version": _TL_SCHEMA, "lesson_id": lesson_id, "status": "proposed",
+            "tool": identity["tool"], "operation": identity["operation"], "resource": identity["resource"],
+            "tool_identity": identity, "provider": _tl_id(provider or "local", "provider"), "tool_version": _tl_id(tool_version or "unknown", "tool_version"), "failure_signature": signature, "scope": normalized_scope,
+            "observed_count": 1, "injection_refs": [], "evidence_refs": [],
+        }
+        if prior_lesson_id:
+            item["prior_lesson_id"] = prior_lesson_id
+        self._records[lesson_id] = item
+        self._persist()
+        return {**item, "deduplicated": False}
+
+    def expose_lesson(self, lesson_id: str, *, injection_ref: str) -> dict[str, Any]:
+        item = self._records.get(_tl_id(lesson_id, "lesson_id"))
+        if item is None:
+            raise ToolLessonError("unknown lesson")
+        ref = _tl_id(injection_ref, "injection_ref")
+        if item["status"] in {"proposed", "correlated"}:
+            item["status"] = "injected"
+        if ref not in item["injection_refs"]:
+            item["injection_refs"].append(ref)
+        self._persist()
+        return dict(item)
+
+    def record_follow_up(self, lesson_id: str, *, tool: str, operation: str, resource: str = "", error_type: str = "unknown", tool_version: str = "unknown", provider: str = "local", status: int | str | None = None, success: bool, evidence_ref: str | None = None, scope: Any = None) -> dict[str, Any]:
+        item = self._records.get(_tl_id(lesson_id, "lesson_id"))
+        if item is None:
+            raise ToolLessonError("unknown lesson")
+        same = item["tool"] == tool and item["operation"] == operation and item.get("resource", "") == resource and item.get("scope", {}) == _tl_scope(scope) and item.get("provider", "local") == _tl_id(provider or "local", "provider") and item.get("tool_version", "unknown") == _tl_id(tool_version or "unknown", "tool_version")
+        classification = "temporal_correlation" if same and success else ("matching_failure" if same else "unrelated")
+        if evidence_ref:
+            ref = _tl_id(evidence_ref, "evidence_ref")
+            if ref not in item["evidence_refs"]:
+                item["evidence_refs"].append(ref)
+        if classification == "temporal_correlation" and item["status"] == "injected":
+            item["status"] = "correlated"
+        self._persist()
+        return {"schema_version": _TL_SCHEMA, "lesson_id": lesson_id, "classification": classification, "success": bool(success), "causal_confirmation": False}
+
+    def admit_lesson(self, lesson_id: str, *, evidence_refs: list[str]) -> dict[str, Any]:
+        item = self._records.get(_tl_id(lesson_id, "lesson_id"))
+        if item is None:
+            raise ToolLessonError("unknown lesson")
+        refs = [_tl_id(ref, "evidence_ref") for ref in evidence_refs]
+        if not refs:
+            raise ToolLessonError("governed admission requires evidence")
+        if item.get("status") in {"decayed", "rejected", "superseded"}:
+            raise ToolLessonError("terminal lesson cannot be admitted")
+        item["evidence_refs"] = sorted(set(item["evidence_refs"]) | set(refs))
+        item["status"] = "active"
+        self._persist()
+        return dict(item)
+
+    def decay_lesson(self, lesson_id: str, *, reason: str) -> dict[str, Any]:
+        item = self._records.get(_tl_id(lesson_id, "lesson_id"))
+        if item is None:
+            raise ToolLessonError("unknown lesson")
+        item["status"] = "decayed"
+        item["decay_reason"] = _tl_id(reason, "reason")
+        self._persist()
+        return dict(item)
+
+    def supersede_lesson(self, lesson_id: str, *, replacement_id: str) -> dict[str, Any]:
+        item = self._records.get(_tl_id(lesson_id, "lesson_id"))
+        if item is None:
+            raise ToolLessonError("unknown lesson")
+        item["status"] = "superseded"
+        item["replacement_id"] = _tl_id(replacement_id, "replacement_id")
+        self._persist()
+        return dict(item)
+"""Hash-only memory-injection efficiency telemetry (#929)."""
+
+import hashlib
+import json
+import math
+import re
+from pathlib import Path
+from typing import Any, Mapping
+
+_MIT_SCHEMA = "perseus-memory-injection/v1"
+_MIT_STATES = frozenset({"measured", "empty", "degraded", "unavailable"})
+_MIT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$")
+
+
+class MemoryTelemetryError(ValueError):
+    """Raised for malformed or unverifiable telemetry inputs."""
+
+
+def _mit_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+
+
+def _mit_sha(value: Any) -> str:
+    return hashlib.sha256(_mit_json(value).encode("utf-8")).hexdigest()
+
+
+def _mit_hash_label(value: Any, field: str) -> str:
+    text = str(value or "unspecified")[:512]
+    return "sha256:" + _mit_sha({"field": field, "value": text})
+
+
+def _mit_id(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value.strip()) > 160 or any(ord(ch) < 32 for ch in value):
+        raise MemoryTelemetryError(f"{field} must be a bounded identifier")
+    text = value.strip()
+    if not _MIT_ID.fullmatch(text):
+        raise MemoryTelemetryError(f"{field} contains unsafe characters")
+    return text
+
+
+def _mit_tokens(text: str) -> int:
+    return max(0, math.ceil(len(str(text or "").encode("utf-8")) / 4))
+
+
+class MemoryInjectionTelemetry:
+    """In-process event collector whose public report contains no source text."""
+
+    def __init__(self) -> None:
+        self._events: list[dict[str, Any]] = []
+
+    def record(
+        self, *, session_id: str, surface: str, trigger: str, delivered_tokens: int | None = None, delivered_text: str | None = None, baseline_tokens: int = 0, baseline_definition: str = "full-history", source_count: int = 0, corpus_size: int = 0, profile: str = "default", state: str = "measured", reason: str | None = None, provider_usage: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        sid, surf, trig = _mit_id(session_id, "session_id"), _mit_id(surface, "surface"), _mit_id(trigger, "trigger")
+        normalized_state = str(state or "measured").lower()
+        if normalized_state not in _MIT_STATES:
+            raise MemoryTelemetryError("invalid telemetry state")
+        served = _mit_tokens(delivered_text) if delivered_tokens is None and delivered_text is not None else max(0, int(delivered_tokens or 0))
+        baseline = max(0, int(baseline_tokens or 0))
+        if normalized_state == "measured" and baseline <= 0:
+            raise MemoryTelemetryError("measured events require a positive baseline denominator")
+        if normalized_state == "measured" and served > baseline:
+            normalized_state = "degraded"
+            reason = reason or "delivered_context_exceeds_baseline"
+        avoided = baseline - served if normalized_state == "measured" else None
+        ratio = round(avoided / baseline, 6) if avoided is not None and baseline else None
+        event: dict[str, Any] = {
+            "schema_version": _MIT_SCHEMA, "event_index": len(self._events) + 1,
+            "session_id": sid, "surface": surf, "trigger": trig, "profile": _mit_id(profile or "default", "profile"),
+            "state": normalized_state, "tokens_served": served, "baseline_tokens": baseline,
+            "baseline_definition_sha256": _mit_hash_label(baseline_definition, "baseline_definition"),
+            "tokens_avoided": avoided, "savings_ratio": ratio,
+            "source_count": max(0, int(source_count)), "corpus_size": max(0, int(corpus_size)),
+        }
+        if reason:
+            event["reason_sha256"] = _mit_hash_label(reason, "reason")
+        if provider_usage:
+            safe_usage = {str(k): int(v) for k, v in provider_usage.items() if str(k) in {"input_tokens", "output_tokens", "total_tokens"} and isinstance(v, int) and not isinstance(v, bool) and v >= 0}
+            if safe_usage:
+                event["provider_usage"] = safe_usage
+        self._events.append(event)
+        return dict(event)
+
+    def report(self) -> dict[str, Any]:
+        states = {state: sum(event["state"] == state for event in self._events) for state in sorted(_MIT_STATES)}
+        measured = [event for event in self._events if event["state"] == "measured"]
+        body = {
+            "schema_version": _MIT_SCHEMA, "events": [dict(event) for event in self._events],
+            "states": {key: value for key, value in states.items() if value},
+            "denominators": {"events": len(self._events), "measured_events": len(measured), "baseline_tokens": sum(event["baseline_tokens"] for event in measured)},
+            "summary": {"tokens_served": sum(event["tokens_served"] for event in measured), "tokens_avoided": sum(event["tokens_avoided"] or 0 for event in measured), "measured_events": len(measured), "degraded_events": states["degraded"], "empty_events": states["empty"], "unavailable_events": states["unavailable"]},
+        }
+        body["report_sha256"] = _mit_sha(body)
+        return body
+
+    def write_report(self, path: str | Path) -> dict[str, Any]:
+        report = self.report()
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(_mit_json(report) + "\n", encoding="utf-8")
+        return report
+
+
+def build_memory_injection_report() -> dict[str, Any]:
+    """Produce the deterministic offline, citation-ready benchmark report."""
+    telemetry = MemoryInjectionTelemetry()
+    telemetry.record(session_id="fixture-1", surface="recall", trigger="task", delivered_tokens=24, baseline_tokens=160, baseline_definition="full-history-transcript", source_count=6, corpus_size=24, profile="relevant")
+    telemetry.record(session_id="fixture-2", surface="projection", trigger="startup", delivered_tokens=18, baseline_tokens=96, baseline_definition="entity-dump", source_count=3, corpus_size=12, profile="on_demand")
+    telemetry.record(session_id="fixture-3", surface="recall", trigger="task", delivered_tokens=0, baseline_tokens=0, baseline_definition="no-match", state="empty", reason="no eligible records")
+    telemetry.record(session_id="fixture-4", surface="recall", trigger="task", delivered_tokens=0, baseline_tokens=140, baseline_definition="full-history-transcript", state="degraded", reason="vault unavailable")
+    report = telemetry.report()
+    result = {
+        "benchmark": "memory-injection-efficiency", "issue": 929, "offline": True, "provider_mode": "none",
+        "methodology": {"baseline_definition": "Each arm declares either full-history-transcript or entity-dump; local retrieval work is not provider savings.", "token_counter": "deterministic UTF-8 bytes divided by four, rounded up", "privacy": "hash-only event metadata; no source bodies or prompts"},
+        "telemetry": report, "summary": report["summary"],
+    }
+    result["artifact_sha256"] = _mit_sha(result)
+    return result
+
+
+def cmd_memory_efficiency(args, cfg) -> int:
+    import json as _json
+    report = build_memory_injection_report()
+    output = getattr(args, "output", None)
+    if output:
+        Path(output).write_text(_mit_json(report) + "\n", encoding="utf-8")
+    if getattr(args, "json", False) or not output:
+        print(_json.dumps(report, indent=2))
+    else:
+        print(f"memory-efficiency report -> {output}\nsha256: {report['artifact_sha256']}")
+    return 0
+"""Portable machine-legible context artifacts and deterministic cartridges (#923/#924/#928)."""
+
+import hashlib
+import json
+import math
+import re
+from typing import Any, Mapping
+
+_CA_SCHEMA = "perseus-agent-context/v1"
+_CA_MEMENTO_SCHEMA = "perseus-memento/v1"
+_CA_CARTRIDGE_SCHEMA = "perseus-context-cartridge/v1"
+_CA_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$")
+_CA_TOKEN = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.:/#@+\-]*")
+_CA_STOP = frozenset({"a", "an", "and", "are", "be", "for", "from", "in", "is", "of", "on", "or", "the", "to", "use", "with"})
+
+
+class ContextArtifactError(ValueError):
+    """Raised when a portable artifact cannot satisfy its contract."""
+
+
+def _ca_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+
+
+def _ca_sha(value: Any) -> str:
+    return hashlib.sha256(_ca_json(value).encode("utf-8")).hexdigest()
+
+
+def _ca_text(value: Any, field: str, limit: int = 512) -> str:
+    if not isinstance(value, str):
+        raise ContextArtifactError(f"{field} must be text")
+    text = re.sub(r"[\x00-\x1f\x7f]", " ", value).strip()
+    if not text:
+        raise ContextArtifactError(f"{field} must not be empty")
+    return text[:limit]
+
+
+def _ca_id(value: Any, field: str, fallback: str = "") -> str:
+    text = str(value or fallback).strip()
+    if not text:
+        raise ContextArtifactError(f"{field} must not be empty")
+    if len(text) > 160 or not _CA_ID.fullmatch(text):
+        return "sha256:" + hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+    return text
+
+
+def _ca_digest(value: Any) -> str | None:
+    if value is None or value == "":
+        return None
+    text = str(value).lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", text):
+        raise ContextArtifactError("sha256 must be a 64-hex digest")
+    return text
+
+
+def _ca_list(values: Any, field: str, limit: int = 32) -> list[str]:
+    if values is None:
+        return []
+    if not isinstance(values, (list, tuple)):
+        raise ContextArtifactError(f"{field} must be a list")
+    result = []
+    for value in values[:limit]:
+        if isinstance(value, str) and value.strip():
+            result.append(_ca_text(value, field, 384))
+    return result
+
+
+def _ca_entity(value: Any, index: int) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ContextArtifactError("entities must contain objects")
+    allowed = ("id", "type", "label", "summary", "source_ref", "content_sha256", "line_range")
+    item: dict[str, Any] = {"id": _ca_id(value.get("id"), "entity.id", fallback=f"entity-{index + 1}")}
+    for key in allowed[1:]:
+        raw = value.get(key)
+        if key == "content_sha256":
+            digest = _ca_digest(raw)
+            if digest:
+                item[key] = digest
+        elif key == "line_range":
+            if isinstance(raw, (list, tuple)) and len(raw) == 2 and all(isinstance(n, int) and not isinstance(n, bool) and n >= 1 for n in raw):
+                item[key] = [int(raw[0]), int(raw[1])]
+        elif raw is not None and str(raw).strip():
+            item[key] = _ca_id(raw, f"entity.{key}") if key in {"type", "source_ref"} else _ca_text(raw, f"entity.{key}", 384)
+    # Raw body/content/prompt keys are deliberately not copied.
+    return item
+
+
+def _ca_source(value: Any, index: int) -> dict[str, Any]:
+    if isinstance(value, str):
+        return {"ref": _ca_id(value, "source.ref")}
+    if not isinstance(value, Mapping):
+        raise ContextArtifactError("sources must contain objects or refs")
+    ref = value.get("ref", value.get("source_id", f"source-{index + 1}"))
+    item = {"ref": _ca_id(ref, "source.ref")}
+    digest = _ca_digest(value.get("sha256", value.get("content_sha256")))
+    if digest:
+        item["sha256"] = digest
+    if isinstance(value.get("line_range"), (list, tuple)) and len(value["line_range"]) == 2 and all(isinstance(n, int) and n >= 1 for n in value["line_range"]):
+        item["line_range"] = [int(value["line_range"][0]), int(value["line_range"][1])]
+    return item
+
+
+def _ca_budgeted(value: dict[str, Any], budget_tokens: int | None) -> tuple[dict[str, Any], dict[str, Any]]:
+    budget = max(1, int(budget_tokens)) if budget_tokens is not None else None
+    body = dict(value)
+    estimated = max(1, math.ceil(len(_ca_json(body).encode("utf-8")) / 4))
+    if budget is None or estimated <= budget:
+        return body, {"max_tokens": budget, "estimated_tokens": estimated, "within_budget": True, "truncated": False}
+    sections = dict(body.get("sections", {}))
+    # Preserve intent/objective and evidence anchors first; remove lower-signal
+    # lists deterministically until the serialized artifact fits.
+    for key in ("examples", "entities", "constraints", "unresolved_questions", "next_steps"):
+        if isinstance(sections.get(key), list):
+            sections[key] = sections[key][: max(1, min(4, len(sections[key])))]
+            body["sections"] = sections
+            estimated = math.ceil(len(_ca_json(body).encode("utf-8")) / 4)
+            if estimated <= budget:
+                break
+    if estimated > budget:
+        for key in ("intent", "objective", "selection_reason"):
+            if isinstance(sections.get(key), str):
+                keep = max(8, budget * 3 // 4)
+                sections[key] = sections[key][:keep].rstrip() + "…"
+        body["sections"] = sections
+        estimated = math.ceil(len(_ca_json(body).encode("utf-8")) / 4)
+    if estimated > budget:
+        raise ContextArtifactError("artifact cannot fit declared token budget without dropping required intent")
+    return body, {"max_tokens": budget, "estimated_tokens": estimated, "within_budget": True, "truncated": True}
+
+
+def _ca_envelope_tokens(value: Mapping[str, Any]) -> int:
+    return max(1, math.ceil(len(_ca_json(value).encode("utf-8")) / 4))
+
+
+def _ca_finalize(schema: str, kind: str, sections: dict[str, Any], *, budget_tokens: int | None = None, metadata: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    present = sum(bool(value) for value in sections.values())
+    quality = {
+        "field_coverage": round(present / max(1, len(sections)), 4),
+        "ambiguity_count": len(sections.get("unresolved_questions", [])) if isinstance(sections.get("unresolved_questions"), list) else 0,
+        "citation_density": round(len(sections.get("evidence_anchors", sections.get("sources", []))) / max(1, sum(len(value) for value in sections.values() if isinstance(value, list))), 4),
+    }
+    safe_metadata = {}
+    if metadata:
+        safe_metadata = {str(key): _ca_id(value, f"metadata.{key}") for key, value in metadata.items() if str(key) in {"project", "profile", "revision"} and value is not None}
+    body: dict[str, Any] = {"schema_version": schema, "kind": kind, "sections": sections, "quality": quality}
+    if safe_metadata:
+        body["metadata"] = safe_metadata
+    # Reserve the final envelope while trimming. Hash placeholders have the same
+    # byte width as their finalized values, so the declared token budget is for
+    # the complete portable artifact, not only its sections.
+    body["source_manifest_sha256"] = "0" * 64
+    body["budget"] = {"max_tokens": max(1, int(budget_tokens)) if budget_tokens is not None else None, "estimated_tokens": 0, "within_budget": True, "truncated": False}
+    body["artifact_sha256"] = "0" * 64
+    body, budget = _ca_budgeted(body, budget_tokens)
+    manifest_values = body["sections"].get("sources", body["sections"].get("evidence_anchors", []))
+    body["source_manifest_sha256"] = _ca_sha(manifest_values)
+    body["budget"] = dict(budget)
+    body["artifact_sha256"] = "0" * 64
+    estimated = _ca_envelope_tokens(body)
+    for _ in range(3):
+        body["budget"]["estimated_tokens"] = estimated
+        revised = _ca_envelope_tokens(body)
+        if revised == estimated:
+            break
+        estimated = revised
+    body["budget"]["estimated_tokens"] = estimated
+    if budget_tokens is not None and estimated > int(budget_tokens):
+        raise ContextArtifactError("artifact cannot fit declared token budget including its final envelope")
+    body.pop("artifact_sha256", None)
+    body["artifact_sha256"] = _ca_sha(body)
+    return body
+
+
+def build_agent_context_artifact(*, intent: str, constraints: Any = None, entities: Any = None, sources: Any = None, examples: Any = None, action_boundaries: Any = None, budget_tokens: int | None = None, metadata: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    sections = {
+        "intent": _ca_text(intent, "intent"),
+        "constraints": _ca_list(constraints, "constraints"),
+        "entities": [_ca_entity(value, index) for index, value in enumerate((entities or [])[:32])],
+        "sources": [_ca_source(value, index) for index, value in enumerate((sources or [])[:32])],
+        "examples": _ca_list(examples, "examples"),
+        "action_boundaries": _ca_list(action_boundaries, "action_boundaries"),
+    }
+    return _ca_finalize(_CA_SCHEMA, "agent_context", sections, budget_tokens=budget_tokens, metadata=metadata)
+
+
+def build_memento_artifact(*, objective: str, constraints: Any = None, unresolved_questions: Any = None, evidence_anchors: Any = None, next_steps: Any = None, budget_tokens: int | None = None) -> dict[str, Any]:
+    sections = {
+        "objective": _ca_text(objective, "objective"),
+        "constraints": _ca_list(constraints, "constraints"),
+        "unresolved_questions": _ca_list(unresolved_questions, "unresolved_questions"),
+        "evidence_anchors": [_ca_id(value, "evidence_anchor") for value in (evidence_anchors or [])[:32]],
+        "next_steps": _ca_list(next_steps, "next_steps"),
+    }
+    return _ca_finalize(_CA_MEMENTO_SCHEMA, "memento", sections, budget_tokens=budget_tokens)
+
+
+def load_context_artifact(payload: Mapping[str, Any] | str) -> dict[str, Any]:
+    """Load and verify a portable artifact or JSON serialization."""
+    try:
+        value = json.loads(payload) if isinstance(payload, str) else dict(payload)
+    except (TypeError, ValueError) as exc:
+        raise ContextArtifactError("artifact JSON is invalid") from exc
+    if not isinstance(value, dict) or value.get("schema_version") not in {_CA_SCHEMA, _CA_MEMENTO_SCHEMA}:
+        raise ContextArtifactError("unsupported context artifact schema")
+    allowed_top = {"schema_version", "kind", "sections", "quality", "source_manifest_sha256", "budget", "artifact_sha256", "metadata"}
+    if set(value) - allowed_top:
+        raise ContextArtifactError("artifact contains unsupported fields")
+    expected_kind = "agent_context" if value["schema_version"] == _CA_SCHEMA else "memento"
+    if value.get("kind") != expected_kind or not isinstance(value.get("sections"), dict):
+        raise ContextArtifactError("artifact kind or sections are invalid")
+    required_sections = {"intent", "constraints", "entities", "sources", "examples", "action_boundaries"} if expected_kind == "agent_context" else {"objective", "constraints", "unresolved_questions", "evidence_anchors", "next_steps"}
+    if set(value["sections"]) != required_sections:
+        raise ContextArtifactError("artifact sections do not match its schema")
+    if not isinstance(value.get("quality"), dict) or not isinstance(value.get("source_manifest_sha256"), str):
+        raise ContextArtifactError("artifact quality or source manifest is invalid")
+    quality = value["quality"]
+    if set(quality) != {"field_coverage", "ambiguity_count", "citation_density"}:
+        raise ContextArtifactError("artifact quality fields are invalid")
+    field_coverage = quality["field_coverage"]
+    citation_density = quality["citation_density"]
+    ambiguity_count = quality["ambiguity_count"]
+    if isinstance(field_coverage, bool) or not isinstance(field_coverage, (int, float)) or not 0 <= field_coverage <= 1:
+        raise ContextArtifactError("artifact quality field_coverage is invalid")
+    if isinstance(citation_density, bool) or not isinstance(citation_density, (int, float)) or not 0 <= citation_density <= 1:
+        raise ContextArtifactError("artifact quality citation_density is invalid")
+    if isinstance(ambiguity_count, bool) or not isinstance(ambiguity_count, int) or ambiguity_count < 0:
+        raise ContextArtifactError("artifact quality ambiguity_count is invalid")
+    budget = value.get("budget")
+    if not isinstance(budget, dict) or set(budget) != {"max_tokens", "estimated_tokens", "within_budget", "truncated"}:
+        raise ContextArtifactError("artifact budget is invalid")
+    max_tokens = budget["max_tokens"]
+    if max_tokens is not None and (not isinstance(max_tokens, int) or isinstance(max_tokens, bool) or max_tokens < 1):
+        raise ContextArtifactError("artifact budget maximum is invalid")
+    if not isinstance(budget["estimated_tokens"], int) or isinstance(budget["estimated_tokens"], bool) or budget["estimated_tokens"] < 1 or not isinstance(budget["within_budget"], bool) or not isinstance(budget["truncated"], bool):
+        raise ContextArtifactError("artifact budget values are invalid")
+    if max_tokens is not None and budget["estimated_tokens"] > max_tokens:
+        raise ContextArtifactError("artifact exceeds its declared token budget")
+    supplied = value.get("artifact_sha256")
+    if not isinstance(supplied, str):
+        raise ContextArtifactError("artifact_sha256 is required")
+    unsigned = dict(value)
+    unsigned.pop("artifact_sha256", None)
+    if _ca_sha(unsigned) != supplied:
+        raise ContextArtifactError("artifact commitment mismatch")
+    # The declared estimate must equal the canonical envelope size of the
+    # finished artifact (hash width included), not merely be in range: a
+    # rehashed artifact with a doctored low estimate must not load.
+    if budget["estimated_tokens"] != _ca_envelope_tokens(value):
+        raise ContextArtifactError("artifact token estimate does not match its envelope")
+    sections = value["sections"]
+    manifest_values = sections.get("sources", sections.get("evidence_anchors", []))
+    if value.get("source_manifest_sha256") != _ca_sha(manifest_values):
+        raise ContextArtifactError("source manifest commitment mismatch")
+    return value
+
+
+def verify_context_artifact(payload: Mapping[str, Any] | str) -> dict[str, Any]:
+    artifact = load_context_artifact(payload)
+    return {
+        "valid": True,
+        "schema_version": artifact["schema_version"],
+        "kind": artifact.get("kind"),
+        "artifact_sha256": artifact["artifact_sha256"],
+        "source_manifest_sha256": artifact.get("source_manifest_sha256"),
+        "budget": artifact.get("budget", {}),
+    }
+
+
+def render_context_artifact(artifact: Mapping[str, Any], *, format: str = "json") -> str:
+    if not isinstance(artifact, Mapping) or not artifact.get("artifact_sha256"):
+        raise ContextArtifactError("artifact must be finalized")
+    mode = str(format).lower()
+    if mode == "json":
+        return json.dumps(dict(artifact), indent=2, sort_keys=True) + "\n"
+    if mode in {"markdown", "md", "portable"}:
+        lines = [f"# {artifact.get('kind', 'context artifact')}", "", f"Schema: `{artifact['schema_version']}`", f"Artifact: `{artifact['artifact_sha256']}`", ""]
+        for key, value in artifact.get("sections", {}).items():
+            lines.append(f"## {key.replace('_', ' ').title()}")
+            if isinstance(value, list):
+                lines.extend(f"- {json.dumps(item, sort_keys=True) if isinstance(item, dict) else item}" for item in value)
+            else:
+                lines.append(str(value))
+            lines.append("")
+        return "\n".join(lines)
+    raise ContextArtifactError("format must be json, markdown, or portable")
+
+
+def _ca_terms(text: str) -> list[str]:
+    return sorted({token.lower() for token in _CA_TOKEN.findall(str(text or "")) if token.lower() not in _CA_STOP and len(token) > 1})
+
+
+def train_context_cartridge(corpus: Mapping[str, str], *, corpus_id: str = "corpus") -> dict[str, Any]:
+    if not isinstance(corpus, Mapping) or not corpus:
+        raise ContextArtifactError("cartridge corpus must be a non-empty mapping")
+    normalized_id = _ca_id(corpus_id, "corpus_id")
+    hashes: dict[str, str] = {}
+    entries: list[dict[str, Any]] = []
+    for raw_id in sorted(corpus, key=str):
+        source_id = _ca_id(raw_id, "source_id")
+        text = corpus[raw_id]
+        if not isinstance(text, str):
+            raise ContextArtifactError("cartridge source content must be text")
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        hashes[source_id] = digest
+        entries.append({"source_id": source_id, "entity_sha256": digest, "term_hashes": sorted(hashlib.sha256(term.encode("utf-8")).hexdigest() for term in _ca_terms(text))})
+    body = {
+        "schema_version": _CA_CARTRIDGE_SCHEMA,
+        "backend": "deterministic_hash_cartridge",
+        "learned": False,
+        "quality_status": "structural_only",
+        "corpus_id": normalized_id,
+        "model_compatibility": {
+            "model_id": "none",
+            "tokenizer_sha256": "none",
+            "architecture": {"layers": 0, "heads": 0, "dtype": "none", "prefix_length": 0},
+        },
+        "source_entity_hashes": hashes,
+        "entries": entries,
+        "training": {"method": "offline self-study term projection", "synthetic_examples": len(entries) * 2, "raw_corpus_persisted": False},
+    }
+    body["cartridge_id"] = "cartridge:" + _ca_sha(body)[:32]
+    body["cartridge_sha256"] = _ca_sha(body)
+    return body
+
+
+def load_context_cartridge(payload: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(payload, Mapping) or payload.get("schema_version") != _CA_CARTRIDGE_SCHEMA or payload.get("backend") != "deterministic_hash_cartridge":
+        raise ContextArtifactError("unsupported cartridge")
+    if payload.get("learned") is not False or payload.get("quality_status") != "structural_only":
+        raise ContextArtifactError("core loader only accepts explicitly structural cartridges")
+    if not isinstance(payload.get("entries"), list) or not isinstance(payload.get("source_entity_hashes"), Mapping):
+        raise ContextArtifactError("malformed cartridge")
+    supplied = payload.get("cartridge_sha256")
+    if not isinstance(supplied, str):
+        raise ContextArtifactError("cartridge_sha256 is required")
+    unsigned = dict(payload)
+    unsigned.pop("cartridge_sha256", None)
+    if _ca_sha(unsigned) != supplied:
+        raise ContextArtifactError("cartridge commitment mismatch")
+    return json.loads(_ca_json(payload))
+
+
+def query_context_cartridge(cartridge: Mapping[str, Any], query: str, *, limit: int = 8) -> list[dict[str, Any]]:
+    loaded = load_context_cartridge(cartridge)
+    query_hashes = {hashlib.sha256(term.encode("utf-8")).hexdigest() for term in _ca_terms(query)}
+    scored = []
+    for entry in loaded["entries"]:
+        overlap = len(query_hashes.intersection(set(entry.get("term_hashes", []))))
+        if overlap:
+            scored.append({"source_id": entry["source_id"], "score": round(overlap / max(1, len(query_hashes)), 6), "evidence": {"source_entity_sha256": entry["entity_sha256"], "cartridge_id": loaded["cartridge_id"]}})
+    scored.sort(key=lambda item: (-item["score"], item["source_id"]))
+    return scored[: max(1, min(64, int(limit)))]
+
+
+def compose_context_cartridges(cartridges: list[Mapping[str, Any]]) -> dict[str, Any]:
+    loaded = [load_context_cartridge(item) for item in cartridges]
+    if not loaded:
+        raise ContextArtifactError("at least one cartridge is required")
+    entries: dict[str, dict[str, Any]] = {}
+    hashes: dict[str, str] = {}
+    ids = []
+    for item in loaded:
+        ids.append(item["cartridge_id"])
+        hashes.update(item["source_entity_hashes"])
+        for entry in item["entries"]:
+            entries[entry["source_id"]] = entry
+    compatibility = loaded[0].get("model_compatibility")
+    if any(item.get("model_compatibility") != compatibility for item in loaded[1:]):
+        raise ContextArtifactError("cartridges have incompatible model/tokenizer/shape metadata")
+    body = {
+        "schema_version": _CA_CARTRIDGE_SCHEMA,
+        "backend": "deterministic_hash_cartridge",
+        "learned": False,
+        "quality_status": "structural_only",
+        "corpus_id": "composed",
+        "model_compatibility": compatibility,
+        "cartridge_ids": sorted(ids),
+        "source_entity_hashes": dict(sorted(hashes.items())),
+        "entries": [entries[key] for key in sorted(entries)],
+        "training": {"method": "composition", "raw_corpus_persisted": False},
+    }
+    body["cartridge_id"] = "cartridge:" + _ca_sha(body)[:32]
+    body["cartridge_sha256"] = _ca_sha(body)
+    return body
+
+
+def evaluate_context_cartridge(corpus: Mapping[str, str], cartridge: Mapping[str, Any], queries: list[tuple[str, str]]) -> dict[str, Any]:
+    loaded = load_context_cartridge(cartridge)
+    full_bytes = sum(len(str(value).encode("utf-8")) for value in corpus.values())
+    cartridge_bytes = len(_ca_json(loaded).encode("utf-8"))
+    hits = query_context_cartridge(loaded, " ".join(query for query, _expected in queries), limit=64)
+    found = {hit["source_id"] for hit in hits}
+    expected = {expected for _query, expected in queries}
+    return {"full_context_bytes": full_bytes, "cartridge_bytes": cartridge_bytes, "compression_ratio": round(full_bytes / max(1, cartridge_bytes), 4), "quality": round(len(found & expected) / max(1, len(expected)), 4), "throughput_proxy": round(len(queries) / max(1, cartridge_bytes), 8)}
+
+
+def cmd_context_artifact(args, cfg) -> int:
+    import json as _json
+    from pathlib import Path
+    try:
+        payload = _json.loads(Path(args.input).read_text(encoding="utf-8"))
+        kind = getattr(args, "kind", "structured")
+        if kind == "memento":
+            artifact = build_memento_artifact(**payload)
+        else:
+            artifact = build_agent_context_artifact(**payload)
+        rendered = render_context_artifact(artifact, format=getattr(args, "format", "json"))
+        output = getattr(args, "output", None)
+        if output:
+            Path(output).write_text(rendered, encoding="utf-8")
+        if getattr(args, "json", False) or not output:
+            print(rendered, end="")
+        else:
+            print(f"context-artifact -> {output}\nsha256: {artifact['artifact_sha256']}")
+        return 0
+    except (OSError, ValueError, ContextArtifactError) as exc:
+        print(f"context-artifact: {exc}")
+        return 1
 # ──────────────────────────────── @env ────────────────────────────────────────
 
 # task-61: Default deny-list always active. Patterns are fnmatch globs.
@@ -35186,6 +36159,242 @@ __all__ = [
     "clear_agent_projection_cache", "context_ask", "context_rank", "preview_context_release",
     "release_context", "revoke_context_release",
 ]
+"""Optional local symbol/dependency code graph provider (#921)."""
+
+import ast
+import hashlib
+import json
+import re
+from pathlib import Path
+from typing import Any, Mapping
+
+
+_CG_EXTENSIONS = frozenset({".py", ".js", ".jsx", ".ts", ".tsx", ".rs", ".go", ".java", ".rb", ".c", ".cc", ".cpp", ".h", ".hpp", ".php", ".swift", ".kt", ".scala", ".sh"})
+_CG_SYMBOL_RE = re.compile(r"^\s*(?:async\s+def|def|class|function|fn|func|type|struct|interface)\s+([A-Za-z_][A-Za-z0-9_]*)")
+_CG_IMPORT_RE = re.compile(r"^\s*(?:from|import|use|require\s*\(|#include)\s+([^\s;,)]+)")
+_CG_TERM_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_./:-]*")
+_CG_STOP = frozenset({"a", "an", "and", "are", "be", "for", "from", "in", "is", "of", "on", "or", "the", "to", "use", "with"})
+
+
+class CodeGraphError(ValueError):
+    """Raised for invalid or unsafe code-graph requests."""
+
+
+def _cg_sha_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _cg_terms(value: str) -> list[str]:
+    return [token.lower() for token in _CG_TERM_RE.findall(str(value or "")) if token.lower() not in _CG_STOP]
+
+
+def _cg_language(path: Path) -> str:
+    return {".py": "python", ".js": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".rs": "rust", ".go": "go", ".java": "java", ".rb": "ruby", ".c": "c", ".cc": "cpp", ".cpp": "cpp", ".h": "c-header", ".hpp": "cpp-header", ".php": "php", ".swift": "swift", ".kt": "kotlin", ".scala": "scala", ".sh": "shell"}.get(path.suffix.lower(), "unknown")
+
+
+def _cg_parse(path: Path, rel: str, text: str) -> dict[str, Any]:
+    symbols: list[dict[str, Any]] = []
+    imports: set[str] = set()
+    calls: set[str] = set()
+    parser = "lexical"
+    if path.suffix.lower() == ".py":
+        try:
+            tree = ast.parse(text, filename=rel)
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    symbols.append({"name": node.name, "kind": "class" if isinstance(node, ast.ClassDef) else "function", "line_start": int(node.lineno), "line_end": int(getattr(node, "end_lineno", node.lineno))})
+                elif isinstance(node, ast.Import):
+                    imports.update(alias.name for alias in node.names)
+                elif isinstance(node, ast.ImportFrom):
+                    imports.add("." * int(node.level) + str(node.module or ""))
+                elif isinstance(node, ast.Call):
+                    fn = node.func.attr if isinstance(node.func, ast.Attribute) else node.func.id if isinstance(node.func, ast.Name) else ""
+                    if fn:
+                        calls.add(fn)
+            parser = "ast"
+        except SyntaxError:
+            # Fall through to the dependency-light lexical parser.
+            symbols = []
+    if not symbols:
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            match = _CG_SYMBOL_RE.match(line)
+            if match:
+                symbols.append({"name": match.group(1), "kind": "symbol", "line_start": lineno, "line_end": lineno})
+    for line in text.splitlines():
+        match = _CG_IMPORT_RE.match(line)
+        if match:
+            imports.add(match.group(1).strip("\"'"))
+    sorted_symbols = sorted(symbols, key=lambda item: (item["line_start"], item["name"]))
+    sorted_imports = sorted(imports)
+    sorted_calls = sorted(calls)
+    return {
+        "path": rel, "language": _cg_language(path), "parser": parser, "degraded": parser != "ast" and path.suffix.lower() == ".py", "metadata_truncated": len(sorted_symbols) > 128 or len(sorted_imports) > 256 or len(sorted_calls) > 256, "sha256": _cg_sha_bytes(text.encode("utf-8", errors="replace")),
+        "line_count": len(text.splitlines()), "bytes": len(text.encode("utf-8", errors="replace")),
+        "symbols": sorted_symbols[:128],
+        "imports": sorted_imports[:256], "calls": sorted_calls[:256],
+    }
+
+
+def _cg_candidate_cost(candidate: Mapping[str, Any]) -> int:
+    return len(json.dumps(candidate, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+
+def _cg_bound_candidate(candidate: dict[str, Any], *, rank: int, max_bytes: int) -> dict[str, Any] | None:
+    bounded = json.loads(json.dumps(candidate, sort_keys=True))
+    bounded["rank"] = int(rank)
+    # Preserve the highest-signal symbol/edge prefix while making the provider
+    # a hard byte-budget boundary rather than a best-effort hint.
+    for width in (32, 16, 8, 4, 2, 1, 0):
+        bounded["symbols"] = bounded.get("symbols", [])[:width]
+        bounded["line_ranges"] = bounded.get("line_ranges", [])[:width]
+        bounded["dependency_edges"] = bounded.get("dependency_edges", [])[:width]
+        bounded["summary"] = str(bounded.get("summary", ""))[: max(32, width * 32)]
+        bounded["agent_text"] = str(bounded.get("agent_text", ""))[: max(24, width * 24)]
+        if _cg_candidate_cost(bounded) <= max_bytes:
+            return bounded
+    # If even the immutable identity cannot fit, abstain instead of returning
+    # a candidate that violates the declared contract.
+    return None
+
+
+def _cg_workspace_hash(root: Path) -> str:
+    return _cg_sha_bytes(str(root.resolve()).encode("utf-8"))
+
+
+class CodeGraphIndex:
+    """In-memory incremental index keyed by workspace and file content hashes."""
+
+    def __init__(self, workspace: str | Path, *, max_files: int = 20_000) -> None:
+        self.workspace = Path(workspace).expanduser().resolve()
+        if not self.workspace.exists() or not self.workspace.is_dir():
+            raise CodeGraphError("workspace must be an existing directory")
+        self.max_files = max(1, min(100_000, int(max_files)))
+        self._records: dict[str, dict[str, Any]] = {}
+        self._last_fingerprint = ""
+
+    def _files(self) -> list[Path]:
+        result: list[Path] = []
+        for path in self.workspace.rglob("*"):
+            if not path.is_file() or path.suffix.lower() not in _CG_EXTENSIONS:
+                continue
+            rel_parts = path.relative_to(self.workspace).parts
+            if any(part in {".git", ".perseus", ".venv", "__pycache__", "node_modules", "target"} for part in rel_parts):
+                continue
+            result.append(path)
+        return sorted(result, key=lambda item: item.relative_to(self.workspace).as_posix())[: self.max_files]
+
+    def refresh(self) -> dict[str, Any]:
+        current: dict[str, str] = {}
+        for path in self._files():
+            rel = path.relative_to(self.workspace).as_posix()
+            try:
+                # Hash the same canonical text the parser sees (universal
+                # newlines). Hashing raw read_bytes() here would mismatch the
+                # record hash on CRLF checkouts — read_text() normalizes \r\n
+                # to \n — so Windows (or any \r\n file) would never reuse a
+                # record and would re-parse every file on every refresh.
+                current[rel] = _cg_sha_bytes(path.read_text(encoding="utf-8", errors="replace").encode("utf-8"))
+            except OSError:
+                continue
+        updated: list[str] = []
+        reused: list[str] = []
+        for rel in sorted(current):
+            if rel in self._records and self._records[rel].get("sha256") == current[rel]:
+                reused.append(rel)
+                continue
+            try:
+                path = self.workspace / rel
+                self._records[rel] = _cg_parse(path, rel, path.read_text(encoding="utf-8", errors="replace"))
+                updated.append(rel)
+            except OSError:
+                self._records.pop(rel, None)
+                continue
+        removed = sorted(set(self._records) - set(current))
+        for rel in removed:
+            self._records.pop(rel, None)
+        self._last_fingerprint = _cg_sha_bytes("".join(rel + current[rel] for rel in sorted(current)).encode("utf-8"))
+        return {"workspace": str(self.workspace), "workspace_hash": _cg_workspace_hash(self.workspace), "fingerprint": self._last_fingerprint, "updated_files": updated, "reused_files": reused, "removed_files": removed, "file_count": len(self._records)}
+
+    def records(self) -> list[dict[str, Any]]:
+        if not self._last_fingerprint:
+            self.refresh()
+        return [json.loads(json.dumps(self._records[key], sort_keys=True)) for key in sorted(self._records)]
+
+    def select(self, query: str, *, max_items: int = 12, max_bytes: int = 16_384, include_calls: bool = True) -> dict[str, Any]:
+        query_text = str(query or "").strip()
+        self.refresh()
+        query_terms = _cg_terms(query_text)
+        limit = max(1, min(64, int(max_items)))
+        byte_limit = max(256, min(1_000_000, int(max_bytes)))
+        scored: list[tuple[float, str, dict[str, Any], list[str]]] = []
+        workspace_hash = _cg_workspace_hash(self.workspace)
+        for rel, record in sorted(self._records.items()):
+            path_terms = set(_cg_terms(rel))
+            symbol_names = {str(item["name"]) for item in record["symbols"]}
+            symbol_terms = set(_cg_terms(" ".join(symbol_names)))
+            import_terms = set(_cg_terms(" ".join(record["imports"])))
+            exact = [term for term in query_terms if term in symbol_names]
+            overlap = len(set(query_terms) & (path_terms | symbol_terms | import_terms))
+            score = len(exact) * 12.0 + overlap * 2.0
+            if any(term in rel.lower() for term in query_terms):
+                score += 3.0
+            if score <= 0 and query_terms:
+                continue
+            reasons = []
+            if exact:
+                reasons.append("exact_symbol_match")
+            if overlap:
+                reasons.append("path_or_dependency_match")
+            if not reasons:
+                reasons.append("workspace_structure_match")
+            edges = [{"type": "imports", "target": item} for item in record["imports"]]
+            if include_calls:
+                edges.extend({"type": "calls", "target": item} for item in record["calls"])
+            candidate = {
+                "candidate_id": "file:" + rel, "source_kind": "code_graph", "title": rel,
+                "summary": rel + (" symbols: " + ", ".join(item["name"] for item in record["symbols"]) if record["symbols"] else ""),
+                "agent_text": rel + " [" + ", ".join(item["name"] for item in record["symbols"]) + "]",
+                "source_refs": ["file:" + rel], "content_sha256": record["sha256"], "workspace_hash": workspace_hash,
+                "scope": {"workspace": workspace_hash}, "validity_state": "observed", "verified": True,
+                "parser": record.get("parser", "lexical"), "degraded": bool(record.get("degraded", False)), "metadata_truncated": bool(record.get("metadata_truncated", False)),
+                "symbols": record["symbols"], "line_ranges": [{"start": item["line_start"], "end": item["line_end"], "symbol": item["name"]} for item in record["symbols"]],
+                "dependency_edges": edges, "bytes": record["bytes"], "selection_reason": "; ".join(reasons),
+            }
+            scored.append((score, rel, candidate, reasons))
+        scored.sort(key=lambda item: (-item[0], item[1]))
+        selected: list[dict[str, Any]] = []
+        spent = 0
+        for rank, (_score, _rel, candidate, _reasons) in enumerate(scored, start=1):
+            if len(selected) >= limit:
+                break
+            bounded = _cg_bound_candidate(candidate, rank=rank, max_bytes=byte_limit)
+            if bounded is None:
+                continue
+            cost = _cg_candidate_cost(bounded)
+            if spent + cost > byte_limit:
+                continue
+            selected.append(bounded)
+            spent += cost
+        pipeline = context_rank(selected, task=query_text or "workspace structure", scope={"workspace": workspace_hash}, budget={"max_items": limit, "max_chars": byte_limit}, integrations={"vault": "not_configured", "ledger": "not_configured"}) if selected else {"status": "abstain", "candidates": []}
+        return {"schema_version": "perseus-code-graph/v1", "workspace": str(self.workspace), "workspace_hash": workspace_hash, "fingerprint": self._last_fingerprint, "query": query_text, "candidates": selected, "bytes": spent, "budget_bytes": byte_limit, "context_pipeline": pipeline, "contribution": {"source_kind": "code_graph", "candidate_count": len(selected), "bytes": spent, "tokens_estimate": (spent + 3) // 4}}
+
+
+def cmd_code_map(args, cfg) -> int:
+    import json as _json
+    workspace = Path(getattr(args, "workspace", None) or Path.cwd()).expanduser().resolve()
+    try:
+        result = CodeGraphIndex(workspace).select(getattr(args, "query", "") or "", max_items=getattr(args, "limit", 12), max_bytes=getattr(args, "budget_bytes", 16_384), include_calls=getattr(args, "include_calls", False))
+    except (OSError, CodeGraphError, ValueError) as exc:
+        print(f"code-map: {exc}")
+        return 1
+    if getattr(args, "json", False):
+        print(_json.dumps(result, indent=2, sort_keys=True))
+    else:
+        print(f"code-map: {result['workspace']} ({len(result['candidates'])} candidates)")
+        for item in result["candidates"]:
+            symbols = ", ".join(symbol["name"] for symbol in item.get("symbols", [])) or "(no symbols)"
+            print(f"  {item['candidate_id']}  {symbols}  [{item['selection_reason']}]")
+    return 0
 # ───────────────────── Prompt-size forensics (#606) ──────────────────────────
 #
 # `perseus prompt-size` / `@budget` — byte-accurate, network-free breakdown of
@@ -35746,6 +36955,45 @@ def cmd_prompt_size(args, cfg):
 
     report = compute_prompt_size(text, cfg, workspace, max_tier=max_tier,
                                  no_cache=no_cache, source_name=source_path.name)
+    # #921: code-graph retrieval is an optional, separately accounted context
+    # contribution. The graph returns only bounded metadata/line ranges here;
+    # source bodies remain behind the normal read/retrieval path.
+    code_query = getattr(args, "code_query", None)
+    if code_query:
+        try:
+            graph = CodeGraphIndex(workspace).select(
+                code_query,
+                max_items=getattr(args, "code_limit", 12),
+                max_bytes=getattr(args, "code_budget_bytes", 16_384),
+                include_calls=False,
+            )
+            report["code_graph"] = {
+                "enabled": True,
+                "query": str(code_query),
+                "fingerprint": graph.get("fingerprint"),
+                "candidate_count": len(graph.get("candidates", [])),
+                "candidates": [
+                    {
+                        "candidate_id": item.get("candidate_id"),
+                        "source_refs": item.get("source_refs", []),
+                        "line_ranges": item.get("line_ranges", []),
+                        "selection_reason": item.get("selection_reason", ""),
+                        "bytes": item.get("bytes", 0),
+                    }
+                    for item in graph.get("candidates", [])
+                ],
+                "contribution": graph.get("contribution", {}),
+                "context_decision": (graph.get("context_pipeline") or {}).get("context_decision", {}),
+            }
+        except (CodeGraphError, OSError, ValueError) as exc:
+            report["code_graph"] = {
+                "enabled": True, "query": str(code_query), "status": "unavailable",
+                "reason": str(exc)[:160], "contribution": {"bytes": 0, "tokens_estimate": 0},
+            }
+    else:
+        report["code_graph"] = {
+            "enabled": False, "contribution": {"bytes": 0, "tokens_estimate": 0},
+        }
     source_refs = list(getattr(args, "source_ref", []) or [])
     counterfactual = getattr(args, "counterfactual_tokens", None)
     counterfactual = report["total"]["tokens"] if counterfactual is None else counterfactual
@@ -35811,6 +37059,12 @@ def cmd_prompt_size(args, cfg):
           f"volatile {split['volatile_bytes']} B "
           f"(attributed {acc['attributed_bytes']} + static {acc['static_bytes']} "
           f"= {acc['total_bytes']} — exact)")
+    graph_report = report.get("code_graph", {})
+    if graph_report.get("enabled"):
+        contribution = graph_report.get("contribution", {})
+        print(f"code-graph: {graph_report.get('candidate_count', 0)} candidates, "
+              f"{contribution.get('bytes', 0)} bytes / "
+              f"{contribution.get('tokens_estimate', 0)} estimated tokens")
 
     if rows:
         print("\nPer directive (largest first):")
@@ -35960,8 +37214,36 @@ def main():
                          help="Cache assumption for a context decision (default: unknown)")
     p_psize.add_argument("--source-ref", action="append", default=[],
                          help="Visibility-safe file:/vault:/artifact: source reference (repeatable)")
+    p_psize.add_argument("--code-query", default=None,
+                         help="Optional #921 code-graph query; reported as a separate context contribution")
+    p_psize.add_argument("--code-limit", type=int, default=12, help="Maximum code-graph candidates")
+    p_psize.add_argument("--code-budget-bytes", type=int, default=16384, dest="code_budget_bytes",
+                         help="Maximum code-graph metadata bytes")
 
-    # watch (Phase 20C)
+    # code-map (#921) — optional symbol/dependency-aware context candidates
+    p_code_map = sub.add_parser(
+        "code-map",
+        help="Build a bounded local code graph and show symbol/dependency context candidates",
+    )
+    p_code_map.add_argument("query", nargs="?", default="", help="Identifier, symbol, or task query")
+    p_code_map.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
+    p_code_map.add_argument("--limit", type=int, default=12, help="Maximum candidates (default: 12)")
+    p_code_map.add_argument("--budget-bytes", type=int, default=16384, dest="budget_bytes", help="Candidate metadata budget")
+    p_code_map.add_argument("--include-calls", action="store_true", help="Include call edges when available")
+    p_code_map.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+
+    # context artifacts (#923/#924) — portable structured or memento projection
+    p_artifact = sub.add_parser("context-artifact", help="Build a bounded portable machine-legible context artifact")
+    p_artifact.add_argument("input", help="JSON input file containing artifact fields")
+    p_artifact.add_argument("--kind", choices=["structured", "memento"], default="structured")
+    p_artifact.add_argument("--format", choices=["json", "markdown", "portable"], default="json")
+    p_artifact.add_argument("--output", "-o", default=None, help="Write the artifact to a file")
+    p_artifact.add_argument("--json", action="store_true", help="Write JSON to stdout even when --output is used")
+
+    # memory-efficiency (#929) — deterministic citation-ready telemetry artifact
+    p_memory_efficiency = sub.add_parser("memory-efficiency", help="Emit the offline Vault memory-injection efficiency report")
+    p_memory_efficiency.add_argument("--output", "-o", default=None, help="Write the JSON report to a file")
+    p_memory_efficiency.add_argument("--json", action="store_true", help="Emit the complete JSON report")
     p_watch = sub.add_parser("watch", help="Poll and refresh render outputs when context sources change")
     p_watch.add_argument("--source", default=None, help="Source file (default: .perseus/context.md, unless a context pack is present)")
     p_watch.add_argument("--output", "-o", default=None, help="Rendered output file (default: .hermes.md)")
@@ -36523,6 +37805,12 @@ def main():
         return cmd_preview(args, cfg)
     elif args.command == "prompt-size":
         return cmd_prompt_size(args, cfg)
+    elif args.command == "code-map":
+        return cmd_code_map(args, cfg)
+    elif args.command == "context-artifact":
+        return cmd_context_artifact(args, cfg)
+    elif args.command == "memory-efficiency":
+        return cmd_memory_efficiency(args, cfg)
     elif args.command == "watch":
         return cmd_watch(args, cfg)
     elif args.command == "graph":

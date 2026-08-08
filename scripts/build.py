@@ -30,6 +30,10 @@ MODULE_ORDER = [
     "src/perseus/compress.py",
     "src/perseus/audit.py",
     "src/perseus/metering.py",          # ← #755: observe-model runtime cost metering (config→Plutus Meter)
+    "src/perseus/artifact_actions.py",  # ← #925: exact external-artifact prior-action projections
+    "src/perseus/tool_lessons.py",      # ← #926: bounded evidence-linked tool lessons
+    "src/perseus/memory_telemetry.py",  # ← #929: memory-injection efficiency accounting
+    "src/perseus/context_artifacts.py", # ← #923/#924/#928: portable context and cartridge artifacts
     "src/perseus/directives/env.py",
     "src/perseus/directives/include.py",
     "src/perseus/directives/read.py",
@@ -88,6 +92,7 @@ MODULE_ORDER = [
     "src/perseus/claims.py",            # ← #895: runtime-owned evidence claim verification
     "src/perseus/frontdoor.py",         # ← #896: single front-door routing and degraded modes
     "src/perseus/context_contract.py",  # ← #916/#917: bounded Rank/Ask and sanitized agent projection/release
+    "src/perseus/code_graph.py",         # ← #921: optional symbol/dependency-aware context provider
     "src/perseus/promptsize.py",        # ← #606: perseus prompt-size + @budget forensics (depends on renderer, compress, serve helpers)
     "src/perseus/cli.py",  # includes _bind_registry() call before dispatch
 ]
