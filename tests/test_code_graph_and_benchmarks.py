@@ -37,6 +37,22 @@ def test_code_graph_is_incremental_deterministic_and_budgeted(tmp_path):
     assert changed["removed_files"] == []
 
 
+def test_code_graph_reuses_records_across_line_endings(tmp_path):
+    # Regression: refresh() hashed raw bytes while records hash
+    # universal-newline text, so CRLF files (Windows checkouts) never
+    # matched and were re-parsed on every refresh. CRLF content on any
+    # platform must be reused on the second refresh.
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "util.py").write_bytes(b"def parse_receipt(value):\r\n    return value\r\n")
+    (tmp_path / "app.py").write_bytes(b"from pkg.util import parse_receipt\r\n\r\ndef deploy():\r\n    return parse_receipt('x')\r\n")
+    index = perseus.CodeGraphIndex(tmp_path)
+    first = index.refresh()
+    second = index.refresh()
+    assert first["updated_files"] == ["app.py", "pkg/util.py"]
+    assert second["reused_files"] == ["app.py", "pkg/util.py"]
+    assert second["updated_files"] == []
+
+
 def test_code_graph_honors_hard_byte_budget_and_reports_actual_spend(tmp_path):
     (tmp_path / "huge.py").write_text("\n".join(f"def symbol_{i}(value):\n    return value\n" for i in range(300)), encoding="utf-8")
     result = perseus.CodeGraphIndex(tmp_path).select("symbol", max_items=4, max_bytes=512)

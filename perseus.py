@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "444a7a1"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "07ae7f1-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -36288,7 +36288,12 @@ class CodeGraphIndex:
         for path in self._files():
             rel = path.relative_to(self.workspace).as_posix()
             try:
-                current[rel] = _cg_sha_bytes(path.read_bytes())
+                # Hash the same canonical text the parser sees (universal
+                # newlines). Hashing raw read_bytes() here would mismatch the
+                # record hash on CRLF checkouts — read_text() normalizes \r\n
+                # to \n — so Windows (or any \r\n file) would never reuse a
+                # record and would re-parse every file on every refresh.
+                current[rel] = _cg_sha_bytes(path.read_text(encoding="utf-8", errors="replace").encode("utf-8"))
             except OSError:
                 continue
         updated: list[str] = []

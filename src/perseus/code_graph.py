@@ -129,7 +129,12 @@ class CodeGraphIndex:
         for path in self._files():
             rel = path.relative_to(self.workspace).as_posix()
             try:
-                current[rel] = _cg_sha_bytes(path.read_bytes())
+                # Hash the same canonical text the parser sees (universal
+                # newlines). Hashing raw read_bytes() here would mismatch the
+                # record hash on CRLF checkouts — read_text() normalizes \r\n
+                # to \n — so Windows (or any \r\n file) would never reuse a
+                # record and would re-parse every file on every refresh.
+                current[rel] = _cg_sha_bytes(path.read_text(encoding="utf-8", errors="replace").encode("utf-8"))
             except OSError:
                 continue
         updated: list[str] = []
