@@ -518,10 +518,10 @@ def test_cmd_skills_dispatch(tmp_path, capsys):
     assert _perseus.cmd_skills(args, c) == 0
     assert "approved" in capsys.readouterr().out
 
-    # reject
+    # reject of a LIVE (approved) candidate is refused — review-gate hygiene
     args = SimpleNamespace(skills_command="reject", name="deploy-production")
-    assert _perseus.cmd_skills(args, c) == 0
-    assert "rejected" in capsys.readouterr().out
+    assert _perseus.cmd_skills(args, c) == 1
+    assert "live" in capsys.readouterr().out
 
     # telemetry
     args = SimpleNamespace(skills_command="telemetry", output=None)
@@ -541,3 +541,196 @@ def test_cmd_skills_mine_auto_refused(tmp_path, capsys):
                            min_occurrences=None, dry_run=False, auto=True, telemetry=None)
     assert _perseus.cmd_skills(args, c) == 1
     assert "disabled" in capsys.readouterr().err
+
+
+# ── independent-review regression tests (#934) ───────────────────────────────
+
+_SECRET = "ghp_" + "A" * 38  # github_token shape (redaction rule)
+
+
+def test_symlink_write_refused(tmp_path):
+    """A symlink planted at a candidate's write target must not be followed —
+    the outside file stays untouched and the write is counted as failed."""
+    c = _cfg(tmp_path)
+    _write_session(tmp_path, "deploy", _HOWTO_SESSION, session_id="sess-deploy")
+    outside = tmp_path / "outside.md"
+    outside.write_text("original", encoding="utf-8")
+    cand_dir = Path(c["skills"]["candidates_dir"])
+    cand_dir.mkdir(parents=True)
+    (cand_dir / "deploy-production.md").symlink_to(outside)
+    result = _perseus.mine_skill_candidates(c)
+    assert result["skipped"]["write_failed"] >= 1
+    assert outside.read_text(encoding="utf-8") == "original", "write followed the symlink"
+    assert not (cand_dir / "deploy-production.json").exists()
+
+
+def test_approve_refuses_symlinked_skill_dir(tmp_path):
+    """A symlinked skill-name dir must not redirect the promotion."""
+    c = _cfg(tmp_path)
+    _mine_one(tmp_path, c)
+    outside = tmp_path / "outside-skill"
+    outside.mkdir()
+    skill_dir = Path(c["pythia"]["skill_dir"])  # already created by _cfg
+    (skill_dir / "deploy-production").symlink_to(outside, target_is_directory=True)
+    ok, msg = _perseus.approve_candidate(c, "deploy-production")
+    assert not ok and "symlink" in msg
+    assert not (outside / "SKILL.md").exists(), "approval wrote through the symlink"
+
+
+def test_no_secret_leaks_via_manifest_slug_or_directive(tmp_path):
+    """Transcript secrets must never reach the candidate name, the manifest,
+    the directive table, or the staged SKILL.md."""
+    c = _cfg(tmp_path)
+    session = [
+        _msg("user", f"how do i configure ci with token {_SECRET}?"),
+        _msg("assistant", "1. Create the workflow file\n2. Set the token in secrets\n3. Push the branch"),
+    ]
+    _write_session(tmp_path, "ci", session, session_id="sess-ci")
+    result = _perseus.mine_skill_candidates(c)
+    assert len(result["candidates"]) == 1
+    cand = result["candidates"][0]
+    assert _SECRET not in cand["name"], "slug leaked the secret"
+    assert _SECRET not in cand["description"]
+    assert _SECRET not in cand["trigger"]
+    cand_dir = Path(c["skills"]["candidates_dir"])
+    manifest = json.loads((cand_dir / f"{cand['name']}.json").read_text(encoding="utf-8"))
+    assert _SECRET not in json.dumps(manifest), "manifest leaked the secret"
+    assert _SECRET not in (cand_dir / f"{cand['name']}.md").read_text(encoding="utf-8")
+    out = _perseus.resolve_skill_candidates("", c)
+    assert _SECRET not in out, "directive table leaked the secret"
+    # _cell strips bracket-link syntax — the redaction marker's brackets and
+    # any [text](url) injection cannot survive into the rendered table
+    assert "[REDACTED" not in out and "[" not in out
+
+
+def test_same_howto_two_sessions_merge(tmp_path):
+    """The identical how-to procedure in two sessions folds into ONE
+    candidate with both evidence sessions (no -2 duplicate)."""
+    c = _cfg(tmp_path)
+    _write_session(tmp_path, "a", _HOWTO_SESSION, session_id="sess-a")
+    _write_session(tmp_path, "b", _HOWTO_SESSION, session_id="sess-b")
+    result = _perseus.mine_skill_candidates(c)
+    names = [x["name"] for x in result["candidates"]]
+    assert names == ["deploy-production"], names
+    cand = result["candidates"][0]
+    assert cand["occurrences"] == 2
+    assert sorted(e["session_id"] for e in cand["evidence"]) == ["sess-a", "sess-b"]
+
+
+def test_hard_byte_bound_skips_oversized(tmp_path):
+    """max_candidate_bytes is a hard postcondition: an over-budget candidate
+    is skipped (oversized), never written."""
+    c = _cfg(tmp_path)
+    c["skills"]["mining"]["max_candidate_bytes"] = 1
+    _write_session(tmp_path, "deploy", _HOWTO_SESSION, session_id="sess-deploy")
+    result = _perseus.mine_skill_candidates(c)
+    assert result["candidates"] == []
+    assert result["skipped"]["oversized"] == 1
+    cand_dir = Path(c["skills"]["candidates_dir"])
+    assert not cand_dir.exists() or not list(cand_dir.glob("*.md"))
+
+
+def test_evidence_capped_at_construction(tmp_path):
+    """Repeat candidates cap evidence at 8 at construction, not only on merge."""
+    c = _cfg(tmp_path)
+    for i in range(12):
+        _write_session(tmp_path, f"r{i:02d}", _REPEAT_SESSION_A, session_id=f"sess-r{i}")
+    result = _perseus.mine_skill_candidates(c)
+    cand = next(x for x in result["candidates"] if x["name"] == "docker-compose")
+    assert len(cand["evidence"]) <= 8
+    assert cand["occurrences"] <= 8
+
+
+def test_false_positive_negation_and_position_guards(tmp_path):
+    """Prose mentioning 'how to' is not a how-to request; the phrase must lead."""
+    c = _cfg(tmp_path)
+    neg = [
+        _msg("user", "I do not know how to phrase this request, but anyway"),
+        _msg("assistant", "1. Alpha item has enough words\n2. Beta item has enough words\n3. Gamma item has enough words"),
+    ]
+    late = [
+        _msg("user", "By the way, we discussed earlier how to handle migrations, and also steps for the rollout"),
+        _msg("assistant", "1. First thing to do\n2. Second thing to do\n3. Third thing to do"),
+    ]
+    _write_session(tmp_path, "neg", neg, session_id="sess-neg")
+    _write_session(tmp_path, "late", late, session_id="sess-late")
+    result = _perseus.mine_skill_candidates(c)
+    assert result["candidates"] == [], result["candidates"]
+
+
+def test_non_shell_fences_not_commands(tmp_path):
+    """json/yaml fences are data, not procedures — identical JSON blocks in
+    two sessions must NOT produce a repeat candidate."""
+    c = _cfg(tmp_path)
+    block = "```json\n{\"field\": \"alpha\"}\n{\"field\": \"beta\"}\n```"
+    _write_session(tmp_path, "a", [_msg("user", "show config"), _msg("assistant", block)], session_id="sess-a")
+    _write_session(tmp_path, "b", [_msg("user", "show config"), _msg("assistant", block)], session_id="sess-b")
+    result = _perseus.mine_skill_candidates(c)
+    assert result["candidates"] == [], result["candidates"]
+
+
+def test_manifest_shadow_files_fail_closed(tmp_path):
+    """A second manifest file with a MISMATCHED filename stem (the only way a
+    same-name shadow can exist on disk) is ignored — filename/name agreement
+    is required, so rejection state cannot be shadowed by an orphan file."""
+    c = _cfg(tmp_path)
+    _mine_one(tmp_path, c)
+    cand_dir = Path(c["skills"]["candidates_dir"])
+    (cand_dir / "aaa.json").write_text(
+        json.dumps({"schema": "perseus-skill-candidate/v1", "name": "deploy-production",
+                    "status": "pending"}), encoding="utf-8"
+    )
+    loaded = _perseus._load_candidates(c)
+    assert len(loaded) == 1 and loaded[0]["status"] == "pending", \
+        "orphan shadow must be ignored; canonical manifest still loads"
+    # with the canonical files gone, an orphan manifest alone loads nothing
+    (cand_dir / "deploy-production.json").unlink()
+    (cand_dir / "deploy-production.md").unlink()
+    (cand_dir / "aaa.json").unlink()
+    (cand_dir / "orphan.json").write_text(
+        json.dumps({"schema": "perseus-skill-candidate/v1", "name": "deploy-production",
+                    "status": "pending"}), encoding="utf-8"
+    )
+    assert _perseus._load_candidates(c) == []
+
+
+def test_reject_approved_refused(tmp_path):
+    """Reject applies to pending candidates only; live skills are removed
+    from the skills dir directly."""
+    c = _cfg(tmp_path)
+    _mine_one(tmp_path, c)
+    ok, _ = _perseus.approve_candidate(c, "deploy-production")
+    assert ok
+    ok, msg = _perseus.reject_candidate(c, "deploy-production")
+    assert not ok and "live" in msg
+
+
+def test_deterministic_across_mtime_order(tmp_path):
+    """Suffix assignment and evidence order must not flip when filesystem
+    mtimes are reversed (processing is stem-ordered)."""
+    c = _cfg(tmp_path)
+    q_a = _HOWTO_SESSION  # "how do i deploy to production?" → slug deploy-production
+    q_b = [  # same slug, DIFFERENT steps → confirmed collision → -2 suffix
+        _msg("user", "how do i deploy to production?"),
+        _msg("assistant", "1. Build the container image\n2. Push it to the registry\n3. Deploy with compose\n4. Verify health"),
+    ]
+    fa = _write_session(tmp_path, "a", q_a, session_id="sess-a")
+    fb = _write_session(tmp_path, "b", q_b, session_id="sess-b")
+    result1 = _perseus.mine_skill_candidates(c)
+    names1 = sorted(x["name"] for x in result1["candidates"])
+    assert names1 == ["deploy-production", "deploy-production-2"], names1
+    # flip mtimes so a recency-ordered pipeline would process b first
+    import os
+    old_a, old_b = fa.stat().st_mtime, fb.stat().st_mtime
+    os.utime(fa, (old_b + 1000, old_b + 1000))
+    os.utime(fb, (old_a, old_a))
+    # wipe candidates and re-mine from scratch
+    cand_dir = Path(c["skills"]["candidates_dir"])
+    for f in cand_dir.glob("*"):
+        f.unlink()
+    result2 = _perseus.mine_skill_candidates(c)
+    names2 = sorted(x["name"] for x in result2["candidates"])
+    assert names1 == names2, (names1, names2)
+    ev1 = sorted(e["session_id"] for x in result1["candidates"] for e in x["evidence"])
+    ev2 = sorted(e["session_id"] for x in result2["candidates"] for e in x["evidence"])
+    assert ev1 == ev2
