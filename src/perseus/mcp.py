@@ -654,7 +654,7 @@ def _build_annotations(tool_name: str, spec) -> dict | None:
         hints["readOnlyHint"] = True
     # Read-only tools that escape the reads_files / executes_shell checks
     if tool_name in ("perseus_auto_skill", "perseus_profile", "perseus_perseus", "perseus_vault", "perseus_mason",
-                      "perseus_skills", "perseus_inbox", "perseus_include", "perseus_read",
+                      "perseus_skills", "perseus_skill_candidates", "perseus_inbox", "perseus_include", "perseus_read",
                       "perseus_list", "perseus_tree", "perseus_tooltrim", "perseus_validate",
                       "perseus_prompt", "perseus_budget"):
         hints["readOnlyHint"] = True

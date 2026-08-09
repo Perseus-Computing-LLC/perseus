@@ -35,6 +35,8 @@
 | `perseus update [--apply] [--check] [--auto on\|off]` | Check for and apply Perseus updates from git. |
 | `perseus mcp {serve,config,register}` | Run Perseus as an MCP server — expose directives as tools for any MCP-compatible assistant. |
 | `perseus doctor [--workspace PATH] [--json]` | Run readiness checks against workspace and config (10 checks: config, context file, render settings, checkpoint age, Perseus Vault narrative, federation, Pythia log, serve endpoint, directive registry, version). |
+| `perseus memory-efficiency [--output FILE]` | Emit the offline Vault memory-injection efficiency report (#929): deterministic, hash-only token-savings evidence. |
+| `perseus skills {mine,list,approve,reject,telemetry}` | **Transcript mining → procedural skill synthesis (#932).** `mine` scans session transcripts (`assistant.sessions_dir`) and stages candidate procedural skills (trigger, steps, pitfalls, evidence) in `skills.candidates_dir` — deterministic, no model. `list [--status …] [--json]` reviews them. `approve <name>` is the human/operator **review gate**: promotes a candidate into the live skills dir where `@skills`/`@auto-skill` see it. `reject <name>` tombstones it so re-mining never re-suggests it. `telemetry [--output FILE]` emits the #929-line context-token impact report for `@skill-candidates` surfacing. Mining never writes AGENTS.md/CLAUDE.md — surfacing is opt-in via the `@skill-candidates` directive in your context source. |
 | `perseus trust [--json] {profile,audit}` | Show effective permission profile and trust posture; audit recent access decisions. |
 
 ## JSON Surfaces
