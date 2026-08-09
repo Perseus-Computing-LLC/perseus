@@ -144,6 +144,7 @@ DEFAULT_CONFIG = {
             "max_sessions": 100,       # most recent session_*.json files scanned
             "min_occurrences": 2,      # repeat-pattern candidates need ≥N distinct sessions
             "max_candidate_bytes": 12000,
+            "max_transcript_bytes": 8388608,  # session files larger than 8 MiB are skipped
             "min_steps": 2,            # fewer extracted steps = not procedural
             "max_steps": 25,
         },
