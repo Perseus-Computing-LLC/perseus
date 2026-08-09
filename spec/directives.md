@@ -174,6 +174,27 @@ assistant:
 | `include=<name>` | Alias for `category=`. |
 | `flag_stale=true` | Append ⚠ stale marker to skills not updated within `stale_skill_days` (default 30). Can be combined with `category=`. |
 
+### `@skill-candidates`
+Mined procedural-skill candidates from session transcripts (#932): deterministic,
+model-free extraction of how-to step lists and repeated command sequences,
+staged OUTSIDE the live skills dir and gated behind an explicit operator review
+step. The directive surfaces **pending** candidates only (approved candidates
+live under `@skills`; rejected ones never surface). Opt-in by placement —
+mining never writes AGENTS.md/CLAUDE.md, so this directive is how candidates
+reach the rendered workspace context. Each render records a #929-line telemetry
+event measuring the summary-table vs. full-candidate-body token impact.
+
+```
+@skill-candidates
+@skill-candidates status=all        → include approved/rejected in the table
+@skill-candidates limit=5           → cap the table at 5 rows
+```
+
+| Modifier | Description |
+|---|---|
+| `status=<pending\|all\|approved\|rejected>` | Review-status filter (default `pending`). |
+| `limit=<N>` | Max table rows (default 20, cap 100). |
+
 ### `@waypoint`
 Include the most recent checkpoint (or a specific one).
 
