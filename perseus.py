@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "4364fda-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "90ea52b-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -5471,23 +5471,31 @@ def _finalize_candidate_md(cand: dict, cfg: dict, max_bytes: int, max_steps: int
 
     Returns None when redaction itself errors — a candidate must never be
     staged with potentially unredacted content (same policy as #647/#657 on
-    the cache tiers).
+    the cache tiers). EVERY redaction attempt (initial render and each
+    shrink-retry) routes through the same fail-closed helper, so a redaction
+    failure on any retry also skips the candidate instead of raising.
     """
+    def _redact(md_text: str) -> str | None:
+        try:
+            safe, _report = redact_text(md_text, cfg)
+            return safe
+        except Exception:
+            return None
+
     md = _render_candidate_md(cand, max_steps)
-    try:
-        safe, _report = redact_text(md, cfg)
-    except Exception:
+    safe = _redact(md)
+    if safe is None:
         return None
     if len(safe.encode("utf-8")) > max_bytes:
         # shrink deterministically: drop pitfalls, then truncate step bodies
         if cand.get("pitfalls"):
             cand["pitfalls"] = []
-            md = _render_candidate_md(cand, max_steps)
-            safe, _report = redact_text(md, cfg)
-    if len(safe.encode("utf-8")) > max_bytes:
+            safe = _redact(_render_candidate_md(cand, max_steps))
+            if safe is None:
+                return None
+    if safe is not None and len(safe.encode("utf-8")) > max_bytes:
         cand["steps"] = [s[:120] for s in cand["steps"]]
-        md = _render_candidate_md(cand, max_steps)
-        safe, _report = redact_text(md, cfg)
+        safe = _redact(_render_candidate_md(cand, max_steps))
     return safe
 
 
@@ -5858,6 +5866,25 @@ def resolve_skill_candidates(args_str: str, cfg: dict) -> str:
     if not shown:
         if status != "pending":
             return f"> No skill candidates with status `{status}`."
+        # #929-line measurement: empty renders are recorded as empty-state
+        # events too — otherwise the report would substitute its offline
+        # fixture and mask that real renders surfaced nothing.
+        try:
+            _SKILLS_TELEMETRY.record(
+                session_id="context-render",
+                surface="skill-candidates",
+                trigger="directive",
+                delivered_tokens=0,
+                baseline_tokens=0,
+                baseline_definition="full-candidate-bodies",
+                source_count=0,
+                corpus_size=len(cands),
+                profile="summary-only",
+                state="empty",
+                reason="no-candidates",
+            )
+        except Exception:
+            pass  # telemetry must never break a render (#929 contract)
         return (
             "> No skill candidates pending review. Run `perseus skills mine` "
             "to mine session transcripts into candidate procedures."

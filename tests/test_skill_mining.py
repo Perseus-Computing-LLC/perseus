@@ -372,6 +372,21 @@ def test_directive_empty_state(tmp_path):
     assert "No skill candidates with status `approved`" in out_all
 
 
+def test_directive_empty_render_records_empty_telemetry_event(tmp_path):
+    """An empty render records an empty-state event on the #929 line instead
+    of silently falling back to the offline fixture."""
+    c = _cfg(tmp_path)
+    before = len(_perseus._SKILLS_TELEMETRY._events)
+    _perseus.resolve_skill_candidates("", c)
+    events = _perseus._SKILLS_TELEMETRY._events
+    assert len(events) == before + 1
+    ev = events[-1]
+    assert ev["surface"] == "skill-candidates"
+    assert ev["state"] == "empty"
+    assert ev["tokens_served"] == 0 and ev["baseline_tokens"] == 0
+    assert ev["reason_sha256"].startswith("sha256:")
+
+
 def test_mine_write_failure_is_counted_not_fatal(tmp_path, monkeypatch):
     """A failing candidate write must not abort the whole pipeline."""
     c = _cfg(tmp_path)
@@ -384,6 +399,29 @@ def test_mine_write_failure_is_counted_not_fatal(tmp_path, monkeypatch):
     result = _perseus.mine_skill_candidates(c)
     assert result["candidates"] == []
     assert result["skipped"]["write_failed"] == 1
+
+
+def test_mine_redaction_retry_fail_closed(tmp_path, monkeypatch):
+    """A redaction failure on a SHRINK-RETRY (after dropping pitfalls) must
+    skip the candidate, not raise — every redaction attempt is fail-closed."""
+    c = _cfg(tmp_path)
+    c["skills"]["mining"]["max_candidate_bytes"] = 1  # force the shrink path
+    _write_session(tmp_path, "deploy", _HOWTO_SESSION, session_id="sess-deploy")
+
+    real_redact = _perseus.redact_text
+    calls = {"n": 0}
+
+    def _flaky(text, cfg_):
+        calls["n"] += 1
+        if calls["n"] >= 2:
+            raise RuntimeError("redaction backend down")
+        return real_redact(text, cfg_)
+
+    monkeypatch.setattr(_perseus, "redact_text", _flaky)
+    result = _perseus.mine_skill_candidates(c)
+    assert result["candidates"] == [], "candidate must be skipped, not staged"
+    assert result["skipped"]["redaction_failed"] == 1
+    assert calls["n"] >= 2, "shrink-retry redaction was actually attempted"
 
 
 def test_directive_limit(tmp_path):
