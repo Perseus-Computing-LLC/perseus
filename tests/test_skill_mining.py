@@ -548,9 +548,22 @@ def test_cmd_skills_mine_auto_refused(tmp_path, capsys):
 _SECRET = "ghp_" + "A" * 38  # github_token shape (redaction rule)
 
 
+def _require_symlinks(tmp_path):
+    """Windows CI runners (and some sandboxes) cannot create symlinks —
+    skip the symlink-specific tests there instead of failing them."""
+    probe = tmp_path / "probe"
+    target = tmp_path / "probe-target"
+    try:
+        probe.symlink_to(target)
+        probe.unlink()
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlinks unavailable on this platform: {exc}")
+
+
 def test_symlink_write_refused(tmp_path):
     """A symlink planted at a candidate's write target must not be followed —
     the outside file stays untouched and the write is counted as failed."""
+    _require_symlinks(tmp_path)
     c = _cfg(tmp_path)
     _write_session(tmp_path, "deploy", _HOWTO_SESSION, session_id="sess-deploy")
     outside = tmp_path / "outside.md"
@@ -566,6 +579,7 @@ def test_symlink_write_refused(tmp_path):
 
 def test_approve_refuses_symlinked_skill_dir(tmp_path):
     """A symlinked skill-name dir must not redirect the promotion."""
+    _require_symlinks(tmp_path)
     c = _cfg(tmp_path)
     _mine_one(tmp_path, c)
     outside = tmp_path / "outside-skill"
