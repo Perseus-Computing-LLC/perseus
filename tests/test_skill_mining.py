@@ -34,7 +34,7 @@ def _cfg(tmp_path):
     c = copy.deepcopy(_perseus.DEFAULT_CONFIG)
     c["skills"]["candidates_dir"] = str(tmp_path / "skill-candidates")
     c["assistant"]["sessions_dir"] = str(tmp_path / "sessions")
-    c["pythia"]["skill_dir"] = str(tmp_path / "skills")
+    c["guide"]["skill_dir"] = str(tmp_path / "skills")
     (tmp_path / "sessions").mkdir(parents=True, exist_ok=True)
     (tmp_path / "skills").mkdir(parents=True, exist_ok=True)
     return c
@@ -134,7 +134,7 @@ def test_mine_howto_extraction(tmp_path):
     # staged OUTSIDE the live skills dir
     cand_dir = Path(c["skills"]["candidates_dir"])
     assert (cand_dir / "deploy-production.md").exists()
-    assert not list(Path(c["pythia"]["skill_dir"]).rglob("SKILL.md"))
+    assert not list(Path(c["guide"]["skill_dir"]).rglob("SKILL.md"))
 
 
 def test_mine_repeat_across_sessions(tmp_path):
@@ -243,7 +243,7 @@ def test_approve_promotes_to_live_skills_dir(tmp_path):
     _mine_one(tmp_path, c)
     ok, msg = _perseus.approve_candidate(c, "deploy-production")
     assert ok, msg
-    live = Path(c["pythia"]["skill_dir"]) / "deploy-production" / "SKILL.md"
+    live = Path(c["guide"]["skill_dir"]) / "deploy-production" / "SKILL.md"
     assert live.exists()
     assert "## Steps" in live.read_text(encoding="utf-8")
     # manifest flips to approved
@@ -274,7 +274,7 @@ def test_approve_refuses_rejected_and_unknown(tmp_path):
 def test_approve_refuses_existing_live_without_force(tmp_path):
     c = _cfg(tmp_path)
     _mine_one(tmp_path, c)
-    live = Path(c["pythia"]["skill_dir"]) / "deploy-production" / "SKILL.md"
+    live = Path(c["guide"]["skill_dir"]) / "deploy-production" / "SKILL.md"
     live.parent.mkdir(parents=True)
     live.write_text("---\nname: deploy-production\n---\n# manual\n", encoding="utf-8")
     ok, msg = _perseus.approve_candidate(c, "deploy-production")
@@ -584,7 +584,7 @@ def test_approve_refuses_symlinked_skill_dir(tmp_path):
     _mine_one(tmp_path, c)
     outside = tmp_path / "outside-skill"
     outside.mkdir()
-    skill_dir = Path(c["pythia"]["skill_dir"])  # already created by _cfg
+    skill_dir = Path(c["guide"]["skill_dir"])  # already created by _cfg
     (skill_dir / "deploy-production").symlink_to(outside, target_is_directory=True)
     ok, msg = _perseus.approve_candidate(c, "deploy-production")
     assert not ok and "symlink" in msg

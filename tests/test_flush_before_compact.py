@@ -10,7 +10,7 @@ def test_compaction_flushes_capture_before_narrative_rebuild(monkeypatch, tmp_pa
     order = []
     monkeypatch.setattr(perseus, "capture_checkpoints_to_vault", lambda *a, **k: (order.append("capture") or (1, 1, "")))
     monkeypatch.setattr(perseus, "_list_checkpoint_files", lambda cfg: [])
-    monkeypatch.setattr(perseus, "_read_all_pythia_entries", lambda: [])
+    monkeypatch.setattr(perseus, "_read_all_guide_entries", lambda: [])
     monkeypatch.setattr(perseus, "_vault_path", lambda ws, cfg: tmp_path / "memory.md")
     monkeypatch.setattr(perseus, "_load_narrative", lambda path: ({}, ""))
     monkeypatch.setattr(perseus, "_vault_default_frontmatter", lambda ws: {})
@@ -25,7 +25,7 @@ def test_compaction_flushes_capture_before_narrative_rebuild(monkeypatch, tmp_pa
 def test_compaction_continues_when_capture_has_zero_entities(monkeypatch, tmp_path):
     monkeypatch.setattr(perseus, "capture_checkpoints_to_vault", lambda *a, **k: (0, 0, ""))
     monkeypatch.setattr(perseus, "_list_checkpoint_files", lambda cfg: [])
-    monkeypatch.setattr(perseus, "_read_all_pythia_entries", lambda: [])
+    monkeypatch.setattr(perseus, "_read_all_guide_entries", lambda: [])
     monkeypatch.setattr(perseus, "_vault_path", lambda ws, cfg: tmp_path / "memory.md")
     monkeypatch.setattr(perseus, "_load_narrative", lambda path: ({}, ""))
     monkeypatch.setattr(perseus, "_vault_default_frontmatter", lambda ws: {})

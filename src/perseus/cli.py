@@ -247,7 +247,7 @@ def main():
     p_agora_complete.add_argument("task_id", help="Task ID to complete")
 
     # suggest
-    p_suggest = sub.add_parser("suggest", help="Pythia: ranked tool recommendations")
+    p_suggest = sub.add_parser("suggest", help="Guide: ranked tool recommendations")
     p_suggest.add_argument("task", help="Task description")
     p_suggest.add_argument("--quick", action="store_true", help="Top recommendation only")
     p_suggest.add_argument("--category", default=None, help="Limit skill search to category")
@@ -656,38 +656,41 @@ def main():
     p_warmup.add_argument("source", help="Path to .md file with @perseus header")
     p_warmup.add_argument("--workspace", default=None, help="Workspace path (default: inferred)")
 
-    # oracle (Daedalus dataset / labeling)
-    p_oracle = sub.add_parser("oracle", help="Pythia log labeling and dataset export")
-    oracle_sub = p_oracle.add_subparsers(dest="oracle_command", required=True)
-    p_oracle_accept = oracle_sub.add_parser("accept", help="Mark a Pythia log entry as accepted")
-    p_oracle_accept.add_argument("log_id", help="Entry id (timestamp) or 'latest'")
-    p_oracle_reject = oracle_sub.add_parser("reject", help="Mark a Pythia log entry as rejected")
-    p_oracle_reject.add_argument("log_id", help="Entry id (timestamp) or 'latest'")
-    p_pythia_log = oracle_sub.add_parser("log", help="List recent Pythia log entries")
-    p_pythia_log.add_argument("--limit", type=int, default=20, help="Max entries to show")
-    p_pythia_log.add_argument("--unlabeled", action="store_true", help="Only show unlabeled entries")
-    p_oracle_export = oracle_sub.add_parser("export", help="Export accepted entries as fine-tuning dataset")
-    p_oracle_export.add_argument("--output", default=None, help="Output path (default: ~/.perseus/daedalus_dataset.jsonl)")
-    p_oracle_export.add_argument("--format", default="jsonl", choices=["jsonl", "alpaca", "daedalus-patterns"], help="Output format (daedalus-patterns: task-21 pattern training set)")
-    p_oracle_export.add_argument("--include-inferred", action="store_true", help="Also export inferred-accept entries (clearly tagged label_source=inferred)")
+    # guide — Guide log labeling and dataset export
+    def _add_guide_subcommands(guide_sub):
+        p_guide_accept = guide_sub.add_parser("accept", help="Mark a Guide log entry as accepted")
+        p_guide_accept.add_argument("log_id", help="Entry id (timestamp) or 'latest'")
+        p_guide_reject = guide_sub.add_parser("reject", help="Mark a Guide log entry as rejected")
+        p_guide_reject.add_argument("log_id", help="Entry id (timestamp) or 'latest'")
+        p_guide_log = guide_sub.add_parser("log", help="List recent Guide log entries")
+        p_guide_log.add_argument("--limit", type=int, default=20, help="Max entries to show")
+        p_guide_log.add_argument("--unlabeled", action="store_true", help="Only show unlabeled entries")
+        p_guide_export = guide_sub.add_parser("export", help="Export accepted entries as fine-tuning dataset")
+        p_guide_export.add_argument("--output", default=None, help="Output path (default: ~/.perseus/guide_dataset.jsonl)")
+        p_guide_export.add_argument("--format", default="jsonl", choices=["jsonl", "alpaca", "daedalus-patterns"], help="Output format (daedalus-patterns: task-21 pattern training set)")
+        p_guide_export.add_argument("--include-inferred", action="store_true", help="Also export inferred-accept entries (clearly tagged label_source=inferred)")
 
-    # Phase 9.1 — task-20: implicit accept/reject inference
-    p_oracle_infer = oracle_sub.add_parser("infer-labels", help="Apply implicit accept/reject labels from checkpoint correlation")
-    p_oracle_infer.add_argument("--window-days", type=int, default=None, help="Override pythia.inferred_label_window_days")
-    p_oracle_infer.add_argument("--window-checkpoints", type=int, default=None, help="Override pythia.inferred_label_window_checkpoints")
-    p_oracle_infer.add_argument("--dry-run", action="store_true", help="Print what would change without writing")
-    p_oracle_infer.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+        # Phase 9.1 — task-20: implicit accept/reject inference
+        p_guide_infer = guide_sub.add_parser("infer-labels", help="Apply implicit accept/reject labels from checkpoint correlation")
+        p_guide_infer.add_argument("--window-days", type=int, default=None, help="Override guide.inferred_label_window_days")
+        p_guide_infer.add_argument("--window-checkpoints", type=int, default=None, help="Override guide.inferred_label_window_checkpoints")
+        p_guide_infer.add_argument("--dry-run", action="store_true", help="Print what would change without writing")
+        p_guide_infer.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
-    # Phase 14A — task-36: reinforcement outcome collection
-    p_oracle_outcomes = oracle_sub.add_parser("outcomes", help="Collect completion/error/time outcome signals")
-    p_oracle_outcomes.add_argument("--window-days", type=int, default=None, help="Override pythia.outcome_window_days")
-    p_oracle_outcomes.add_argument("--window-checkpoints", type=int, default=None, help="Override pythia.outcome_window_checkpoints")
-    p_oracle_outcomes.add_argument("--dry-run", action="store_true", help="Print what would change without writing")
-    p_oracle_outcomes.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+        # Phase 14A — task-36: reinforcement outcome collection
+        p_guide_outcomes = guide_sub.add_parser("outcomes", help="Collect completion/error/time outcome signals")
+        p_guide_outcomes.add_argument("--window-days", type=int, default=None, help="Override guide.outcome_window_days")
+        p_guide_outcomes.add_argument("--window-checkpoints", type=int, default=None, help="Override guide.outcome_window_checkpoints")
+        p_guide_outcomes.add_argument("--dry-run", action="store_true", help="Print what would change without writing")
+        p_guide_outcomes.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
-    # Phase 9.3 — task-22: drift detection
-    p_oracle_drift = oracle_sub.add_parser("drift", help="Report drift in recent Pythia behavior vs baseline")
-    p_oracle_drift.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+        # Phase 9.3 — task-22: drift detection
+        p_guide_drift = guide_sub.add_parser("drift", help="Report drift in recent Guide behavior vs baseline")
+        p_guide_drift.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+
+    p_guide = sub.add_parser("guide", help="Guide log labeling and dataset export")
+    guide_sub = p_guide.add_subparsers(dest="guide_command", required=True)
+    _add_guide_subcommands(guide_sub)
 
     # quickstart (Track B — one-command bootstrap)
     p_quickstart = sub.add_parser("quickstart", help="One-command bootstrap: scaffold, configure, verify")
@@ -861,8 +864,8 @@ def main():
         if getattr(args, "speculate", False):
             return cmd_explain(args, cfg)
         return cmd_bandit_cli(args, cfg)
-    elif args.command == "oracle":
-        rc = cmd_oracle(args, cfg)
+    elif args.command == "guide":
+        rc = cmd_guide(args, cfg)
         if isinstance(rc, int):
             return rc
     elif args.command == "feedback":

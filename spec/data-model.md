@@ -16,7 +16,7 @@
     ...
   memory/
     <workspace-hash>.md ← Perseus Vault per-workspace narrative file
-  pythia_log.jsonl      ← Pythia recommendation log (append-only)
+  guide_log.jsonl      ← Guide recommendation log (append-only)
 
 /workspace/<project>/
   .perseus/
@@ -142,7 +142,7 @@ checkpoints:
   ttl_s: 86400        # stale after 24h; still kept, just not injected as live
   max_keep: 30
 
-pythia:
+guide:
   skill_dir: ~/.hermes/skills
   stale_skill_days: 30
   llm_provider: ollama
@@ -252,7 +252,7 @@ assistant:                               # task-01 (legacy `hermes:` migrated he
 ```
 
 Legacy configs using `oracle:` are still accepted for compatibility. Perseus
-merges those values into `pythia:` and emits a deprecation warning so existing
+merges those values into `guide:` and emits a deprecation warning so existing
 workspaces keep working while operators migrate.
 
 Render block also accepts:
@@ -302,7 +302,7 @@ silently rewrite user state unless a migration is explicitly documented.
 - `hermes:` remains accepted as a legacy alias for `assistant:`. Values are
   merged into `assistant:` at load time. If both sections are present, explicit
   `assistant:` values take precedence except for legacy-only keys.
-- `oracle:` remains accepted as a legacy alias for `pythia:`. Perseus emits a
+- `oracle:` remains accepted as a legacy alias for `guide:`. Perseus emits a
   deprecation warning to stderr and normalizes old `provider` / `model` fields
   to `llm_provider` / `ollama_model`.
 - Unknown top-level config sections and future fields inside known sections are
@@ -322,14 +322,14 @@ oracle:
 # preferred
 assistant:
   context_file: AGENTS.md
-pythia:
+guide:
   llm_provider: ollama
   ollama_model: llama3
 ```
 
 ### Legacy State Files
 
-- `oracle_log.jsonl` is migrated once to `pythia_log.jsonl` when the Pythia log
+- `oracle_log.jsonl` is migrated once to `guide_log.jsonl` when the Guide log
   path is first resolved and the new file does not already exist.
 - Checkpoints without an explicit `version` field remain readable. Future
   checkpoint fields are ignored by recovery and shown by diff output when they
@@ -372,7 +372,7 @@ workspace: /workspace/example
 workspace_hash: a3f9c12b8e44
 updated: 2026-05-18T14:32:00-05:00
 checkpoints_processed: 47
-pythia_entries_processed: 312
+guide_entries_processed: 312
 compaction_count: 2
 last_compaction_at_update: 2
 last_compact_processed: 47
@@ -381,7 +381,7 @@ last_compact_processed: 47
 # Perseus Vault — /workspace/example
 
 > Narrative last updated 2026-05-18 14:32 CT.
-> Source: 47 checkpoints, 312 Pythia entries.
+> Source: 47 checkpoints, 312 Guide entries.
 > Run `perseus memory compact` for a full re-distillation.
 
 ## Project Arc
@@ -409,7 +409,7 @@ last_compact_processed: 47
 | `workspace_hash` | str | 12-char sha256 hex of workspace |
 | `updated` | ISO ts | Last write timestamp |
 | `checkpoints_processed` | int | High-water mark (count of checkpoints) |
-| `pythia_entries_processed` | int | High-water mark (count of Pythia log entries) |
+| `guide_entries_processed` | int | High-water mark (count of Guide log entries) |
 | `compaction_count` | int | Number of full re-distillations |
 | `last_compact_processed` | int | Checkpoints processed at last compact (used for advisory) |
 

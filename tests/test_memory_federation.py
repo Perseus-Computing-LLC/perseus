@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from conftest import PY_VER, cfg, perseus, _capture_json, _seed_oracle_log
+from conftest import PY_VER, cfg, perseus, _capture_json, _seed_guide_log
 
 pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
 

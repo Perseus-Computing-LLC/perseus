@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from conftest import PY_VER, cfg, perseus, _capture_json, _seed_oracle_log
+from conftest import PY_VER, cfg, perseus, _capture_json, _seed_guide_log
 
 pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
 
@@ -177,11 +177,11 @@ def test_doctor_vault_oversized(tmp_path):
     assert "exceeds" in result.value
 
 
-def test_doctor_oracle_log_corrupt(tmp_path, monkeypatch):
-    """Doctor errors on corrupt oracle log."""
+def test_doctor_guide_log_corrupt(tmp_path, monkeypatch):
+    """Doctor errors on corrupt guide log."""
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
-    (tmp_path / "pythia_log.jsonl").write_text("{not json}\n", encoding="utf-8")
-    result = perseus._doctor_check_pythia_log(cfg(), tmp_path)
+    (tmp_path / "guide_log.jsonl").write_text("{not json}\n", encoding="utf-8")
+    result = perseus._doctor_check_guide_log(cfg(), tmp_path)
     assert result.status == "error"
 
 

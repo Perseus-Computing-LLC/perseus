@@ -6,7 +6,7 @@ Usage:
   perseus render <source.md>               → resolved markdown to stdout
   perseus checkpoint --task "..." [opts]   → write checkpoint YAML
   perseus recover [--workspace DIR]        → print latest checkpoint (smart TTL)
-  perseus suggest "<task description>"     → Pythia ranked suggestions
+  perseus suggest "<task description>"     → Guide ranked suggestions
 """
 
 from __future__ import annotations

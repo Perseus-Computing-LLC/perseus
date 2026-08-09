@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from conftest import PY_VER, cfg, perseus, _capture_json, _seed_oracle_log
+from conftest import PY_VER, cfg, perseus, _capture_json, _seed_guide_log
 
 pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
 
@@ -561,7 +561,7 @@ def test_adaptive_prefetch_disabled_does_not_score_or_execute(monkeypatch, tmp_p
 
 
 def test_adaptive_prefetch_deterministic_scores_patterns(monkeypatch, tmp_path):
-    _seed_oracle_log(monkeypatch, tmp_path, [{
+    _seed_guide_log(monkeypatch, tmp_path, [{
         "accepted": True,
         "prompt": "Need decision context",
         "response": "Use memory for decisions before task planning",
@@ -623,7 +623,7 @@ def test_skills_frontmatter_parses_structurally(tmp_path):
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text("---\nname: demo-name\ndescription: uses --- inside text ok\n---\nbody", encoding="utf-8")
     local_cfg = cfg()
-    local_cfg["pythia"]["skill_dir"] = str(tmp_path / "skills")
+    local_cfg["guide"]["skill_dir"] = str(tmp_path / "skills")
     out = perseus.resolve_skills("", local_cfg)
     assert "demo-name" in out
     assert "uses --- inside text ok" in out

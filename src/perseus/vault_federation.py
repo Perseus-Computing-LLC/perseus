@@ -739,7 +739,7 @@ def cmd_memory_federation_diff(args, cfg) -> int | None:
 def cmd_memory_federation_merge(args, cfg) -> int | None:
     """Handle `perseus memory federation merge <alias-a> <alias-b>`.
 
-    Drafts a reconciliation using Pythia's cited synthesis pipeline.
+    Drafts a reconciliation using Guide's cited synthesis pipeline.
     """
     alias_a = getattr(args, "alias_a", "")
     alias_b = getattr(args, "alias_b", "")

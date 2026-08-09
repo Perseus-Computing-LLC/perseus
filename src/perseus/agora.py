@@ -58,7 +58,7 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     mp = _vault_memory_path(workspace, cfg)
     fm, body = _load_narrative(mp)
     hwm = int(fm.get("checkpoints_processed", 0)) if fm else 0
-    if hwm > 0 and hwm >= len(cp_files) and not _read_all_pythia_entries():
+    if hwm > 0 and hwm >= len(cp_files) and not _read_all_guide_entries():
         return False, "Nothing new to process (all checkpoints at HWM)."
     # _list_checkpoint_files returns reverse-chrono; sort filename-asc for hwm
     cp_files = sorted(cp_files, key=lambda f: f.name)
@@ -67,16 +67,16 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
         cp = _load_checkpoint_file(fp)
         if cp:
             all_checkpoints.append(cp)
-    all_pythia = _read_all_pythia_entries()
+    all_guide = _read_all_guide_entries()
 
     if not fm:
         fm = _vault_default_frontmatter(workspace)
         body = ""
 
     cp_hwm = int(fm.get("checkpoints_processed", 0))
-    py_hwm = _vault_pythia_hwm(fm)
+    py_hwm = _vault_guide_hwm(fm)
     new_cp = all_checkpoints[cp_hwm:]
-    new_py = all_pythia[py_hwm:]
+    new_py = all_guide[py_hwm:]
 
     # No new data and we already have a body? Nothing to do.
     if not new_cp and not new_py and body.strip():
@@ -85,10 +85,10 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     # Narrative is always distilled deterministically — Perseus runs no
     # inference of its own (observe model). `provider` is accepted for
     # call-site compatibility and ignored.
-    new_body = _deterministic_narrative(all_checkpoints, all_pythia, body, workspace, cfg)
+    new_body = _deterministic_narrative(all_checkpoints, all_guide, body, workspace, cfg)
 
     fm["checkpoints_processed"] = len(all_checkpoints)
-    _set_vault_pythia_hwm(fm, len(all_pythia))
+    _set_vault_guide_hwm(fm, len(all_guide))
     fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
     fm["workspace"] = str(workspace)
     fm["workspace_hash"] = _workspace_hash(workspace)
@@ -98,7 +98,7 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     _enrich_narrative_frontmatter(fm, new_body, workspace)
 
     _save_narrative(mp, fm, new_body)
-    return (True, f"Updated {mp} (+{len(new_cp)} checkpoints, +{len(new_py)} Pythia entries)")
+    return (True, f"Updated {mp} (+{len(new_cp)} checkpoints, +{len(new_py)} Guide entries)")
 
 
 def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
@@ -118,7 +118,7 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
         cp = _load_checkpoint_file(fp)
         if cp:
             all_checkpoints.append(cp)
-    all_pythia = _read_all_pythia_entries()
+    all_guide = _read_all_guide_entries()
 
     mp = _vault_memory_path(workspace, cfg)
     fm, _ = _load_narrative(mp)
@@ -128,10 +128,10 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
     # Compaction always distills deterministically — Perseus runs no inference
     # of its own (observe model). `provider` is accepted for call-site
     # compatibility and ignored.
-    new_body = _deterministic_narrative(all_checkpoints, all_pythia, "", workspace, cfg)
+    new_body = _deterministic_narrative(all_checkpoints, all_guide, "", workspace, cfg)
 
     fm["checkpoints_processed"] = len(all_checkpoints)
-    _set_vault_pythia_hwm(fm, len(all_pythia))
+    _set_vault_guide_hwm(fm, len(all_guide))
     fm["compaction_count"] = int(fm.get("compaction_count", 0)) + 1
     fm["last_compaction_at_update"] = fm["compaction_count"]
     fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -141,7 +141,7 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
     _enrich_narrative_frontmatter(fm, new_body, workspace)
 
     _save_narrative(mp, fm, new_body)
-    return f"Compacted {mp} ({len(all_checkpoints)} checkpoints, {len(all_pythia)} Pythia entries)"
+    return f"Compacted {mp} ({len(all_checkpoints)} checkpoints, {len(all_guide)} Guide entries)"
 
 
 def cmd_memory_update_silent(workspace: Path, cfg: dict) -> None:
@@ -371,9 +371,9 @@ def cmd_memory(args, cfg):
             return
         fm, body = _load_narrative(mp)
         all_cp = _list_checkpoint_files(cfg)
-        all_py = _read_all_pythia_entries()
+        all_py = _read_all_guide_entries()
         cp_hwm = int(fm.get("checkpoints_processed", 0))
-        py_hwm = _vault_pythia_hwm(fm)
+        py_hwm = _vault_guide_hwm(fm)
         cp_pending = max(0, len(all_cp) - cp_hwm)
         py_pending = max(0, len(all_py) - py_hwm)
         line_count = body.count("\n") + (1 if body and not body.endswith("\n") else 0)
@@ -388,8 +388,8 @@ def cmd_memory(args, cfg):
                 "updated": str(updated),
                 "checkpoints_processed": cp_hwm,
                 "checkpoints_pending": cp_pending,
-                "pythia_entries_processed": py_hwm,
-                "pythia_entries_pending": py_pending,
+                "guide_entries_processed": py_hwm,
+                "guide_entries_pending": py_pending,
                 "compaction_count": int(fm.get("compaction_count", 0)),
                 "line_count": line_count,
                 "mode": mode,
@@ -400,7 +400,7 @@ def cmd_memory(args, cfg):
             print(f"{MEMORY_BRAND} — {workspace}")
             print(f"  Updated:     {updated} ({age})")
             print(f"  Checkpoints: {cp_hwm} processed ({cp_pending} pending)")
-            print(f"  Pythia log:  {py_hwm} entries processed ({py_pending} pending)")
+            print(f"  Guide log:  {py_hwm} entries processed ({py_pending} pending)")
             print(f"  Compactions: {fm.get('compaction_count', 0)}")
             print(f"  Size:        {line_count} lines")
             print(f"  Mode:        {mode}")

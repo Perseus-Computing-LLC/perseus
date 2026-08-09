@@ -3,7 +3,7 @@
 #
 # Goal: deterministic, opt-out redaction of common secret shapes before they
 # leave the trust boundary (rendered context, synthesis prompts, HTTP serve
-# bodies, Pythia log entries). Source files on disk are NEVER modified.
+# bodies, Guide log entries). Source files on disk are NEVER modified.
 #
 # Design:
 # - A small set of high-signal regex detectors covers the credential shapes

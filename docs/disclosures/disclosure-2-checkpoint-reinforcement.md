@@ -20,13 +20,13 @@ Skill recommendation systems for developer tools (IDE autocomplete accept/reject
 
 ## The Invention
 
-Perseus's Pythia recommendation engine (`src/perseus/` with Pythia/Daedalus subsystems) correlates three passive signals without requiring any explicit user action:
+Perseus's Guide recommendation engine (`src/perseus/` with Guide/Daedalus subsystems) correlates three passive signals without requiring any explicit user action:
 
-1. **Acceptance signal:** Did the user checkpoint a task after Pythia recommended a skill for that task?
+1. **Acceptance signal:** Did the user checkpoint a task after Guide recommended a skill for that task?
 2. **Rejection signal:** Did the user checkpoint a task without using the recommended skill? (inferred after a configurable window)
 3. **Drift signal:** Are acceptance rates for this skill dropping over time relative to baseline?
 
-The key insight: **checkpoints are the implicit reinforcement signal.** Every `perseus checkpoint --task "..."` records what happened. By correlating the checkpoint timestamp and content with which skills Pythia recommended for that task, the system derives accept/reject labels without explicit user feedback.
+The key insight: **checkpoints are the implicit reinforcement signal.** Every `perseus checkpoint --task "..."` records what happened. By correlating the checkpoint timestamp and content with which skills Guide recommended for that task, the system derives accept/reject labels without explicit user feedback.
 
 The scoring engine (Daedalus) maintains a per-skill acceptance rate, confidence score, and drift metric. These are surfaced via the `@drift` directive and the `perseus oracle drift` command.
 
@@ -38,13 +38,13 @@ The scoring engine (Daedalus) maintains a per-skill acceptance rate, confidence 
 
 3. **Deterministic fallback.** The pattern extractor defaults to deterministic (rule-based) scoring. LLM-enhanced scoring (Daedalus) is opt-in via `memory.pattern_extractor: "daedalus"`. The system works offline.
 
-4. **Outcome-weighted online scoring.** Recent checkpoint outcomes bias recommendation scores in real time (Phase 14B, configurable via `pythia.online_scoring_*`).
+4. **Outcome-weighted online scoring.** Recent checkpoint outcomes bias recommendation scores in real time (Phase 14B, configurable via `guide.online_scoring_*`).
 
-5. **AB testing infrastructure.** A configurable fraction of recommendations can explore alternative candidates (Phase 14C, `pythia.ab_testing_rate`), enabling transparent comparison without user-visible A/B UI.
+5. **AB testing infrastructure.** A configurable fraction of recommendations can explore alternative candidates (Phase 14C, `guide.ab_testing_rate`), enabling transparent comparison without user-visible A/B UI.
 
 ## Distinction from Prior Art — Summary
 
-| Property | Explicit ratings | Usage counting | Session outcome | **Pythia** |
+| Property | Explicit ratings | Usage counting | Session outcome | **Guide** |
 |---|---|---|---|---|
 | User action required | Yes — click rating | No | No | **No — checkpoints are the signal** |
 | Handles signal sparsity | No | Yes | Yes | **Yes** |
@@ -53,8 +53,8 @@ The scoring engine (Daedalus) maintains a per-skill acceptance rate, confidence 
 
 ## Implementation Reference
 
-- **Config:** `src/perseus/config.py` — `pythia` block (drift windows, scoring params, AB testing rate)
-- **Checkpoint correlation:** `src/perseus/` — Pythia processes checkpoint YAML files to extract acceptance signals
+- **Config:** `src/perseus/config.py` — `guide` block (drift windows, scoring params, AB testing rate)
+- **Checkpoint correlation:** `src/perseus/` — Guide processes checkpoint YAML files to extract acceptance signals
 - **`@drift` directive:** `src/perseus/registry.py` line 52
 - **`perseus oracle drift`:** CLI subcommand
 
