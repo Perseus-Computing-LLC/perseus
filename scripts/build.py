@@ -33,6 +33,7 @@ MODULE_ORDER = [
     "src/perseus/artifact_actions.py",  # ← #925: exact external-artifact prior-action projections
     "src/perseus/tool_lessons.py",      # ← #926: bounded evidence-linked tool lessons
     "src/perseus/memory_telemetry.py",  # ← #929: memory-injection efficiency accounting
+    "src/perseus/skill_mining.py",      # ← #932: transcript mining → procedural skill synthesis (uses #929 telemetry line)
     "src/perseus/context_artifacts.py", # ← #923/#924/#928: portable context and cartridge artifacts
     "src/perseus/directives/env.py",
     "src/perseus/directives/include.py",

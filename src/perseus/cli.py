@@ -297,6 +297,51 @@ def main():
     )
     _add_knows_args(p_knows)
 
+    # skills (#932 — transcript mining → procedural skill synthesis)
+    p_skills = sub.add_parser(
+        "skills",
+        help="Mine session transcripts into candidate procedural skills (#932)",
+    )
+    skills_sub = p_skills.add_subparsers(dest="skills_command", required=True)
+    p_skills_mine = skills_sub.add_parser(
+        "mine",
+        help="Mine session transcripts into candidate procedural skills (trigger, steps, pitfalls)",
+    )
+    p_skills_mine.add_argument("--sessions-dir", default=None,
+                               help="Sessions directory (default: assistant.sessions_dir)")
+    p_skills_mine.add_argument("--limit", type=int, default=None,
+                               help="Max session files to scan (default: skills.mining.max_sessions)")
+    p_skills_mine.add_argument("--min-occurrences", type=int, default=None,
+                               help="Repeat candidates need this many distinct sessions (default: skills.mining.min_occurrences)")
+    p_skills_mine.add_argument("--dry-run", action="store_true",
+                               help="Report what would be mined without writing candidates")
+    p_skills_mine.add_argument("--auto", action="store_true",
+                               help="Automatic/scheduled run — refuses unless skills.mining.enabled=true")
+    p_skills_mine.add_argument("--telemetry", default=None, metavar="FILE",
+                               help="Also write the #929-line skill-candidate telemetry report to FILE")
+    p_skills_list = skills_sub.add_parser("list", help="List mined skill candidates")
+    p_skills_list.add_argument("--status", default=None, choices=["pending", "approved", "rejected", "all"],
+                               help="Filter by review status (default: all)")
+    p_skills_list.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+    p_skills_approve = skills_sub.add_parser(
+        "approve",
+        help="Review gate: promote a candidate into the live skills dir (@skills)",
+    )
+    p_skills_approve.add_argument("name", help="Candidate name from `perseus skills list`")
+    p_skills_approve.add_argument("--force", action="store_true",
+                                  help="Overwrite an existing live skill with the same name")
+    p_skills_reject = skills_sub.add_parser(
+        "reject",
+        help="Tombstone a candidate so re-mining never re-suggests it",
+    )
+    p_skills_reject.add_argument("name", help="Candidate name from `perseus skills list`")
+    p_skills_telemetry = skills_sub.add_parser(
+        "telemetry",
+        help="Emit the #929-line context-token impact report for @skill-candidates surfacing",
+    )
+    p_skills_telemetry.add_argument("--output", default=None, metavar="FILE",
+                                    help="Write the report to FILE instead of stdout")
+
     # memory (Perseus Vault)
     p_mem = sub.add_parser("memory", help="Perseus Vault — narrative project memory")
     mem_sub = p_mem.add_subparsers(dest="memory_command", required=True)
@@ -748,6 +793,9 @@ def main():
         cmd_suggest(args, cfg)
     elif args.command == "knows":
         return cmd_knows(args, cfg)
+    elif args.command == "skills":
+        # #932 — transcript mining → procedural skill synthesis (review gate)
+        return cmd_skills(args, cfg)
     elif args.command == "memory":
         # #692: `perseus memory review` aliases `perseus knows`
         if getattr(args, "memory_command", None) == "review":

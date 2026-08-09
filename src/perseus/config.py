@@ -126,6 +126,28 @@ DEFAULT_CONFIG = {
     "assistant": {
         "sessions_dir": str(SESSIONS_DIR),
     },
+    "skills": {
+        # #932 — transcript mining → procedural skill synthesis (memU-style
+        # skill-tree distillation, deterministic rule-based extraction).
+        # Candidates are staged in candidates_dir — OUTSIDE the live
+        # skill_dir, so @skills never picks them up — and require an explicit
+        # `perseus skills approve` review gate before activation. Mining never
+        # writes to AGENTS.md/CLAUDE.md; the @skill-candidates directive
+        # surfaces pending candidates only when an operator places it in
+        # their context source. Context-token impact of that surfaced block is
+        # measured on the #929 memory-injection telemetry line.
+        "candidates_dir": str(PERSEUS_HOME / "skill-candidates"),
+        "mining": {
+            "enabled": False,          # master switch for AUTOMATIC runs
+                                       # (`mine --auto`); a manual `perseus
+                                       # skills mine` is always allowed.
+            "max_sessions": 100,       # most recent session_*.json files scanned
+            "min_occurrences": 2,      # repeat-pattern candidates need ≥N distinct sessions
+            "max_candidate_bytes": 12000,
+            "min_steps": 2,            # fewer extracted steps = not procedural
+            "max_steps": 25,
+        },
+    },
     "agora": {
         "tasks_dir": "tasks",
     },
