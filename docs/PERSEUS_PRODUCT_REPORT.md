@@ -12,9 +12,9 @@ Perseus is already a serious local context engine. Its core thesis is strong:
 resolve environment state before it enters an assistant's context window, so the
 assistant receives facts instead of instructions to go find facts.
 
-The project has moved beyond a renderer. It now includes checkpoints, Pythia
+The project has moved beyond a renderer. It now includes checkpoints, Guide
 recommendations, Agora task coordination, Perseus Vault narrative memory (with Perseus Vault hybrid accelerator), federation,
-LSP/editor support, schema validation, predictive prefetch, adaptive Pythia
+LSP/editor support, schema validation, predictive prefetch, adaptive Guide
 signals, and the first bounded synthesis surface.
 
 The next product challenge is not "more intelligence." It is packaging the
@@ -66,7 +66,7 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
 |---|---|---|
 | Renderer | complete | Resolves directives to plain markdown |
 | Checkpoints | complete | Session recovery and diffs |
-| Pythia | complete | Tool/approach recommendation prompts with logs |
+| Guide | complete | Tool/approach recommendation prompts with logs |
 | Agora | complete | Task files, claim/complete commands, live board |
 | Health | complete | Maintenance heuristics |
 | Daedalus path | complete on Perseus side | Label/export/routing; model training is user-owned |
@@ -80,7 +80,7 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
 | Adapter conformance/profile gallery | complete | Offline fixtures and profile generation cover generic, Hermes, Codex, Claude Code, Cursor, and Rovo Dev |
 | Schema validation | complete | Built-in validator, no new dependency |
 | Graph/prefetch | complete | Static graph, rules, adaptive scoring |
-| Pythia learning | complete | Outcomes, online hints, opt-in A/B exploration |
+| Guide learning | complete | Outcomes, online hints, opt-in A/B exploration |
 | Cited synthesis | complete | Command surface and citation gate exist |
 | Trust/redaction/audit | complete | Profiles, redaction, and audit report are live |
 | Installer/release | complete | Installer, release artifacts, checksums, and scheduler parity are live |
@@ -97,7 +97,7 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
    ship, if distribution is handled carefully.
 4. **Assistant agnosticism.** Perseus does not depend on one downstream model or
    product.
-5. **Rich local state loop.** Checkpoints, Pythia logs, Perseus Vault (and optional Perseus Vault hybrid accelerator), and Agora make
+5. **Rich local state loop.** Checkpoints, Guide logs, Perseus Vault (and optional Perseus Vault hybrid accelerator), and Agora make
    context accumulate value across sessions.
 6. **Good test discipline.** The suite is already broad and split by subsystem.
 7. **Right synthesis boundary.** The project rejected vague elaboration and kept
@@ -155,7 +155,7 @@ to operate.
 
 Perseus is unusually coherent for a fast-moving local AI infrastructure project.
 The mythology names are not just flavor; they map to real responsibilities:
-Perseus reflects the workspace, Pythia recommends, Perseus Vault remembers (with Perseus Vault hybrid accelerator), Agora
+Perseus reflects the workspace, Guide recommends, Perseus Vault remembers (with Perseus Vault hybrid accelerator), Agora
 coordinates, and Daedalus scores.
 
 The next phase should resist feature appetite and focus on product spine:

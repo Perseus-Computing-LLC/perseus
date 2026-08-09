@@ -28,7 +28,7 @@ print(f"Reading perseus.py: {total} lines")
 # plus careful inspection of actual function placements.
 #
 # CRITICAL: audit.py covers lines 487–1256 which includes config normalisation
-# helpers (_normalize_pythia_section, load_config, _infer_workspace),
+# helpers (_normalize_guide_section, load_config, _infer_workspace),
 # shared parse utilities (_extract_quoted_token, _parse_kv_modifiers),
 # schema helpers (798–1050), and agora task helpers (1051–1256).
 # These were NOT split further to keep the plan's structure intact.
@@ -43,7 +43,7 @@ print(f"Reading perseus.py: {total} lines")
 # "memory.py" receives two non-contiguous ranges: 3743–4094, 4520–4872
 # "registry.py" receives lines 38–128 ONLY; the bare _bind_registry() call
 #   (original lines 8150–8151) is dropped here and added into cli.py's main().
-# "pythia.py" receives three non-contiguous ranges: 4095–4171, 6566–7112, 7507–8145
+# "guide.py" receives three non-contiguous ranges: 4095–4171, 6566–7112, 7507–8145
 
 SECTIONS = [
     # start end  dest
@@ -70,7 +70,7 @@ SECTIONS = [
     (2994, 3127, "directives/query.py"),   # dep graph helpers
     (3128, 3742, "directives/query.py"),   # prefetch rules
     (3743, 4094, "memory.py"),             # Vault narrative
-    (4095, 4171, "pythia.py"),             # LLM-assisted paths
+    (4095, 4171, "guide.py"),             # LLM-assisted paths
     (4172, 4519, "agora.py"),
     (4520, 4872, "memory.py"),             # Vault federation
     (4873, 5048, "inbox.py"),
@@ -79,12 +79,12 @@ SECTIONS = [
     (5766, 6211, "serve.py"),              # synthesis
     (6212, 6502, "serve.py"),              # context packs
     (6503, 6565, "serve.py"),              # schema validation CLI
-    (6566, 7112, "pythia.py"),             # suggest + oracle
+    (6566, 7112, "guide.py"),             # suggest + oracle
     (7113, 7210, "serve.py"),              # cmd_init
     (7211, 7287, "serve.py"),              # cron
     (7288, 7393, "serve.py"),              # systemd
     (7394, 7506, "serve.py"),              # health
-    (7507, 8145, "pythia.py"),             # daedalus + drift
+    (7507, 8145, "guide.py"),             # daedalus + drift
     # Lines 8146–8162: the bare _bind_registry() call site — DROPPED here,
     # moved into cli.py's main() below.
     (8163, 8663, "serve.py"),              # doctor

@@ -87,7 +87,7 @@ If the mounted workspace contains `.perseus/pack.yaml`, omit `--source` and
 - Mount workspaces read-only unless Perseus is intentionally writing rendered
   output back into the project.
 - Treat `/perseus-home` as stateful: it can contain config, auth tokens, cache,
-  checkpoints, audit logs, Perseus Vault data, inbox messages, and Pythia logs.
+  checkpoints, audit logs, Perseus Vault data, inbox messages, and Guide logs.
 - Do not mount the host container socket into the Perseus container.
 - Keep published ports loopback-bound unless the token and network boundary are
   intentional.

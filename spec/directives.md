@@ -521,7 +521,7 @@ and expectation.
 @drift
 ```
 
-Requires Pythia Oracle to be enabled. Returns structured drift data.
+Requires Guide Oracle to be enabled. Returns structured drift data.
 
 ---
 

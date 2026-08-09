@@ -19,12 +19,12 @@
 | `perseus diff [--from FILE] [--to FILE]` | Show diff between two checkpoints (default: latest two). |
 | `perseus recover [--workspace PATH]` | Print the latest checkpoint for the workspace. |
 | `perseus agora [--status open\|in_progress\|completed]` | Live task board from `tasks/*.md`. |
-| `perseus suggest <prompt>` | Pythia tool oracle — ranks skills against a prompt and prints the prompt for the host agent to answer, with transparent outcome-weight hints when data exists. |
+| `perseus suggest <prompt>` | Guide tool oracle — ranks skills against a prompt and prints the prompt for the host agent to answer, with transparent outcome-weight hints when data exists. |
 | `perseus memory {update,compact,show,status,query,federation}` | Perseus Vault narrative project memory + cross-workspace federation. |
 | `perseus memory index {rebuild,stats,search}` | Perseus Vault v2 FTS5 vault index management. `rebuild` re-indexes all `.md` files in `~/.perseus/memory/vault/`. `stats` shows document count and index size. `search --query "..." --k 5` runs a BM25 search against the vault. |
 | `perseus inbox {send,list,read,unread,mark-read}` | Point-to-point messages between agents. |
-| `perseus health` | Maintenance report — stale skills, large narrative, Pythia log volume. |
-| `perseus oracle {accept,reject,log,export,infer-labels,outcomes,drift}` | Daedalus Pythia log management, inferred labels, outcome signals, and drift checks. |
+| `perseus health` | Maintenance report — stale skills, large narrative, Guide log volume. |
+| `perseus oracle {accept,reject,log,export,infer-labels,outcomes,drift}` | Daedalus Guide log management, inferred labels, outcome signals, and drift checks. |
 | `perseus init [--template name \| --profile name] <workspace>` | Scaffold `.perseus/context.md`; profiles also write `.perseus/pack.yaml`. |
 | `perseus serve [--port N] [--host H] [--generate-token]` | Read-only HTTP view of workspace state on `http://127.0.0.1:7991/`; optional static bearer auth via `serve.auth_token`. |
 | `perseus serve --lsp --stdio\|--tcp PORT [--allow-lsp-mutations]` | Run as a Language Server Protocol server for editor integration. Mutation commands are opt-in. |
@@ -34,7 +34,7 @@
 | `perseus install --target {claude-code,cursor,gemini-cli,copilot} [--workspace PATH] [--dry-run]` | Install Perseus hooks into an AI assistant. |
 | `perseus update [--apply] [--check] [--auto on\|off]` | Check for and apply Perseus updates from git. |
 | `perseus mcp {serve,config,register}` | Run Perseus as an MCP server — expose directives as tools for any MCP-compatible assistant. |
-| `perseus doctor [--workspace PATH] [--json]` | Run readiness checks against workspace and config (10 checks: config, context file, render settings, checkpoint age, Perseus Vault narrative, federation, Pythia log, serve endpoint, directive registry, version). |
+| `perseus doctor [--workspace PATH] [--json]` | Run readiness checks against workspace and config (10 checks: config, context file, render settings, checkpoint age, Perseus Vault narrative, federation, Guide log, serve endpoint, directive registry, version). |
 | `perseus memory-efficiency [--output FILE]` | Emit the offline Vault memory-injection efficiency report (#929): deterministic, hash-only token-savings evidence. |
 | `perseus skills {mine,list,approve,reject,telemetry}` | **Transcript mining → procedural skill synthesis (#932).** `mine` scans session transcripts (`assistant.sessions_dir`) and stages candidate procedural skills (trigger, steps, pitfalls, evidence) in `skills.candidates_dir` — deterministic, no model. `list [--status …] [--json]` reviews them. `approve <name>` is the human/operator **review gate**: promotes a candidate into the live skills dir where `@skills`/`@auto-skill` see it. `reject <name>` tombstones it so re-mining never re-suggests it. `telemetry [--output FILE]` emits the #929-line context-token impact report for `@skill-candidates` surfacing. Mining never writes AGENTS.md/CLAUDE.md — surfacing is opt-in via the `@skill-candidates` directive in your context source. |
 | `perseus trust [--json] {profile,audit}` | Show effective permission profile and trust posture; audit recent access decisions. |

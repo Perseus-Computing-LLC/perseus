@@ -3,7 +3,7 @@
 > *"The mirror lets Perseus face the monster clearly, without meeting her gaze."*
 
 This guide walks through deploying every Perseus surface — context engine, Perseus Vault
-memory, Pythia oracle, Agora task board, Synthesis, and Prefetch cache warming — on a
+memory, Guide oracle, Agora task board, Synthesis, and Prefetch cache warming — on a
 Hermes Agent host. By the end, you will have a self-maintaining deployment where every
 component is health-checked and wired into Hermes cron.
 
@@ -21,7 +21,7 @@ installed, Python 3.10+ available.
 ┌─────────────────────────────────────────────────────────────┐
 │                      Hermes Agent                           │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐ │
-│  │ Context   │  │ Pythia   │  │ Agora    │  │ Synthesis  │ │
+│  │ Context   │  │ Guide   │  │ Agora    │  │ Synthesis  │ │
 │  │ Engine    │  │ Suggest  │  │ Reporter │  │ Digest     │ │
 │  │ (5m cron) │  │ (8am)    │  │ (9am)    │  │ (Mon 9am)  │ │
 │  └────┬──────┘  └────┬─────┘  └────┬─────┘  └─────┬──────┘ │
@@ -150,7 +150,7 @@ committed deployment record.
 
 ## Step 2: Perseus LLM Proxy (deprecated — no longer required)
 
-> **Deprecated.** Perseus runs no inference of its own (observe model): Pythia,
+> **Deprecated.** Perseus runs no inference of its own (observe model): Guide,
 > Synthesis, and Perseus Vault now render prompts for the host agent to answer with the
 > model it already uses, and no component calls a provider directly. This proxy
 > is no longer needed for a Perseus deployment — skip this step. The section is
@@ -519,19 +519,19 @@ hermes cron create "0 9 * * *" \
   --deliver local
 ```
 
-### 4.5 Pythia Suggest — Daily at 8 AM
+### 4.5 Guide Suggest — Daily at 8 AM
 
-Runs the Pythia tool oracle on the highest-priority open task, using the LLM proxy.
+Runs the Guide tool oracle on the highest-priority open task, using the LLM proxy.
 
-Save as `~/.hermes/scripts/perseus-pythia-suggest.sh`:
+Save as `~/.hermes/scripts/perseus-guide-suggest.sh`:
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
 PERSEUS_PY="/workspace/perseus/perseus.py"
-LLM_URL="${PYTHIA_LLM_URL:-http://127.0.0.1:18080}"
-LLM_MODEL="${PYTHIA_LLM_MODEL:-claude-sonnet-4-6}"
+LLM_URL="${GUIDE_LLM_URL:-http://127.0.0.1:18080}"
+LLM_MODEL="${GUIDE_LLM_MODEL:-claude-sonnet-4-6}"
 
 TASK_LINE=$(cd /workspace/perseus && python3 "${PERSEUS_PY}" agora list 2>&1 | awk '/^OPEN$/{found=1; next} /^IN_PROGRESS$/{found=0} found && /^task-/{print; exit}')
 
@@ -540,7 +540,7 @@ if [ -z "$TASK_LINE" ]; then
 fi
 
 TASK_ID=$(echo "$TASK_LINE" | awk '{print $1}')
-echo "Pythia: analyzing ${TASK_ID}..."
+echo "Guide: analyzing ${TASK_ID}..."
 echo ""
 
 cd /workspace/perseus && python3 "${PERSEUS_PY}" suggest \
@@ -551,11 +551,11 @@ cd /workspace/perseus && python3 "${PERSEUS_PY}" suggest \
 ```
 
 ```bash
-chmod +x ~/.hermes/scripts/perseus-pythia-suggest.sh
+chmod +x ~/.hermes/scripts/perseus-guide-suggest.sh
 
 hermes cron create "0 8 * * *" \
-  --name "Perseus Pythia suggest" \
-  --script perseus-pythia-suggest.sh \
+  --name "Perseus Guide suggest" \
+  --script perseus-guide-suggest.sh \
   --no-agent \
   --deliver local
 ```
@@ -647,13 +647,13 @@ All of these should show `[active]`:
 | Perseus LLM proxy watchdog | every 10m | no-agent |
 | Perseus Vault health check | on demand | agent |
 
-| Perseus Pythia suggest | 0 8 * * * | no-agent |
+| Perseus Guide suggest | 0 8 * * * | no-agent |
 | Perseus Synthesis weekly digest | 0 9 * * 1 | no-agent |
 
 ### 5.4 On-Demand Commands
 
 ```bash
-# Pythia (requires LLM proxy running)
+# Guide (requires LLM proxy running)
 cd /workspace/perseus
 python3 perseus.py suggest --llm openai-compat \
   --model-url http://127.0.0.1:18080 \
@@ -733,7 +733,7 @@ hermes cron list | grep <job-name>
 # Look for "error" in the last run status
 ```
 
-### Pythia/Synthesis time out
+### Guide/Synthesis time out
 
 These use the LLM proxy which calls Anthropic. The default 30s timeout in Perseus may
 be too short. Increase it:
@@ -771,7 +771,7 @@ Or restart the Hermes process. MCP servers connect at session start.
  :30    │ Prefetch cache warmer (every 30m)
  03:00  │ Daily checkpoint
  04:00  │ Auto-update
- 08:00  │ Pythia suggest
+ 08:00  │ Guide suggest
  09:00  │ Agora status reporter
  09:00  │ Synthesis weekly digest (Monday only)
 ```
