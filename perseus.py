@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "11a4fce-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "d10d009-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -5604,11 +5604,13 @@ def _finalize_candidate_md(cand: dict, cfg: dict, max_bytes: int, max_steps: int
 
 
 def _write_no_follow(path: Path, text: str, mode: int = 0o600) -> None:
-    """Write text to path with O_NOFOLLOW on the final component.
+    """Write text to path without following a symlink at the final component.
 
-    A symlink planted at the write target (or swapped in between check and
-    write) raises OSError instead of redirecting the write outside the
-    intended root."""
+    Two layers: an islink() pre-check (all platforms — Windows has no
+    O_NOFOLLOW) and O_NOFOLLOW on the open (Unix — closes the TOCTOU window).
+    A planted symlink cannot redirect the write on any platform."""
+    if os.path.islink(path):
+        raise OSError(f"refusing to write through symlink: {path}")
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
