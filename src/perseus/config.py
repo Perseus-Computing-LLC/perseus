@@ -7,11 +7,16 @@ _skills_dir = os.environ.get("PERSEUS_SKILLS_DIR") or os.environ.get("HERMES_SKI
 SKILLS_DIR = Path(_skills_dir) if _skills_dir else _default_hermes_root / "skills"
 _sessions_dir = os.environ.get("PERSEUS_SESSIONS_DIR") or os.environ.get("HERMES_SESSIONS_DIR")
 SESSIONS_DIR = Path(_sessions_dir) if _sessions_dir else _default_hermes_root / "sessions"
-PYTHIA_LOG_NAME = "pythia_log.jsonl"
-LEGACY_PYTHIA_CONFIG_KEY = "or" + "acle"
-LEGACY_PYTHIA_LOG_NAME = LEGACY_PYTHIA_CONFIG_KEY + "_log.jsonl"
-PYTHIA_HWM_KEY = "pythia_entries_processed"
-LEGACY_PYTHIA_HWM_KEY = LEGACY_PYTHIA_CONFIG_KEY + "_entries_processed"
+GUIDE_LOG_NAME = "guide_log.jsonl"
+LEGACY_GUIDE_LOG_NAME = "pythia_log.jsonl"     # legacy alias (removal-gated)
+GUIDE_HWM_KEY = "guide_entries_processed"
+LEGACY_GUIDE_HWM_KEY = "pythia_entries_processed"
+GUIDE_CONFIG_KEY = "guide"
+LEGACY_GUIDE_CONFIG_KEY = "pythia"
+# Removal gate for the legacy `pythia` alias (config key, log filename):
+# the migration bridge stays until this date; on/after it the gate test
+# requires the legacy aliases to be GONE (self-enforcing deprecation).
+LEGACY_PYTHIA_REMOVAL_DATE = "2026-10-08"
 
 # Single source of truth for the plugins-enabled default. Referenced by
 # DEFAULT_CONFIG below and by registry.register_plugins / _discover_plugins so
@@ -97,7 +102,7 @@ DEFAULT_CONFIG = {
         "ttl_s": 86400,
         "max_keep": 30,
     },
-    "pythia": {
+    "guide": {  # Guide (renamed from Pythia, #932-era de-mythologizing): tool-recommendation log, labeling, drift
         "skill_dir": str(SKILLS_DIR),
         "stale_skill_days": 30,
         "max_entries": 10000,          # max JSONL log entries before oldest are pruned (0 = unlimited)
@@ -109,7 +114,7 @@ DEFAULT_CONFIG = {
         "inferred_label_window_checkpoints": 5,
         "inferred_label_min_checkpoints": 2,
         # Phase 9.3 — drift detection thresholds (tasks 22).
-        # Surfaced via `perseus oracle drift` and the `@drift` directive.
+        # Surfaced via `perseus guide drift` and the `@drift` directive.
         "drift_window_days": 30,              # baseline window for comparisons
         "drift_recent_window_days": 7,        # recent window vs baseline
         "drift_acceptance_drop": 0.20,        # ≥ 20pp drop in accept-rate
@@ -350,7 +355,7 @@ DEFAULT_CONFIG = {
     },
     "redaction": {                    # Phase 17B — task-46
         # Redact common secret shapes before output crosses Perseus's trust
-        # boundary (render output, synthesis prompts, serve bodies, Pythia log).
+        # boundary (render output, synthesis prompts, serve bodies, Guide log).
         # Source files on disk are never mutated.
         "enabled": True,
         "include_defaults": True,

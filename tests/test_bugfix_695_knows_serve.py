@@ -125,7 +125,7 @@ def test_collect_stats_uses_active_only_vault_counts(tmp_path, monkeypatch):
     local["memory"]["store"] = str(tmp_path / "memory")
     local["checkpoints"]["store"] = str(tmp_path / "cp")
     local["inbox"]["store"] = str(tmp_path / "inbox")
-    local["pythia"]["skill_dir"] = str(tmp_path / "skills")
+    local["guide"]["skill_dir"] = str(tmp_path / "skills")
     stats = perseus._serve_collect_stats(local, tmp_path)
     assert stats["vault_active"] == 42
     assert stats["vault_archived"] == 7
@@ -138,7 +138,7 @@ def test_collect_stats_leaves_dash_for_pre_split_server(tmp_path, monkeypatch):
     local["memory"]["store"] = str(tmp_path / "memory")
     local["checkpoints"]["store"] = str(tmp_path / "cp")
     local["inbox"]["store"] = str(tmp_path / "inbox")
-    local["pythia"]["skill_dir"] = str(tmp_path / "skills")
+    local["guide"]["skill_dir"] = str(tmp_path / "skills")
     stats = perseus._serve_collect_stats(local, tmp_path)
     assert stats["vault_active"] is None
     assert stats["vault_archived"] is None

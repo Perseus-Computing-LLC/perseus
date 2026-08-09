@@ -261,8 +261,8 @@ def _audit_summary(cfg: dict) -> dict:
     }
 
 
-def _normalize_pythia_section(section: dict) -> dict:
-    """Normalize Pythia config aliases without mutating the source object."""
+def _normalize_guide_section(section: dict) -> dict:
+    """Normalize Guide config aliases without mutating the source object."""
     out = dict(section or {})
     if "provider" in out and "llm_provider" not in out:
         out["llm_provider"] = out["provider"]
@@ -300,16 +300,20 @@ def _normalize_loaded_config(loaded: dict, warn_legacy: bool = False) -> dict:
         assistant_vals.update(legacy)
         loaded["assistant"] = assistant_vals
 
-    legacy_pythia = loaded.pop(LEGACY_PYTHIA_CONFIG_KEY, None)
-    if isinstance(legacy_pythia, dict):
+    # Guide config: canonical key is `guide:`; the legacy `pythia:` block is
+    # merged in (chain: guide ← pythia), so old configs keep working while the
+    # subsystem carries its new name. The `pythia` bridge is removal-gated
+    # (LEGACY_PYTHIA_REMOVAL_DATE).
+    legacy_guide = loaded.pop(LEGACY_GUIDE_CONFIG_KEY, None)
+    if isinstance(legacy_guide, dict):
         if warn_legacy:
-            sys.stderr.write("[perseus] config: 'oracle' key is deprecated, rename to 'pythia'\n")
-        merged = _normalize_pythia_section(legacy_pythia)
-        if isinstance(loaded.get("pythia"), dict):
-            merged.update(_normalize_pythia_section(loaded["pythia"]))
-        loaded["pythia"] = merged
-    elif isinstance(loaded.get("pythia"), dict):
-        loaded["pythia"] = _normalize_pythia_section(loaded["pythia"])
+            sys.stderr.write("[perseus] config: 'pythia' key is deprecated, rename to 'guide'\n")
+        merged = _normalize_guide_section(legacy_guide)
+        if isinstance(loaded.get(GUIDE_CONFIG_KEY), dict):
+            merged.update(_normalize_guide_section(loaded[GUIDE_CONFIG_KEY]))
+        loaded[GUIDE_CONFIG_KEY] = merged
+    elif isinstance(loaded.get(GUIDE_CONFIG_KEY), dict):
+        loaded[GUIDE_CONFIG_KEY] = _normalize_guide_section(loaded[GUIDE_CONFIG_KEY])
 
     # Only the canonical Perseus Vault configuration block is active. Unknown
     # top-level memory keys remain untouched and are not interpreted as aliases.
@@ -317,16 +321,20 @@ def _normalize_loaded_config(loaded: dict, warn_legacy: bool = False) -> dict:
     return loaded
 
 
-def _pythia_log_path() -> Path:
-    """Return the Pythia JSONL path, migrating the legacy filename once."""
-    log_path = PERSEUS_HOME / PYTHIA_LOG_NAME
-    legacy_path = PERSEUS_HOME / LEGACY_PYTHIA_LOG_NAME
+def _guide_log_path() -> Path:
+    """Return the Guide JSONL path, migrating legacy filenames once.
+
+    Chain: guide_log.jsonl (canonical) ← pythia_log.jsonl (legacy; removal gated).
+    The FIRST existing legacy file migrates; later writes use the canonical
+    name only."""
+    log_path = PERSEUS_HOME / GUIDE_LOG_NAME
+    legacy_path = PERSEUS_HOME / LEGACY_GUIDE_LOG_NAME
     if legacy_path.exists() and not log_path.exists():
         try:
             legacy_path.replace(log_path)
-            sys.stderr.write(f"[perseus] migrated {LEGACY_PYTHIA_LOG_NAME} → {PYTHIA_LOG_NAME}\n")
+            sys.stderr.write(f"[perseus] migrated {LEGACY_GUIDE_LOG_NAME} → {GUIDE_LOG_NAME}\n")
         except Exception as exc:
-            sys.stderr.write(f"[perseus] could not migrate {LEGACY_PYTHIA_LOG_NAME}: {exc}\n")
+            sys.stderr.write(f"[perseus] could not migrate {LEGACY_GUIDE_LOG_NAME}: {exc}\n")
     return log_path
 
 
@@ -473,7 +481,7 @@ def load_config(workspace: Path | None = None) -> dict:
         ("inbox", "store"),
         ("render", "cache_dir"),
         ("audit", "log_path"),
-        ("pythia", "skill_dir"),
+        ("guide", "skill_dir"),
         ("assistant", "sessions_dir"),
     ]
     for section, key in _PATH_KEYS:

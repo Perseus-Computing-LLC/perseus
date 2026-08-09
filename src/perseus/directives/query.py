@@ -917,7 +917,7 @@ def _adaptive_candidate_from_config(item: object, index: int) -> dict:
 def _adaptive_pattern_corpus(cfg: dict, workspace: Path | None) -> str:
     parts: list[str] = []
     try:
-        entries = _read_all_pythia_entries()
+        entries = _read_all_guide_entries()
     except Exception:
         entries = []
     for entry in entries[-50:]:

@@ -14,11 +14,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from conftest import PY_VER, cfg, perseus, _capture_json, _seed_oracle_log
+from conftest import PY_VER, cfg, perseus, _capture_json, _seed_guide_log
 
 pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
 
-def test_build_pythia_snapshot_collects_expected_keys(monkeypatch, tmp_path):
+def test_build_guide_snapshot_collects_expected_keys(monkeypatch, tmp_path):
     monkeypatch.setattr(perseus, "resolve_skills", lambda *a, **k: "skills")
     monkeypatch.setattr(perseus, "resolve_session", lambda *a, **k: "sessions")
     monkeypatch.setattr(perseus, "resolve_waypoint", lambda *a, **k: "checkpoint")
@@ -27,8 +27,8 @@ def test_build_pythia_snapshot_collects_expected_keys(monkeypatch, tmp_path):
     # and create a real "git" category dir so --category does not trigger fallback
     skill_dir = tmp_path / "skills"
     (skill_dir / "git").mkdir(parents=True, exist_ok=True)
-    local["pythia"]["skill_dir"] = str(skill_dir)
-    snap = perseus.build_pythia_snapshot(local, category="git", no_services=True, quick=True)
+    local["guide"]["skill_dir"] = str(skill_dir)
+    snap = perseus.build_guide_snapshot(local, category="git", no_services=True, quick=True)
     assert snap["skills_table"] == "skills"
     # --quick implies --no-services; full skipped sentence per task-10 spec
     assert "service health check skipped" in snap["services_table"]
@@ -40,8 +40,8 @@ def test_build_pythia_snapshot_collects_expected_keys(monkeypatch, tmp_path):
     assert snap["quick"] is True
 
 
-def test_render_pythia_prompt_contains_snapshot_sections():
-    prompt = perseus.render_pythia_prompt("do thing", {
+def test_render_guide_prompt_contains_snapshot_sections():
+    prompt = perseus.render_guide_prompt("do thing", {
         "rendered_at": "now",
         "skills_table": "skills",
         "services_table": "services",
@@ -54,9 +54,9 @@ def test_render_pythia_prompt_contains_snapshot_sections():
     assert "sessions" in prompt
 
 
-def test_cmd_suggest_appends_oracle_log(monkeypatch):
+def test_cmd_suggest_appends_guide_log(monkeypatch):
     seen = {}
-    monkeypatch.setattr(perseus, "build_pythia_snapshot", lambda *a, **k: {
+    monkeypatch.setattr(perseus, "build_guide_snapshot", lambda *a, **k: {
         "rendered_at": "now",
         "skills_table": "skills",
         "services_table": "| Service | Status |\n|---|---|\n| API | ✅ ok |",
@@ -64,7 +64,7 @@ def test_cmd_suggest_appends_oracle_log(monkeypatch):
         "session_digest": "sessions",
         "skill_count": 7,
     })
-    monkeypatch.setattr(perseus, "append_pythia_log", lambda entry, cfg: seen.setdefault("entry", entry))
+    monkeypatch.setattr(perseus, "append_guide_log", lambda entry, cfg: seen.setdefault("entry", entry))
     args = argparse.Namespace(task="x", quick=False, no_services=True, category=None, llm=None, model=None, model_url=None)
     perseus.cmd_suggest(args, cfg())
     assert seen["entry"]["task"] == "x"
@@ -72,20 +72,21 @@ def test_cmd_suggest_appends_oracle_log(monkeypatch):
     assert seen["entry"]["env_snapshot"]["skills_count"] == 7
 
 
-def test_append_pythia_log_warns_on_failure(monkeypatch, capsys, tmp_path):
+def test_append_guide_log_warns_on_failure(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path / "missing" / "nested")
     def boom(*a, **k):
         raise OSError("disk full")
     monkeypatch.setattr(perseus.Path, "open", boom)
-    perseus.append_pythia_log({"x": 1}, cfg())
+    perseus.append_guide_log({"x": 1}, cfg())
     captured = capsys.readouterr()
-    assert "Could not write Pythia log" in captured.out
+    assert "Could not write Guide log" in captured.out
 
 
-def test_oracle_config_legacy_compat(tmp_path, monkeypatch, capsys):
+def test_guide_config_legacy_compat(tmp_path, monkeypatch, capsys):
+    """Legacy `pythia:` config block still feeds `guide:` (removal-gated)."""
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
     (tmp_path / "config.yaml").write_text(
-        "oracle:\n"
+        "pythia:\n"
         "  skill_dir: /tmp/legacy-skills\n"
         "  stale_skill_days: 12\n"
     , encoding="utf-8")
@@ -93,36 +94,37 @@ def test_oracle_config_legacy_compat(tmp_path, monkeypatch, capsys):
     loaded = perseus.load_config()
     err = capsys.readouterr().err
 
-    assert loaded["pythia"]["skill_dir"] == "/tmp/legacy-skills"
-    assert loaded["pythia"]["stale_skill_days"] == 12
-    assert "config: 'oracle' key is deprecated" in err
-    assert "oracle" not in loaded
+    assert loaded["guide"]["skill_dir"] == "/tmp/legacy-skills"
+    assert loaded["guide"]["stale_skill_days"] == 12
+    assert "config: 'pythia' key is deprecated" in err
+    assert "pythia" not in loaded
 
 
-def test_pythia_log_migration(tmp_path, monkeypatch, capsys):
+def test_guide_log_migration(tmp_path, monkeypatch, capsys):
+    """Legacy pythia_log.jsonl migrates to guide_log.jsonl exactly once."""
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
-    legacy = tmp_path / "oracle_log.jsonl"
+    legacy = tmp_path / "pythia_log.jsonl"
     legacy.write_text(json.dumps({"timestamp": "t1", "task": "legacy"}) + "\n", encoding="utf-8")
 
-    entries = perseus._read_all_pythia_entries()
+    entries = perseus._read_all_guide_entries()
     err = capsys.readouterr().err
 
     assert entries[0]["task"] == "legacy"
     assert not legacy.exists()
-    assert (tmp_path / "pythia_log.jsonl").exists()
-    assert "migrated oracle_log.jsonl" in err
-# ── task-10: suggest UX flags & oracle log ──────────────────────────────────
+    assert (tmp_path / "guide_log.jsonl").exists()
+    assert "migrated pythia_log.jsonl" in err
+# ── task-10: suggest UX flags & guide log ──────────────────────────────────
 
-def test_oracle_log_entry_includes_flags():
-    entry = perseus.build_pythia_log_entry(
+def test_guide_log_entry_includes_flags():
+    entry = perseus.build_guide_log_entry(
         task="t", snapshot={}, prompt="p", response=None, provider=None, model=None,
         flags=["--quick", "--category=git"],
     )
     assert entry["flags"] == ["--quick", "--category=git"]
 
 
-def test_oracle_log_entry_default_flags_empty():
-    entry = perseus.build_pythia_log_entry(
+def test_guide_log_entry_default_flags_empty():
+    entry = perseus.build_guide_log_entry(
         task="t", snapshot={}, prompt="p", response=None, provider=None, model=None,
     )
     assert entry["flags"] == []
@@ -130,7 +132,7 @@ def test_oracle_log_entry_default_flags_empty():
 
 def test_online_score_adjustments_no_data_neutral():
     local = cfg()
-    assert perseus._pythia_online_score_adjustments([], local) == []
+    assert perseus._guide_online_score_adjustments([], local) == []
 
 
 def test_online_score_adjustments_boost_successful_tool():
@@ -141,7 +143,7 @@ def test_online_score_adjustments_boost_successful_tool():
         "outcome": {"checkpoint_count": 2, "completed": True, "error_rate": 0.0},
     }]
 
-    adjustments = perseus._pythia_online_score_adjustments(rows, local)
+    adjustments = perseus._guide_online_score_adjustments(rows, local)
 
     tool = next(item for item in adjustments if item["token"] == "tool-a")
     assert tool["direction"] == "boost"
@@ -157,7 +159,7 @@ def test_online_score_adjustments_lowers_error_heavy_tool():
         "outcome": {"checkpoint_count": 2, "completed": False, "error_rate": 0.5},
     }]
 
-    adjustments = perseus._pythia_online_score_adjustments(rows, local)
+    adjustments = perseus._guide_online_score_adjustments(rows, local)
 
     tool = next(item for item in adjustments if item["token"] == "tool-b")
     assert tool["direction"] == "lower"
@@ -165,8 +167,8 @@ def test_online_score_adjustments_lowers_error_heavy_tool():
     assert tool["errors"] == 1
 
 
-def test_oracle_prompt_includes_outcome_weight_hints():
-    prompt = perseus.render_pythia_prompt("do thing", {
+def test_guide_prompt_includes_outcome_weight_hints():
+    prompt = perseus.render_guide_prompt("do thing", {
         "rendered_at": "now",
         "skills_table": "skills",
         "services_table": "services",
@@ -189,7 +191,7 @@ def test_oracle_prompt_includes_outcome_weight_hints():
 
 
 def test_ab_testing_disabled_by_default():
-    plan = perseus._pythia_ab_test_plan("task", [
+    plan = perseus._guide_ab_test_plan("task", [
         {"token": "tool-a", "weight": 0.8},
         {"token": "tool-b", "weight": -0.4},
     ], cfg())
@@ -201,10 +203,10 @@ def test_ab_testing_disabled_by_default():
 
 def test_ab_testing_enabled_selects_primary_and_alternate():
     local = cfg()
-    local["pythia"]["ab_testing_enabled"] = True
-    local["pythia"]["ab_testing_rate"] = 1.0
+    local["guide"]["ab_testing_enabled"] = True
+    local["guide"]["ab_testing_rate"] = 1.0
 
-    plan = perseus._pythia_ab_test_plan("task", [
+    plan = perseus._guide_ab_test_plan("task", [
         {"token": "tool-a", "weight": 0.8, "reason": "2/2 completed"},
         {"token": "tool-b", "weight": -0.4, "reason": "0/2 completed"},
     ], local)
@@ -215,8 +217,8 @@ def test_ab_testing_enabled_selects_primary_and_alternate():
     assert plan["id"]
 
 
-def test_oracle_prompt_includes_ab_test_hint():
-    prompt = perseus.render_pythia_prompt("do thing", {
+def test_guide_prompt_includes_ab_test_hint():
+    prompt = perseus.render_guide_prompt("do thing", {
         "rendered_at": "now",
         "skills_table": "skills",
         "services_table": "services",
@@ -236,8 +238,8 @@ def test_oracle_prompt_includes_ab_test_hint():
     assert "ab_test=abc123" in prompt
 
 
-def test_oracle_log_entry_records_ab_test_metadata():
-    entry = perseus.build_pythia_log_entry(
+def test_guide_log_entry_records_ab_test_metadata():
+    entry = perseus.build_guide_log_entry(
         task="t",
         snapshot={"ab_test": {"active": True, "id": "abc123"}},
         prompt="p",
@@ -249,7 +251,7 @@ def test_oracle_log_entry_records_ab_test_metadata():
     assert entry["env_snapshot"]["ab_test"] == {"active": True, "id": "abc123"}
 
 
-def test_quick_oracle_prompt_omits_services_and_sessions():
+def test_quick_guide_prompt_omits_services_and_sessions():
     snap = {
         "rendered_at": "now",
         "skills_table": "skills",
@@ -258,7 +260,7 @@ def test_quick_oracle_prompt_omits_services_and_sessions():
         "checkpoint_summary": "should-not-appear",
         "quick": True,
     }
-    prompt = perseus.render_pythia_prompt("do thing", snap)
+    prompt = perseus.render_guide_prompt("do thing", snap)
     assert "Service Health" not in prompt
     assert "Recent Sessions" not in prompt
     assert "Recent Checkpoint" not in prompt
@@ -268,83 +270,83 @@ def test_quick_oracle_prompt_omits_services_and_sessions():
 def test_category_fallback_warns_when_dir_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(perseus, "resolve_skills", lambda *a, **k: "all skills")
     local = cfg()
-    local["pythia"]["skill_dir"] = str(tmp_path / "skills")
+    local["guide"]["skill_dir"] = str(tmp_path / "skills")
     (tmp_path / "skills").mkdir()
-    snap = perseus.build_pythia_snapshot(local, category="nonexistent", no_services=True, quick=False)
+    snap = perseus.build_guide_snapshot(local, category="nonexistent", no_services=True, quick=False)
     assert "not found" in snap["skills_table"]
 
 
 # ── task-11: systemd ──────────────────────────────────────────────────────────
-# ── task-06: Daedalus oracle CLI ─────────────────────────────────────────────
-def test_oracle_accept_marks_entry(tmp_path, monkeypatch, capsys):
-    _seed_oracle_log(monkeypatch, tmp_path, [
+# ── task-06: Daedalus guide CLI ─────────────────────────────────────────────
+def test_guide_accept_marks_entry(tmp_path, monkeypatch, capsys):
+    _seed_guide_log(monkeypatch, tmp_path, [
         {"timestamp": "2026-05-18T10:00:00", "task": "a", "accepted": None},
         {"timestamp": "2026-05-18T11:00:00", "task": "b", "accepted": None},
     ])
-    perseus.cmd_oracle(argparse.Namespace(oracle_command="accept", log_id="latest"), cfg())
+    perseus.cmd_guide(argparse.Namespace(guide_command="accept", log_id="latest"), cfg())
     out = capsys.readouterr().out
     assert "accepted=True" in out
-    log = tmp_path / "pythia_log.jsonl"
+    log = tmp_path / "guide_log.jsonl"
     lines = [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines() if l]
     assert lines[-1]["accepted"] is True
 
 
-def test_oracle_reject_marks_entry(tmp_path, monkeypatch, capsys):
-    _seed_oracle_log(monkeypatch, tmp_path, [
+def test_guide_reject_marks_entry(tmp_path, monkeypatch, capsys):
+    _seed_guide_log(monkeypatch, tmp_path, [
         {"timestamp": "2026-05-18T10:00:00", "task": "a", "accepted": None},
     ])
-    perseus.cmd_oracle(argparse.Namespace(oracle_command="reject", log_id="2026-05-18T10:00:00"), cfg())
+    perseus.cmd_guide(argparse.Namespace(guide_command="reject", log_id="2026-05-18T10:00:00"), cfg())
     out = capsys.readouterr().out
     assert "accepted=False" in out
 
 
-def test_pythia_recent_entries_tail_reads(tmp_path, monkeypatch):
+def test_guide_recent_entries_tail_reads(tmp_path, monkeypatch):
     """#447: tail-reading the last N entries must equal a full read sliced to the
     last N, in order — without depending on reading the whole file."""
     entries = [
         {"timestamp": f"2026-05-18T10:{i:02d}:00", "task": f"t{i}", "response": f"r{i}"}
         for i in range(60)
     ]
-    _seed_oracle_log(monkeypatch, tmp_path, entries)
+    _seed_guide_log(monkeypatch, tmp_path, entries)
 
-    full = perseus._read_all_pythia_entries()
-    assert perseus._pythia_recent_entries(50) == full[-50:]
-    assert perseus._pythia_recent_entries(10) == full[-10:]
-    assert [e["task"] for e in perseus._pythia_recent_entries(3)] == ["t57", "t58", "t59"]
+    full = perseus._read_all_guide_entries()
+    assert perseus._guide_recent_entries(50) == full[-50:]
+    assert perseus._guide_recent_entries(10) == full[-10:]
+    assert [e["task"] for e in perseus._guide_recent_entries(3)] == ["t57", "t58", "t59"]
     # n <= 0 falls back to a full read; over-count returns all.
-    assert perseus._pythia_recent_entries(0) == full
-    assert perseus._pythia_recent_entries(10_000) == full
+    assert perseus._guide_recent_entries(0) == full
+    assert perseus._guide_recent_entries(10_000) == full
 
 
-def test_pythia_recent_entries_handles_missing_and_malformed(tmp_path, monkeypatch):
+def test_guide_recent_entries_handles_missing_and_malformed(tmp_path, monkeypatch):
     """#447: missing log → []; malformed lines skipped, valid tail returned."""
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
-    assert perseus._pythia_recent_entries(5) == []
-    log = tmp_path / "pythia_log.jsonl"
+    assert perseus._guide_recent_entries(5) == []
+    log = tmp_path / "guide_log.jsonl"
     log.write_text(
         '{"timestamp":"t1","task":"a"}\nNOT JSON\n{"timestamp":"t2","task":"b"}\n',
         encoding="utf-8",
     )
-    assert [e["task"] for e in perseus._pythia_recent_entries(5)] == ["a", "b"]
+    assert [e["task"] for e in perseus._guide_recent_entries(5)] == ["a", "b"]
 
 
-def test_oracle_log_lists_entries(tmp_path, monkeypatch, capsys):
-    _seed_oracle_log(monkeypatch, tmp_path, [
+def test_guide_log_lists_entries(tmp_path, monkeypatch, capsys):
+    _seed_guide_log(monkeypatch, tmp_path, [
         {"timestamp": "2026-05-18T10:00:00", "task": "a", "accepted": True},
         {"timestamp": "2026-05-18T11:00:00", "task": "b", "accepted": None},
         {"timestamp": "2026-05-18T12:00:00", "task": "c", "accepted": False},
     ])
-    perseus.cmd_oracle(argparse.Namespace(oracle_command="log", limit=10, unlabeled=False), cfg())
+    perseus.cmd_guide(argparse.Namespace(guide_command="log", limit=10, unlabeled=False), cfg())
     out = capsys.readouterr().out
     assert "a" in out and "b" in out and "c" in out
 
 
-def test_oracle_log_filter_unlabeled(tmp_path, monkeypatch, capsys):
-    _seed_oracle_log(monkeypatch, tmp_path, [
+def test_guide_log_filter_unlabeled(tmp_path, monkeypatch, capsys):
+    _seed_guide_log(monkeypatch, tmp_path, [
         {"timestamp": "2026-05-18T10:00:00", "task": "labeled", "accepted": True},
         {"timestamp": "2026-05-18T11:00:00", "task": "open", "accepted": None},
     ])
-    perseus.cmd_oracle(argparse.Namespace(oracle_command="log", limit=10, unlabeled=True), cfg())
+    perseus.cmd_guide(argparse.Namespace(guide_command="log", limit=10, unlabeled=True), cfg())
     out = capsys.readouterr().out
     # Only data rows are bullet-indented with " · "; the header contains the
     # word "unlabeled" which would otherwise trigger a false match.
@@ -353,26 +355,26 @@ def test_oracle_log_filter_unlabeled(tmp_path, monkeypatch, capsys):
     assert not any("labeled" in l for l in body_lines)
 
 
-def test_oracle_export_jsonl_only_accepted(tmp_path, monkeypatch, capsys):
-    _seed_oracle_log(monkeypatch, tmp_path, [
+def test_guide_export_jsonl_only_accepted(tmp_path, monkeypatch, capsys):
+    _seed_guide_log(monkeypatch, tmp_path, [
         {"timestamp": "2026-05-18T10:00:00", "task": "a", "prompt": "P-A", "response": "R-A", "accepted": True},
         {"timestamp": "2026-05-18T11:00:00", "task": "b", "prompt": "P-B", "response": "R-B", "accepted": False},
         {"timestamp": "2026-05-18T12:00:00", "task": "c", "prompt": "P-C", "response": "R-C", "accepted": None},
     ])
     out_path = tmp_path / "dataset.jsonl"
-    perseus.cmd_oracle(argparse.Namespace(oracle_command="export", output=str(out_path), format="jsonl"), cfg())
+    perseus.cmd_guide(argparse.Namespace(guide_command="export", output=str(out_path), format="jsonl"), cfg())
     rows = [json.loads(l) for l in out_path.read_text(encoding="utf-8").splitlines() if l]
     assert len(rows) == 1
     assert rows[0]["prompt"] == "P-A"
     assert rows[0]["completion"] == "R-A"
 
 
-def test_oracle_export_alpaca_format(tmp_path, monkeypatch):
-    _seed_oracle_log(monkeypatch, tmp_path, [
+def test_guide_export_alpaca_format(tmp_path, monkeypatch):
+    _seed_guide_log(monkeypatch, tmp_path, [
         {"timestamp": "t1", "task": "x", "prompt": "P", "response": "R", "accepted": True},
     ])
     out_path = tmp_path / "alpaca.jsonl"
-    perseus.cmd_oracle(argparse.Namespace(oracle_command="export", output=str(out_path), format="alpaca"), cfg())
+    perseus.cmd_guide(argparse.Namespace(guide_command="export", output=str(out_path), format="alpaca"), cfg())
     rows = [json.loads(l) for l in out_path.read_text(encoding="utf-8").splitlines() if l]
     # task-20: export now records label_source so training can weight inferred lower
     assert rows[0]["instruction"] == "P"
@@ -432,7 +434,7 @@ def test_infer_label_none_when_no_checkpoints():
 
 
 def test_infer_labels_idempotent(monkeypatch, tmp_path):
-    _seed_oracle_log(monkeypatch, tmp_path, [
+    _seed_guide_log(monkeypatch, tmp_path, [
         {"timestamp": "2026-05-01T10:00:00", "task": "x", "prompt": "P", "response": "use `tool-a`"},
     ])
     monkeypatch.setattr(perseus, "_load_indexed_checkpoints", lambda cfg: [
@@ -440,34 +442,34 @@ def test_infer_labels_idempotent(monkeypatch, tmp_path):
         (perseus._parse_iso_ts("2026-05-03T10:00:00"), {"task": "more tool-a"}),
     ])
     args = argparse.Namespace(window_days=None, window_checkpoints=None, dry_run=False)
-    perseus.cmd_oracle_infer_labels(args, cfg())
-    perseus.cmd_oracle_infer_labels(args, cfg())  # second run = no-op
-    entries = perseus._pythia_log_entries()
+    perseus.cmd_guide_infer_labels(args, cfg())
+    perseus.cmd_guide_infer_labels(args, cfg())  # second run = no-op
+    entries = perseus._guide_log_entries()
     assert entries[0]["inferred_label"] == "inferred_accept"
 
 
 def test_infer_labels_dry_run_no_write(monkeypatch, tmp_path, capsys):
-    _seed_oracle_log(monkeypatch, tmp_path, [
+    _seed_guide_log(monkeypatch, tmp_path, [
         {"timestamp": "2026-05-01T10:00:00", "task": "x", "prompt": "P", "response": "use `tool-a`"},
     ])
     monkeypatch.setattr(perseus, "_load_indexed_checkpoints", lambda cfg: [
         (perseus._parse_iso_ts("2026-05-02T10:00:00"), {"task": "did tool-a thing"}),
     ])
     args = argparse.Namespace(window_days=None, window_checkpoints=None, dry_run=True)
-    perseus.cmd_oracle_infer_labels(args, cfg())
+    perseus.cmd_guide_infer_labels(args, cfg())
     out = capsys.readouterr().out
     assert "(dry-run)" in out
-    entries = perseus._pythia_log_entries()
+    entries = perseus._guide_log_entries()
     assert entries[0].get("inferred_label") is None
 
 
-def test_oracle_export_include_inferred_tags_source(monkeypatch, tmp_path):
-    _seed_oracle_log(monkeypatch, tmp_path, [
+def test_guide_export_include_inferred_tags_source(monkeypatch, tmp_path):
+    _seed_guide_log(monkeypatch, tmp_path, [
         {"timestamp": "t1", "task": "x", "prompt": "P1", "response": "R1", "accepted": True},
         {"timestamp": "t2", "task": "y", "prompt": "P2", "response": "R2", "inferred_label": "inferred_accept"},
     ])
     out_path = tmp_path / "exp.jsonl"
-    perseus.cmd_oracle(argparse.Namespace(oracle_command="export", output=str(out_path), format="jsonl", include_inferred=True), cfg())
+    perseus.cmd_guide(argparse.Namespace(guide_command="export", output=str(out_path), format="jsonl", include_inferred=True), cfg())
     rows = [json.loads(l) for l in out_path.read_text(encoding="utf-8").splitlines() if l]
     assert len(rows) == 2
     sources = sorted([r["label_source"] for r in rows])
@@ -487,7 +489,7 @@ def test_jaccard_basic():
 
 
 def test_compute_drift_empty_log_no_findings(monkeypatch, tmp_path):
-    _seed_oracle_log(monkeypatch, tmp_path, [])
+    _seed_guide_log(monkeypatch, tmp_path, [])
     report = perseus._compute_drift(cfg())
     assert report["findings"] == []
     assert report["recent_count"] == 0
@@ -503,7 +505,7 @@ def test_compute_drift_detects_acceptance_drop(monkeypatch, tmp_path):
         seed.append({"timestamp": iso(-20 * 86400 + i * 3600), "task": "old", "prompt": "P", "response": "use `tool-a`", "accepted": True})
     for i in range(5):
         seed.append({"timestamp": iso(-1 * 86400 + i * 3600), "task": "new", "prompt": "P", "response": "use `tool-a`", "accepted": False})
-    _seed_oracle_log(monkeypatch, tmp_path, seed)
+    _seed_guide_log(monkeypatch, tmp_path, seed)
     report = perseus._compute_drift(cfg(), now_epoch=now)
     assert any("acceptance rate" in f for f in report["findings"])
 
@@ -517,35 +519,35 @@ def test_compute_drift_detects_jaccard_drop(monkeypatch, tmp_path):
         seed.append({"timestamp": iso(-20 * 86400 + i * 3600), "task": "old", "prompt": "P", "response": "use `tool-a` `helper-x`"})
     for i in range(5):
         seed.append({"timestamp": iso(-1 * 86400 + i * 3600), "task": "new", "prompt": "P", "response": "use `widget-zzz` `gadget-qqq`"})
-    _seed_oracle_log(monkeypatch, tmp_path, seed)
+    _seed_guide_log(monkeypatch, tmp_path, seed)
     report = perseus._compute_drift(cfg(), now_epoch=now)
     assert report["jaccard"] < 0.30
     assert any("Jaccard" in f for f in report["findings"])
 
 
 def test_resolve_drift_renders_no_drift(monkeypatch, tmp_path):
-    _seed_oracle_log(monkeypatch, tmp_path, [])
+    _seed_guide_log(monkeypatch, tmp_path, [])
     out = perseus.resolve_drift("", cfg())
     assert "No drift" in out
 
 
 def test_at_drift_directive_renders(monkeypatch, tmp_path):
-    _seed_oracle_log(monkeypatch, tmp_path, [])
+    _seed_guide_log(monkeypatch, tmp_path, [])
     rendered = perseus._render_lines(["@drift"], cfg(), workspace=tmp_path)
     assert "Drift report" in rendered
-def test_oracle_export_daedalus_patterns_format(tmp_path, monkeypatch):
-    _seed_oracle_log(monkeypatch, tmp_path, [
+def test_guide_export_daedalus_patterns_format(tmp_path, monkeypatch):
+    _seed_guide_log(monkeypatch, tmp_path, [
         {"timestamp": "t1", "task": "x", "prompt": "Q1", "response": "- pattern bullet here", "accepted": True},
     ])
     out_path = tmp_path / "pat.jsonl"
-    perseus.cmd_oracle(argparse.Namespace(oracle_command="export", output=str(out_path), format="daedalus-patterns", include_inferred=False), cfg())
+    perseus.cmd_guide(argparse.Namespace(guide_command="export", output=str(out_path), format="daedalus-patterns", include_inferred=False), cfg())
     rows = [json.loads(l) for l in out_path.read_text(encoding="utf-8").splitlines() if l]
     assert rows[0]["completion"] == "- pattern bullet here"
     assert rows[0]["label_source"] == "explicit"
 def test_infer_labels_inferred_none_counter_is_real(tmp_path, monkeypatch):
     """Regression: inferred_none was always 0 because the None branch continued
     without incrementing. Per code review 2026-05-18, this is now a real bucket."""
-    log = tmp_path / "oracle.jsonl"
+    log = tmp_path / "guide.jsonl"
     # One entry that will produce a None inference (no checkpoints in window)
     log.write_text(json.dumps({
         "timestamp": "2026-05-18T10:00:00",
@@ -553,24 +555,24 @@ def test_infer_labels_inferred_none_counter_is_real(tmp_path, monkeypatch):
         # no 'accepted' → eligible for inference; no checkpoints will be in window
     }) + "\n", encoding="utf-8")
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
-    monkeypatch.setattr(perseus, "_pythia_log_entries", lambda: [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines()])
+    monkeypatch.setattr(perseus, "_guide_log_entries", lambda: [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines()])
     monkeypatch.setattr(perseus, "_load_indexed_checkpoints", lambda cfg: [])
-    monkeypatch.setattr(perseus, "_rewrite_pythia_log", lambda entries: None)
+    monkeypatch.setattr(perseus, "_rewrite_guide_log", lambda entries: None)
     ns = argparse.Namespace(
-        oracle_command="infer-labels", window_days=None, window_checkpoints=None, dry_run=True,
+        guide_command="infer-labels", window_days=None, window_checkpoints=None, dry_run=True,
     )
     captured = []
     monkeypatch.setattr("builtins.print", lambda *a, **k: captured.append(" ".join(str(x) for x in a)))
-    rc = perseus.cmd_oracle(ns, cfg())
+    rc = perseus.cmd_guide(ns, cfg())
     assert rc == 0
     out = "\n".join(captured)
     # Bucket must show 1, not 0 (the bug)
     assert "inferred_none:   1" in out or "inferred_none: 1" in out
 def test_infer_labels_json_schema(tmp_path, monkeypatch):
-    """oracle infer-labels --json emits correct schema."""
+    """guide infer-labels --json emits correct schema."""
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
     ns = argparse.Namespace(window_days=7, window_checkpoints=5, dry_run=False, json=True)
-    out, rc = _capture_json(monkeypatch, perseus.cmd_oracle_infer_labels, ns, cfg())
+    out, rc = _capture_json(monkeypatch, perseus.cmd_guide_infer_labels, ns, cfg())
     assert rc == 0
     for key in ("scanned", "explicit_skipped", "inferred_accept", "inferred_reject",
                 "inferred_none", "unchanged", "written", "dry_run", "window_days",
@@ -579,18 +581,18 @@ def test_infer_labels_json_schema(tmp_path, monkeypatch):
 
 
 def test_infer_labels_prose_unchanged(tmp_path, monkeypatch):
-    """oracle infer-labels without --json still emits prose."""
+    """guide infer-labels without --json still emits prose."""
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
     captured = []
     monkeypatch.setattr("builtins.print", lambda *a, **k: captured.append(" ".join(str(x) for x in a)))
     ns = argparse.Namespace(window_days=7, window_checkpoints=5, dry_run=False, json=False)
-    perseus.cmd_oracle_infer_labels(ns, cfg())
+    perseus.cmd_guide_infer_labels(ns, cfg())
     text = "\n".join(captured)
-    assert "(no Pythia log entries)" in text
+    assert "(no Guide log entries)" in text
 
 
-def test_oracle_outcomes_json_updates_accepted_entry(tmp_path, monkeypatch):
-    _seed_oracle_log(monkeypatch, tmp_path, [{
+def test_guide_outcomes_json_updates_accepted_entry(tmp_path, monkeypatch):
+    _seed_guide_log(monkeypatch, tmp_path, [{
         "timestamp": "2026-05-18T10:00:00+00:00",
         "task": "ship the feature",
         "accepted": True,
@@ -613,13 +615,13 @@ def test_oracle_outcomes_json_updates_accepted_entry(tmp_path, monkeypatch):
     }), encoding="utf-8")
     args = argparse.Namespace(window_days=1, window_checkpoints=5, dry_run=False, json=True)
 
-    out, rc = _capture_json(monkeypatch, perseus.cmd_oracle_outcomes, args, local)
+    out, rc = _capture_json(monkeypatch, perseus.cmd_guide_outcomes, args, local)
 
     assert rc == 0
     assert out["scanned"] == 1
     assert out["eligible"] == 1
     assert out["updated"] == 1
-    log_rows = [json.loads(line) for line in (tmp_path / "pythia_log.jsonl").read_text(encoding="utf-8").splitlines()]
+    log_rows = [json.loads(line) for line in (tmp_path / "guide_log.jsonl").read_text(encoding="utf-8").splitlines()]
     outcome = log_rows[0]["outcome"]
     assert outcome["completed"] is True
     assert outcome["completion_signal"] == "completed"
@@ -629,8 +631,8 @@ def test_oracle_outcomes_json_updates_accepted_entry(tmp_path, monkeypatch):
     assert outcome["time_to_completion_s"] == 3600
 
 
-def test_oracle_outcomes_dry_run_does_not_write(tmp_path, monkeypatch):
-    _seed_oracle_log(monkeypatch, tmp_path, [{
+def test_guide_outcomes_dry_run_does_not_write(tmp_path, monkeypatch):
+    _seed_guide_log(monkeypatch, tmp_path, [{
         "timestamp": "2026-05-18T10:00:00+00:00",
         "task": "dry run",
         "accepted": True,
@@ -646,23 +648,23 @@ def test_oracle_outcomes_dry_run_does_not_write(tmp_path, monkeypatch):
     }), encoding="utf-8")
     args = argparse.Namespace(window_days=1, window_checkpoints=5, dry_run=True, json=True)
 
-    out, rc = _capture_json(monkeypatch, perseus.cmd_oracle_outcomes, args, local)
+    out, rc = _capture_json(monkeypatch, perseus.cmd_guide_outcomes, args, local)
 
     assert rc == 0
     assert out["would_update"] == 1
     assert out["updated"] == 0
-    row = json.loads((tmp_path / "pythia_log.jsonl").read_text(encoding="utf-8").strip())
+    row = json.loads((tmp_path / "guide_log.jsonl").read_text(encoding="utf-8").strip())
     assert "outcome" not in row
 
 
-def test_oracle_outcomes_skips_rejected_and_unlabeled(tmp_path, monkeypatch):
-    _seed_oracle_log(monkeypatch, tmp_path, [
+def test_guide_outcomes_skips_rejected_and_unlabeled(tmp_path, monkeypatch):
+    _seed_guide_log(monkeypatch, tmp_path, [
         {"timestamp": "2026-05-18T10:00:00+00:00", "task": "rejected", "accepted": False},
         {"timestamp": "2026-05-18T11:00:00+00:00", "task": "unlabeled", "accepted": None},
     ])
     args = argparse.Namespace(window_days=1, window_checkpoints=5, dry_run=False, json=True)
 
-    out, rc = _capture_json(monkeypatch, perseus.cmd_oracle_outcomes, args, cfg())
+    out, rc = _capture_json(monkeypatch, perseus.cmd_guide_outcomes, args, cfg())
 
     assert rc == 0
     assert out["eligible"] == 0
@@ -671,10 +673,10 @@ def test_oracle_outcomes_skips_rejected_and_unlabeled(tmp_path, monkeypatch):
 
 
 def test_drift_json_schema(tmp_path, monkeypatch):
-    """oracle drift --json emits correct schema with verdict."""
+    """guide drift --json emits correct schema with verdict."""
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
     ns = argparse.Namespace(json=True)
-    out, rc = _capture_json(monkeypatch, perseus.cmd_oracle_drift, ns, cfg())
+    out, rc = _capture_json(monkeypatch, perseus.cmd_guide_drift, ns, cfg())
     assert rc == 0
     assert out["verdict"] in ("no_drift", "drift_detected", "insufficient_data")
     assert "samples" in out
@@ -690,60 +692,60 @@ def test_drift_json_insufficient_data(tmp_path, monkeypatch):
     """Drift verdict is insufficient_data with no samples."""
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
     ns = argparse.Namespace(json=True)
-    out, rc = _capture_json(monkeypatch, perseus.cmd_oracle_drift, ns, cfg())
+    out, rc = _capture_json(monkeypatch, perseus.cmd_guide_drift, ns, cfg())
     assert out["verdict"] == "insufficient_data"
     assert len(out["warnings"]) > 0
 
 
 def test_drift_prose_unchanged(tmp_path, monkeypatch):
-    """oracle drift without --json still emits prose."""
+    """guide drift without --json still emits prose."""
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
     captured = []
     monkeypatch.setattr("builtins.print", lambda *a, **k: captured.append(" ".join(str(x) for x in a)))
     ns = argparse.Namespace(json=False)
-    perseus.cmd_oracle_drift(ns, cfg())
+    perseus.cmd_guide_drift(ns, cfg())
     text = "\n".join(captured)
     assert "Drift report" in text
 
 
 # ───── #548: ambiguous log_id prefix must error, not silently pick first ─────
 
-_PYTHIA_ENTRIES = [
+_GUIDE_ENTRIES = [
     {"timestamp": "2026-07-01T08:00:00", "accepted": None},
     {"timestamp": "2026-07-01T09:30:00", "accepted": None},
     {"timestamp": "2026-06-30T09:30:00", "accepted": None},
 ]
 
 
-def test_find_pythia_entry_exact_and_latest():
-    assert perseus._find_pythia_entry(_PYTHIA_ENTRIES, "2026-07-01T09:30:00") == 1
-    assert perseus._find_pythia_entry(_PYTHIA_ENTRIES, "latest") == 2
-    assert perseus._find_pythia_entry(_PYTHIA_ENTRIES, "1999") is None
+def test_find_guide_entry_exact_and_latest():
+    assert perseus._find_guide_entry(_GUIDE_ENTRIES, "2026-07-01T09:30:00") == 1
+    assert perseus._find_guide_entry(_GUIDE_ENTRIES, "latest") == 2
+    assert perseus._find_guide_entry(_GUIDE_ENTRIES, "1999") is None
 
 
-def test_find_pythia_entry_unique_prefix_ok():
-    assert perseus._find_pythia_entry(_PYTHIA_ENTRIES, "2026-06-30") == 2
-    assert perseus._find_pythia_entry(_PYTHIA_ENTRIES, "2026-07-01T08") == 0
+def test_find_guide_entry_unique_prefix_ok():
+    assert perseus._find_guide_entry(_GUIDE_ENTRIES, "2026-06-30") == 2
+    assert perseus._find_guide_entry(_GUIDE_ENTRIES, "2026-07-01T08") == 0
 
 
-def test_find_pythia_entry_ambiguous_prefix_raises():
+def test_find_guide_entry_ambiguous_prefix_raises():
     """A bare date matching two same-day entries must not label the first."""
     with pytest.raises(ValueError) as exc_info:
-        perseus._find_pythia_entry(_PYTHIA_ENTRIES, "2026-07-01")
+        perseus._find_guide_entry(_GUIDE_ENTRIES, "2026-07-01")
     msg = str(exc_info.value)
     assert "ambiguous" in msg
     assert "2 entries" in msg
 
 
-def test_label_pythia_entry_ambiguous_returns_error(monkeypatch):
-    """_label_pythia_entry surfaces the ambiguity instead of mislabeling."""
-    entries = copy.deepcopy(_PYTHIA_ENTRIES)
-    monkeypatch.setattr(perseus, "_pythia_log_entries", lambda: entries)
+def test_label_guide_entry_ambiguous_returns_error(monkeypatch):
+    """_label_guide_entry surfaces the ambiguity instead of mislabeling."""
+    entries = copy.deepcopy(_GUIDE_ENTRIES)
+    monkeypatch.setattr(perseus, "_guide_log_entries", lambda: entries)
     rewritten = []
-    monkeypatch.setattr(perseus, "_rewrite_pythia_log",
+    monkeypatch.setattr(perseus, "_rewrite_guide_log",
                         lambda e, cfg=None: rewritten.append(e))
 
-    ok, msg = perseus._label_pythia_entry("2026-07-01", accepted=True)
+    ok, msg = perseus._label_guide_entry("2026-07-01", accepted=True)
 
     assert ok is False
     assert "ambiguous" in msg
@@ -751,12 +753,12 @@ def test_label_pythia_entry_ambiguous_returns_error(monkeypatch):
     assert all(e["accepted"] is None for e in entries)  # nothing mislabeled
 
 
-def test_label_pythia_entry_unique_prefix_still_works(monkeypatch):
-    entries = copy.deepcopy(_PYTHIA_ENTRIES)
-    monkeypatch.setattr(perseus, "_pythia_log_entries", lambda: entries)
-    monkeypatch.setattr(perseus, "_rewrite_pythia_log", lambda e, cfg=None: None)
+def test_label_guide_entry_unique_prefix_still_works(monkeypatch):
+    entries = copy.deepcopy(_GUIDE_ENTRIES)
+    monkeypatch.setattr(perseus, "_guide_log_entries", lambda: entries)
+    monkeypatch.setattr(perseus, "_rewrite_guide_log", lambda e, cfg=None: None)
 
-    ok, msg = perseus._label_pythia_entry("2026-06-30", accepted=True)
+    ok, msg = perseus._label_guide_entry("2026-06-30", accepted=True)
 
     assert ok is True
     assert entries[2]["accepted"] is True

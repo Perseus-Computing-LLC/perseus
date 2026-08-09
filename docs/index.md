@@ -53,7 +53,7 @@ spec/                   ← Normative design specifications
   overview.md           ← Architecture overview
   components.md         ← All components in detail
   directives.md         ← Full directive reference
-  pythia.md             ← Pythia (tool oracle) design
+  guide.md             ← Guide (tool oracle) design
   integration.md        ← Adapter patterns and conformance matrix
   data-model.md         ← Config, checkpoint, cache schemas
 ```
@@ -68,7 +68,7 @@ spec/                   ← Normative design specifications
 
 **Profiles** — Named presets (`hermes`, `codex`, `claude-code`, `cursor`, `rovodev`, `generic`) that scaffold a context pack tuned for a specific assistant.
 
-**Pythia** — The tool oracle. `perseus suggest "task"` assembles a live environment snapshot and ranks tool/skill paths for the work at hand.
+**Guide** — The tool oracle. `perseus suggest "task"` assembles a live environment snapshot and ranks tool/skill paths for the work at hand.
 
 **Perseus Vault** — Narrative project memory. Automatically distills checkpoints and oracle logs into a rolling project narrative (`@memory`). The optional MCP-backed Vault accelerator provides Ebbinghaus time-decay, topic trees, and semantic + BM25 hybrid search. Configure the bridge with the canonical `perseus_vault:` block; legacy configuration remains supported for compatibility. Local-only remains the zero-dependency default.
 

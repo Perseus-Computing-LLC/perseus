@@ -16,7 +16,7 @@ context:
 - Render directives into factual markdown.
 - Validate resolved payloads before injection.
 - Score and prefetch existing facts.
-- Improve Pythia recommendations from observed outcomes.
+- Improve Guide recommendations from observed outcomes.
 
 Perseus should not silently become a prose generator. The synthesis feature may proceed only
 as an opt-in, visibly labeled layer that sits beside resolved facts rather than
@@ -63,7 +63,7 @@ synthesis under scarcity: claims that compress relationships across sources the
 assistant may not otherwise receive in full.
 
 **Upside:** Captures value from broad source access, Perseus Vault, Daedalus, and
-Pythia without collapsing the trust model.
+Guide without collapsing the trust model.
 
 **Downside:** Requires evals, provenance UI, and stronger language around what
 is generated versus resolved.
@@ -84,7 +84,7 @@ testing, and makes Perseus compete with the consuming assistant's own reasoning.
 
 Choose **Option A for the current development phase**.
 
-The current development phase should improve Pythia scoring, feedback loops, and recommendation
+The current development phase should improve Guide scoring, feedback loops, and recommendation
 quality without generating new context prose. This keeps this development phase aligned with the resolver identity.
 
 The owner has chosen **Option B as the first experiment**.
@@ -101,7 +101,7 @@ Do not begin generative context work until all of these are true:
 - Recommendation learning for the current development phase is green and documented.
 - The owner explicitly chooses a generator/curator direction. ✅
 - Generated content has a separate output section or command surface.
-- Every generated claim can point back to exact resolved context, Pythia log
+- Every generated claim can point back to exact resolved context, Guide log
   entries, Perseus Vault narrative text, or explicit user input.
 - Model failure leaves normal `perseus render` output unchanged.
 - Tests include golden fixtures, provenance checks, model-unavailable behavior,
@@ -143,7 +143,7 @@ any render-time surface.
 
 The current development phase should stay inside the resolver boundary:
 
-- Reinforcement signals may adjust Pythia scores.
+- Reinforcement signals may adjust Guide scores.
 - Online scoring may change recommendation order.
 - A/B testing may compare existing recommendation candidates.
 - Daedalus may score, rank, or classify.
