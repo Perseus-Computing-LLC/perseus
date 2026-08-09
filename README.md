@@ -283,7 +283,7 @@ MCP tools resolve live state at invocation time, including the canonical Perseus
 | `perseus_context_ask` | Answer one narrow question from at most 64 scoped records with evidence-linked validity/confidence, or an explicit insufficient-evidence/review/degraded/unavailable outcome. |
 | `perseus_context_rank` | Deterministically rank at most 64 caller-supplied candidates for one task/scope, preserving identity and provenance commitments without exporting raw private memory. |
 | `perseus_date` | Current date/time |
-| `perseus_drift` | Detect drift between predicted and actual tool usage patterns via the Pythia oracle. Use when tool behavior seems off or after config changes. For workspace hygiene checks, prefer perseus_health. Read-only; returns a markdown drift report. |
+| `perseus_drift` | Detect drift between predicted and actual tool usage patterns via the Guide oracle. Use when tool behavior seems off or after config changes. For workspace hygiene checks, prefer perseus_health. Read-only; returns a markdown drift report. |
 | `perseus_env` | Embed environment variable |
 | `perseus_focus` | The global-workspace tier: a small, capacity-bounded (default 32), salience-ranked set of items Perseus broadcasts into context — the shared 'what I'm working on now' set for the agent and its subagents. With no args, renders the current working set. add=/pin= admit items; the lowest-salience non-pinned items are evicted when it overflows. Distinct from long-term recall (@vault/@memory): bounded and actively maintained, not unbounded memory. |
 | `perseus_health` | Audit workspace context health: stale skills, duplicate tasks, oversized output. Use before starting work to catch drift. For deep Daedalus heuristics (cache, directive stats), use perseus_get_health. Read-only; returns status enum and metric counts. |
@@ -932,7 +932,7 @@ To suppress the automatic section entirely (pointer included) set `Perseus Vault
 
 ## Project Memory (Perseus Vault)
 
-Perseus Vault (Μνήμη) is Perseus's narrative project memory. It distills checkpoints and Pythia recommendations into a per-workspace narrative — so your assistant knows not just what's running, but *how you got here*.
+Perseus Vault (Μνήμη) is Perseus's narrative project memory. It distills checkpoints and Guide recommendations into a per-workspace narrative — so your assistant knows not just what's running, but *how you got here*.
 
 ```bash
 # Update the narrative from latest checkpoints
@@ -1010,7 +1010,7 @@ See **[docs/ip/](docs/ip/)** for the public IP portfolio, including
 technical disclosures and evidence exhibits.
 
 **PERSEUS™** is a trademark of Thomas Connally. Internal subsystem names
-(Pythia, Daedalus, Agora) are not independently trademarked and
+(Guide, Daedalus, Agora) are not independently trademarked and
 are covered under the PERSEUS mark.
 
 ## Privacy Policy

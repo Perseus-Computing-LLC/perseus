@@ -1441,20 +1441,20 @@ def cmd_mcp(args, cfg) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def cmd_oracle(args, cfg):
-    sub = getattr(args, "oracle_command", None)
+def cmd_guide(args, cfg):
+    sub = getattr(args, "guide_command", None)
 
     if sub == "accept":
-        ok, msg = _label_pythia_entry(args.log_id, True)
+        ok, msg = _label_guide_entry(args.log_id, True)
         print(msg)
         return
     if sub == "reject":
-        ok, msg = _label_pythia_entry(args.log_id, False)
+        ok, msg = _label_guide_entry(args.log_id, False)
         print(msg)
         return
 
     if sub == "log":
-        entries = _pythia_log_entries()
+        entries = _guide_log_entries()
         limit = int(getattr(args, "limit", 20))
         unlabeled = bool(getattr(args, "unlabeled", False))
         rows = []
@@ -1480,22 +1480,22 @@ def cmd_oracle(args, cfg):
             if len(rows) >= limit:
                 break
         if not rows:
-            print("(no Pythia log entries)")
+            print("(no Guide log entries)")
             return
-        print(f"Recent Pythia log entries (most recent first; limit={limit}{' unlabeled only' if unlabeled else ''})")
+        print(f"Recent Guide log entries (most recent first; limit={limit}{' unlabeled only' if unlabeled else ''})")
         print("  Legend: ✅ explicit accept · ❌ explicit reject · ≈✓ inferred accept · ≈✗ inferred reject · · unlabeled")
         for r in rows:
             print(r)
         return
 
     if sub == "export":
-        entries = _pythia_log_entries()
+        entries = _guide_log_entries()
         include_inferred = bool(getattr(args, "include_inferred", False))
         accepted = [e for e in entries if e.get("accepted") is True]
         rejected = [e for e in entries if e.get("accepted") is False]
         unlabeled = [e for e in entries if e.get("accepted") is None]
         inferred_acc = [e for e in entries if e.get("accepted") is None and e.get("inferred_label") == "inferred_accept"]
-        out_path = Path(getattr(args, "output", None) or (PERSEUS_HOME / "daedalus_dataset.jsonl")).expanduser().resolve()
+        out_path = Path(getattr(args, "output", None) or (PERSEUS_HOME / "guide_dataset.jsonl")).expanduser().resolve()
         fmt = getattr(args, "format", "jsonl") or "jsonl"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         n_explicit = 0
@@ -1522,13 +1522,13 @@ def cmd_oracle(args, cfg):
         return
 
     if sub == "infer-labels":
-        return cmd_oracle_infer_labels(args, cfg)
+        return cmd_guide_infer_labels(args, cfg)
     if sub == "outcomes":
-        return cmd_oracle_outcomes(args, cfg)
+        return cmd_guide_outcomes(args, cfg)
     if sub == "drift":
-        return cmd_oracle_drift(args, cfg)
+        return cmd_guide_drift(args, cfg)
 
-    print(f"> ⚠ Unknown oracle subcommand: {sub}")
+    print(f"> ⚠ Unknown guide subcommand: {sub}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1543,8 +1543,8 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
         "latest_checkpoint_age_s": None,
         "open_tasks": None,
         "in_progress_tasks": None,
-        "pythia_entries_total": None,
-        "pythia_entries_24h": None,
+        "guide_entries_total": None,
+        "guide_entries_24h": None,
         "inbox_unread": None,
         "skills_count": None,
         "context_file_present": False,
@@ -1608,9 +1608,9 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
     except Exception:
         pass
 
-    # Pythia log
+    # Guide log
     try:
-        log_path = _pythia_log_path()
+        log_path = _guide_log_path()
         if log_path.exists():
             total = 0
             recent = 0
@@ -1631,8 +1631,8 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
                                 recent += 1
                     except Exception:
                         continue
-            stats["pythia_entries_total"] = total
-            stats["pythia_entries_24h"] = recent
+            stats["guide_entries_total"] = total
+            stats["guide_entries_24h"] = recent
     except Exception:
         pass
 
@@ -1657,7 +1657,7 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
 
     # Skills count
     try:
-        skill_dir = Path(cfg.get("pythia", {}).get("skill_dir", "")).expanduser()
+        skill_dir = Path(cfg.get("guide", {}).get("skill_dir", "")).expanduser()
         if skill_dir.exists():
             stats["skills_count"] = sum(1 for _ in skill_dir.glob("*/SKILL.md"))
     except Exception:
@@ -1711,7 +1711,7 @@ def _serve_render_index(workspace: Path, stats: dict) -> str:
         ("/health", "Maintenance report", "Stale checkpoints, near-duplicates, large context, old completed tasks."),
         ("/agora", "Task board", "All tasks in tasks/ with frontmatter status (markdown table)."),
         ("/checkpoint/latest", "Latest checkpoint (YAML)", "Most recent checkpoint for this workspace."),
-        ("/oracle/log", "Pythia log (JSON)", "Append-only log of Pythia recommendations + accept/reject decisions."),
+        ("/guide/log", "Guide log (JSON)", "Append-only log of Guide recommendations + accept/reject decisions."),
     ]
     cards = "\n".join(
         f"<a class='card' href='{_esc(p)}'><div class='card-path'>{_esc(p)}</div>"
@@ -1765,8 +1765,8 @@ def _serve_render_index(workspace: Path, stats: dict) -> str:
         f"{_stat('Narrative lines', stats.get('narrative_lines'))}"
         f"{_stat('Narrative updated', narr_age)}"
         f"{_stat('Checkpoint age', cp_age)}"
-        f"{_stat('Pythia calls (24h)', stats.get('pythia_entries_24h'))}"
-        f"{_stat('Pythia calls (all)', stats.get('pythia_entries_total'))}"
+        f"{_stat('Guide calls (24h)', stats.get('guide_entries_24h'))}"
+        f"{_stat('Guide calls (all)', stats.get('guide_entries_total'))}"
         f"{_stat('Vault memories', stats.get('vault_active'))}"
         f"{_stat('Vault archived', stats.get('vault_archived'))}"
         f"</div>"
@@ -2107,12 +2107,12 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             }
             return (200, "application/json; charset=utf-8", json.dumps(resp_data))
 
-        if endpoint == "/oracle/log":
+        if endpoint == "/guide/log":
             try:
                 limit = int(query.get("limit", "20"))
             except (TypeError, ValueError):
                 limit = 20
-            entries = _read_all_pythia_entries()[-limit:][::-1]
+            entries = _read_all_guide_entries()[-limit:][::-1]
             # M-4: Filter by workspace if provided to prevent cross-workspace data leak
             ws_filter = query.get("workspace", "").strip()
             if ws_filter:
@@ -2189,7 +2189,7 @@ def cmd_serve(args, cfg):
             sys.stderr.write(
                 f"perseus serve: refusing to bind {host}:{port} — non-loopback hosts expose\n"
                 "  ALL of: rendered context, Vault memory review (/knows), narrative, health,\n"
-                "  agora, latest checkpoint, AND Pythia log (which may contain prompts/responses\n"
+                "  agora, latest checkpoint, AND Guide log (which may contain prompts/responses\n"
                 "  from other workspaces).\n"
                 "  Set serve.auth_token to protect endpoints, or set serve.allow_insecure_remote: true\n"
                 "  / pass --i-understand-no-auth to proceed without auth.\n"
@@ -2198,7 +2198,7 @@ def cmd_serve(args, cfg):
         else:
             sys.stderr.write(
                 f"[serve] WARNING: binding to {host}:{port} — set serve.auth_token to protect endpoints\n"
-                "  Exposed endpoints: /, /context, /knows, /narrative, /health, /agora, /checkpoint/latest, /oracle/log\n"
+                "  Exposed endpoints: /, /context, /knows, /narrative, /health, /agora, /checkpoint/latest, /guide/log\n"
             )
 
     class PerseusHandler(BaseHTTPRequestHandler):
@@ -2284,7 +2284,7 @@ def cmd_serve(args, cfg):
     url = f"http://{host}:{port}"
     print(f"Perseus serve — {workspace}")
     print(f"  Listening on {url}")
-    print(f"  Endpoints: /, /context, /narrative, /health, /agora, /checkpoint/latest, /oracle/log")
+    print(f"  Endpoints: /, /context, /narrative, /health, /agora, /checkpoint/latest, /guide/log")
     print(f"             /.well-known/mcp/server-card.json, /federation/narrative (GET), /federation/receive (POST)")
     print(f"  Press Ctrl-C to stop.")
     try:

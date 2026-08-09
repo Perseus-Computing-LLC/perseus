@@ -78,7 +78,7 @@ MODULE_ORDER = [
     "src/perseus/vault_connector.py",  # ← Perseus Vault bridge: MCP client + hybrid resolution (depends on memory)
     "src/perseus/inbox.py",
     "src/perseus/agora.py",
-    "src/perseus/pythia.py",
+    "src/perseus/guide.py",
     "src/perseus/lsp.py",
     "src/perseus/install.py",           # ← Phase 24: hook installer (depends on assistant_formats, before serve)
     "src/perseus/doctor.py",            # ← serve.py extraction: resolve_health + doctor CLI

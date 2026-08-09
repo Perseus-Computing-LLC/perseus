@@ -31,7 +31,7 @@ It is the mirror Perseus used against Medusa — the assistant faces complexity 
 - [`components.md`](components.md) — detailed spec for each component
 - [`directives.md`](directives.md) — full directive reference for the renderer
 - [`integration.md`](integration.md) — assistant integration wiring (AGENTS.md, workdir, cron)
-- [`pythia.md`](pythia.md) — tool oracle design and scoring model **(MVP)**
+- [`guide.md`](guide.md) — tool oracle design and scoring model **(MVP)**
 - [`data-model.md`](data-model.md) — file layout, schemas, state storage
 
 ---

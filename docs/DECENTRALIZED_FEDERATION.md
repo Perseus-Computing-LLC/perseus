@@ -193,7 +193,7 @@ Perseus flags the overlap:
 ```
 
 `perseus memory federation diff` shows a side-by-side view of the
-conflicting sections. `perseus memory federation merge` uses Pythia
+conflicting sections. `perseus memory federation merge` uses Guide
 (optionally with `--llm`) to draft a reconciliation, presented as
 a cited synthesis block — never automatically applied.
 
@@ -261,7 +261,7 @@ endpoints. This is the foundation — everything else builds on it.
 
 - `perseus memory federation diff <alias-a> <alias-b>` — side-by-side view
 - Topic overlap detection via Perseus Vault focus tags and FTS5 similarity
-- `perseus memory federation merge <alias-a> <alias-b>` — Pythia-assisted
+- `perseus memory federation merge <alias-a> <alias-b>` — Guide-assisted
   reconciliation draft (cited synthesis, never auto-applied)
 - `@federation conflicts` directive — renders detected conflicts inline
 

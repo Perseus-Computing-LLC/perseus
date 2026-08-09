@@ -52,7 +52,7 @@ def test_skills_no_filter_returns_all(tmp_path):
     """@skills with no category/include filter returns all skills (backward compat)."""
     root = _make_skills_dir(tmp_path)
     local_cfg = _cfg()
-    local_cfg["pythia"]["skill_dir"] = str(root)
+    local_cfg["guide"]["skill_dir"] = str(root)
     out = _perseus.resolve_skills("", local_cfg)
     assert "docker" in out
     assert "spotify" in out
@@ -63,7 +63,7 @@ def test_skills_category_single_returns_matching(tmp_path):
     """@skills category=devops returns only devops skills."""
     root = _make_skills_dir(tmp_path)
     local_cfg = _cfg()
-    local_cfg["pythia"]["skill_dir"] = str(root)
+    local_cfg["guide"]["skill_dir"] = str(root)
     out = _perseus.resolve_skills("category=devops", local_cfg)
     assert "docker" in out
     assert "spotify" not in out
@@ -74,7 +74,7 @@ def test_skills_category_comma_separated_returns_multiple(tmp_path):
     """@skills category=devops,media returns skills from both categories."""
     root = _make_skills_dir(tmp_path)
     local_cfg = _cfg()
-    local_cfg["pythia"]["skill_dir"] = str(root)
+    local_cfg["guide"]["skill_dir"] = str(root)
     out = _perseus.resolve_skills("category=devops,media", local_cfg)
     assert "docker" in out
     assert "spotify" in out
@@ -85,7 +85,7 @@ def test_skills_include_alias_single(tmp_path):
     """@skills include=media is an alias for category=media."""
     root = _make_skills_dir(tmp_path)
     local_cfg = _cfg()
-    local_cfg["pythia"]["skill_dir"] = str(root)
+    local_cfg["guide"]["skill_dir"] = str(root)
     out = _perseus.resolve_skills("include=media", local_cfg)
     assert "spotify" in out
     assert "docker" not in out
@@ -95,7 +95,7 @@ def test_skills_include_alias_comma_separated(tmp_path):
     """@skills include=media,github returns skills from both categories."""
     root = _make_skills_dir(tmp_path)
     local_cfg = _cfg()
-    local_cfg["pythia"]["skill_dir"] = str(root)
+    local_cfg["guide"]["skill_dir"] = str(root)
     out = _perseus.resolve_skills("include=media,github", local_cfg)
     assert "spotify" in out
     assert "github-pr-workflow" in out
@@ -106,7 +106,7 @@ def test_skills_category_no_match_returns_no_skills(tmp_path):
     """@skills category=nonexistent returns 'No skills found.' message."""
     root = _make_skills_dir(tmp_path)
     local_cfg = _cfg()
-    local_cfg["pythia"]["skill_dir"] = str(root)
+    local_cfg["guide"]["skill_dir"] = str(root)
     out = _perseus.resolve_skills("category=nonexistent", local_cfg)
     assert "No skills found" in out
 
@@ -115,7 +115,7 @@ def test_skills_category_case_insensitive(tmp_path):
     """category= filter is case-insensitive."""
     root = _make_skills_dir(tmp_path)
     local_cfg = _cfg()
-    local_cfg["pythia"]["skill_dir"] = str(root)
+    local_cfg["guide"]["skill_dir"] = str(root)
     out = _perseus.resolve_skills("category=DEVOPS", local_cfg)
     assert "docker" in out
     assert "spotify" not in out
@@ -125,7 +125,7 @@ def test_skills_flag_stale_and_category_together(tmp_path):
     """flag_stale=true and category= can be combined without conflict."""
     root = _make_skills_dir(tmp_path)
     local_cfg = _cfg()
-    local_cfg["pythia"]["skill_dir"] = str(root)
+    local_cfg["guide"]["skill_dir"] = str(root)
     # Both flags together — should still filter correctly
     out = _perseus.resolve_skills("flag_stale=true category=media", local_cfg)
     assert "spotify" in out

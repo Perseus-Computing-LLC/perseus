@@ -256,7 +256,7 @@ def test_list_depth_two_includes_next_level(tmp_path):
 
 def _skills_cfg(skill_dir):
     c = cfg()
-    c.setdefault("pythia", {})["skill_dir"] = str(skill_dir)
+    c.setdefault("guide", {})["skill_dir"] = str(skill_dir)
     return c
 
 
