@@ -11,7 +11,7 @@ Usage:
   perseus render <source.md>               → resolved markdown to stdout
   perseus checkpoint --task "..." [opts]   → write checkpoint YAML
   perseus recover [--workspace DIR]        → print latest checkpoint (smart TTL)
-  perseus suggest "<task description>"     → Pythia ranked suggestions
+  perseus suggest "<task description>"     → Guide ranked suggestions
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "d10d009-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "ccf0f3d-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -154,11 +154,16 @@ _skills_dir = os.environ.get("PERSEUS_SKILLS_DIR") or os.environ.get("HERMES_SKI
 SKILLS_DIR = Path(_skills_dir) if _skills_dir else _default_hermes_root / "skills"
 _sessions_dir = os.environ.get("PERSEUS_SESSIONS_DIR") or os.environ.get("HERMES_SESSIONS_DIR")
 SESSIONS_DIR = Path(_sessions_dir) if _sessions_dir else _default_hermes_root / "sessions"
-PYTHIA_LOG_NAME = "pythia_log.jsonl"
-LEGACY_PYTHIA_CONFIG_KEY = "or" + "acle"
-LEGACY_PYTHIA_LOG_NAME = LEGACY_PYTHIA_CONFIG_KEY + "_log.jsonl"
-PYTHIA_HWM_KEY = "pythia_entries_processed"
-LEGACY_PYTHIA_HWM_KEY = LEGACY_PYTHIA_CONFIG_KEY + "_entries_processed"
+GUIDE_LOG_NAME = "guide_log.jsonl"
+LEGACY_GUIDE_LOG_NAME = "pythia_log.jsonl"     # legacy alias (removal-gated)
+GUIDE_HWM_KEY = "guide_entries_processed"
+LEGACY_GUIDE_HWM_KEY = "pythia_entries_processed"
+GUIDE_CONFIG_KEY = "guide"
+LEGACY_GUIDE_CONFIG_KEY = "pythia"
+# Removal gate for the legacy `pythia` alias (config key, log filename):
+# the migration bridge stays until this date; on/after it the gate test
+# requires the legacy aliases to be GONE (self-enforcing deprecation).
+LEGACY_PYTHIA_REMOVAL_DATE = "2026-10-08"
 
 # Single source of truth for the plugins-enabled default. Referenced by
 # DEFAULT_CONFIG below and by registry.register_plugins / _discover_plugins so
@@ -244,7 +249,7 @@ DEFAULT_CONFIG = {
         "ttl_s": 86400,
         "max_keep": 30,
     },
-    "pythia": {
+    "guide": {  # Guide (renamed from Pythia, #932-era de-mythologizing): tool-recommendation log, labeling, drift
         "skill_dir": str(SKILLS_DIR),
         "stale_skill_days": 30,
         "max_entries": 10000,          # max JSONL log entries before oldest are pruned (0 = unlimited)
@@ -256,7 +261,7 @@ DEFAULT_CONFIG = {
         "inferred_label_window_checkpoints": 5,
         "inferred_label_min_checkpoints": 2,
         # Phase 9.3 — drift detection thresholds (tasks 22).
-        # Surfaced via `perseus oracle drift` and the `@drift` directive.
+        # Surfaced via `perseus guide drift` and the `@drift` directive.
         "drift_window_days": 30,              # baseline window for comparisons
         "drift_recent_window_days": 7,        # recent window vs baseline
         "drift_acceptance_drop": 0.20,        # ≥ 20pp drop in accept-rate
@@ -497,7 +502,7 @@ DEFAULT_CONFIG = {
     },
     "redaction": {                    # Phase 17B — task-46
         # Redact common secret shapes before output crosses Perseus's trust
-        # boundary (render output, synthesis prompts, serve bodies, Pythia log).
+        # boundary (render output, synthesis prompts, serve bodies, Guide log).
         # Source files on disk are never mutated.
         "enabled": True,
         "include_defaults": True,
@@ -1441,7 +1446,7 @@ def _bind_registry() -> None:
         DirectiveSpec("@agora",     resolve_agora,     ["status="],                "inline",  "acw", reads_files=True, cacheable=True, summary="List tasks from the project task board (tasks/*.md files). Use to see what is open, in progress, or completed. Filter by status. Read-only; returns task array with id, title, status, scope.", tier=2),
         DirectiveSpec("@inbox",     resolve_inbox,     ["unread=", "limit="],      "inline",  "acw", reads_files=True, cacheable=True, summary="Read agent-to-agent messages from the workspace inbox. Use to check for coordination messages from other agents. Filter to unread only. Read-only; returns message array with read/unread status.", tier=2),
         DirectiveSpec("@capture",   resolve_capture,   ["limit="],                 "inline",  "acw", reads_files=True, mutates_state=True, cacheable=False, safe_for_hover=False, summary="Write recent session checkpoints to Perseus Vault as durable memories (#713) — the write side of the memory loop, symmetric to @memory recall. Idempotent per checkpoint (re-render upserts, never duplicates). Use at session boundaries so lessons persist immediately instead of waiting for a scheduled harvest. WRITES to the vault; never cached.", tier=2),
-        DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Detect drift between predicted and actual tool usage patterns via the Pythia oracle. Use when tool behavior seems off or after config changes. For workspace hygiene checks, prefer perseus_health. Read-only; returns a markdown drift report.", tier=2),
+        DirectiveSpec("@drift",     resolve_drift,     [],                         "inline",  "ac",  reads_files=True, summary="Detect drift between predicted and actual tool usage patterns via the Guide. Use when tool behavior seems off or after config changes. For workspace hygiene checks, prefer perseus_health. Read-only; returns a markdown drift report.", tier=2),
         DirectiveSpec("@context-diff", resolve_context_diff, ["reset="],          "inline",  "acw", reads_files=True, mutates_state=True, cacheable=False, safe_for_hover=False, summary="Render a compact 'Since last session' delta (#714): git branch/commits, Agora task-board changes, new inbox messages, new checkpoints, and new vault session memories since the last recorded snapshot. Use at the top of a context document so the assistant spends zero turns re-orienting on unchanged state. Maintains its own per-workspace snapshot (refresh debounced by render.context_diff_min_age_s); reset=true forces a new baseline. Never cached.", tier=1),
         DirectiveSpec("@perseus",   resolve_perseus,   ["url="],                         "inline",  "acw", cacheable=True, safe_for_hover=False, summary="Fetch rendered context from a remote Perseus instance by URL. Use to pull live workspace state from another machine or container. Read-only; caches results — re-fetch when remote state may have changed.", tier=2),
         DirectiveSpec("@vault",    resolve_vault,    ["query=", "scope=", "k=", "type="], "inline", "acw", safe_for_hover=True, summary="Query Perseus Vault for scoped, durable context. Read-only; falls back to the local Vault FTS5 index when the service is unavailable.", tier=2, is_semantic_hint=True),
@@ -2024,7 +2029,7 @@ def _reset_plugin_cache() -> None:
 #
 # Goal: deterministic, opt-out redaction of common secret shapes before they
 # leave the trust boundary (rendered context, synthesis prompts, HTTP serve
-# bodies, Pythia log entries). Source files on disk are NEVER modified.
+# bodies, Guide log entries). Source files on disk are NEVER modified.
 #
 # Design:
 # - A small set of high-signal regex detectors covers the credential shapes
@@ -2886,8 +2891,8 @@ def _audit_summary(cfg: dict) -> dict:
     }
 
 
-def _normalize_pythia_section(section: dict) -> dict:
-    """Normalize Pythia config aliases without mutating the source object."""
+def _normalize_guide_section(section: dict) -> dict:
+    """Normalize Guide config aliases without mutating the source object."""
     out = dict(section or {})
     if "provider" in out and "llm_provider" not in out:
         out["llm_provider"] = out["provider"]
@@ -2925,16 +2930,20 @@ def _normalize_loaded_config(loaded: dict, warn_legacy: bool = False) -> dict:
         assistant_vals.update(legacy)
         loaded["assistant"] = assistant_vals
 
-    legacy_pythia = loaded.pop(LEGACY_PYTHIA_CONFIG_KEY, None)
-    if isinstance(legacy_pythia, dict):
+    # Guide config: canonical key is `guide:`; the legacy `pythia:` block is
+    # merged in (chain: guide ← pythia), so old configs keep working while the
+    # subsystem carries its new name. The `pythia` bridge is removal-gated
+    # (LEGACY_PYTHIA_REMOVAL_DATE).
+    legacy_guide = loaded.pop(LEGACY_GUIDE_CONFIG_KEY, None)
+    if isinstance(legacy_guide, dict):
         if warn_legacy:
-            sys.stderr.write("[perseus] config: 'oracle' key is deprecated, rename to 'pythia'\n")
-        merged = _normalize_pythia_section(legacy_pythia)
-        if isinstance(loaded.get("pythia"), dict):
-            merged.update(_normalize_pythia_section(loaded["pythia"]))
-        loaded["pythia"] = merged
-    elif isinstance(loaded.get("pythia"), dict):
-        loaded["pythia"] = _normalize_pythia_section(loaded["pythia"])
+            sys.stderr.write("[perseus] config: 'pythia' key is deprecated, rename to 'guide'\n")
+        merged = _normalize_guide_section(legacy_guide)
+        if isinstance(loaded.get(GUIDE_CONFIG_KEY), dict):
+            merged.update(_normalize_guide_section(loaded[GUIDE_CONFIG_KEY]))
+        loaded[GUIDE_CONFIG_KEY] = merged
+    elif isinstance(loaded.get(GUIDE_CONFIG_KEY), dict):
+        loaded[GUIDE_CONFIG_KEY] = _normalize_guide_section(loaded[GUIDE_CONFIG_KEY])
 
     # Only the canonical Perseus Vault configuration block is active. Unknown
     # top-level memory keys remain untouched and are not interpreted as aliases.
@@ -2942,16 +2951,20 @@ def _normalize_loaded_config(loaded: dict, warn_legacy: bool = False) -> dict:
     return loaded
 
 
-def _pythia_log_path() -> Path:
-    """Return the Pythia JSONL path, migrating the legacy filename once."""
-    log_path = PERSEUS_HOME / PYTHIA_LOG_NAME
-    legacy_path = PERSEUS_HOME / LEGACY_PYTHIA_LOG_NAME
+def _guide_log_path() -> Path:
+    """Return the Guide JSONL path, migrating legacy filenames once.
+
+    Chain: guide_log.jsonl (canonical) ← pythia_log.jsonl (legacy; removal gated).
+    The FIRST existing legacy file migrates; later writes use the canonical
+    name only."""
+    log_path = PERSEUS_HOME / GUIDE_LOG_NAME
+    legacy_path = PERSEUS_HOME / LEGACY_GUIDE_LOG_NAME
     if legacy_path.exists() and not log_path.exists():
         try:
             legacy_path.replace(log_path)
-            sys.stderr.write(f"[perseus] migrated {LEGACY_PYTHIA_LOG_NAME} → {PYTHIA_LOG_NAME}\n")
+            sys.stderr.write(f"[perseus] migrated {LEGACY_GUIDE_LOG_NAME} → {GUIDE_LOG_NAME}\n")
         except Exception as exc:
-            sys.stderr.write(f"[perseus] could not migrate {LEGACY_PYTHIA_LOG_NAME}: {exc}\n")
+            sys.stderr.write(f"[perseus] could not migrate {LEGACY_GUIDE_LOG_NAME}: {exc}\n")
     return log_path
 
 
@@ -3098,7 +3111,7 @@ def load_config(workspace: Path | None = None) -> dict:
         ("inbox", "store"),
         ("render", "cache_dir"),
         ("audit", "log_path"),
-        ("pythia", "skill_dir"),
+        ("guide", "skill_dir"),
         ("assistant", "sessions_dir"),
     ]
     for section, key in _PATH_KEYS:
@@ -5745,7 +5758,7 @@ def _write_candidate(cfg: dict, cand: dict, md_text: str) -> None:
 
 def _live_skill_names(cfg: dict) -> set:
     """Names already live under the @skills dir (never re-suggested)."""
-    skill_dir = Path(cfg.get("pythia", {}).get("skill_dir", str(SKILLS_DIR)))
+    skill_dir = Path(cfg.get("guide", {}).get("skill_dir", str(SKILLS_DIR)))
     names = set()
     if skill_dir.exists():
         for skill_md in skill_dir.rglob("SKILL.md"):
@@ -5985,7 +5998,7 @@ def approve_candidate(cfg: dict, name: str, force: bool = False) -> tuple:
     md_path = _candidates_dir(cfg) / f"{name}.md"
     if not md_path.exists():
         return False, f"candidate '{name}' is missing its SKILL.md — re-run `perseus skills mine`"
-    skill_dir = Path(cfg.get("pythia", {}).get("skill_dir", str(SKILLS_DIR))).resolve()
+    skill_dir = Path(cfg.get("guide", {}).get("skill_dir", str(SKILLS_DIR))).resolve()
     name_dir = skill_dir / name
     if name_dir.is_symlink():
         return False, f"refusing to approve '{name}': {name_dir} is a symlink"
@@ -8253,7 +8266,7 @@ def _adaptive_candidate_from_config(item: object, index: int) -> dict:
 def _adaptive_pattern_corpus(cfg: dict, workspace: Path | None) -> str:
     parts: list[str] = []
     try:
-        entries = _read_all_pythia_entries()
+        entries = _read_all_guide_entries()
     except Exception:
         entries = []
     for entry in entries[-50:]:
@@ -9041,8 +9054,8 @@ def resolve_perseus(args_str: str, cfg: dict, workspace: Path | None = None) -> 
 
 def resolve_skills(args_str: str, cfg: dict) -> str:
     """Scan the configured skills directory and emit a markdown summary."""
-    skill_dir = Path(cfg.get("pythia", {}).get("skill_dir", str(PERSEUS_HOME / "skills")))
-    stale_days = int(cfg.get("pythia", {}).get("stale_skill_days", 30))
+    skill_dir = Path(cfg.get("guide", {}).get("skill_dir", str(PERSEUS_HOME / "skills")))
+    stale_days = int(cfg.get("guide", {}).get("stale_skill_days", 30))
     flag_stale = "flag_stale=true" in args_str
 
     # Parse category= / include= filter (comma-separated, case-insensitive).
@@ -9773,7 +9786,7 @@ def health_check_url(url: str, timeout: float, cfg: dict) -> tuple[str, float | 
     # #591: scheme allowlist + hostname requirement (unconditional, mirroring
     # @perseus's C15 check). file:// URLs have no hostname and previously
     # bypassed the localhost gate entirely, opening local files (SSRF /
-    # file-existence oracle) even with allow_remote_services_health=false.
+    # file-existence probe) even with allow_remote_services_health=false.
     if parsed.scheme not in ("http", "https"):
         return f"🔒 scheme blocked ({parsed.scheme or 'none'})", None
     if not parsed.hostname:
@@ -9786,7 +9799,7 @@ def health_check_url(url: str, timeout: float, cfg: dict) -> tuple[str, float | 
     try:
         # #611: do NOT follow redirects. urlopen's default opener chases 3xx,
         # so a localhost service could 302 the probe to an arbitrary remote
-        # host — a status/latency oracle for hosts the gate above blocks.
+        # host — a status/latency probe for hosts the gate above blocks.
         # A no-redirect opener surfaces 3xx as HTTPError, reported below.
         class _NoRedirect(urllib.request.HTTPRedirectHandler):
             def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -19340,7 +19353,7 @@ def _vault_fmt_bytes(n: int) -> str:
     return f"{n:.1f} TB"
 # ─────────────────────────────── Perseus Vault Memory ────────────────────────────────
 #
-# Perseus Vault — narrative project memory. Distills checkpoints + Pythia log into a
+# Perseus Vault — narrative project memory. Distills checkpoints + Guide log into a
 # per-workspace narrative file at ~/.perseus/memory/<workspace-hash>.md.
 #
 # Distillation is deterministic (rule-based extraction; no LLM) — Perseus runs
@@ -19579,7 +19592,7 @@ def _vault_default_frontmatter(workspace: Path) -> dict:
         "workspace_hash": _workspace_hash(workspace),
         "updated": datetime.now().astimezone().isoformat(timespec="seconds"),
         "checkpoints_processed": 0,
-        PYTHIA_HWM_KEY: 0,
+        GUIDE_HWM_KEY: 0,
         "compaction_count": 0,
         "last_compaction_at_update": 0,
     }
@@ -19628,20 +19641,22 @@ def _enrich_narrative_frontmatter(fm: dict, body: str, workspace: Path) -> None:
         fm["schema"] = 2
 
 
-def _vault_pythia_hwm(frontmatter: dict) -> int:
-    """Read the Pythia high-water mark, accepting legacy Perseus Vault frontmatter."""
-    return int(frontmatter.get(PYTHIA_HWM_KEY, frontmatter.get(LEGACY_PYTHIA_HWM_KEY, 0)))
+def _vault_guide_hwm(frontmatter: dict) -> int:
+    """Read the Guide high-water mark, accepting legacy Perseus Vault frontmatter.
+
+    Chain: guide_entries_processed ← pythia_entries_processed (legacy; removal gated)."""
+    return int(frontmatter.get(GUIDE_HWM_KEY, frontmatter.get(LEGACY_GUIDE_HWM_KEY, 0)))
 
 
-def _set_vault_pythia_hwm(frontmatter: dict, value: int) -> None:
-    """Write the canonical Pythia high-water mark and drop the legacy key."""
-    frontmatter[PYTHIA_HWM_KEY] = int(value)
-    frontmatter.pop(LEGACY_PYTHIA_HWM_KEY, None)
+def _set_vault_guide_hwm(frontmatter: dict, value: int) -> None:
+    """Write the canonical Guide high-water mark and drop the legacy key."""
+    frontmatter[GUIDE_HWM_KEY] = int(value)
+    frontmatter.pop(LEGACY_GUIDE_HWM_KEY, None)
 
 
-def _read_all_pythia_entries() -> list[dict]:
-    """Load every JSONL Pythia entry in order."""
-    log_path = _pythia_log_path()
+def _read_all_guide_entries() -> list[dict]:
+    """Load every JSONL Guide entry in order."""
+    log_path = _guide_log_path()
     if not log_path.exists():
         return []
     entries: list[dict] = []
@@ -19654,7 +19669,7 @@ def _read_all_pythia_entries() -> list[dict]:
                 try:
                     entries.append(json.loads(line))
                 except Exception as exc:
-                    sys.stderr.write(f"> ⚠ Pythia: skipping malformed JSONL line: {exc}\n")
+                    sys.stderr.write(f"> ⚠ Guide: skipping malformed JSONL line: {exc}\n")
     except Exception:
         return []
     return entries
@@ -19693,9 +19708,9 @@ def _extract_section(body: str, heading: str) -> str:
     return body[start:m.end() + next_m.start()].rstrip() + "\n"
 
 
-def _deterministic_patterns_body(pythia_entries: list[dict]) -> str:
+def _deterministic_patterns_body(guide_entries: list[dict]) -> str:
     """Rule-based pattern extraction — no LLM. The default extractor."""
-    accepted = [e for e in pythia_entries if e.get("accepted") is True]
+    accepted = [e for e in guide_entries if e.get("accepted") is True]
     bucket: dict[str, dict] = {}
     known_prefixes = ("skill:", "web_", "terminal", "delegate", "cron")
     for entry in accepted:
@@ -19716,22 +19731,22 @@ def _deterministic_patterns_body(pythia_entries: list[dict]) -> str:
         if ts > b["last"]:
             b["last"] = ts
     if not bucket:
-        return "_No accepted Pythia patterns yet._"
+        return "_No accepted Guide patterns yet._"
     lines = []
     for tool, info in sorted(bucket.items(), key=lambda kv: -kv[1]["count"]):
         lines.append(f"- **{tool}** — used {info['count']} times (last: {_short_date(info['last'])})")
     return "\n".join(lines)
 
 
-def _extract_patterns_section(pythia_entries: list[dict], cfg: dict) -> str:
+def _extract_patterns_section(guide_entries: list[dict], cfg: dict) -> str:
     """Extract the patterns section. Perseus runs no inference of its own
     (observe model), so pattern extraction is always deterministic."""
-    return _deterministic_patterns_body(pythia_entries)
+    return _deterministic_patterns_body(guide_entries)
 
 
 def _deterministic_narrative(
     checkpoints: list[dict],
-    pythia_entries: list[dict],
+    guide_entries: list[dict],
     existing_body: str,
     workspace: Path,
     cfg: dict,
@@ -19741,7 +19756,7 @@ def _deterministic_narrative(
     When called from compact, existing_body is "". When called from update,
     existing_body contains the current narrative; we still rebuild the
     standard sections from cumulative inputs (caller passes ALL checkpoints
-    and ALL Pythia entries when doing a deterministic update so the result
+    and ALL Guide entries when doing a deterministic update so the result
     is consistent rather than additively drifting).
     """
     recent_keep = int(cfg.get("memory", {}).get("recent_keep", 5))
@@ -19801,7 +19816,7 @@ def _deterministic_narrative(
     history_section = "## Task History\n\n" + history_body + "\n"
 
     # ── Patterns & Anti-patterns ───────────────────────────────────────────
-    patterns_body = _extract_patterns_section(pythia_entries, cfg)
+    patterns_body = _extract_patterns_section(guide_entries, cfg)
     patterns_section = "## Patterns & Anti-patterns\n\n" + patterns_body + "\n"
 
     # ── Recent Activity ────────────────────────────────────────────────────
@@ -19833,7 +19848,7 @@ def _deterministic_narrative(
     now_h = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z").strip()
     preamble = (
         f"> Narrative last updated {now_h}.\n"
-        f"> Source: {len(checkpoints)} checkpoints, {len(pythia_entries)} Pythia entries.\n"
+        f"> Source: {len(checkpoints)} checkpoints, {len(guide_entries)} Guide entries.\n"
         f"> Run `perseus memory compact` for a full re-distillation.\n"
     )
 
@@ -20623,7 +20638,7 @@ def cmd_memory_federation_diff(args, cfg) -> int | None:
 def cmd_memory_federation_merge(args, cfg) -> int | None:
     """Handle `perseus memory federation merge <alias-a> <alias-b>`.
 
-    Drafts a reconciliation using Pythia's cited synthesis pipeline.
+    Drafts a reconciliation using Guide's cited synthesis pipeline.
     """
     alias_a = getattr(args, "alias_a", "")
     alias_b = getattr(args, "alias_b", "")
@@ -25770,7 +25785,7 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     mp = _vault_memory_path(workspace, cfg)
     fm, body = _load_narrative(mp)
     hwm = int(fm.get("checkpoints_processed", 0)) if fm else 0
-    if hwm > 0 and hwm >= len(cp_files) and not _read_all_pythia_entries():
+    if hwm > 0 and hwm >= len(cp_files) and not _read_all_guide_entries():
         return False, "Nothing new to process (all checkpoints at HWM)."
     # _list_checkpoint_files returns reverse-chrono; sort filename-asc for hwm
     cp_files = sorted(cp_files, key=lambda f: f.name)
@@ -25779,16 +25794,16 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
         cp = _load_checkpoint_file(fp)
         if cp:
             all_checkpoints.append(cp)
-    all_pythia = _read_all_pythia_entries()
+    all_guide = _read_all_guide_entries()
 
     if not fm:
         fm = _vault_default_frontmatter(workspace)
         body = ""
 
     cp_hwm = int(fm.get("checkpoints_processed", 0))
-    py_hwm = _vault_pythia_hwm(fm)
+    py_hwm = _vault_guide_hwm(fm)
     new_cp = all_checkpoints[cp_hwm:]
-    new_py = all_pythia[py_hwm:]
+    new_py = all_guide[py_hwm:]
 
     # No new data and we already have a body? Nothing to do.
     if not new_cp and not new_py and body.strip():
@@ -25797,10 +25812,10 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     # Narrative is always distilled deterministically — Perseus runs no
     # inference of its own (observe model). `provider` is accepted for
     # call-site compatibility and ignored.
-    new_body = _deterministic_narrative(all_checkpoints, all_pythia, body, workspace, cfg)
+    new_body = _deterministic_narrative(all_checkpoints, all_guide, body, workspace, cfg)
 
     fm["checkpoints_processed"] = len(all_checkpoints)
-    _set_vault_pythia_hwm(fm, len(all_pythia))
+    _set_vault_guide_hwm(fm, len(all_guide))
     fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
     fm["workspace"] = str(workspace)
     fm["workspace_hash"] = _workspace_hash(workspace)
@@ -25810,7 +25825,7 @@ def _memory_do_update(workspace: Path, cfg: dict, provider: str | None) -> tuple
     _enrich_narrative_frontmatter(fm, new_body, workspace)
 
     _save_narrative(mp, fm, new_body)
-    return (True, f"Updated {mp} (+{len(new_cp)} checkpoints, +{len(new_py)} Pythia entries)")
+    return (True, f"Updated {mp} (+{len(new_cp)} checkpoints, +{len(new_py)} Guide entries)")
 
 
 def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
@@ -25830,7 +25845,7 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
         cp = _load_checkpoint_file(fp)
         if cp:
             all_checkpoints.append(cp)
-    all_pythia = _read_all_pythia_entries()
+    all_guide = _read_all_guide_entries()
 
     mp = _vault_memory_path(workspace, cfg)
     fm, _ = _load_narrative(mp)
@@ -25840,10 +25855,10 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
     # Compaction always distills deterministically — Perseus runs no inference
     # of its own (observe model). `provider` is accepted for call-site
     # compatibility and ignored.
-    new_body = _deterministic_narrative(all_checkpoints, all_pythia, "", workspace, cfg)
+    new_body = _deterministic_narrative(all_checkpoints, all_guide, "", workspace, cfg)
 
     fm["checkpoints_processed"] = len(all_checkpoints)
-    _set_vault_pythia_hwm(fm, len(all_pythia))
+    _set_vault_guide_hwm(fm, len(all_guide))
     fm["compaction_count"] = int(fm.get("compaction_count", 0)) + 1
     fm["last_compaction_at_update"] = fm["compaction_count"]
     fm["updated"] = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -25853,7 +25868,7 @@ def _memory_do_compact(workspace: Path, cfg: dict, provider: str | None) -> str:
     _enrich_narrative_frontmatter(fm, new_body, workspace)
 
     _save_narrative(mp, fm, new_body)
-    return f"Compacted {mp} ({len(all_checkpoints)} checkpoints, {len(all_pythia)} Pythia entries)"
+    return f"Compacted {mp} ({len(all_checkpoints)} checkpoints, {len(all_guide)} Guide entries)"
 
 
 def cmd_memory_update_silent(workspace: Path, cfg: dict) -> None:
@@ -26083,9 +26098,9 @@ def cmd_memory(args, cfg):
             return
         fm, body = _load_narrative(mp)
         all_cp = _list_checkpoint_files(cfg)
-        all_py = _read_all_pythia_entries()
+        all_py = _read_all_guide_entries()
         cp_hwm = int(fm.get("checkpoints_processed", 0))
-        py_hwm = _vault_pythia_hwm(fm)
+        py_hwm = _vault_guide_hwm(fm)
         cp_pending = max(0, len(all_cp) - cp_hwm)
         py_pending = max(0, len(all_py) - py_hwm)
         line_count = body.count("\n") + (1 if body and not body.endswith("\n") else 0)
@@ -26100,8 +26115,8 @@ def cmd_memory(args, cfg):
                 "updated": str(updated),
                 "checkpoints_processed": cp_hwm,
                 "checkpoints_pending": cp_pending,
-                "pythia_entries_processed": py_hwm,
-                "pythia_entries_pending": py_pending,
+                "guide_entries_processed": py_hwm,
+                "guide_entries_pending": py_pending,
                 "compaction_count": int(fm.get("compaction_count", 0)),
                 "line_count": line_count,
                 "mode": mode,
@@ -26112,7 +26127,7 @@ def cmd_memory(args, cfg):
             print(f"{MEMORY_BRAND} — {workspace}")
             print(f"  Updated:     {updated} ({age})")
             print(f"  Checkpoints: {cp_hwm} processed ({cp_pending} pending)")
-            print(f"  Pythia log:  {py_hwm} entries processed ({py_pending} pending)")
+            print(f"  Guide log:  {py_hwm} entries processed ({py_pending} pending)")
             print(f"  Compactions: {fm.get('compaction_count', 0)}")
             print(f"  Size:        {line_count} lines")
             print(f"  Mode:        {mode}")
@@ -27113,32 +27128,32 @@ def resolve_context_diff(args_str: str, cfg: dict, workspace: Path | None = None
 
 # ──────────────────────────────── Suggest ─────────────────────────────────────
 
-_PYTHIA_APPEND_COUNT = 0
-_PYTHIA_PRUNE_INTERVAL = 1000  # rewrite+prune every N appends
+_GUIDE_APPEND_COUNT = 0
+_GUIDE_PRUNE_INTERVAL = 1000  # rewrite+prune every N appends
 
 
-def append_pythia_log(entry: dict, cfg: dict) -> None:
-    """Append a JSONL Pythia log entry; warn on failure without raising."""
+def append_guide_log(entry: dict, cfg: dict) -> None:
+    """Append a JSONL Guide log entry; warn on failure without raising."""
     # v1.0.5 review: redact secrets before persisting to disk.
-    # Pythia logs can contain prompts/responses with embedded tokens.
+    # Guide logs can contain prompts/responses with embedded tokens.
     try:
         entry, _report = redact_value(entry, cfg)
     except Exception:
         pass  # redaction failure must not block persistence
-    log_path = _pythia_log_path()
+    log_path = _guide_log_path()
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception as exc:
-        print(f"> ⚠ Could not write Pythia log: {exc}")
+        print(f"> ⚠ Could not write Guide log: {exc}")
     # Periodic prune to bound log growth between explicit compact runs.
-    global _PYTHIA_APPEND_COUNT
-    _PYTHIA_APPEND_COUNT += 1
-    if _PYTHIA_APPEND_COUNT % _PYTHIA_PRUNE_INTERVAL == 0:
+    global _GUIDE_APPEND_COUNT
+    _GUIDE_APPEND_COUNT += 1
+    if _GUIDE_APPEND_COUNT % _GUIDE_PRUNE_INTERVAL == 0:
         try:
-            entries = _pythia_log_entries()
-            _rewrite_pythia_log(entries, cfg)
+            entries = _guide_log_entries()
+            _rewrite_guide_log(entries, cfg)
         except Exception:
             pass  # prune failure must not break the caller
 
@@ -27154,8 +27169,8 @@ def _checkpoint_age_s(snapshot_checkpoint: str) -> int | None:
         return None
 
 
-def build_pythia_log_entry(task: str, snapshot: dict, prompt: str, response: str | None, provider: str | None, model: str | None, flags: list[str] | None = None) -> dict:
-    """Build the append-only Pythia log entry.
+def build_guide_log_entry(task: str, snapshot: dict, prompt: str, response: str | None, provider: str | None, model: str | None, flags: list[str] | None = None) -> dict:
+    """Build the append-only Guide log entry.
 
     task-10: an optional ``flags`` array records which suggest flags were
     active for this invocation. Empty list when none. Backward compatible —
@@ -27203,16 +27218,16 @@ def _outcome_weight_for_entry(entry: dict) -> float | None:
     return max(-1.0, min(1.0, -0.5 - (0.5 * error_rate)))
 
 
-def _pythia_online_score_adjustments(entries: list[dict], cfg: dict) -> list[dict]:
+def _guide_online_score_adjustments(entries: list[dict], cfg: dict) -> list[dict]:
     """Compute transparent outcome-weight hints per recommendation token."""
-    o_cfg = cfg.get("pythia", {})
+    o_cfg = cfg.get("guide", {})
     if not bool(o_cfg.get("online_scoring_enabled", True)):
         return []
     recent_n = int(o_cfg.get("online_scoring_recent_entries", 50))
     min_abs = float(o_cfg.get("online_scoring_min_abs_weight", 0.15))
     buckets: dict[str, dict] = {}
     for entry in entries[-recent_n:]:
-        if not _pythia_entry_has_positive_label(entry):
+        if not _guide_entry_has_positive_label(entry):
             continue
         weight = _outcome_weight_for_entry(entry)
         if weight is None:
@@ -27274,8 +27289,8 @@ def _stable_unit_interval(value: str) -> float:
     return int(digest, 16) / float(0xFFFFFFFFFFFF)
 
 
-def _pythia_ab_test_plan(task: str, adjustments: list[dict], cfg: dict) -> dict:
-    o_cfg = cfg.get("pythia", {})
+def _guide_ab_test_plan(task: str, adjustments: list[dict], cfg: dict) -> dict:
+    o_cfg = cfg.get("guide", {})
     enabled = bool(o_cfg.get("ab_testing_enabled", False))
     plan = {
         "enabled": enabled,
@@ -27344,7 +27359,7 @@ def _render_ab_test_hint(plan: dict) -> str:
     ])
 
 
-def build_pythia_snapshot(cfg: dict, category: str | None = None, no_services: bool = False, quick: bool = False, task: str | None = None) -> dict:
+def build_guide_snapshot(cfg: dict, category: str | None = None, no_services: bool = False, quick: bool = False, task: str | None = None) -> dict:
     """Build the environment snapshot used by `perseus suggest`.
 
     --quick implies --no-services (task-10).
@@ -27359,7 +27374,7 @@ def build_pythia_snapshot(cfg: dict, category: str | None = None, no_services: b
     # --category fallback: warn and drop the filter when the directory is absent
     category_warning = None
     if category:
-        skill_dir = Path(cfg["pythia"]["skill_dir"])
+        skill_dir = Path(cfg["guide"]["skill_dir"])
         if not (skill_dir / category).exists():
             category_warning = f"> ⚠ Skills category `{category}` not found in {skill_dir} — falling back to full scan."
             category = None
@@ -27372,7 +27387,7 @@ def build_pythia_snapshot(cfg: dict, category: str | None = None, no_services: b
     if effective_no_services:
         services_table = "(service health check skipped — use without --no-services for live status)"
     else:
-        services_table = "(no services configured in oracle — add @services to .perseus/context.md)"
+        services_table = "(no services configured in guide — add @services to .perseus/context.md)"
 
     if quick:
         # In --quick mode, do not even attempt to assemble session/checkpoint context
@@ -27385,8 +27400,8 @@ def build_pythia_snapshot(cfg: dict, category: str | None = None, no_services: b
     # Online scoring only consults the last `online_scoring_recent_entries`
     # (default 50), so tail-read just those instead of loading the whole log on
     # every snapshot/suggest. (#447)
-    _recent_n = int(cfg.get("pythia", {}).get("online_scoring_recent_entries", 50))
-    outcome_weights = _pythia_online_score_adjustments(_pythia_recent_entries(_recent_n), cfg)
+    _recent_n = int(cfg.get("guide", {}).get("online_scoring_recent_entries", 50))
+    outcome_weights = _guide_online_score_adjustments(_guide_recent_entries(_recent_n), cfg)
     snapshot = {
         "rendered_at": now,
         "skills_table": skills_table,
@@ -27395,17 +27410,17 @@ def build_pythia_snapshot(cfg: dict, category: str | None = None, no_services: b
         "checkpoint_summary": checkpoint_summary,
         "quick": quick,
         "outcome_weights": outcome_weights,
-        "ab_test": _pythia_ab_test_plan(task or "", outcome_weights, cfg),
+        "ab_test": _guide_ab_test_plan(task or "", outcome_weights, cfg),
     }
 
     if quick:
-        skill_dir = Path(cfg["pythia"]["skill_dir"])
+        skill_dir = Path(cfg["guide"]["skill_dir"])
         snapshot["skill_count"] = len(list(skill_dir.rglob("SKILL.md"))) if skill_dir.exists() else 0
     return snapshot
 
 
-def render_pythia_prompt(task: str, snapshot: dict) -> str:
-    """Render the full Pythia prompt from a task and snapshot.
+def render_guide_prompt(task: str, snapshot: dict) -> str:
+    """Render the full Guide prompt from a task and snapshot.
 
     In --quick mode (``snapshot["quick"] is True``) the Services and
     Sessions/Checkpoint sections are omitted entirely (task-10).
@@ -27417,7 +27432,7 @@ def render_pythia_prompt(task: str, snapshot: dict) -> str:
     advisory_section = "\n\n" + "\n\n".join(advisory_parts) if advisory_parts else ""
 
     if snapshot.get("quick"):
-        return f"""You are Perseus Pythia, the Tool Oracle. Given a task and a snapshot of available skills,
+        return f"""You are Perseus Guide, the Tool Oracle. Given a task and a snapshot of available skills,
 recommend the single best skill/tool/approach.
 
 TASK: {task}
@@ -27433,7 +27448,7 @@ ENVIRONMENT SNAPSHOT (rendered {snapshot['rendered_at']}):
 Return ONE recommendation, one sentence. No alternatives, no hedging.
 {divider}"""
 
-    return f"""You are Perseus Pythia, the Tool Oracle. Given a task and a live environment snapshot,
+    return f"""You are Perseus Guide, the Tool Oracle. Given a task and a live environment snapshot,
 recommend the top 2-3 approaches in ranked order.
 
 TASK: {task}
@@ -27466,7 +27481,7 @@ Format: ranked list, most recommended first. Be direct. No hedging.
 
 
 def cmd_suggest(args, cfg):
-    """Pythia: build a live snapshot and render the tool-oracle prompt for the
+    """Guide: build a live snapshot and render the tool-guide prompt for the
     host agent to answer, then log the interaction.
 
     Perseus does not run its own inference (observe model): `suggest` renders a
@@ -27492,32 +27507,32 @@ def cmd_suggest(args, cfg):
     if category:
         active_flags.append(f"--category={category}")
 
-    snapshot = build_pythia_snapshot(cfg, category=category, no_services=no_services, quick=quick, task=task)
+    snapshot = build_guide_snapshot(cfg, category=category, no_services=no_services, quick=quick, task=task)
 
-    prompt = render_pythia_prompt(task, snapshot)
+    prompt = render_guide_prompt(task, snapshot)
     print(prompt)
 
-    append_pythia_log(
-        build_pythia_log_entry(task, snapshot, prompt, None, None, None, flags=active_flags),
+    append_guide_log(
+        build_guide_log_entry(task, snapshot, prompt, None, None, None, flags=active_flags),
         cfg,
     )
 
 
-# ────────────────────────── Oracle / Daedalus (task-06) ──────────────────────
+# ────────────────────────── Guide log (task-06) ───────────────────────────────
 
-def _pythia_log_entries() -> list[dict]:
-    return _read_all_pythia_entries()
+def _guide_log_entries() -> list[dict]:
+    return _read_all_guide_entries()
 
 
-def _pythia_recent_entries(n: int) -> list[dict]:
-    """Tail-read up to the last `n` Pythia log entries without reading/parsing the
-    whole file. The log is JSONL — one entry per line (see append_pythia_log /
-    _rewrite_pythia_log) — so a line-bounded deque yields exactly the most recent
+def _guide_recent_entries(n: int) -> list[dict]:
+    """Tail-read up to the last `n` Guide log entries without reading/parsing the
+    whole file. The log is JSONL — one entry per line (see append_guide_log /
+    _rewrite_guide_log) — so a line-bounded deque yields exactly the most recent
     entries in order. Falls back to a full read when n <= 0. Mirrors
-    _read_all_pythia_entries' blank-/malformed-line tolerance. (#447)"""
+    _read_all_guide_entries' blank-/malformed-line tolerance. (#447)"""
     if n <= 0:
-        return _read_all_pythia_entries()
-    log_path = _pythia_log_path()
+        return _read_all_guide_entries()
+    log_path = _guide_log_path()
     if not log_path.exists():
         return []
     from collections import deque
@@ -27534,11 +27549,11 @@ def _pythia_recent_entries(n: int) -> list[dict]:
         try:
             entries.append(json.loads(line))
         except Exception as exc:
-            sys.stderr.write(f"> ⚠ Pythia: skipping malformed JSONL line: {exc}\n")
+            sys.stderr.write(f"> ⚠ Guide: skipping malformed JSONL line: {exc}\n")
     return entries
 
 
-def _find_pythia_entry(entries: list[dict], log_id: str) -> int | None:
+def _find_guide_entry(entries: list[dict], log_id: str) -> int | None:
     """Find the entry index for a user-supplied log_id.
 
     Raises ValueError when a prefix matches more than one entry — silently
@@ -27561,12 +27576,12 @@ def _find_pythia_entry(entries: list[dict], log_id: str) -> int | None:
     return matches[0] if matches else None
 
 
-def _rewrite_pythia_log(entries: list[dict], cfg: dict | None = None) -> None:
-    log_path = _pythia_log_path()
+def _rewrite_guide_log(entries: list[dict], cfg: dict | None = None) -> None:
+    log_path = _guide_log_path()
     log_path.parent.mkdir(parents=True, exist_ok=True)
     # Prune oldest entries if over the configured max (default 10000, 0 = unlimited).
     if cfg is not None:
-        max_entries = int(cfg.get("pythia", {}).get("max_entries", 10000))
+        max_entries = int(cfg.get("guide", {}).get("max_entries", 10000))
         if max_entries > 0 and len(entries) > max_entries:
             entries = entries[-max_entries:]
     lock_path = log_path.with_suffix(".jsonl.lock")
@@ -27583,27 +27598,27 @@ def _rewrite_pythia_log(entries: list[dict], cfg: dict | None = None) -> None:
             _unlock_file_handle(lock_fh)
 
 
-def _label_pythia_entry(log_id: str, accepted: bool) -> tuple[bool, str]:
-    entries = _pythia_log_entries()
+def _label_guide_entry(log_id: str, accepted: bool) -> tuple[bool, str]:
+    entries = _guide_log_entries()
     try:
-        idx = _find_pythia_entry(entries, log_id)
+        idx = _find_guide_entry(entries, log_id)
     except ValueError as exc:
         return (False, str(exc))
     if idx is None:
-        return (False, f"No Pythia log entry matched `{log_id}`")
+        return (False, f"No Guide log entry matched `{log_id}`")
     entries[idx]["accepted"] = bool(accepted)
-    _rewrite_pythia_log(entries)
+    _rewrite_guide_log(entries)
     return (True, f"Entry `{entries[idx].get('timestamp')}` marked accepted={accepted}")
 
 
-# ───── Phase 9.1 — Daedalus self-rating loop (task-20) ───────────────────────
+# ───── Phase 9.1 — Guide self-rating loop (task-20) ──────────────────────────
 
 
 _TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9_\-./]+")
 
 
 def _extract_recommendation_tokens(response_text: str) -> set[str]:
-    """Extract candidate tool/skill names from a Pythia recommendation.
+    """Extract candidate tool/skill names from a Guide recommendation.
 
     Deterministic: lowercase the response, pull out backtick-wrapped names,
     skill-style identifiers, and bare-word commands. Stopwords are stripped
@@ -27645,7 +27660,7 @@ def _checkpoint_haystack(checkpoint: dict) -> str:
 
 
 def _infer_label_for_entry(entry: dict, checkpoints_in_window: list[dict], min_checkpoints: int = 2) -> str | None:
-    """Compute the inferred label for one Pythia log entry.
+    """Compute the inferred label for one Guide log entry.
 
     Returns one of: ``inferred_accept``, ``inferred_reject``,
     ``inferred_none``, or ``None`` if the entry already has an explicit
@@ -27680,7 +27695,7 @@ def _infer_label_for_entry(entry: dict, checkpoints_in_window: list[dict], min_c
 
 
 def _parse_iso_ts(ts: str) -> float | None:
-    """Parse Pythia log / checkpoint timestamps into epoch seconds (best-effort)."""
+    """Parse Guide log / checkpoint timestamps into epoch seconds (best-effort)."""
     if not ts:
         return None
     try:
@@ -27734,7 +27749,7 @@ def _indexed_checkpoints_in_window(
     window_days: int,
     window_checkpoints: int,
 ) -> list[tuple[float, dict]]:
-    """Return timestamped checkpoints after an Pythia entry within a bounded window."""
+    """Return timestamped checkpoints after an Guide entry within a bounded window."""
     if entry_ts_epoch is None:
         return []
     cutoff = entry_ts_epoch + window_days * 86400
@@ -27754,7 +27769,7 @@ _OUTCOME_COMPLETE_WORDS = {"complete", "completed", "done", "shipped", "merged",
 _OUTCOME_ERROR_WORDS = {"error", "errors", "failed", "failure", "exception", "traceback", "blocked", "regression"}
 
 
-def _pythia_entry_has_positive_label(entry: dict) -> bool:
+def _guide_entry_has_positive_label(entry: dict) -> bool:
     if entry.get("accepted") is True:
         return True
     return entry.get("accepted") is None and entry.get("inferred_label") == "inferred_accept"
@@ -27784,7 +27799,7 @@ def _checkpoint_error_signal(checkpoint: dict) -> bool:
     return any(word in text for word in _OUTCOME_ERROR_WORDS)
 
 
-def _pythia_outcome_for_entry(
+def _guide_outcome_for_entry(
     entry: dict,
     indexed_checkpoints: list[tuple[float, dict]],
     window_days: int,
@@ -27822,9 +27837,9 @@ def _pythia_outcome_for_entry(
     }
 
 
-def collect_pythia_outcomes(entries: list[dict], cfg: dict, dry_run: bool = False) -> dict:
-    """Annotate accepted Pythia entries with deterministic outcome signals."""
-    o_cfg = cfg.get("pythia", {})
+def collect_guide_outcomes(entries: list[dict], cfg: dict, dry_run: bool = False) -> dict:
+    """Annotate accepted Guide entries with deterministic outcome signals."""
+    o_cfg = cfg.get("guide", {})
     window_days = int(o_cfg.get("outcome_window_days", 7))
     window_checkpoints = int(o_cfg.get("outcome_window_checkpoints", 10))
     indexed = _load_indexed_checkpoints(cfg)
@@ -27836,7 +27851,7 @@ def collect_pythia_outcomes(entries: list[dict], cfg: dict, dry_run: bool = Fals
     for idx, entry in enumerate(entries):
         ts = str(entry.get("timestamp", ""))
         task = str(entry.get("task", ""))
-        if not _pythia_entry_has_positive_label(entry):
+        if not _guide_entry_has_positive_label(entry):
             skipped += 1
             results.append({
                 "index": idx,
@@ -27848,7 +27863,7 @@ def collect_pythia_outcomes(entries: list[dict], cfg: dict, dry_run: bool = Fals
             continue
 
         eligible += 1
-        outcome = _pythia_outcome_for_entry(entry, indexed, window_days, window_checkpoints)
+        outcome = _guide_outcome_for_entry(entry, indexed, window_days, window_checkpoints)
         if entry.get("outcome") == outcome:
             results.append({
                 "index": idx,
@@ -27884,20 +27899,20 @@ def collect_pythia_outcomes(entries: list[dict], cfg: dict, dry_run: bool = Fals
     }
 
 
-def cmd_oracle_outcomes(args, cfg) -> int:
-    """`perseus oracle outcomes` — collect Phase 14A reinforcement signals."""
+def cmd_guide_outcomes(args, cfg) -> int:
+    """`perseus guide outcomes` — collect Phase 14A reinforcement signals."""
     cfg_local = copy.deepcopy(cfg)
-    o_cfg = cfg_local.setdefault("pythia", {})
+    o_cfg = cfg_local.setdefault("guide", {})
     if getattr(args, "window_days", None) is not None:
         o_cfg["outcome_window_days"] = int(args.window_days)
     if getattr(args, "window_checkpoints", None) is not None:
         o_cfg["outcome_window_checkpoints"] = int(args.window_checkpoints)
 
     dry_run = bool(getattr(args, "dry_run", False))
-    entries = _pythia_log_entries()
-    result = collect_pythia_outcomes(entries, cfg_local, dry_run=dry_run)
+    entries = _guide_log_entries()
+    result = collect_guide_outcomes(entries, cfg_local, dry_run=dry_run)
     if not dry_run and result["updated"]:
-        _rewrite_pythia_log(entries, cfg_local)
+        _rewrite_guide_log(entries, cfg_local)
 
     if getattr(args, "json", False):
         print(json.dumps(result, indent=2))
@@ -27928,19 +27943,19 @@ def cmd_oracle_outcomes(args, cfg) -> int:
     return 0
 
 
-def cmd_oracle_infer_labels(args, cfg) -> int:
-    """`perseus oracle infer-labels` — apply implicit accept/reject labels.
+def cmd_guide_infer_labels(args, cfg) -> int:
+    """`perseus guide infer-labels` — apply implicit accept/reject labels.
 
     Idempotent: re-running produces the same result. Never overrides an
-    explicit `accepted: true/false`. Writes the Pythia log atomically.
+    explicit `accepted: true/false`. Writes the Guide log atomically.
     """
-    o_cfg = cfg.get("pythia", {})
+    o_cfg = cfg.get("guide", {})
     window_days = int(getattr(args, "window_days", None) or o_cfg.get("inferred_label_window_days", 7))
     window_cps = int(getattr(args, "window_checkpoints", None) or o_cfg.get("inferred_label_window_checkpoints", 5))
     floor = int(o_cfg.get("inferred_label_min_checkpoints", 2))
     dry_run = bool(getattr(args, "dry_run", False))
 
-    entries = _pythia_log_entries()
+    entries = _guide_log_entries()
     if not entries:
         use_json = getattr(args, "json", False)
         if use_json:
@@ -27953,7 +27968,7 @@ def cmd_oracle_infer_labels(args, cfg) -> int:
                 "floor": floor,
             }, indent=2))
         else:
-            print("(no Pythia log entries)")
+            print("(no Guide log entries)")
         return 0
 
     indexed_cps = _load_indexed_checkpoints(cfg)
@@ -27992,7 +28007,7 @@ def cmd_oracle_infer_labels(args, cfg) -> int:
         changes[new_label] += 1
 
     if not dry_run:
-        _rewrite_pythia_log(entries, cfg)
+        _rewrite_guide_log(entries, cfg)
 
     use_json = getattr(args, "json", False)
     if use_json:
@@ -28034,7 +28049,7 @@ def _jaccard(a: set, b: set) -> float:
 
 
 def _compute_drift(cfg: dict, now_epoch: float | None = None) -> dict:
-    """Three drift metrics over the Pythia log:
+    """Three drift metrics over the Guide log:
 
     1. **Acceptance rate** — (explicit accepts + inferred accepts) / total
        compared between the trailing 7-day window and the longer baseline.
@@ -28042,9 +28057,9 @@ def _compute_drift(cfg: dict, now_epoch: float | None = None) -> dict:
        tokens between the recent window and the baseline.
     3. **Confidence proxy** — average response length (no LLM confidence
        score exists yet; length is a reasonable surrogate while we wait
-       for the Daedalus inference path to surface a real score).
+       for the Guide inference path to surface a real score).
     """
-    o = cfg.get("pythia", {})
+    o = cfg.get("guide", {})
     win_days = int(o.get("drift_window_days", 30))
     # Recent window: trailing N days, default 7. Was hardcoded as 7 in v0.8; made
     # config-driven 2026-05-18 in response to review (consistency with baseline window).
@@ -28057,7 +28072,7 @@ def _compute_drift(cfg: dict, now_epoch: float | None = None) -> dict:
     recent_cutoff = now - recent_days * 86400
     baseline_cutoff = now - win_days * 86400
 
-    entries = _pythia_log_entries()
+    entries = _guide_log_entries()
 
     # #447: single pass — classify each entry into the recent/baseline window and
     # accumulate all three drift metrics (acceptance rate, recommendation-token
@@ -28125,11 +28140,11 @@ def _compute_drift(cfg: dict, now_epoch: float | None = None) -> dict:
     }
 
 
-def cmd_oracle_drift(args, cfg) -> int:
+def cmd_guide_drift(args, cfg) -> int:
     report = _compute_drift(cfg)
     use_json = getattr(args, "json", False)
-    min_samples = int(cfg.get("pythia", {}).get("drift_min_samples", 10))
-    o_cfg = cfg.get("pythia", {})
+    min_samples = int(cfg.get("guide", {}).get("drift_min_samples", 10))
+    o_cfg = cfg.get("guide", {})
     recent_days = int(o_cfg.get("drift_recent_window_days", 7))
 
     if use_json:
@@ -29227,11 +29242,11 @@ def _doctor_check_federation(cfg: dict, workspace: Path) -> DoctorResult:
                         f"{len(subs)} subscriptions, all fresh", "")
 
 
-def _doctor_check_pythia_log(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check Pythia log readability."""
-    log_path = _pythia_log_path()
+def _doctor_check_guide_log(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check Guide log readability."""
+    log_path = _guide_log_path()
     if not log_path.exists():
-        return DoctorResult("pythia_log_readable", "ok", "Pythia log",
+        return DoctorResult("guide_log_readable", "ok", "Guide log",
                             "no log file (will be created on first suggest)", "")
     try:
         count = 0
@@ -29244,11 +29259,36 @@ def _doctor_check_pythia_log(cfg: dict, workspace: Path) -> DoctorResult:
                 if not isinstance(data, dict):
                     raise ValueError(f"line {lineno}: entry is not an object")
                 count += 1
-        return DoctorResult("pythia_log_readable", "ok", "Pythia log",
+        return DoctorResult("guide_log_readable", "ok", "Guide log",
                             f"{count} entries", "")
     except Exception as exc:
-        return DoctorResult("pythia_log_readable", "error", "Pythia log",
+        return DoctorResult("guide_log_readable", "error", "Guide log",
                             str(exc), f"Fix JSONL in {log_path}")
+
+
+def _doctor_check_guide_legacy_pythia(cfg: dict, workspace: Path) -> DoctorResult:
+    """Removal-gate warning: legacy `pythia` config/log usage must be migrated
+    before LEGACY_PYTHIA_REMOVAL_DATE — after that the bridge is removed."""
+    if not LEGACY_GUIDE_CONFIG_KEY and not LEGACY_GUIDE_LOG_NAME:
+        return DoctorResult("guide_legacy_pythia", "ok", "Guide legacy pythia", "removed", "")
+    removal = LEGACY_PYTHIA_REMOVAL_DATE
+    # loaded cfg is already normalized (pythia merged into guide) — scan the
+    # raw config files for a literal `pythia:` block
+    legacy_cfg = False
+    for cfg_file in (PERSEUS_HOME / "config.yaml", workspace / ".perseus" / "config.yaml"):
+        try:
+            if cfg_file.exists() and re.search(r"^\s*pythia\s*:", cfg_file.read_text(errors="replace", encoding="utf-8"), re.M):
+                legacy_cfg = True
+        except Exception:
+            pass
+    legacy_log = (PERSEUS_HOME / LEGACY_GUIDE_LOG_NAME).exists()
+    if legacy_cfg or legacy_log:
+        return DoctorResult(
+            "guide_legacy_pythia", "warning", "Guide legacy pythia",
+            f"legacy 'pythia' config/log in use — migrate to 'guide' before {removal} (then removed)",
+            "Rename the `pythia:` config block to `guide:`; the log migrates automatically",
+        )
+    return DoctorResult("guide_legacy_pythia", "ok", "Guide legacy pythia", "none in use", "")
 
 
 def _doctor_check_serve_loopback(cfg: dict, workspace: Path) -> DoctorResult:
@@ -30180,7 +30220,8 @@ _DOCTOR_CHECKS = [
     _doctor_check_vault,
     _doctor_check_vault_index,
     _doctor_check_federation,
-    _doctor_check_pythia_log,
+    _doctor_check_guide_log,
+    _doctor_check_guide_legacy_pythia,
     _doctor_check_serve_loopback,
     _doctor_check_registry,
     _doctor_check_mcp,
@@ -34386,20 +34427,20 @@ def cmd_mcp(args, cfg) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def cmd_oracle(args, cfg):
-    sub = getattr(args, "oracle_command", None)
+def cmd_guide(args, cfg):
+    sub = getattr(args, "guide_command", None)
 
     if sub == "accept":
-        ok, msg = _label_pythia_entry(args.log_id, True)
+        ok, msg = _label_guide_entry(args.log_id, True)
         print(msg)
         return
     if sub == "reject":
-        ok, msg = _label_pythia_entry(args.log_id, False)
+        ok, msg = _label_guide_entry(args.log_id, False)
         print(msg)
         return
 
     if sub == "log":
-        entries = _pythia_log_entries()
+        entries = _guide_log_entries()
         limit = int(getattr(args, "limit", 20))
         unlabeled = bool(getattr(args, "unlabeled", False))
         rows = []
@@ -34425,22 +34466,22 @@ def cmd_oracle(args, cfg):
             if len(rows) >= limit:
                 break
         if not rows:
-            print("(no Pythia log entries)")
+            print("(no Guide log entries)")
             return
-        print(f"Recent Pythia log entries (most recent first; limit={limit}{' unlabeled only' if unlabeled else ''})")
+        print(f"Recent Guide log entries (most recent first; limit={limit}{' unlabeled only' if unlabeled else ''})")
         print("  Legend: ✅ explicit accept · ❌ explicit reject · ≈✓ inferred accept · ≈✗ inferred reject · · unlabeled")
         for r in rows:
             print(r)
         return
 
     if sub == "export":
-        entries = _pythia_log_entries()
+        entries = _guide_log_entries()
         include_inferred = bool(getattr(args, "include_inferred", False))
         accepted = [e for e in entries if e.get("accepted") is True]
         rejected = [e for e in entries if e.get("accepted") is False]
         unlabeled = [e for e in entries if e.get("accepted") is None]
         inferred_acc = [e for e in entries if e.get("accepted") is None and e.get("inferred_label") == "inferred_accept"]
-        out_path = Path(getattr(args, "output", None) or (PERSEUS_HOME / "daedalus_dataset.jsonl")).expanduser().resolve()
+        out_path = Path(getattr(args, "output", None) or (PERSEUS_HOME / "guide_dataset.jsonl")).expanduser().resolve()
         fmt = getattr(args, "format", "jsonl") or "jsonl"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         n_explicit = 0
@@ -34467,13 +34508,13 @@ def cmd_oracle(args, cfg):
         return
 
     if sub == "infer-labels":
-        return cmd_oracle_infer_labels(args, cfg)
+        return cmd_guide_infer_labels(args, cfg)
     if sub == "outcomes":
-        return cmd_oracle_outcomes(args, cfg)
+        return cmd_guide_outcomes(args, cfg)
     if sub == "drift":
-        return cmd_oracle_drift(args, cfg)
+        return cmd_guide_drift(args, cfg)
 
-    print(f"> ⚠ Unknown oracle subcommand: {sub}")
+    print(f"> ⚠ Unknown guide subcommand: {sub}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -34488,8 +34529,8 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
         "latest_checkpoint_age_s": None,
         "open_tasks": None,
         "in_progress_tasks": None,
-        "pythia_entries_total": None,
-        "pythia_entries_24h": None,
+        "guide_entries_total": None,
+        "guide_entries_24h": None,
         "inbox_unread": None,
         "skills_count": None,
         "context_file_present": False,
@@ -34553,9 +34594,9 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
     except Exception:
         pass
 
-    # Pythia log
+    # Guide log
     try:
-        log_path = _pythia_log_path()
+        log_path = _guide_log_path()
         if log_path.exists():
             total = 0
             recent = 0
@@ -34576,8 +34617,8 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
                                 recent += 1
                     except Exception:
                         continue
-            stats["pythia_entries_total"] = total
-            stats["pythia_entries_24h"] = recent
+            stats["guide_entries_total"] = total
+            stats["guide_entries_24h"] = recent
     except Exception:
         pass
 
@@ -34602,7 +34643,7 @@ def _serve_collect_stats(cfg: dict, workspace: Path) -> dict:
 
     # Skills count
     try:
-        skill_dir = Path(cfg.get("pythia", {}).get("skill_dir", "")).expanduser()
+        skill_dir = Path(cfg.get("guide", {}).get("skill_dir", "")).expanduser()
         if skill_dir.exists():
             stats["skills_count"] = sum(1 for _ in skill_dir.glob("*/SKILL.md"))
     except Exception:
@@ -34656,7 +34697,7 @@ def _serve_render_index(workspace: Path, stats: dict) -> str:
         ("/health", "Maintenance report", "Stale checkpoints, near-duplicates, large context, old completed tasks."),
         ("/agora", "Task board", "All tasks in tasks/ with frontmatter status (markdown table)."),
         ("/checkpoint/latest", "Latest checkpoint (YAML)", "Most recent checkpoint for this workspace."),
-        ("/oracle/log", "Pythia log (JSON)", "Append-only log of Pythia recommendations + accept/reject decisions."),
+        ("/guide/log", "Guide log (JSON)", "Append-only log of Guide recommendations + accept/reject decisions."),
     ]
     cards = "\n".join(
         f"<a class='card' href='{_esc(p)}'><div class='card-path'>{_esc(p)}</div>"
@@ -34710,8 +34751,8 @@ def _serve_render_index(workspace: Path, stats: dict) -> str:
         f"{_stat('Narrative lines', stats.get('narrative_lines'))}"
         f"{_stat('Narrative updated', narr_age)}"
         f"{_stat('Checkpoint age', cp_age)}"
-        f"{_stat('Pythia calls (24h)', stats.get('pythia_entries_24h'))}"
-        f"{_stat('Pythia calls (all)', stats.get('pythia_entries_total'))}"
+        f"{_stat('Guide calls (24h)', stats.get('guide_entries_24h'))}"
+        f"{_stat('Guide calls (all)', stats.get('guide_entries_total'))}"
         f"{_stat('Vault memories', stats.get('vault_active'))}"
         f"{_stat('Vault archived', stats.get('vault_archived'))}"
         f"</div>"
@@ -35052,12 +35093,12 @@ def _serve_render_endpoint(endpoint: str, cfg: dict, workspace: Path, query: dic
             }
             return (200, "application/json; charset=utf-8", json.dumps(resp_data))
 
-        if endpoint == "/oracle/log":
+        if endpoint == "/guide/log":
             try:
                 limit = int(query.get("limit", "20"))
             except (TypeError, ValueError):
                 limit = 20
-            entries = _read_all_pythia_entries()[-limit:][::-1]
+            entries = _read_all_guide_entries()[-limit:][::-1]
             # M-4: Filter by workspace if provided to prevent cross-workspace data leak
             ws_filter = query.get("workspace", "").strip()
             if ws_filter:
@@ -35134,7 +35175,7 @@ def cmd_serve(args, cfg):
             sys.stderr.write(
                 f"perseus serve: refusing to bind {host}:{port} — non-loopback hosts expose\n"
                 "  ALL of: rendered context, Vault memory review (/knows), narrative, health,\n"
-                "  agora, latest checkpoint, AND Pythia log (which may contain prompts/responses\n"
+                "  agora, latest checkpoint, AND Guide log (which may contain prompts/responses\n"
                 "  from other workspaces).\n"
                 "  Set serve.auth_token to protect endpoints, or set serve.allow_insecure_remote: true\n"
                 "  / pass --i-understand-no-auth to proceed without auth.\n"
@@ -35143,7 +35184,7 @@ def cmd_serve(args, cfg):
         else:
             sys.stderr.write(
                 f"[serve] WARNING: binding to {host}:{port} — set serve.auth_token to protect endpoints\n"
-                "  Exposed endpoints: /, /context, /knows, /narrative, /health, /agora, /checkpoint/latest, /oracle/log\n"
+                "  Exposed endpoints: /, /context, /knows, /narrative, /health, /agora, /checkpoint/latest, /guide/log\n"
             )
 
     class PerseusHandler(BaseHTTPRequestHandler):
@@ -35229,7 +35270,7 @@ def cmd_serve(args, cfg):
     url = f"http://{host}:{port}"
     print(f"Perseus serve — {workspace}")
     print(f"  Listening on {url}")
-    print(f"  Endpoints: /, /context, /narrative, /health, /agora, /checkpoint/latest, /oracle/log")
+    print(f"  Endpoints: /, /context, /narrative, /health, /agora, /checkpoint/latest, /guide/log")
     print(f"             /.well-known/mcp/server-card.json, /federation/narrative (GET), /federation/receive (POST)")
     print(f"  Press Ctrl-C to stop.")
     try:
@@ -38485,7 +38526,7 @@ def main():
     p_agora_complete.add_argument("task_id", help="Task ID to complete")
 
     # suggest
-    p_suggest = sub.add_parser("suggest", help="Pythia: ranked tool recommendations")
+    p_suggest = sub.add_parser("suggest", help="Guide: ranked tool recommendations")
     p_suggest.add_argument("task", help="Task description")
     p_suggest.add_argument("--quick", action="store_true", help="Top recommendation only")
     p_suggest.add_argument("--category", default=None, help="Limit skill search to category")
@@ -38894,38 +38935,41 @@ def main():
     p_warmup.add_argument("source", help="Path to .md file with @perseus header")
     p_warmup.add_argument("--workspace", default=None, help="Workspace path (default: inferred)")
 
-    # oracle (Daedalus dataset / labeling)
-    p_oracle = sub.add_parser("oracle", help="Pythia log labeling and dataset export")
-    oracle_sub = p_oracle.add_subparsers(dest="oracle_command", required=True)
-    p_oracle_accept = oracle_sub.add_parser("accept", help="Mark a Pythia log entry as accepted")
-    p_oracle_accept.add_argument("log_id", help="Entry id (timestamp) or 'latest'")
-    p_oracle_reject = oracle_sub.add_parser("reject", help="Mark a Pythia log entry as rejected")
-    p_oracle_reject.add_argument("log_id", help="Entry id (timestamp) or 'latest'")
-    p_pythia_log = oracle_sub.add_parser("log", help="List recent Pythia log entries")
-    p_pythia_log.add_argument("--limit", type=int, default=20, help="Max entries to show")
-    p_pythia_log.add_argument("--unlabeled", action="store_true", help="Only show unlabeled entries")
-    p_oracle_export = oracle_sub.add_parser("export", help="Export accepted entries as fine-tuning dataset")
-    p_oracle_export.add_argument("--output", default=None, help="Output path (default: ~/.perseus/daedalus_dataset.jsonl)")
-    p_oracle_export.add_argument("--format", default="jsonl", choices=["jsonl", "alpaca", "daedalus-patterns"], help="Output format (daedalus-patterns: task-21 pattern training set)")
-    p_oracle_export.add_argument("--include-inferred", action="store_true", help="Also export inferred-accept entries (clearly tagged label_source=inferred)")
+    # guide — Guide log labeling and dataset export
+    def _add_guide_subcommands(guide_sub):
+        p_guide_accept = guide_sub.add_parser("accept", help="Mark a Guide log entry as accepted")
+        p_guide_accept.add_argument("log_id", help="Entry id (timestamp) or 'latest'")
+        p_guide_reject = guide_sub.add_parser("reject", help="Mark a Guide log entry as rejected")
+        p_guide_reject.add_argument("log_id", help="Entry id (timestamp) or 'latest'")
+        p_guide_log = guide_sub.add_parser("log", help="List recent Guide log entries")
+        p_guide_log.add_argument("--limit", type=int, default=20, help="Max entries to show")
+        p_guide_log.add_argument("--unlabeled", action="store_true", help="Only show unlabeled entries")
+        p_guide_export = guide_sub.add_parser("export", help="Export accepted entries as fine-tuning dataset")
+        p_guide_export.add_argument("--output", default=None, help="Output path (default: ~/.perseus/guide_dataset.jsonl)")
+        p_guide_export.add_argument("--format", default="jsonl", choices=["jsonl", "alpaca", "daedalus-patterns"], help="Output format (daedalus-patterns: task-21 pattern training set)")
+        p_guide_export.add_argument("--include-inferred", action="store_true", help="Also export inferred-accept entries (clearly tagged label_source=inferred)")
 
-    # Phase 9.1 — task-20: implicit accept/reject inference
-    p_oracle_infer = oracle_sub.add_parser("infer-labels", help="Apply implicit accept/reject labels from checkpoint correlation")
-    p_oracle_infer.add_argument("--window-days", type=int, default=None, help="Override pythia.inferred_label_window_days")
-    p_oracle_infer.add_argument("--window-checkpoints", type=int, default=None, help="Override pythia.inferred_label_window_checkpoints")
-    p_oracle_infer.add_argument("--dry-run", action="store_true", help="Print what would change without writing")
-    p_oracle_infer.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+        # Phase 9.1 — task-20: implicit accept/reject inference
+        p_guide_infer = guide_sub.add_parser("infer-labels", help="Apply implicit accept/reject labels from checkpoint correlation")
+        p_guide_infer.add_argument("--window-days", type=int, default=None, help="Override guide.inferred_label_window_days")
+        p_guide_infer.add_argument("--window-checkpoints", type=int, default=None, help="Override guide.inferred_label_window_checkpoints")
+        p_guide_infer.add_argument("--dry-run", action="store_true", help="Print what would change without writing")
+        p_guide_infer.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
-    # Phase 14A — task-36: reinforcement outcome collection
-    p_oracle_outcomes = oracle_sub.add_parser("outcomes", help="Collect completion/error/time outcome signals")
-    p_oracle_outcomes.add_argument("--window-days", type=int, default=None, help="Override pythia.outcome_window_days")
-    p_oracle_outcomes.add_argument("--window-checkpoints", type=int, default=None, help="Override pythia.outcome_window_checkpoints")
-    p_oracle_outcomes.add_argument("--dry-run", action="store_true", help="Print what would change without writing")
-    p_oracle_outcomes.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+        # Phase 14A — task-36: reinforcement outcome collection
+        p_guide_outcomes = guide_sub.add_parser("outcomes", help="Collect completion/error/time outcome signals")
+        p_guide_outcomes.add_argument("--window-days", type=int, default=None, help="Override guide.outcome_window_days")
+        p_guide_outcomes.add_argument("--window-checkpoints", type=int, default=None, help="Override guide.outcome_window_checkpoints")
+        p_guide_outcomes.add_argument("--dry-run", action="store_true", help="Print what would change without writing")
+        p_guide_outcomes.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
-    # Phase 9.3 — task-22: drift detection
-    p_oracle_drift = oracle_sub.add_parser("drift", help="Report drift in recent Pythia behavior vs baseline")
-    p_oracle_drift.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+        # Phase 9.3 — task-22: drift detection
+        p_guide_drift = guide_sub.add_parser("drift", help="Report drift in recent Guide behavior vs baseline")
+        p_guide_drift.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+
+    p_guide = sub.add_parser("guide", help="Guide log labeling and dataset export")
+    guide_sub = p_guide.add_subparsers(dest="guide_command", required=True)
+    _add_guide_subcommands(guide_sub)
 
     # quickstart (Track B — one-command bootstrap)
     p_quickstart = sub.add_parser("quickstart", help="One-command bootstrap: scaffold, configure, verify")
@@ -39099,8 +39143,8 @@ def main():
         if getattr(args, "speculate", False):
             return cmd_explain(args, cfg)
         return cmd_bandit_cli(args, cfg)
-    elif args.command == "oracle":
-        rc = cmd_oracle(args, cfg)
+    elif args.command == "guide":
+        rc = cmd_guide(args, cfg)
         if isinstance(rc, int):
             return rc
     elif args.command == "feedback":

@@ -3,7 +3,7 @@
 Before Perseus rebuilds or compacts its local narrative, it performs the configured Vault checkpoint capture as a durability barrier.
 
 ```text
-capture checkpoints → read checkpoints/Pythia → deterministic narrative compaction
+capture checkpoints → read checkpoints/Guide → deterministic narrative compaction
 ```
 
 The hook runs only when `perseus_vault.capture.enabled` is true. Its behavior is intentionally conservative:

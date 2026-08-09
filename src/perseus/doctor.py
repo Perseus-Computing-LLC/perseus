@@ -277,11 +277,11 @@ def _doctor_check_federation(cfg: dict, workspace: Path) -> DoctorResult:
                         f"{len(subs)} subscriptions, all fresh", "")
 
 
-def _doctor_check_pythia_log(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check Pythia log readability."""
-    log_path = _pythia_log_path()
+def _doctor_check_guide_log(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check Guide log readability."""
+    log_path = _guide_log_path()
     if not log_path.exists():
-        return DoctorResult("pythia_log_readable", "ok", "Pythia log",
+        return DoctorResult("guide_log_readable", "ok", "Guide log",
                             "no log file (will be created on first suggest)", "")
     try:
         count = 0
@@ -294,11 +294,36 @@ def _doctor_check_pythia_log(cfg: dict, workspace: Path) -> DoctorResult:
                 if not isinstance(data, dict):
                     raise ValueError(f"line {lineno}: entry is not an object")
                 count += 1
-        return DoctorResult("pythia_log_readable", "ok", "Pythia log",
+        return DoctorResult("guide_log_readable", "ok", "Guide log",
                             f"{count} entries", "")
     except Exception as exc:
-        return DoctorResult("pythia_log_readable", "error", "Pythia log",
+        return DoctorResult("guide_log_readable", "error", "Guide log",
                             str(exc), f"Fix JSONL in {log_path}")
+
+
+def _doctor_check_guide_legacy_pythia(cfg: dict, workspace: Path) -> DoctorResult:
+    """Removal-gate warning: legacy `pythia` config/log usage must be migrated
+    before LEGACY_PYTHIA_REMOVAL_DATE — after that the bridge is removed."""
+    if not LEGACY_GUIDE_CONFIG_KEY and not LEGACY_GUIDE_LOG_NAME:
+        return DoctorResult("guide_legacy_pythia", "ok", "Guide legacy pythia", "removed", "")
+    removal = LEGACY_PYTHIA_REMOVAL_DATE
+    # loaded cfg is already normalized (pythia merged into guide) — scan the
+    # raw config files for a literal `pythia:` block
+    legacy_cfg = False
+    for cfg_file in (PERSEUS_HOME / "config.yaml", workspace / ".perseus" / "config.yaml"):
+        try:
+            if cfg_file.exists() and re.search(r"^\s*pythia\s*:", cfg_file.read_text(errors="replace", encoding="utf-8"), re.M):
+                legacy_cfg = True
+        except Exception:
+            pass
+    legacy_log = (PERSEUS_HOME / LEGACY_GUIDE_LOG_NAME).exists()
+    if legacy_cfg or legacy_log:
+        return DoctorResult(
+            "guide_legacy_pythia", "warning", "Guide legacy pythia",
+            f"legacy 'pythia' config/log in use — migrate to 'guide' before {removal} (then removed)",
+            "Rename the `pythia:` config block to `guide:`; the log migrates automatically",
+        )
+    return DoctorResult("guide_legacy_pythia", "ok", "Guide legacy pythia", "none in use", "")
 
 
 def _doctor_check_serve_loopback(cfg: dict, workspace: Path) -> DoctorResult:
@@ -1230,7 +1255,8 @@ _DOCTOR_CHECKS = [
     _doctor_check_vault,
     _doctor_check_vault_index,
     _doctor_check_federation,
-    _doctor_check_pythia_log,
+    _doctor_check_guide_log,
+    _doctor_check_guide_legacy_pythia,
     _doctor_check_serve_loopback,
     _doctor_check_registry,
     _doctor_check_mcp,

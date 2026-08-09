@@ -115,7 +115,7 @@ trust posture:
 | `~/.perseus/config.yaml` | Global config |
 | `~/.perseus/checkpoints/` | Recovery checkpoints |
 | `~/.perseus/cache/` | Persistent directive cache |
-| `~/.perseus/pythia_log.jsonl` | Pythia recommendation log |
+| `~/.perseus/guide_log.jsonl` | Guide recommendation log |
 | `~/.perseus/memory/` | Perseus Vault narrative memory (Perseus Vault hybrid accelerator optional; see [Setup Guide](../SETUP-GUIDE.md)) |
 | `~/.perseus/inbox/` | Agent inbox messages |
 | `~/.perseus/audit_log.jsonl` | Append-only audit log for sensitive operations and policy denials |

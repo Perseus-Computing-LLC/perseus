@@ -115,7 +115,7 @@ class TestGrantTokenAuthWired:
         grant_id = _make_grant(c)
         token = perseus._issue_grant_token(identity, grant_id, "sha256:peer", "narrative")
         headers = {"Host": "127.0.0.1", "Authorization": f"Bearer {token}"}
-        for endpoint in ("/", "/context", "/oracle/log", "/checkpoint/latest"):
+        for endpoint in ("/", "/context", "/guide/log", "/checkpoint/latest"):
             ok, _ = perseus._serve_authorized_extended(headers, c, endpoint)
             assert not ok, f"grant token must not unlock {endpoint}"
 
@@ -124,7 +124,7 @@ class TestGrantTokenAuthWired:
         c["serve"]["auth_token"] = "master-tok"
         _make_identity(c)
         headers = {"Host": "127.0.0.1", "Authorization": "Bearer master-tok"}
-        for endpoint in ("/", "/narrative", "/federation/narrative", "/oracle/log"):
+        for endpoint in ("/", "/narrative", "/federation/narrative", "/guide/log"):
             ok, ws = perseus._serve_authorized_extended(headers, c, endpoint)
             assert ok
             assert ws is None
@@ -229,7 +229,7 @@ class TestServerCardPublic:
     def test_other_endpoints_remain_gated(self, tmp_path):
         c = cfg()
         c["serve"]["auth_token"] = "sekrit-master-token-xyz"
-        for endpoint in ("/", "/context", "/narrative", "/oracle/log"):
+        for endpoint in ("/", "/context", "/narrative", "/guide/log"):
             status, _, _ = perseus._serve_handle_request(endpoint, c, tmp_path, {}, headers={})
             assert status == 401, f"{endpoint} must still require auth"
 

@@ -8,7 +8,7 @@ def health_check_url(url: str, timeout: float, cfg: dict) -> tuple[str, float | 
     # #591: scheme allowlist + hostname requirement (unconditional, mirroring
     # @perseus's C15 check). file:// URLs have no hostname and previously
     # bypassed the localhost gate entirely, opening local files (SSRF /
-    # file-existence oracle) even with allow_remote_services_health=false.
+    # file-existence probe) even with allow_remote_services_health=false.
     if parsed.scheme not in ("http", "https"):
         return f"🔒 scheme blocked ({parsed.scheme or 'none'})", None
     if not parsed.hostname:
@@ -21,7 +21,7 @@ def health_check_url(url: str, timeout: float, cfg: dict) -> tuple[str, float | 
     try:
         # #611: do NOT follow redirects. urlopen's default opener chases 3xx,
         # so a localhost service could 302 the probe to an arbitrary remote
-        # host — a status/latency oracle for hosts the gate above blocks.
+        # host — a status/latency probe for hosts the gate above blocks.
         # A no-redirect opener surfaces 3xx as HTTPError, reported below.
         class _NoRedirect(urllib.request.HTTPRedirectHandler):
             def redirect_request(self, req, fp, code, msg, headers, newurl):

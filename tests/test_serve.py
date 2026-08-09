@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from conftest import PY_VER, cfg, perseus, _capture_json, _seed_oracle_log
+from conftest import PY_VER, cfg, perseus, _capture_json, _seed_guide_log
 
 pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
 
@@ -90,11 +90,11 @@ def test_serve_endpoint_checkpoint_present(tmp_path):
     assert "text/yaml" in ctype
 
 
-def test_serve_endpoint_oracle_log_returns_json(tmp_path, monkeypatch):
+def test_serve_endpoint_guide_log_returns_json(tmp_path, monkeypatch):
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
-    log = tmp_path / "pythia_log.jsonl"
+    log = tmp_path / "guide_log.jsonl"
     log.write_text(json.dumps({"timestamp": "t1", "task": "a"}) + "\n", encoding="utf-8")
-    status, ctype, body = perseus._serve_render_endpoint("/oracle/log", cfg(), tmp_path, {})
+    status, ctype, body = perseus._serve_render_endpoint("/guide/log", cfg(), tmp_path, {})
     assert status == 200
     assert "application/json" in ctype
     data = json.loads(body)
@@ -162,7 +162,7 @@ def test_serve_collect_stats_handles_empty_workspace(tmp_path):
     local["memory"]["store"] = str(tmp_path / "memory")
     local["checkpoints"]["store"] = str(tmp_path / "checkpoints")
     local["inbox"]["store"] = str(tmp_path / "inbox")
-    local["pythia"]["skill_dir"] = str(tmp_path / "skills")
+    local["guide"]["skill_dir"] = str(tmp_path / "skills")
     stats = perseus._serve_collect_stats(local, tmp_path)
     assert stats["narrative_lines"] is None
     assert stats["latest_checkpoint_age_s"] is None
@@ -175,7 +175,7 @@ def test_serve_collect_stats_finds_real_data(tmp_path, monkeypatch):
     local["memory"]["store"] = str(tmp_path / "memory")
     local["checkpoints"]["store"] = str(tmp_path / "checkpoints")
     local["inbox"]["store"] = str(tmp_path / "inbox")
-    local["pythia"]["skill_dir"] = str(tmp_path / "skills")
+    local["guide"]["skill_dir"] = str(tmp_path / "skills")
     # tasks_dir is per-workspace; create one
     (tmp_path / "tasks").mkdir()
     (tmp_path / "tasks" / "task-99-fake.md").write_text(
@@ -209,15 +209,15 @@ def test_serve_render_index_includes_stats_and_endpoints(tmp_path):
         "latest_checkpoint_age_s": 600,
         "open_tasks": 3,
         "in_progress_tasks": 1,
-        "pythia_entries_total": 100,
-        "pythia_entries_24h": 7,
+        "guide_entries_total": 100,
+        "guide_entries_24h": 7,
         "inbox_unread": 0,
         "skills_count": 19,
         "context_file_present": True,
     }
     html = perseus._serve_render_index(tmp_path, stats)
     # All endpoint cards present
-    for ep in ["/context", "/narrative", "/health", "/agora", "/checkpoint/latest", "/oracle/log"]:
+    for ep in ["/context", "/narrative", "/health", "/agora", "/checkpoint/latest", "/guide/log"]:
         assert f"href='{ep}'" in html
     # CSS present
     assert "<style>" in html
@@ -263,7 +263,7 @@ def test_serve_render_endpoint_index_returns_polished_html(tmp_path):
     local["memory"]["store"] = str(tmp_path / "memory")
     local["checkpoints"]["store"] = str(tmp_path / "checkpoints")
     local["inbox"]["store"] = str(tmp_path / "inbox")
-    local["pythia"]["skill_dir"] = str(tmp_path / "skills")
+    local["guide"]["skill_dir"] = str(tmp_path / "skills")
     status, ctype, body = perseus._serve_render_endpoint("/", local, tmp_path, {})
     assert status == 200
     assert ctype.startswith("text/html")

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from conftest import PY_VER, cfg, perseus, _capture_json, _seed_oracle_log
+from conftest import PY_VER, cfg, perseus, _capture_json, _seed_guide_log
 
 pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
 
@@ -84,7 +84,7 @@ def test_index_rebuild_indexes_narrative_written_to_store(tmp_path):
         "2026-05-15T10:00:00+00:00",
         "Initial work",
         status="complete",
-        notes="We renamed oracle to Pythia.",
+        notes="We renamed guide to Guide.",
     )
     perseus.cmd_memory(
         argparse.Namespace(memory_command="update", workspace=str(tmp_path), llm=None),
@@ -102,7 +102,7 @@ def test_index_rebuild_indexes_narrative_written_to_store(tmp_path):
     assert perseus._vault_index_stats(local)["doc_count"] >= 1
 
     # And recall finds it.
-    hits = perseus._vault_recall(local, "Pythia", k=5)
+    hits = perseus._vault_recall(local, "Guide", k=5)
     assert len(hits) >= 1
     assert any(h.get("type") == "narrative" for h in hits)
 
@@ -128,7 +128,7 @@ def test_load_narrative_missing_file_returns_empty(tmp_path):
 
 def test_memory_update_fresh_workspace(tmp_path, capsys):
     local = _vault_cfg(tmp_path)
-    _write_checkpoint(Path(local["checkpoints"]["store"]), "2026-05-15T10:00:00+00:00", "Initial work", status="complete", notes="We renamed oracle to Pythia.")
+    _write_checkpoint(Path(local["checkpoints"]["store"]), "2026-05-15T10:00:00+00:00", "Initial work", status="complete", notes="We renamed guide to Guide.")
     args = argparse.Namespace(memory_command="update", workspace=str(tmp_path), llm=None)
     perseus.cmd_memory(args, local)
     out = capsys.readouterr().out
@@ -139,7 +139,7 @@ def test_memory_update_fresh_workspace(tmp_path, capsys):
     assert fm["checkpoints_processed"] == 1
     assert "## Project Arc" in body
     assert "## Key Decisions" in body
-    assert "renamed oracle to Pythia" in body
+    assert "renamed guide to Guide" in body
 
 
 def test_memory_update_idempotent_nothing_new(tmp_path, capsys):
@@ -200,12 +200,12 @@ def test_memory_status_summary(tmp_path, capsys):
 
 def test_memory_query_deterministic_grep(tmp_path, capsys):
     local = _vault_cfg(tmp_path)
-    _write_checkpoint(Path(local["checkpoints"]["store"]), "2026-05-15T10:00:00+00:00", "T", notes="Renamed oracle to Pythia for clarity.")
+    _write_checkpoint(Path(local["checkpoints"]["store"]), "2026-05-15T10:00:00+00:00", "T", notes="Renamed guide to Guide for clarity.")
     perseus.cmd_memory(argparse.Namespace(memory_command="update", workspace=str(tmp_path), llm=None), local)
     capsys.readouterr()
-    perseus.cmd_memory(argparse.Namespace(memory_command="query", workspace=str(tmp_path), llm=None, question="Pythia"), local)
+    perseus.cmd_memory(argparse.Namespace(memory_command="query", workspace=str(tmp_path), llm=None, question="Guide"), local)
     out = capsys.readouterr().out
-    assert "Pythia" in out
+    assert "Guide" in out
     assert "Key Decisions" in out
 
 
@@ -433,7 +433,7 @@ def test_memory_status_json_with_narrative(tmp_path, monkeypatch):
     out, rc = _capture_json(monkeypatch, perseus.cmd_memory, ns, c)
     assert out["exists"] is True
     for key in ("updated", "checkpoints_processed", "checkpoints_pending",
-                "pythia_entries_processed", "pythia_entries_pending",
+                "guide_entries_processed", "guide_entries_pending",
                 "compaction_count", "line_count", "mode", "frontmatter"):
         assert key in out, f"Missing key: {key}"
 

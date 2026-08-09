@@ -574,7 +574,7 @@ def _write_candidate(cfg: dict, cand: dict, md_text: str) -> None:
 
 def _live_skill_names(cfg: dict) -> set:
     """Names already live under the @skills dir (never re-suggested)."""
-    skill_dir = Path(cfg.get("pythia", {}).get("skill_dir", str(SKILLS_DIR)))
+    skill_dir = Path(cfg.get("guide", {}).get("skill_dir", str(SKILLS_DIR)))
     names = set()
     if skill_dir.exists():
         for skill_md in skill_dir.rglob("SKILL.md"):
@@ -814,7 +814,7 @@ def approve_candidate(cfg: dict, name: str, force: bool = False) -> tuple:
     md_path = _candidates_dir(cfg) / f"{name}.md"
     if not md_path.exists():
         return False, f"candidate '{name}' is missing its SKILL.md — re-run `perseus skills mine`"
-    skill_dir = Path(cfg.get("pythia", {}).get("skill_dir", str(SKILLS_DIR))).resolve()
+    skill_dir = Path(cfg.get("guide", {}).get("skill_dir", str(SKILLS_DIR))).resolve()
     name_dir = skill_dir / name
     if name_dir.is_symlink():
         return False, f"refusing to approve '{name}': {name_dir} is a symlink"

@@ -99,7 +99,7 @@ trust:
   redact_secrets: true
 
 # Optional: assistant integration (Hermes Agent)
-pythia:
+guide:
   skill_dir: ~/.hermes/skills
 assistant:
   sessions_dir: ~/.hermes/sessions
@@ -245,7 +245,7 @@ perseus recover --workspace "$PWD"
 
 ---
 
-## 9. Ask Pythia
+## 9. Ask Guide
 
 When you're not sure which tool or approach to use:
 
@@ -253,7 +253,7 @@ When you're not sure which tool or approach to use:
 perseus suggest "best way to debug a memory leak in a Node.js service"
 ```
 
-Pythia assembles a live snapshot of your environment (skills, services, recent work) and ranks paths for you. No API call needed — you and your assistant are the oracle.
+Guide assembles a live snapshot of your environment (skills, services, recent work) and ranks paths for you. No API call needed — you and your assistant are the oracle.
 
 ---
 

@@ -2,7 +2,7 @@
 from perseus.vault_connector import MEMORY_BRAND
 # ─────────────────────────────── Perseus Vault Memory ────────────────────────────────
 #
-# Perseus Vault — narrative project memory. Distills checkpoints + Pythia log into a
+# Perseus Vault — narrative project memory. Distills checkpoints + Guide log into a
 # per-workspace narrative file at ~/.perseus/memory/<workspace-hash>.md.
 #
 # Distillation is deterministic (rule-based extraction; no LLM) — Perseus runs
@@ -241,7 +241,7 @@ def _vault_default_frontmatter(workspace: Path) -> dict:
         "workspace_hash": _workspace_hash(workspace),
         "updated": datetime.now().astimezone().isoformat(timespec="seconds"),
         "checkpoints_processed": 0,
-        PYTHIA_HWM_KEY: 0,
+        GUIDE_HWM_KEY: 0,
         "compaction_count": 0,
         "last_compaction_at_update": 0,
     }
@@ -290,20 +290,22 @@ def _enrich_narrative_frontmatter(fm: dict, body: str, workspace: Path) -> None:
         fm["schema"] = 2
 
 
-def _vault_pythia_hwm(frontmatter: dict) -> int:
-    """Read the Pythia high-water mark, accepting legacy Perseus Vault frontmatter."""
-    return int(frontmatter.get(PYTHIA_HWM_KEY, frontmatter.get(LEGACY_PYTHIA_HWM_KEY, 0)))
+def _vault_guide_hwm(frontmatter: dict) -> int:
+    """Read the Guide high-water mark, accepting legacy Perseus Vault frontmatter.
+
+    Chain: guide_entries_processed ← pythia_entries_processed (legacy; removal gated)."""
+    return int(frontmatter.get(GUIDE_HWM_KEY, frontmatter.get(LEGACY_GUIDE_HWM_KEY, 0)))
 
 
-def _set_vault_pythia_hwm(frontmatter: dict, value: int) -> None:
-    """Write the canonical Pythia high-water mark and drop the legacy key."""
-    frontmatter[PYTHIA_HWM_KEY] = int(value)
-    frontmatter.pop(LEGACY_PYTHIA_HWM_KEY, None)
+def _set_vault_guide_hwm(frontmatter: dict, value: int) -> None:
+    """Write the canonical Guide high-water mark and drop the legacy key."""
+    frontmatter[GUIDE_HWM_KEY] = int(value)
+    frontmatter.pop(LEGACY_GUIDE_HWM_KEY, None)
 
 
-def _read_all_pythia_entries() -> list[dict]:
-    """Load every JSONL Pythia entry in order."""
-    log_path = _pythia_log_path()
+def _read_all_guide_entries() -> list[dict]:
+    """Load every JSONL Guide entry in order."""
+    log_path = _guide_log_path()
     if not log_path.exists():
         return []
     entries: list[dict] = []
@@ -316,7 +318,7 @@ def _read_all_pythia_entries() -> list[dict]:
                 try:
                     entries.append(json.loads(line))
                 except Exception as exc:
-                    sys.stderr.write(f"> ⚠ Pythia: skipping malformed JSONL line: {exc}\n")
+                    sys.stderr.write(f"> ⚠ Guide: skipping malformed JSONL line: {exc}\n")
     except Exception:
         return []
     return entries
@@ -355,9 +357,9 @@ def _extract_section(body: str, heading: str) -> str:
     return body[start:m.end() + next_m.start()].rstrip() + "\n"
 
 
-def _deterministic_patterns_body(pythia_entries: list[dict]) -> str:
+def _deterministic_patterns_body(guide_entries: list[dict]) -> str:
     """Rule-based pattern extraction — no LLM. The default extractor."""
-    accepted = [e for e in pythia_entries if e.get("accepted") is True]
+    accepted = [e for e in guide_entries if e.get("accepted") is True]
     bucket: dict[str, dict] = {}
     known_prefixes = ("skill:", "web_", "terminal", "delegate", "cron")
     for entry in accepted:
@@ -378,22 +380,22 @@ def _deterministic_patterns_body(pythia_entries: list[dict]) -> str:
         if ts > b["last"]:
             b["last"] = ts
     if not bucket:
-        return "_No accepted Pythia patterns yet._"
+        return "_No accepted Guide patterns yet._"
     lines = []
     for tool, info in sorted(bucket.items(), key=lambda kv: -kv[1]["count"]):
         lines.append(f"- **{tool}** — used {info['count']} times (last: {_short_date(info['last'])})")
     return "\n".join(lines)
 
 
-def _extract_patterns_section(pythia_entries: list[dict], cfg: dict) -> str:
+def _extract_patterns_section(guide_entries: list[dict], cfg: dict) -> str:
     """Extract the patterns section. Perseus runs no inference of its own
     (observe model), so pattern extraction is always deterministic."""
-    return _deterministic_patterns_body(pythia_entries)
+    return _deterministic_patterns_body(guide_entries)
 
 
 def _deterministic_narrative(
     checkpoints: list[dict],
-    pythia_entries: list[dict],
+    guide_entries: list[dict],
     existing_body: str,
     workspace: Path,
     cfg: dict,
@@ -403,7 +405,7 @@ def _deterministic_narrative(
     When called from compact, existing_body is "". When called from update,
     existing_body contains the current narrative; we still rebuild the
     standard sections from cumulative inputs (caller passes ALL checkpoints
-    and ALL Pythia entries when doing a deterministic update so the result
+    and ALL Guide entries when doing a deterministic update so the result
     is consistent rather than additively drifting).
     """
     recent_keep = int(cfg.get("memory", {}).get("recent_keep", 5))
@@ -463,7 +465,7 @@ def _deterministic_narrative(
     history_section = "## Task History\n\n" + history_body + "\n"
 
     # ── Patterns & Anti-patterns ───────────────────────────────────────────
-    patterns_body = _extract_patterns_section(pythia_entries, cfg)
+    patterns_body = _extract_patterns_section(guide_entries, cfg)
     patterns_section = "## Patterns & Anti-patterns\n\n" + patterns_body + "\n"
 
     # ── Recent Activity ────────────────────────────────────────────────────
@@ -495,7 +497,7 @@ def _deterministic_narrative(
     now_h = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z").strip()
     preamble = (
         f"> Narrative last updated {now_h}.\n"
-        f"> Source: {len(checkpoints)} checkpoints, {len(pythia_entries)} Pythia entries.\n"
+        f"> Source: {len(checkpoints)} checkpoints, {len(guide_entries)} Guide entries.\n"
         f"> Run `perseus memory compact` for a full re-distillation.\n"
     )
 

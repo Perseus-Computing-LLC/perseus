@@ -1,7 +1,7 @@
 # Hermes Integration — Perseus + NousResearch Hermes Agent
 
 **Status:** supported in v1.0.0+ · single-config-block · no Perseus code changes ever required after initial setup
-**Audience:** anyone running [Hermes Agent](https://github.com/NousResearch/hermes-agent) who wants Perseus's LLM-augmented surfaces (Pythia oracle, Perseus Vault narrative compaction, Daedalus drift detection) to route through Hermes instead of Ollama or a raw OpenAI endpoint.
+**Audience:** anyone running [Hermes Agent](https://github.com/NousResearch/hermes-agent) who wants Perseus's LLM-augmented surfaces (Guide oracle, Perseus Vault narrative compaction, Daedalus drift detection) to route through Hermes instead of Ollama or a raw OpenAI endpoint.
 
 ---
 
@@ -73,7 +73,7 @@ Most of Perseus is deterministic and doesn't need an LLM at all. The LLM-augment
 
 | Surface | Command | LLM use |
 |---|---|---|
-| **Pythia oracle** | `perseus suggest "<task>" --llm hermes` | Generates the recommendation when the deterministic rules can't pick a clear winner |
+| **Guide oracle** | `perseus suggest "<task>" --llm hermes` | Generates the recommendation when the deterministic rules can't pick a clear winner |
 | **Perseus Vault compact** | `perseus memory compact --llm hermes` | Rewrites the narrative into tighter prose (deterministic falls back if LLM unavailable) |
 | **Perseus Vault update** | `perseus memory update --llm hermes` | Optional polish over the deterministic distillation |
 | **Perseus Vault query** | `perseus memory query "<question>" --llm hermes` | Answers questions over the narrative (deterministic grep fallback otherwise) |
@@ -159,14 +159,14 @@ The SSH-tunnel option is the simplest secure default — Hermes stays bound to l
 | `ping` returns `Model not found` | `hermes_model` not configured in Hermes | `hermes model` to see what's available |
 | `ping` returns `timeout` | Model is slow (large prompts, GPU offload) | Bump `llm.timeout_s` to 120 or higher |
 | `ping` returns empty/`> ⚠ LLM returned no response.` | Hermes returned 200 but no `choices[0].message.content` | Check Hermes logs; usually a provider misconfig on Hermes's end |
-| `suggest --llm hermes` falls back to deterministic | Same as above — but Pythia is graceful by design | Run `ping` to isolate; check `~/.perseus/pythia_log.jsonl` |
+| `suggest --llm hermes` falls back to deterministic | Same as above — but Guide is graceful by design | Run `ping` to isolate; check `~/.perseus/guide_log.jsonl` |
 
 ---
 
 ## Operational notes
 
 - **Perseus Vault auto-update at checkpoint time** is deterministic-only by design. The LLM path runs *only* when explicitly requested via `--llm` or when `memory.llm_provider` is set in config. This means `perseus checkpoint` never blocks on a network round-trip even if Hermes is misconfigured.
-- **Pythia log entries created with `--llm hermes`** record `provider: hermes` and `model: <resolved-model>` in the log, so retrospective dataset exports (`perseus oracle export`) can filter by provider for training-data curation.
+- **Guide log entries created with `--llm hermes`** record `provider: hermes` and `model: <resolved-model>` in the log, so retrospective dataset exports (`perseus oracle export`) can filter by provider for training-data curation.
 - **Mixing providers per command is fine.** `perseus suggest ... --llm hermes` and `perseus memory compact --llm ollama` in the same shell coexist without state issues.
 
 ---
@@ -184,7 +184,7 @@ The SSH-tunnel option is the simplest secure default — Hermes stays bound to l
 - [Hermes Agent — README](https://github.com/NousResearch/hermes-agent)
 - [Perseus Deployment Guide](./DEPLOYMENT.md) — full ecosystem setup (previous Vault format, LLM proxy, cron jobs)
 - [Unraid Notes](../unraid-notes.md) — Unraid-specific operational constraints (no crontab, no systemd)
-- Perseus `spec/components.md` § 4 (Perseus Vault) and § 6 (Pythia) for the LLM-augmented surfaces
+- Perseus `spec/components.md` § 4 (Perseus Vault) and § 6 (Guide) for the LLM-augmented surfaces
 - Perseus `README.md` § "Configuration" for the full `llm:` block
 
 > **Context-file wiring** (the `@perseus` → `AGENTS.md` render pipeline that feeds into Hermes Agent) is documented in the [Setup & Configuration Guide](../SETUP-GUIDE.md), not here. This file covers only LLM proxy routing.

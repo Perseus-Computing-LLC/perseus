@@ -37,10 +37,10 @@ personal-fork namespace. No unconditional RCE bypass was found.
 | 7 | MED | Prompt injection | `@perseus` remote-resolved content is injected into the rendered context **unlabeled** (no untrusted-content fence). Gated behind a configured trusted peer (HMAC + shared_secret required by default), so requires a compromised/hostile peer | `directives/perseus.py:192`; `serve.py:2039` |
 | 8 | LOW-MED | Deploy | `serve.py` runs as root in Docker; container hardening (non-root `USER`, base-image digest pin) missing | `Dockerfile` |
 | 9 | LOW-MED | Connector | Vault-connector binary resolution appends **CWD-relative** `./perseus-vault/target/release/…` candidates → untrusted-search-path exec if Perseus is run from an attacker-influenced CWD | `doctor.py:536-546` |
-| 10 | LOW | Cross-workspace | `/oracle/log` returns **all** workspaces' Pythia prompts by default; the `?workspace=` filter is a **substring match on task text**, not a workspace field (auth-gated on remote binds; loopback+redacted otherwise) | `serve.py:2065-2077` |
+| 10 | LOW | Cross-workspace | `/oracle/log` returns **all** workspaces' Guide prompts by default; the `?workspace=` filter is a **substring match on task text**, not a workspace field (auth-gated on remote binds; loopback+redacted otherwise) | `serve.py:2065-2077` |
 | 11 | LOW | Webhooks | Empty/typo'd HMAC secret → webhook delivered **unsigned** with only a conditional warning; no minimum-length floor (unlike `@perseus`'s 32-char floor) | `webhooks.py:148-152,203` |
 | 12 | LOW | SSRF | Webhook target has no private-IP block (redirects *are* blocked, TLS on) — operator-config trust, but env-expanded URL widens it | `webhooks.py:82-104,215` |
-| 13 | LOW | DoS | `run_llm`/`run_ollama`/doctor do `resp.read()` with **no size cap** — a malicious/compromised LLM endpoint OOMs the process (operator-configured URL) | `pythia.py:220,589; doctor.py:411` |
+| 13 | LOW | DoS | `run_llm`/`run_ollama`/doctor do `resp.read()` with **no size cap** — a malicious/compromised LLM endpoint OOMs the process (operator-configured URL) | `guide.py:220,589; doctor.py:411` |
 | 14 | LOW | DNS-rebinding | `serve.py` `_serve_host_header_ok` returns **True on a missing Host header** (the `mcp.py` equivalent was fixed to return False); only matters on an opted-in no-auth bind | `serve.py:1811-1812` |
 | 15 | LOW | Supply chain | Installed runtime dep `pyyaml>=6.0.1` is an unbounded floor with no hashes/lockfile for the wheel (dev freeze IS pinned) | `pyproject.toml:30` |
 | 16 | LOW | Deploy | No-auth remote serve (`--i-understand-no-auth`) and `redaction.enabled` are independent toggles → an operator can expose unredacted `/context` remotely | `serve.py:2143` |
@@ -67,7 +67,7 @@ are deploy/supply-chain posture. **#4/#5** are untrusted-argument confinement.
 - **PyPI publish** — OIDC trusted publishing, no stored token, tag==VERSION + `--check` gate.
 - **Secrets** — no full-config-dump-to-disk path; env secrets not round-tripped;
   `config.yaml`/`.env` git-ignored; `yaml.safe_load` throughout (no `yaml.load`/`eval`/
-  `os.system`/`pickle` anywhere in `src/perseus/`). **Pythia log redacted before write**
+  `os.system`/`pickle` anywhere in `src/perseus/`). **Guide log redacted before write**
   (residual only if `redaction.enabled:false`).
 
 ## Not-a-finding (agent-reported, refuted on verification)

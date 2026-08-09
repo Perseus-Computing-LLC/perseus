@@ -53,7 +53,9 @@ def test_legacy_hermes_config_migrates_to_assistant_without_losing_future_fields
     assert loaded["unknown_top_level"] == {"future": True}
 
 
-def test_legacy_oracle_config_migrates_to_pythia_and_warns(tmp_path, monkeypatch, capsys):
+def test_legacy_oracle_config_is_ignored(tmp_path, monkeypatch, capsys):
+    """The `oracle:` config key is GONE — it is no longer normalized or merged
+    (removed with the legacy alias); only the `pythia:` bridge survives."""
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path / "home")
     workspace = tmp_path / "workspace"
     cfg_dir = workspace / ".perseus"
@@ -70,26 +72,88 @@ def test_legacy_oracle_config_migrates_to_pythia_and_warns(tmp_path, monkeypatch
     loaded = perseus.load_config(workspace)
     err = capsys.readouterr().err
 
-    assert "'oracle' key is deprecated" in err
-    assert loaded["pythia"]["llm_provider"] == "ollama"
-    assert loaded["pythia"]["ollama_model"] == "llama3"
-    assert loaded["pythia"]["timeout_s"] == 7
-    assert loaded["pythia"]["category"] == "tests"
+    assert "'oracle' key is deprecated" not in err, "oracle alias must be gone"
+    # the oracle block survives only as an inert unknown top-level key
+    # (like unknown_top_level) — never normalized, never merged into guide
+    assert loaded.get("oracle") == {"provider": "ollama", "model": "llama3", "timeout_s": 7}
+    assert "llm_provider" not in loaded["guide"], "oracle must not feed guide"
+    assert loaded["guide"]["category"] == "tests", "pythia bridge still feeds guide"
 
 
-def test_legacy_oracle_log_file_migrates_once(tmp_path, monkeypatch, capsys):
+def test_legacy_pythia_config_migrates_to_guide_and_warns(tmp_path, monkeypatch, capsys):
+    """The `pythia:` key is the current migration bridge into `guide:`."""
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path / "home")
+    workspace = tmp_path / "workspace"
+    cfg_dir = workspace / ".perseus"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "config.yaml").write_text(
+        "pythia:\n"
+        "  provider: ollama\n"
+        "  model: llama3\n"
+        "  timeout_s: 7\n"
+        "  category: tests\n"
+    , encoding="utf-8")
+
+    loaded = perseus.load_config(workspace)
+    err = capsys.readouterr().err
+
+    assert "'pythia' key is deprecated" in err
+    assert loaded["guide"]["llm_provider"] == "ollama"
+    assert loaded["guide"]["ollama_model"] == "llama3"
+    assert loaded["guide"]["timeout_s"] == 7
+    assert loaded["guide"]["category"] == "tests"
+
+
+def test_legacy_pythia_log_file_migrates_to_guide_once(tmp_path, monkeypatch, capsys):
+    """pythia_log.jsonl migrates to guide_log.jsonl exactly once."""
+    monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
+    legacy = tmp_path / "pythia_log.jsonl"
+    legacy.write_text(json.dumps({"task": "legacy", "response": "ok"}) + "\n", encoding="utf-8")
+
+    path = perseus._guide_log_path()
+    err = capsys.readouterr().err
+
+    assert path == tmp_path / "guide_log.jsonl"
+    assert path.exists()
+    assert not legacy.exists()
+    assert "migrated pythia_log.jsonl" in err
+    assert json.loads(path.read_text(encoding="utf-8").strip())["task"] == "legacy"
+    # second call: no re-migration, no new stderr line
+    capsys.readouterr()
+    perseus._guide_log_path()
+    assert "migrated" not in capsys.readouterr().err
+
+
+def test_legacy_oracle_log_file_is_ignored(tmp_path, monkeypatch, capsys):
+    """oracle_log.jsonl is no longer migrated — the legacy alias is gone."""
     monkeypatch.setattr(perseus, "PERSEUS_HOME", tmp_path)
     legacy = tmp_path / "oracle_log.jsonl"
     legacy.write_text(json.dumps({"task": "legacy", "response": "ok"}) + "\n", encoding="utf-8")
 
-    path = perseus._pythia_log_path()
-    err = capsys.readouterr().err
+    path = perseus._guide_log_path()
 
-    assert path == tmp_path / "pythia_log.jsonl"
-    assert path.exists()
-    assert not legacy.exists()
-    assert "migrated oracle_log.jsonl" in err
-    assert json.loads(path.read_text(encoding="utf-8").strip())["task"] == "legacy"
+    assert path == tmp_path / "guide_log.jsonl"
+    assert not path.exists(), "oracle log must not migrate"
+    assert legacy.exists(), "oracle log is left in place, inert"
+
+
+def test_legacy_pythia_removal_gate():
+    """Self-enforcing deprecation gate: before LEGACY_PYTHIA_REMOVAL_DATE the
+    `pythia` bridge must still exist (migration promise); on/after the date
+    the bridge must be GONE — the test flips from asserting compat to
+    asserting removal, so the removal cannot be forgotten."""
+    from datetime import date
+    removal = date.fromisoformat(perseus.LEGACY_PYTHIA_REMOVAL_DATE)
+    if date.today() >= removal:
+        assert not perseus.LEGACY_GUIDE_CONFIG_KEY, (
+            "gate fired: legacy 'pythia' config alias must be removed"
+        )
+        assert not perseus.LEGACY_GUIDE_LOG_NAME, (
+            "gate fired: legacy 'pythia' log migration must be removed"
+        )
+        return
+    assert perseus.LEGACY_GUIDE_CONFIG_KEY == "pythia"
+    assert perseus.LEGACY_GUIDE_LOG_NAME == "pythia_log.jsonl"
 
 
 def test_old_checkpoint_shapes_load_recover_and_diff_with_future_fields(tmp_path, capsys):
