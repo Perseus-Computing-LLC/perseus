@@ -54,6 +54,7 @@ See the patent disclosure for how this unification reads on claim element (a):
 | `@services` | `resolve_services` | block | `block` | 2 | shell / live system |  |
 | `@session` | `resolve_session` | inline | `ac` | 2 | filesystem / workspace |  |
 | `@skills` | `resolve_skills` | inline | `ac` | 2 | filesystem / workspace |  |
+| `@skill-candidates` | `resolve_skill_candidates` | inline | `ac` | 2 | filesystem / workspace | mined candidates (#932) |
 | `@agent` | `resolve_agent` | inline | `acw` | 3 | sub-agent subprocess | @agent (sub-agent) |
 | `@include` | `resolve_include` | inline | `awc` | 3 | filesystem / workspace | recursive composition |
 | `@list` | `resolve_list` | inline | `acw` | 3 | filesystem / workspace |  |
