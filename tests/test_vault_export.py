@@ -132,10 +132,13 @@ We decided to use prose mode for CoalWash.
         # Prose mode strips frontmatter
         assert "title:" not in output, "Should NOT contain YAML frontmatter keys"
         assert "type:" not in output, "Should NOT contain YAML frontmatter keys"
-        
-        # Should have heading markers from filenames
-        assert "--- note1" in output, "Should have note1 heading"
-        assert "--- note2" in output, "Should have note2 heading"
+
+        # Should have heading markers from filenames — ATX headings, never a
+        # `---`-opening line (a file opening with `---` is fence-checked by
+        # CoalWash's input contract and an unclosed fence is refused)
+        assert "## note1" in output, "Should have note1 heading"
+        assert "## note2" in output, "Should have note2 heading"
+        assert not output.startswith("---"), "Prose output must not open with a --- fence"
         
         # Should have body content
         assert "pure prose content" in output
@@ -211,3 +214,87 @@ def test_export_missing_vault_path():
         # Should fail with non-zero exit
         assert proc.returncode != 0, f"Should fail for missing path, got {proc.returncode}"
         assert "vault path not found" in proc.stderr.lower() or "Error" in proc.stderr
+
+
+def _prose_export_bytes(home: Path, vault: Path) -> subprocess.CompletedProcess:
+    """Run `perseus vault export --prose` capturing RAW bytes (no text decode)."""
+    cfg = home / "config.yaml"
+    cfg.write_text(f"memory:\n  store: {vault}\n")
+    env = {"PERSEUS_HOME": str(home)}
+    cmd = [sys.executable, str(PERSEUS_SCRIPT), "vault", "export", "--prose"]
+    return subprocess.run(cmd, capture_output=True, env=env, timeout=30)
+
+
+def test_export_prose_coalwash_contract_bytes():
+    """Prose output meets CoalWash datasheet §6 byte-level checks.
+
+    Every output file must be valid strict UTF-8 with no NUL byte, and the
+    first 64 characters must be clean (no NUL, no U+FFFD, no BOM) — with or
+    without frontmatter. The flattener must never introduce U+FFFD by lossy
+    re-encoding, and must not open with an unclosed `---` fence.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        vault = td / "test-vault"
+        home = td / "home"
+        vault.mkdir(parents=True)
+        home.mkdir()
+
+        # A normal entry, a Thai/CJK/emoji entry (valid UTF-8 must survive),
+        # an entry with an invalid UTF-8 byte, and a NUL-bearing entry.
+        (vault / "note1.md").write_bytes(
+            b"---\ntitle: Note\n---\nProse body with unicode: \xe0\xb8\xa0\xe0\xb8\xb2\xe0\xb8\xa9\xe0\xb8\xb2, \xe4\xb8\xad\xe6\x96\x87, and \xf0\x9f\x9a\x80.\n"
+        )
+        (vault / "bad-encoding.md").write_bytes(
+            b"---\ntitle: Bad\n---\nBroken byte here: \x81\n"
+        )
+        (vault / "binary-note.md").write_bytes(
+            b"---\ntitle: Binary\n---\nNUL here: \x00\n"
+        )
+
+        proc = _prose_export_bytes(home, vault)
+        assert proc.returncode == 0, f"Prose export failed: {proc.stderr!r}"
+        data = proc.stdout
+
+        # No NUL anywhere.
+        assert b"\x00" not in data, "Prose output must not contain NUL bytes"
+        # Strict UTF-8, whole file.
+        text = data.decode("utf-8")  # raises if invalid
+        # Clean 64-character head (chars, not bytes — same as CoalWash's
+        # FM_HEAD_SCAN): no NUL, no U+FFFD, no BOM.
+        head = text[:64]
+        assert "\ufffd" not in head, "Prose output head must not contain U+FFFD"
+        assert "\ufeff" not in head, "Prose output head must not contain a BOM"
+        # Never opens with a `---` fence line.
+        assert not data.startswith(b"---"), "Prose output must not open with ---"
+        # The lossy/undecodable entries were skipped, not silently re-encoded.
+        assert b"\xfffd" not in data, "Prose output must not contain U+FFFD anywhere"
+        assert "Broken byte" not in proc.stdout.decode("utf-8"), "Undecodable entry should be skipped"
+        assert "NUL here" not in proc.stdout.decode("utf-8"), "NUL-bearing entry should be skipped"
+        assert "Warning: skipping" in proc.stderr.decode("utf-8"), "Skipped entries should warn"
+        # Valid unicode entry survived.
+        assert "\u0e20\u0e32\u0e29\u0e32" in proc.stdout.decode("utf-8"), "Valid UTF-8 must survive"
+
+
+def test_export_machine_readable_skips_binary_entries():
+    """Machine-readable mode also skips NUL/undecodable files (fail closed)."""
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        vault = td / "test-vault"
+        home = td / "home"
+        vault.mkdir(parents=True)
+        home.mkdir()
+
+        (vault / "ok.md").write_bytes(b"---\ntitle: OK\n---\nFine body.\n")
+        (vault / "bad.md").write_bytes(b"---\ntitle: Bad\n---\nNUL: \x00\n")
+
+        cfg = home / "config.yaml"
+        cfg.write_text(f"memory:\n  store: {vault}\n")
+        env = {"PERSEUS_HOME": str(home)}
+        cmd = [sys.executable, str(PERSEUS_SCRIPT), "vault", "export"]
+        proc = subprocess.run(cmd, capture_output=True, env=env, timeout=30)
+
+        assert proc.returncode == 0
+        assert b"\x00" not in proc.stdout, "Machine-readable output must not carry NUL"
+        assert b"Fine body." in proc.stdout
+        assert b"Bad" not in proc.stdout
