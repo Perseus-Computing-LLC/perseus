@@ -5,6 +5,7 @@
 # Perseus™ 🪞 — One command. Zero orientation.
 
 [![smithery badge](https://smithery.ai/badge/Perseus-Computing-LLC/perseus)](https://smithery.ai/servers/Perseus-Computing-LLC/perseus)
+[![MCP Marketplace](https://img.shields.io/badge/MCP%20Marketplace-Indexed-blueviolet)](https://getlulu.dev/mcps/perseus-faa880)
 **`pip install perseus-ctx && cd your-project && perseus quickstart`**
 
 Zero to rendered context in three lines — no config spelunking:
