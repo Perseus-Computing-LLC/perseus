@@ -4,8 +4,14 @@
 
 # Perseus™ 🪞 — One command. Zero orientation.
 
-[![Smithery](https://img.shields.io/badge/Smithery-available-brightgreen)](https://smithery.ai/servers/tcconnally/perseus)
+[![Test Suite](https://img.shields.io/github/actions/workflow/status/Perseus-Computing-LLC/perseus/test.yml)](https://github.com/Perseus-Computing-LLC/perseus/actions/workflows/test.yml)
+[![PyPI version](https://img.shields.io/pypi/v/perseus-ctx)](https://pypi.org/project/perseus-ctx/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/perseus-ctx)](https://pypi.org/project/perseus-ctx/)
+[![License: MIT](https://img.shields.io/github/license/Perseus-Computing-LLC/perseus)](https://github.com/Perseus-Computing-LLC/perseus/blob/main/LICENSE)
+[![Glama](https://glama.ai/mcp/servers/Perseus-Computing-LLC/perseus/badge)](https://glama.ai/mcp/servers/Perseus-Computing-LLC/perseus)
 [![MCP Marketplace](https://img.shields.io/badge/MCP%20Marketplace-Indexed-blueviolet)](https://getlulu.dev/mcps/perseus-faa880)
+
+**Published on** [PyPI](https://pypi.org/project/perseus-ctx/) · [Official MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.Perseus-Computing-LLC/perseus) · [Glama](https://glama.ai/mcp/servers/Perseus-Computing-LLC/perseus) · [Smithery](https://smithery.ai/servers/tcconnally/perseus) · [Lulu MCPs](https://getlulu.dev/mcps/perseus-faa880)
 **`pip install perseus-ctx && cd your-project && perseus quickstart`**
 
 Zero to rendered context in three lines — no config spelunking:
