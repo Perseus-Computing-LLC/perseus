@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "ccf0f3d-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "9176e9b-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -25475,7 +25475,10 @@ def cmd_vault_export(args, cfg):
 
     Prose mode (--prose): strips JSON/YAML frontmatter, outputs only the
     human-accreted prose body of each vault entry. Meets CoalWash's input
-    contract for store-neutral prose cleaning.
+    contract for store-neutral prose cleaning (TheColliery/CoalWash#5 §6):
+    output never opens with a `---` fence, never carries NUL bytes, and is
+    strict-UTF-8 — entries that fail to decode or contain NUL are skipped
+    with a warning rather than lossily re-encoded (no U+FFFD introduced).
     """
     vault_path = _vault_path(cfg)
     if not vault_path.is_dir():
@@ -25490,9 +25493,21 @@ def cmd_vault_export(args, cfg):
     lines: list[str] = []
     for md_file in md_files:
         try:
-            text = md_file.read_text(encoding="utf-8", errors="replace")
+            # Strict UTF-8: a lossy re-encode would plant U+FFFD in the
+            # output — the exact byte CoalWash's head check refuses
+            # (datasheet §6). Fail closed: skip undecodable entries.
+            text = md_file.read_text(encoding="utf-8")
         except Exception as exc:
             print(f"Warning: skipping {md_file}: {exc}", file=sys.stderr)
+            continue
+
+        if "\x00" in text:
+            # NUL marks binary/undecodable content; CoalWash refuses it
+            # outright and the flattener must not propagate it.
+            print(
+                f"Warning: skipping {md_file}: contains NUL bytes (binary content)",
+                file=sys.stderr,
+            )
             continue
 
         if not text.strip():
@@ -25504,9 +25519,12 @@ def cmd_vault_export(args, cfg):
             body = body.strip()
             if not body:
                 continue
-            # Use filename stem as a heading for context
+            # Use filename stem as a heading for context. Deliberately an
+            # ATX heading (`##`), never a `---`-opening line: a file that
+            # opens with `---` is fence-checked by CoalWash, and an unclosed
+            # fence is refused at the fence per datasheet §6.
             stem = md_file.stem
-            lines.append(f"--- {stem}")
+            lines.append(f"## {stem}")
             lines.append("")
             lines.append(body)
             lines.append("")
