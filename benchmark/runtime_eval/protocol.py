@@ -337,12 +337,70 @@ def process_identity(pid: int) -> dict[str, int] | None:
         except (OSError, subprocess.SubprocessError):
             pass
         return None
+    identity = _proc_stat_identity(pid)
+    if identity is not None:
+        return identity
+    # #950: macOS/BSD have no /proc — fall back to `ps -o lstart` so
+    # cancellation, recovery, persisted PGID validation, restart/requeue, and
+    # descendant cleanup keep working there (PID-reuse detection relies on the
+    # persisted start timestamp matching the live probe).
+    return _ps_identity(pid)
+
+
+def _proc_stat_identity(pid: int) -> dict[str, int] | None:
+    """Linux identity from /proc/<pid>/stat (starttime + pgrp fields)."""
     try:
         text = Path(f"/proc/{pid}/stat").read_text()
         closing = text.rfind(")")
         fields = text[closing + 2 :].split()
         return {"pid": pid, "start_time": int(fields[19]), "pgid": int(fields[2])}
     except (FileNotFoundError, OSError, ValueError, IndexError):
+        return None
+
+
+def _ps_identity(pid: int) -> dict[str, int] | None:
+    """BSD/macOS fallback: `ps -o pid= -o pgid= -o lstart= -p <pid>`.
+
+    Returns ``None`` (untrackable) when the process is gone or the start
+    timestamp cannot be parsed — callers treat that as cleanup-disabled,
+    which is the conservative choice.
+    """
+    try:
+        completed = subprocess.run(
+            ["ps", "-o", "pid=", "-o", "pgid=", "-o", "lstart=", "-p", str(pid)],
+            capture_output=True, text=True, check=False,
+            env={**os.environ, "LC_ALL": "C"},
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return None
+    m = re.match(r"\s*(\d+)\s+(\d+)\s+(.+?)\s*$", completed.stdout)
+    if m is None:
+        return None
+    start_time = _lstart_to_epoch(m.group(3))
+    if start_time is None:
+        return None
+    return {"pid": pid, "start_time": start_time, "pgid": int(m.group(2))}
+
+
+def _lstart_to_epoch(lstart: str) -> int | None:
+    """Parse ``ps -o lstart`` (e.g. "Tue Aug 11 10:00:00 2026") to epoch seconds.
+
+    ``ps`` prints the start time in local wall-clock; ``strptime`` yields a
+    naive local datetime whose ``.timestamp()`` is the correct local epoch on
+    the same machine — persisted and re-probed values stay comparable.  The
+    day-of-month may be space-padded ("Aug  8"), so the day field is
+    zero-padded before parsing.
+    """
+    norm = re.sub(r"\s+", " ", lstart).strip()
+    m = re.match(r"^(\w{3} \w{3}) (\d{1,2}) (\d{2}:\d{2}:\d{2}) (\d{4})$", norm)
+    if m is None:
+        return None
+    padded = f"{m.group(1)} {m.group(2).zfill(2)} {m.group(3)} {m.group(4)}"
+    try:
+        return int(datetime.strptime(padded, "%a %b %d %H:%M:%S %Y").timestamp())
+    except ValueError:
         return None
 
 
