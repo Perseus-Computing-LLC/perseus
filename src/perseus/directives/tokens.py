@@ -16,9 +16,13 @@ def resolve_tokens(context: str) -> str:
     multiplier baked into product output.
     """
     try:
-        # Prefer plutus' exact tokenizer when available.
+        # Prefer the ledger CLI's exact tokenizer when available (the
+        # pre-2026-08-09 `plutus tokens` binary was renamed with the product;
+        # the ledger CLI currently exposes no `tokens` subcommand, so this
+        # path is dormant and the word-count fallback below is the effective
+        # one until it does).
         process = subprocess.run(
-            ["plutus", "tokens"],
+            ["ledger", "tokens"],
             input=context.encode("utf-8"),
             capture_output=True,
             check=True,
@@ -26,11 +30,11 @@ def resolve_tokens(context: str) -> str:
         token_count = int(process.stdout.strip())
         return f"## Context Budget\n{token_count} tokens rendered"
     except (subprocess.CalledProcessError, FileNotFoundError, ValueError):
-        # Fallback: rough word-count estimate when the plutus tokenizer is absent.
+        # Fallback: rough word-count estimate when the ledger tokenizer is absent.
         words = context.split()
         token_count = int(len(words) * 1.3)
         return (
             "## Context Budget\n"
             f"~{token_count} tokens rendered "
-            "(word-count estimate; install plutus for an exact count)"
+            "(word-count estimate; install perseus-ledger for an exact count)"
         )
