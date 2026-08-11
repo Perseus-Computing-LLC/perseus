@@ -664,14 +664,14 @@ DEFAULT_CONFIG["speculate"] = {
 # (or no db_path/endpoint) Perseus meters nothing, imports no metering deps, and
 # behaves exactly as before. When on, the deploying agent's provider responses
 # can be observed and recorded into a Plutus ledger (local sqlite via db_path,
-# or a remote Plutus via endpoint + PLUTUS_API_KEY), tagged workspace/task_type,
+# or a remote Ledger via endpoint + LEDGER_API_KEY), tagged workspace/task_type,
 # so a production deployment yields a ledger a customer can re-derive by SQL —
 # the ledger the one-pager / savings-statement generators read. See metering.py.
-DEFAULT_CONFIG["plutus"] = {
+DEFAULT_CONFIG["ledger"] = {
     "enabled": False,
-    "db_path": None,          # local Plutus ledger path (observe → self-hosted sqlite)
-    "endpoint": None,         # OR a remote Plutus base URL (mutually exclusive with db_path)
-    "api_key_env": "PLUTUS_API_KEY",  # env var holding the remote API key
+    "db_path": None,          # local Ledger db path (observe → self-hosted sqlite)
+    "endpoint": None,         # OR a remote Ledger base URL (mutually exclusive with db_path)
+    "api_key_env": "LEDGER_API_KEY",  # env var holding the remote API key
     "org": "default",         # org/tenant slug in the ledger
     "workspace": None,        # default workspace tag (deployment/agent id); per-call override wins
     "task_type": "serving",   # default task_type tag; per-call override wins

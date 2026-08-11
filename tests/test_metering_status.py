@@ -31,14 +31,14 @@ class MeteringStatusTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_status_persists_redacted_counters_and_coverage(self):
-        cfg = {"enabled": True, "endpoint": "http://plutus"}
+        cfg = {"enabled": True, "endpoint": "http://ledger"}
         _mtr_status_attempt(cfg)
         _mtr_status_accepted(cfg, has_baseline=True)
         _mtr_status_attempt(cfg)
         _mtr_status_accepted(cfg, has_baseline=False)
         _mtr_status_dropped(cfg, "timeout")
 
-        status = metering_status({"plutus": cfg})
+        status = metering_status({"ledger": cfg})
         self.assertEqual(status["attempts"], 2)
         self.assertEqual(status["accepted_events"], 2)
         self.assertEqual(status["accepted_with_baseline"], 1)
@@ -49,7 +49,7 @@ class MeteringStatusTests(unittest.TestCase):
         self.assertNotIn("api_key", str(status).lower())
 
         _mtr_reset_for_tests()
-        restored = metering_status({"plutus": cfg})
+        restored = metering_status({"ledger": cfg})
         self.assertEqual(restored["accepted_events"], 2)
         self.assertEqual(restored["coverage_pct"], 50.0)
 

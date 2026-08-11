@@ -1,7 +1,7 @@
 """#755 — observe-model runtime cost metering.
 
 Verifies the acceptance criterion: an opt-in Perseus deployment observes its
-agent's provider responses and produces a Plutus ledger whose totals a customer
+agent's provider responses and produces a Ledger whose totals a customer
 can re-derive by raw SQL — and that when unconfigured the meter is a no-op that
 imports nothing and never touches the caller.
 """
@@ -16,9 +16,9 @@ from conftest import perseus
 
 pytestmark = pytest.mark.skipif(perseus is None, reason="requires built perseus.py")
 
-# plutus-agent is the meter Perseus records into; skip if it isn't installed
+# ledger_agent is the meter Perseus records into; skip if it isn't installed
 # (the module itself must still import — that's asserted separately below).
-plutus_agent = pytest.importorskip("plutus_agent")
+ledger_agent = pytest.importorskip("ledger_agent")
 
 
 def _obj(**kw):
@@ -41,7 +41,7 @@ def _anthropic_resp(inp=1500, out=300, model="claude-opus-4-8"):
 
 def _enabled_cfg(ledger):
     c = copy.deepcopy(perseus.DEFAULT_CONFIG)
-    c["plutus"].update({"enabled": True, "db_path": str(ledger),
+    c["ledger"].update({"enabled": True, "db_path": str(ledger),
                         "org": "acme", "workspace": "prod-agent"})
     return c
 
@@ -70,14 +70,26 @@ def test_noop_when_unconfigured(tmp_path):
 
 def test_enabled_requires_a_target():
     c = copy.deepcopy(perseus.DEFAULT_CONFIG)
-    c["plutus"]["enabled"] = True  # but no db_path / endpoint
+    c["ledger"]["enabled"] = True  # but no db_path / endpoint
     assert perseus.metering_enabled(c) is False
+
+
+def test_legacy_plutus_config_key_still_honored(tmp_path):
+    # Pre-2026-08-09 deployments configured metering under the "plutus" key;
+    # it must keep working (read as a legacy alias) after the rename.
+    c = copy.deepcopy(perseus.DEFAULT_CONFIG)
+    c["plutus"] = c.pop("ledger")
+    c["plutus"].update({"enabled": True, "db_path": str(tmp_path / "legacy.db")})
+    assert perseus.metering_enabled(c) is True
+    res = perseus.meter_response(c, _openai_resp())
+    assert res is not None
+    assert (tmp_path / "legacy.db").exists()
 
 
 # ── the acceptance criterion: live session → SQL-rederivable ledger ───────────
 
 def test_session_produces_sql_rederivable_ledger(tmp_path):
-    ledger = tmp_path / "plutus_ledger.db"
+    ledger = tmp_path / "ledger.db"
     cfg = _enabled_cfg(ledger)
 
     r1 = perseus.meter_response(cfg, _openai_resp(), task_type="longmemeval-qa")
@@ -154,11 +166,11 @@ def test_fail_open_swallows_errors_and_counts_drop(tmp_path):
 
 def test_fail_closed_raises_when_configured(tmp_path):
     # with fail_open false and a working ledger, a malformed response (negative
-    # tokens are rejected by plutus) surfaces as an exception instead of a
+    # tokens are rejected by ledger) surfaces as an exception instead of a
     # silent drop, for callers that want metering to be load-bearing.
     ledger = tmp_path / "l.db"
     cfg = _enabled_cfg(ledger)
-    cfg["plutus"]["fail_open"] = False
+    cfg["ledger"]["fail_open"] = False
     bad = _obj(model="x", usage=_obj(prompt_tokens=-1, completion_tokens=0,
                                      completion_tokens_details=None))
     with pytest.raises(Exception):
@@ -169,13 +181,13 @@ def test_fail_closed_raises_when_configured(tmp_path):
 
 def _baselines_supported():
     import inspect as _inspect
-    from plutus_agent import Meter
+    from ledger_agent import Meter
     return "baseline_input_tokens" in _inspect.signature(Meter.track).parameters
 
 
 needs_baselines = pytest.mark.skipif(
     not _baselines_supported(),
-    reason="installed plutus-agent predates savings baselines (plutus #134)")
+    reason="installed ledger_agent predates savings baselines (ledger #134)")
 
 
 @needs_baselines
@@ -242,7 +254,7 @@ def test_context_reduction_noop_when_disabled(tmp_path):
     assert not list(tmp_path.iterdir())
 
 
-def test_old_plutus_agent_drops_baselines_not_spend():
+def test_old_ledger_agent_drops_baselines_not_spend():
     # A meter whose track() predates #134: baselines must be silently dropped
     # (one warning), never passed as unexpected kwargs that would fail the
     # whole event and lose real spend data.

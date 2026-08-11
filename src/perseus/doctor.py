@@ -589,16 +589,18 @@ def _doctor_check_vault_bridge(cfg: dict, workspace: Path) -> DoctorResult:
                            "Verify the perseus-vault binary and the `perseus_vault.command` in config.yaml")
 
 
-def _doctor_check_plutus_metering(cfg: dict, workspace: Path) -> DoctorResult:
-    """Check supported Plutus runtime wiring without exposing secrets."""
-    p = cfg.get("plutus") if isinstance(cfg, dict) else None
+def _doctor_check_ledger_metering(cfg: dict, workspace: Path) -> DoctorResult:
+    """Check supported Ledger runtime wiring without exposing secrets."""
+    p = cfg.get("ledger") if isinstance(cfg, dict) else None
+    if not isinstance(p, dict):
+        p = cfg.get("plutus")  # legacy pre-2026-08-09 key, still honored
     if not isinstance(p, dict) or not p.get("enabled"):
-        return DoctorResult("plutus_metering", "ok", "Plutus metering", "disabled", "")
+        return DoctorResult("ledger_metering", "ok", "Ledger metering", "disabled", "")
     if not (p.get("endpoint") or p.get("db_path")):
         return DoctorResult(
-            "plutus_metering", "error", "Plutus metering",
+            "ledger_metering", "error", "Ledger metering",
             "enabled but no endpoint or db_path is configured",
-            "Set plutus.endpoint or plutus.db_path in config.yaml",
+            "Set ledger.endpoint or ledger.db_path in config.yaml (legacy plutus.* honored)",
         )
     try:
         metering_status = globals().get("metering_status")
@@ -607,19 +609,19 @@ def _doctor_check_plutus_metering(cfg: dict, workspace: Path) -> DoctorResult:
         status = metering_status(cfg)
         if status.get("degraded"):
             return DoctorResult(
-                "plutus_metering", "warn", "Plutus metering",
+                "ledger_metering", "warn", "Ledger metering",
                 f"DEGRADED: {status.get('dropped_events', 0)} dropped, "
                 f"{status.get('coverage_pct', 0):.1f}% baseline coverage",
-                "Inspect metering-status.json and Plutus reachability",
+                "Inspect metering-status.json and Ledger reachability",
             )
         return DoctorResult(
-            "plutus_metering", "ok", "Plutus metering",
+            "ledger_metering", "ok", "Ledger metering",
             f"enabled, {status.get('coverage_pct', 0):.1f}% baseline coverage",
             "",
         )
     except Exception as exc:
-        return DoctorResult("plutus_metering", "error", "Plutus metering", str(exc),
-                           "Verify the installed Perseus/Plutus integration")
+        return DoctorResult("ledger_metering", "error", "Ledger metering", str(exc),
+                           "Verify the installed Perseus/Ledger integration")
 
 
 def _doctor_check_version_header(cfg: dict, workspace: Path) -> DoctorResult:
@@ -1262,7 +1264,7 @@ _DOCTOR_CHECKS = [
     _doctor_check_mcp,
     _doctor_check_cache_writable,
     _doctor_check_vault_bridge,
-    _doctor_check_plutus_metering,
+    _doctor_check_ledger_metering,
     _doctor_check_sessions,
     _doctor_check_version_header,
     _doctor_check_stale_shim,
