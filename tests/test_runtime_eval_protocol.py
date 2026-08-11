@@ -336,12 +336,12 @@ def test_run_id_is_forwarded_as_external_ref_without_changing_usage_kind():
             captured.update(kwargs)
             return type("Result", (), {"recorded": True})()
 
-    fake = type(sys)("plutus_agent")
+    fake = type(sys)("ledger_agent")
     fake.Meter = FakeMeter
-    old = sys.modules.get("plutus_agent")
-    sys.modules["plutus_agent"] = fake
+    old = sys.modules.get("ledger_agent")
+    sys.modules["ledger_agent"] = fake
     try:
-        cfg = {"plutus": {"enabled": True, "db_path": str(path), "org": "test"}}
+        cfg = {"ledger": {"enabled": True, "db_path": str(path), "org": "test"}}
         result = metering.meter_usage(
             cfg,
             "openai",
@@ -351,9 +351,9 @@ def test_run_id_is_forwarded_as_external_ref_without_changing_usage_kind():
         )
     finally:
         if old is None:
-            sys.modules.pop("plutus_agent", None)
+            sys.modules.pop("ledger_agent", None)
         else:
-            sys.modules["plutus_agent"] = old
+            sys.modules["ledger_agent"] = old
 
     assert result.recorded is True
     assert captured["external_ref"] == "run-927"
@@ -704,7 +704,7 @@ def test_metering_rejects_fractional_usage_before_forwarding(monkeypatch, tmp_pa
 
     fake = FakeMeter()
     monkeypatch.setattr(metering, "_mtr_get_meter", lambda cfg: fake)
-    cfg = {"plutus": {"enabled": True, "db_path": str(tmp_path / "ledger.db"), "fail_open": False}}
+    cfg = {"ledger": {"enabled": True, "db_path": str(tmp_path / "ledger.db"), "fail_open": False}}
     with pytest.raises(ValueError):
         metering.meter_usage(cfg, "openai", input_tokens=3.7, output_tokens=2)
     assert fake.calls == []
@@ -978,12 +978,12 @@ def test_meter_response_validates_fractional_usage_before_integration(monkeypatc
         def track(self, **kwargs):
             raise AssertionError("integration received unvalidated usage")
     monkeypatch.setattr(metering, "_mtr_get_meter", lambda cfg: FakeMeter())
-    integrations = types.ModuleType("plutus_agent.integrations")
+    integrations = types.ModuleType("ledger_agent.integrations")
     integrations.track_openai = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("integration called"))
     integrations.track_anthropic = integrations.track_openai
-    monkeypatch.setitem(sys.modules, "plutus_agent.integrations", integrations)
+    monkeypatch.setitem(sys.modules, "ledger_agent.integrations", integrations)
     response = types.SimpleNamespace(usage=types.SimpleNamespace(prompt_tokens=3.7, completion_tokens=2), model="m")
-    cfg = {"plutus": {"enabled": True, "db_path": str(tmp_path / "ledger.db"), "fail_open": False}}
+    cfg = {"ledger": {"enabled": True, "db_path": str(tmp_path / "ledger.db"), "fail_open": False}}
     with pytest.raises(ValueError):
         metering.meter_response(cfg, response, provider="openai")
 
@@ -993,7 +993,7 @@ def test_context_reduction_rejects_fractional_explicit_counts(monkeypatch, tmp_p
         def track(self, **kwargs):
             raise AssertionError("fractional estimate reached ledger")
     monkeypatch.setattr(metering, "_mtr_get_meter", lambda cfg: FakeMeter())
-    cfg = {"plutus": {"enabled": True, "db_path": str(tmp_path / "ledger.db"), "fail_open": False}}
+    cfg = {"ledger": {"enabled": True, "db_path": str(tmp_path / "ledger.db"), "fail_open": False}}
     with pytest.raises(ValueError):
         metering.meter_context_reduction(cfg, actual_tokens=3.7, baseline_tokens=10.9)
 
