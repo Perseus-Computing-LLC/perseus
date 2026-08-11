@@ -11,6 +11,15 @@ _TL_SCHEMA = "perseus-tool-lesson/v1"
 _TL_STATUSES = frozenset({"proposed", "injected", "correlated", "active", "decayed", "rejected", "superseded"})
 _TL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$")
 
+# Outcome-verified trust (#948): attribution classes for failure batches.
+# Attribution peels the CAUSE of a failure batch before any retire decision so
+# healthy memory is never forgotten for a failure it did not cause (PROVE).
+_TL_OUTCOME_ATTRIBUTIONS = frozenset({"skill_defect", "routing_error", "rule_defect", "data_drift", "input_noise"})
+# Failures peeling to these classes are not the lesson's fault.
+_TL_EXCULPATORY_ATTRIBUTIONS = frozenset({"routing_error", "input_noise", "data_drift"})
+# Bounded rolling outcome window retained per lesson (bounded storage).
+_TL_OUTCOME_WINDOW = 64
+
 
 class ToolLessonError(ValueError):
     """Raised when a lesson boundary cannot be represented safely."""
@@ -46,6 +55,22 @@ def _tl_scope(scope: Any) -> dict[str, str]:
     if any(key not in allowed for key in scope):
         raise ToolLessonError("scope contains unsupported fields")
     return {key: _tl_id(scope[key], f"scope.{key}") for key in allowed if scope.get(key) is not None and str(scope[key]).strip()}
+
+
+def _tl_attribution(value: Any) -> str:
+    """Validate a failure-attribution class; fail closed on anything unknown."""
+    if not isinstance(value, str) or value not in _TL_OUTCOME_ATTRIBUTIONS and value != "unknown":
+        raise ToolLessonError(
+            f"attribution must be one of {sorted(_TL_OUTCOME_ATTRIBUTIONS)} or 'unknown'"
+        )
+    return value
+
+
+def _tl_ledger(item: dict[str, Any]) -> dict[str, Any]:
+    return item.setdefault(
+        "outcomes",
+        {"attempts": 0, "successes": 0, "failures": 0, "by_attribution": {}, "recent": []},
+    )
 
 
 def tool_failure_signature(
@@ -92,7 +117,11 @@ class ToolLessonStore:
         self.path.write_text("".join(_tl_json(item) + "\n" for item in self._records.values()), encoding="utf-8")
 
     def telemetry(self) -> dict[str, int]:
-        return {**self._telemetry, "queued": sum(item.get("status") == "proposed" for item in self._records.values())}
+        base = {**self._telemetry, "queued": sum(item.get("status") == "proposed" for item in self._records.values())}
+        base["outcomes_recorded"] = sum(
+            int((item.get("outcomes") or {}).get("attempts", 0)) for item in self._records.values()
+        )
+        return base
 
     def get(self, lesson_id: str) -> dict[str, Any]:
         item = self._records.get(_tl_id(lesson_id, "lesson_id"))
@@ -174,7 +203,75 @@ class ToolLessonStore:
         self._persist()
         return {"schema_version": _TL_SCHEMA, "lesson_id": lesson_id, "classification": classification, "success": bool(success), "causal_confirmation": False}
 
-    def admit_lesson(self, lesson_id: str, *, evidence_refs: list[str]) -> dict[str, Any]:
+    def record_outcome(
+        self, lesson_id: str, *, success: bool, attribution: str = "unknown", evidence_ref: str | None = None,
+    ) -> dict[str, Any]:
+        """Accumulate one outcome on a lesson's ledger (#948).
+
+        The ledger is the deterministic basis for win-rate gates: attempts,
+        successes, failures (by attribution class), and a bounded rolling
+        window. A success after injection records the same temporal
+        correlation transition as ``record_follow_up``; it is correlation,
+        not causal proof (governed admission still requires evidence).
+        Terminal lessons are frozen — record outcomes on a live lesson only.
+        """
+        item = self._records.get(_tl_id(lesson_id, "lesson_id"))
+        if item is None:
+            raise ToolLessonError("unknown lesson")
+        if not isinstance(success, bool):
+            raise ToolLessonError("success must be a boolean")
+        attribution = _tl_attribution(attribution)
+        if item.get("status") in {"decayed", "rejected", "superseded"}:
+            raise ToolLessonError("terminal lesson cannot record outcomes")
+        if evidence_ref:
+            ref = _tl_id(evidence_ref, "evidence_ref")
+            if ref not in item["evidence_refs"]:
+                item["evidence_refs"].append(ref)
+        ledger = _tl_ledger(item)
+        ledger["attempts"] += 1
+        if success:
+            ledger["successes"] += 1
+            if item["status"] == "injected":
+                item["status"] = "correlated"
+        else:
+            ledger["failures"] += 1
+            ledger["by_attribution"][attribution] = ledger["by_attribution"].get(attribution, 0) + 1
+        ledger["recent"].append({"s": success, "a": attribution})
+        del ledger["recent"][:-_TL_OUTCOME_WINDOW]
+        self._persist()
+        return {
+            "schema_version": _TL_SCHEMA, "lesson_id": lesson_id,
+            "attempts": ledger["attempts"], "successes": ledger["successes"],
+            "failures": ledger["failures"], "causal_confirmation": False,
+        }
+
+    def win_rate(self, lesson_id: str, *, window: int | None = None, min_attempts: int = 0) -> dict[str, Any]:
+        """Deterministic win-rate over the full ledger or the recent tail."""
+        item = self._records.get(_tl_id(lesson_id, "lesson_id"))
+        if item is None:
+            raise ToolLessonError("unknown lesson")
+        ledger = _tl_ledger(item)
+        if window is None:
+            attempts = int(ledger["attempts"])
+            successes = int(ledger["successes"])
+            failures = int(ledger["failures"])
+        else:
+            w = max(1, min(10_000, int(window)))
+            recent = ledger["recent"][-w:]
+            attempts = len(recent)
+            successes = sum(1 for entry in recent if entry["s"])
+            failures = attempts - successes
+        return {
+            "lesson_id": lesson_id,
+            "attempts": attempts, "successes": successes, "failures": failures,
+            "win_rate": (successes / attempts) if attempts > 0 else None,
+            "sufficient_sample": attempts >= max(1, int(min_attempts)),
+        }
+
+    def admit_lesson(
+        self, lesson_id: str, *, evidence_refs: list[str],
+        require_win_rate: bool = False, min_win_rate: float = 0.7, min_attempts: int = 5,
+    ) -> dict[str, Any]:
         item = self._records.get(_tl_id(lesson_id, "lesson_id"))
         if item is None:
             raise ToolLessonError("unknown lesson")
@@ -183,10 +280,85 @@ class ToolLessonStore:
             raise ToolLessonError("governed admission requires evidence")
         if item.get("status") in {"decayed", "rejected", "superseded"}:
             raise ToolLessonError("terminal lesson cannot be admitted")
+        if require_win_rate:
+            # Outcome-verified admission (#948): the ledger is the held-out
+            # deterministic check — the reporter's claim is not enough.
+            if isinstance(min_win_rate, bool) or not isinstance(min_win_rate, (int, float)) or not 0.0 <= min_win_rate <= 1.0:
+                raise ToolLessonError("min_win_rate must be a number in [0, 1]")
+            try:
+                min_attempts_i = max(1, int(min_attempts))
+            except (TypeError, ValueError):
+                raise ToolLessonError("min_attempts must be a positive integer")
+            stats = self.win_rate(lesson_id, min_attempts=min_attempts_i)
+            if not stats["sufficient_sample"]:
+                raise ToolLessonError(f"outcome-verified admission requires at least {min_attempts_i} recorded attempts")
+            if stats["win_rate"] is None or stats["win_rate"] < min_win_rate:
+                raise ToolLessonError("outcome-verified admission requires win_rate >= min_win_rate")
         item["evidence_refs"] = sorted(set(item["evidence_refs"]) | set(refs))
         item["status"] = "active"
         self._persist()
         return dict(item)
+
+    def triage_lesson(
+        self, lesson_id: str, *, min_attempts: int = 8, collapse_win_rate: float = 0.5, exculpation_ratio: float = 0.6,
+    ) -> dict[str, Any]:
+        """Outcome-gated retirement with attribution peeling (#948).
+
+        Verdicts (all deterministic):
+        - ``insufficient_sample`` — fewer than ``min_attempts`` outcomes; no mutation.
+        - ``healthy`` — win rate at or above ``collapse_win_rate``; no mutation.
+        - ``exonerated`` — win rate collapsed but failures peel predominantly to
+          routing/input/drift attribution (not the lesson's fault); no mutation.
+        - ``retire`` — win rate collapsed and failures peel to lesson-fault or
+          unattributed classes; the lesson is decayed with the attribution
+          breakdown recorded in ``decay_reason``.
+        """
+        item = self._records.get(_tl_id(lesson_id, "lesson_id"))
+        if item is None:
+            raise ToolLessonError("unknown lesson")
+        if item.get("status") in {"decayed", "rejected", "superseded"}:
+            raise ToolLessonError("terminal lesson cannot be triaged")
+        if isinstance(collapse_win_rate, bool) or not isinstance(collapse_win_rate, (int, float)) or not 0.0 <= collapse_win_rate <= 1.0:
+            raise ToolLessonError("collapse_win_rate must be a number in [0, 1]")
+        if isinstance(exculpation_ratio, bool) or not isinstance(exculpation_ratio, (int, float)) or not 0.0 <= exculpation_ratio <= 1.0:
+            raise ToolLessonError("exculpation_ratio must be a number in [0, 1]")
+        try:
+            min_attempts_i = max(1, int(min_attempts))
+        except (TypeError, ValueError):
+            raise ToolLessonError("min_attempts must be a positive integer")
+        stats = self.win_rate(lesson_id)
+        ledger = _tl_ledger(item)
+        by_attribution = dict(ledger.get("by_attribution", {}))
+        failures = stats["failures"]
+        lesson_fault = sum(by_attribution.get(name, 0) for name in ("skill_defect", "rule_defect"))
+        exculpated = sum(by_attribution.get(name, 0) for name in _TL_EXCULPATORY_ATTRIBUTIONS)
+        verdict: dict[str, Any] = {
+            "lesson_id": lesson_id,
+            "attempts": stats["attempts"], "win_rate": stats["win_rate"],
+            "attribution": by_attribution, "lesson_fault": lesson_fault, "exculpated": exculpated,
+        }
+        if stats["attempts"] < min_attempts_i:
+            verdict["verdict"] = "insufficient_sample"
+            verdict["reason"] = f"needs at least {min_attempts_i} recorded attempts"
+            return verdict
+        if stats["win_rate"] is None or stats["win_rate"] >= collapse_win_rate:
+            verdict["verdict"] = "healthy"
+            return verdict
+        # Collapsed. Peel the failure batch before any retire decision: a
+        # lesson whose failures are predominantly not its own fault is
+        # exonerated, never retired (PROVE).
+        if failures > 0 and (exculpated / failures) >= exculpation_ratio:
+            verdict["verdict"] = "exonerated"
+            verdict["reason"] = "failures peel to routing/input/drift attribution; not the lesson's fault"
+            return verdict
+        reason = (
+            f"win_rate_collapsed:{stats['win_rate']:.2f}:lesson_fault:{lesson_fault}:exculpated:{exculpated}"
+        )
+        item["status"] = "decayed"
+        item["decay_reason"] = reason
+        self._persist()
+        verdict.update({"verdict": "retire", "reason": reason})
+        return verdict
 
     def decay_lesson(self, lesson_id: str, *, reason: str) -> dict[str, Any]:
         item = self._records.get(_tl_id(lesson_id, "lesson_id"))
