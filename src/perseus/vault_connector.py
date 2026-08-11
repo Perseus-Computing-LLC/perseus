@@ -2935,7 +2935,7 @@ def _maybe_meter_posture_reduction(cfg: dict, actual_block: str | None,
                                    mcfg: dict, limit: int, workspace) -> None:
     """#805: opt-in counterfactual metering for the recall-first posture.
 
-    When ``plutus.meter_memory_posture`` is true AND metering is enabled, size
+    When ``ledger.meter_memory_posture`` is true AND metering is enabled, size
     the memory block the legacy ``always`` posture would have injected and
     record one estimate-arm reduction event (actual injected block vs that
     dump) via :func:`perseus.metering.meter_context_reduction`. This is what
