@@ -1,9 +1,9 @@
 # ── Runtime cost metering (observe model) — issue #755 ────────────────────────
-"""Record real, provider-reported LLM usage into a Plutus ledger at runtime.
+"""Record real, provider-reported LLM usage into a Ledger at runtime.
 
 Perseus does **not** broker LLM calls. The deploying agent makes its own
 provider calls; this module lets that agent *observe* each response and meter
-the provider-reported token usage into a Plutus ledger, tagged by ``workspace``
+the provider-reported token usage into a Ledger, tagged by ``workspace``
 and ``task_type``. The result is that a real deployment produces a ledger whose
 totals a customer can independently re-derive by SQL over ``usage_events`` — the
 same ground-truth rule the #749 cost-savings benchmark follows — so the
@@ -12,8 +12,9 @@ not just the benchmark's. This is the lab→production bridge in #755.
 
 Design guarantees:
 
-- **Opt-in.** Controlled by the ``plutus`` config block. Unconfigured or
-  disabled → this module does nothing and imports nothing (``plutus_agent`` is
+- **Opt-in.** Controlled by the ``ledger`` config block (the pre-2026-08-09
+  ``plutus`` key is still honored as a legacy alias). Unconfigured or
+  disabled → this module does nothing and imports nothing (``ledger_agent`` is
   imported lazily), so there is zero overhead and zero new dependency for the
   common case.
 - **Never breaks the caller.** Metering is side-channel: with ``fail_open``
@@ -21,7 +22,7 @@ Design guarantees:
   counted (``metering_dropped_events()``) so silent loss is observable — a
   metering failure must never fail the serving call.
 - **Authoritative usage first.** We read the provider ``usage`` block (and pass
-  ``cost_usd`` when the provider supplies it); plutus PR #107's reconciler trues
+  ``cost_usd`` when the provider supplies it); ledger #107's reconciler trues
   up estimates at period close.
 
 NOTE: symbols are ``_mtr_``-namespaced because Perseus builds into a single flat
@@ -40,11 +41,11 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Optional
 
-# ``plutus_agent`` is intentionally NOT imported at module load — see the
+# ``ledger_agent`` is intentionally NOT imported at module load — see the
 # opt-in guarantee above. It is imported lazily inside ``_mtr_get_meter``.
 
 _MTR_LOCK = threading.Lock()
-_MTR_METERS: dict = {}      # cache key -> plutus_agent.Meter | None (built once)
+_MTR_METERS: dict = {}      # cache key -> ledger_agent.Meter | None (built once)
 _MTR_DROPPED = 0            # events we failed to record (surfaced for ops)
 _MTR_WARNED = False         # so a broken meter warns once, not per call
 _MTR_CONTEXT_BASELINE: ContextVar[dict | None] = ContextVar(
@@ -65,7 +66,13 @@ _MTR_STATUS_PATH_CACHE: Path | None = None
 
 
 def _mtr_cfg(cfg: dict) -> dict:
-    p = cfg.get("plutus") if isinstance(cfg, dict) else None
+    if not isinstance(cfg, dict):
+        return {}
+    # Canonical key is "ledger"; the pre-2026-08-09 "plutus" key is honored as
+    # a legacy alias so existing deployments keep working unchanged.
+    p = cfg.get("ledger")
+    if not isinstance(p, dict):
+        p = cfg.get("plutus")
     return p if isinstance(p, dict) else {}
 
 
@@ -210,9 +217,9 @@ def _mtr_cache_key(p: dict) -> tuple:
 
 
 def _mtr_get_meter(cfg: dict):
-    """Return a cached ``plutus_agent.Meter`` for this config, or ``None``.
+    """Return a cached ``ledger_agent.Meter`` for this config, or ``None``.
 
-    Built once per (target, org). Any construction failure (plutus_agent not
+    Built once per (target, org). Any construction failure (ledger_agent not
     installed, bad path, missing API key) degrades to ``None`` with a single
     warning — metering is then a no-op, never an error.
     """
@@ -225,27 +232,27 @@ def _mtr_get_meter(cfg: dict):
             return _MTR_METERS[key]
         meter = None
         try:
-            from plutus_agent import Meter  # lazy — see module docstring
+            from ledger_agent import Meter  # lazy — see module docstring
             org = p.get("org") or "default"
             endpoint = p.get("endpoint")
             if endpoint:
-                api_key = os.environ.get(p.get("api_key_env") or "PLUTUS_API_KEY")
+                api_key = os.environ.get(p.get("api_key_env") or "LEDGER_API_KEY")
                 meter = Meter(org=org, remote=endpoint, api_key=api_key)
             else:
                 meter = Meter(org=org, db_path=p.get("db_path"), create=True)
         except ImportError:
-            _mtr_warn_once("pip install plutus-agent to meter runtime usage")
+            _mtr_warn_once("pip install perseus-ledger to meter runtime usage")
         except Exception as exc:  # bad path / missing key / unreachable endpoint
-            _mtr_warn_once(f"could not open Plutus ledger ({exc})")
+            _mtr_warn_once(f"could not open Ledger ledger ({exc})")
         _MTR_METERS[key] = meter
         return meter
 
 
 def _mtr_track_supports_baselines(meter) -> bool:
-    """True when the installed plutus-agent's ``Meter.track`` accepts the
-    savings-baseline kwargs (plutus #134, > 1.0.1).
+    """True when the installed ledger_agent's ``Meter.track`` accepts the
+    savings-baseline kwargs (ledger #134, > 1.0.1).
 
-    Older plutus-agents meter spend fine but cannot carry a counterfactual;
+    Older ledger_agent versions meter spend fine but cannot carry a counterfactual;
     passing the kwargs anyway would raise TypeError and (fail-open) drop the
     WHOLE event — losing real spend data to gain nothing. So baselines are
     forwarded only when supported, and silently dropped (with one warning)
@@ -269,8 +276,8 @@ def _mtr_baseline_kwargs(meter, baseline_cost_usd, baseline_model,
                        if baseline_output_tokens is not None else None)
     if not _mtr_track_supports_baselines(meter):
         _mtr_warn_once(
-            "installed plutus-agent predates savings baselines (plutus #134); "
-            "spend is metered, counterfactuals are dropped — upgrade plutus-agent"
+            "installed ledger_agent predates savings baselines (ledger #134); "
+            "spend is metered, counterfactuals are dropped — upgrade perseus-ledger"
         )
         return {}
     kw: dict = {}
@@ -377,7 +384,7 @@ def meter_response(cfg: dict, response: Any, *, provider: Optional[str] = None,
 
     ``response`` is the object a provider SDK returned (or a dict with a
     ``usage`` block). The provider is auto-detected from the usage shape unless
-    given. ``task_type`` / ``workspace`` default to the ``plutus`` config block.
+    given. ``task_type`` / ``workspace`` default to the ``ledger`` config block.
     Returns the ``MeterResult`` on success, or ``None`` when metering is off or
     the event was dropped. Never raises when ``fail_open`` (the default).
 
@@ -386,8 +393,8 @@ def meter_response(cfg: dict, response: Any, *, provider: Optional[str] = None,
     counterfactual token counts, e.g. the full-context prompt a recall
     replaced; priced by Plutus from its published table), ``baseline_model``
     (same tokens at another model = substitution savings), or an explicit
-    ``baseline_cost_usd``. Requires plutus-agent with plutus#134; an older
-    plutus-agent still meters spend and drops the baseline with one warning.
+    ``baseline_cost_usd``. Requires ledger_agent with ledger#134; an older
+    ledger_agent still meters spend and drops the baseline with one warning.
     """
     global _MTR_DROPPED
     p = _mtr_cfg(cfg)
@@ -433,7 +440,7 @@ def meter_response(cfg: dict, response: Any, *, provider: Optional[str] = None,
                 reasoning_tokens=usage["reasoning"],
                 source="perseus", external_ref=run_id)
         else:
-            from plutus_agent.integrations import track_anthropic, track_openai
+            from ledger_agent.integrations import track_anthropic, track_openai
             if provider == "anthropic":
                 res = track_anthropic(meter, response, model=model,
                                       task_type=task_type, workspace=workspace)
@@ -544,7 +551,7 @@ def meter_context_reduction(cfg: dict, *, actual_text: Optional[str] = None,
 
     IMPORTANT ledger semantics: this event is an ESTIMATE of context size, not
     a provider-billed call, so it is metered into a DEDICATED workspace
-    (``plutus.estimates_workspace``, default ``perseus-render-estimates``) and
+    (``ledger.estimates_workspace``, default ``perseus-render-estimates``) and
     never mixed into the real-spend workspace. Real provable savings for
     billing should instead attach ``baseline_input_tokens`` to the REAL
     provider-billed event via :func:`meter_response` — this helper exists so a
