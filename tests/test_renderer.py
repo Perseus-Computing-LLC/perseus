@@ -816,13 +816,13 @@ def test_cache_fingerprint_no_deps_still_caches(tmp_path):
     assert r1 == r2  # cached output matches
 
 
-@pytest.mark.skip(reason="Pre-existing: Vault→Vault config key rename")
 def test_cache_fingerprint_memory_changes_with_vault_config(tmp_path):
     """Changing the active Vault connector config invalidates @memory cache keys."""
     c1 = cfg()
-    c1["vault"]["command"] = ["vault"]
+    c1["perseus_vault"]["command"] = ["perseus-vault", "serve"]
     c2 = cfg()
-    c2["vault"]["command"] = ["vault", "--db", "/tmp/other-vault.db"]
+    c2["perseus_vault"]["command"] = ["perseus-vault", "serve",
+                                      "--db", "/tmp/other-vault.db"]
 
     fp1 = perseus._dependency_fingerprint(
         "@memory",
