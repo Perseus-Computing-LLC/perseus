@@ -133,6 +133,9 @@ def test_installer_reports_missing_pyyaml(tmp_path, monkeypatch):
     fake_py.chmod(0o755)
 
     env = os.environ.copy()
+    # This test exercises the PATH fallback, so an ambient PYTHON export must
+    # not redirect the installer to a real interpreter that has yaml.
+    env.pop("PYTHON", None)
     env["PATH"] = f"{fake_bin}:{env.get('PATH','')}"
     out = _run(["bash", str(INSTALLER), "--prefix", str(tmp_path / "prefix")], env=env)
     assert out.returncode != 0
