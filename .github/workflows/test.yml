@@ -124,7 +124,10 @@ jobs:
 
   test-windows:
     runs-on: windows-latest
-    timeout-minutes: 10
+    # Windows runners are slow: the full suite plus setup exceeds 10 minutes
+    # (observed cancellation at 10m07s, 2026-08-12). 15 keeps a real ceiling
+    # without flaky mid-suite cancellations.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -153,7 +156,7 @@ jobs:
 
       - name: Run test suite
         shell: pwsh
-        timeout-minutes: 10
+        timeout-minutes: 15
         run: |
           $ErrorActionPreference = "Stop"
           python -m pytest tests/ -q --durations=20
