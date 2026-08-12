@@ -11,10 +11,16 @@
 #   ./scripts/install.sh --uninstall      # remove installed shim and runtime
 #   ./scripts/install.sh --version        # print the version that would be installed
 #
+# Environment:
+#   PYTHON   interpreter for the python3 invocations and the installed shim
+#            (default: python3 — resolved from PATH). Tests pin this to the
+#            venv interpreter so installs verify identically everywhere.
+#
 # Idempotent: re-running upgrades in place.
 set -euo pipefail
 
 PERSEUS_MIN_PY=10  # minor version (3.10+)
+PYTHON="${PYTHON:-python3}"
 PREFIX="${PERSEUS_PREFIX:-$HOME/.local}"
 ACTION="install"
 
@@ -45,7 +51,7 @@ INSTALLED_RUNTIME="$LIB_DIR/perseus.py"
 INSTALLED_SHIM="$BIN_DIR/perseus"
 
 if [ "$ACTION" = "version" ]; then
-    python3 "$SRC" --version
+    "$PYTHON" "$SRC" --version
     exit 0
 fi
 
@@ -60,20 +66,20 @@ if [ "$ACTION" = "uninstall" ]; then
 fi
 
 # --- preflight checks ----------------------------------------------------------
-command -v python3 >/dev/null 2>&1 || die "python3 not found on PATH (Perseus needs Python 3.${PERSEUS_MIN_PY}+)"
+command -v "$PYTHON" >/dev/null 2>&1 || die "$PYTHON not found on PATH (Perseus needs Python 3.${PERSEUS_MIN_PY}+)"
 
-PY_OK=$(python3 - <<EOF
+PY_OK=$("$PYTHON" - <<EOF
 import sys
 sys.exit(0 if sys.version_info >= (3, ${PERSEUS_MIN_PY}) else 1)
 EOF
 ) && rc=$? || rc=$?
 if [ ${rc:-1} -ne 0 ]; then
-    pyv=$(python3 -c 'import sys;print("%d.%d"%sys.version_info[:2])')
+    pyv=$("$PYTHON" -c 'import sys;print("%d.%d"%sys.version_info[:2])')
     die "Python 3.${PERSEUS_MIN_PY}+ required (found $pyv)"
 fi
 
-if ! python3 -c 'import yaml' >/dev/null 2>&1; then
-    die "missing dependency: pyyaml. Install with: python3 -m pip install --user pyyaml"
+if ! "$PYTHON" -c 'import yaml' >/dev/null 2>&1; then
+    die "missing dependency: pyyaml. Install with: $PYTHON -m pip install --user pyyaml"
 fi
 
 # --- install -------------------------------------------------------------------
@@ -83,7 +89,7 @@ install -m 0644 "$SRC" "$INSTALLED_RUNTIME"
 cat > "$INSTALLED_SHIM" <<EOF
 #!/usr/bin/env bash
 # Perseus shim — installed by scripts/install.sh.
-exec python3 "$INSTALLED_RUNTIME" "\$@"
+exec "$PYTHON" "$INSTALLED_RUNTIME" "\$@"
 EOF
 chmod +x "$INSTALLED_SHIM"
 

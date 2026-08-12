@@ -330,9 +330,16 @@ def render_artifact(repo_root: Path) -> str:
     return output
 
 
-def _git_build_sha(repo_root: Path) -> str:
+def _git_build_sha(repo_root: Path, artifact_rel_path: str = "perseus.py") -> str:
     """Short commit SHA of the build source, with -dirty marker if the tree
-    has uncommitted changes. Empty string when git is unavailable (#853)."""
+    has uncommitted changes. Empty string when git is unavailable (#853).
+
+    The artifact file itself is EXCLUDED from the dirty check: perseus.py is
+    generated from src/, so its own staleness is never "source dirt". Without
+    this, building twice on a fresh checkout embeds ``<sha>`` first (clean
+    tree) and ``<sha>-dirty`` second (the first build just rewrote the
+    artifact) — breaking byte-for-byte release repeatability (#953).
+    """
     try:
         r = subprocess.run(
             ["git", "-C", str(repo_root), "rev-parse", "--short", "HEAD"],
@@ -345,8 +352,19 @@ def _git_build_sha(repo_root: Path) -> str:
             ["git", "-C", str(repo_root), "status", "--porcelain"],
             capture_output=True, text=True, timeout=10,
         )
-        if dirty.returncode == 0 and dirty.stdout.strip():
-            sha += "-dirty"
+        if dirty.returncode == 0:
+            for line in dirty.stdout.splitlines():
+                if not line.strip():
+                    continue
+                # Porcelain: "XY <path>" — strip the status columns. Renames
+                # use "R  old -> new"; the artifact can only be a destination.
+                path = line[3:].strip().strip('"')
+                if " -> " in path:
+                    path = path.split(" -> ", 1)[1].strip()
+                if path == artifact_rel_path or path.startswith(artifact_rel_path + "/"):
+                    continue
+                sha += "-dirty"
+                break
         return sha
     except Exception:
         return ""
