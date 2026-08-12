@@ -16,6 +16,13 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5 (2026-07-16)
         with:
           repository: Perseus-Computing-LLC/perseus-vault
+          # #958: PINNED to a known-good vault SHA. The gate previously
+          # followed vault main at run time, so any broken vault push (e.g.
+          # 9f91028e, 2026-08-12) turned this gate red through no perseus
+          # change. Bump procedure: pick a vault main commit whose own CI is
+          # green (Build and Test + Memory quality gate), update this ref,
+          # and merge — the gate is deterministic and auditable.
+          ref: fe62d54e8768f8ac38f65d89f72a0fb4d8791ba4  # vault main, 2026-08-12, quality gate green (#989)
           path: perseus-vault
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5 (2025-04-24)
