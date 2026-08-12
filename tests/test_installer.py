@@ -38,6 +38,16 @@ def _bash_available():
     return shutil.which("bash") is not None
 
 
+def _install_env(**extra: str) -> dict:
+    """Environment for install.sh with the interpreter pinned to this
+    process's python — the script falls back to bare `python3` otherwise,
+    which may lack the project's deps outside CI (venv escape)."""
+    env = os.environ.copy()
+    env["PYTHON"] = sys.executable
+    env.update(extra)
+    return env
+
+
 def test_installer_script_present_and_executable():
     assert INSTALLER.exists(), "scripts/install.sh missing"
     assert os.access(INSTALLER, os.X_OK), "install.sh must be executable"
@@ -53,7 +63,7 @@ def test_source_checkout_version_still_works():
 def test_installer_version_dry_run():
     if not _bash_available():
         pytest.skip("bash not available")
-    out = _run(["bash", str(INSTALLER), "--version"])
+    out = _run(["bash", str(INSTALLER), "--version"], env=_install_env())
     assert out.returncode == 0, out.stderr
     assert out.stdout.startswith("perseus v")
 
@@ -63,7 +73,7 @@ def test_installer_full_install_and_uninstall(tmp_path):
     if not _bash_available():
         pytest.skip("bash not available")
 
-    out = _run(["bash", str(INSTALLER), "--prefix", str(tmp_path)])
+    out = _run(["bash", str(INSTALLER), "--prefix", str(tmp_path)], env=_install_env())
     assert out.returncode == 0, f"installer failed: {out.stderr}\n{out.stdout}"
 
     shim = tmp_path / "bin" / "perseus"
@@ -77,12 +87,12 @@ def test_installer_full_install_and_uninstall(tmp_path):
     assert shim_ver == src_ver, f"installed shim version mismatch: {shim_ver} != {src_ver}"
 
     # AC #1: idempotent reinstall.
-    out2 = _run(["bash", str(INSTALLER), "--prefix", str(tmp_path)])
+    out2 = _run(["bash", str(INSTALLER), "--prefix", str(tmp_path)], env=_install_env())
     assert out2.returncode == 0
     assert shim.exists()
 
     # Uninstall is clean.
-    out3 = _run(["bash", str(INSTALLER), "--prefix", str(tmp_path), "--uninstall"])
+    out3 = _run(["bash", str(INSTALLER), "--prefix", str(tmp_path), "--uninstall"], env=_install_env())
     assert out3.returncode == 0
     assert not shim.exists()
     assert not runtime.exists()

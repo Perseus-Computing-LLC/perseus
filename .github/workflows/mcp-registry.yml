@@ -19,7 +19,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5 (2026-07-16)
 
       - name: Wait for PyPI to serve this version
         # The release event triggers this workflow and publish.yml (PyPI)
