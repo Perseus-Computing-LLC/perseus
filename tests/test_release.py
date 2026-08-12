@@ -42,6 +42,17 @@ def _bash_available():
     return shutil.which("bash") is not None
 
 
+def _release_env(dist: Path) -> dict:
+    """Environment for release.sh: pin the interpreter to this process's
+    python (no venv escape — bare `python3` may lack the project's deps) and
+    redirect the output dir to an isolated location so runs are
+    order-independent and never touch the repo's real dist/."""
+    env = os.environ.copy()
+    env["PYTHON"] = sys.executable
+    env["RELEASE_DIST_DIR"] = str(dist)
+    return env
+
+
 # ---------------------------------------------------------------------------
 # AC #1 — version coherence
 # ---------------------------------------------------------------------------
@@ -131,7 +142,7 @@ def test_release_verify_mode():
     """AC #2 (light): --verify passes with coherent version state."""
     if not _bash_available():
         pytest.skip("bash not available")
-    out = _run(["bash", str(RELEASE_SH), "--verify"])
+    out = _run(["bash", str(RELEASE_SH), "--verify"], env=_release_env(Path("/tmp")))
     assert out.returncode == 0, f"release.sh --verify failed:\n{out.stderr}\n{out.stdout}"
     assert "version coherence ok" in out.stdout
 
@@ -141,26 +152,20 @@ def test_release_verify_mode():
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
-def dist_dir(tmp_path):
-    """Run release.sh build into a temp dist dir and yield its Path."""
+@pytest.fixture(scope="module")
+def dist_dir(tmp_path_factory):
+    """Run release.sh build ONCE into an isolated temp dist dir and yield
+    (dist, version, build-result). Module scope means all artifact tests
+    share one deterministic build; the env override (RELEASE_DIST_DIR +
+    PYTHON) keeps builds out of the repo's real dist/ so test order and
+    repeated runs cannot pollute each other."""
     if not _bash_available():
         pytest.skip("bash not available")
 
+    dist = tmp_path_factory.mktemp("release-dist")
     version = VERSION_FILE.read_text(encoding="utf-8").strip()
-    env = os.environ.copy()
-    # Point DIST_DIR at tmp_path by overriding via env not supported directly —
-    # release.sh resolves dist relative to REPO_ROOT.  Run with a patched
-    # release script that accepts --dist-dir, OR use a copy approach.
-    # Since the script resolves DIST_DIR as $REPO_ROOT/dist, we redirect by
-    # temporarily symlinking — simplest: just build to the real dist/ and
-    # validate, then clean up.
-    out = _run(["bash", str(RELEASE_SH)], env=env)
-    real_dist = REPO_ROOT / "dist"
-    yield real_dist, version, out
-    # Cleanup: remove dist/ after test
-    if real_dist.exists():
-        shutil.rmtree(real_dist)
+    out = _run(["bash", str(RELEASE_SH)], env=_release_env(dist))
+    return dist, version, out
 
 
 def test_release_build_produces_tarball(dist_dir):
@@ -250,7 +255,7 @@ def test_release_check_mode_passes_after_build(dist_dir):
     assert out.returncode == 0
     if shutil.which("sha256sum") is None:
         pytest.skip("sha256sum not available")
-    check = _run(["bash", str(RELEASE_SH), "--check"])
+    check = _run(["bash", str(RELEASE_SH), "--check"], env=_release_env(dist))
     assert check.returncode == 0, f"release.sh --check failed:\n{check.stderr}\n{check.stdout}"
     assert "checksums verified" in check.stdout
 
@@ -262,7 +267,7 @@ def test_release_is_repeatable(dist_dir):
     sha1 = (dist / "SHA256SUMS").read_text(encoding="utf-8").strip()
 
     # Second build
-    out2 = _run(["bash", str(RELEASE_SH)])
+    out2 = _run(["bash", str(RELEASE_SH)], env=_release_env(dist))
     assert out2.returncode == 0, f"Second build failed:\n{out2.stderr}"
     sha2 = (dist / "SHA256SUMS").read_text(encoding="utf-8").strip()
 
