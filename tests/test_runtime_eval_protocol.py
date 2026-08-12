@@ -1,6 +1,7 @@
 """Focused #927 runtime-evaluation protocol contract tests."""
 from __future__ import annotations
 
+import datetime
 import importlib.util
 import json
 import os
@@ -438,6 +439,95 @@ def test_windows_process_identity_uses_platform_probe(monkeypatch):
     monkeypatch.setattr(protocol.os, "name", "nt", raising=False)
     monkeypatch.setattr(protocol.subprocess, "run", lambda *a, **kw: Completed())
     assert protocol.process_identity(1234) == {"pid": 1234, "start_time": 1234, "pgid": 1234}
+
+
+def test_macos_process_identity_uses_ps_fallback(monkeypatch):
+    """macOS has no /proc — identity must come from `ps -o lstart` (#950)."""
+    class FakePath:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def read_text(self):
+            raise FileNotFoundError("no /proc on macOS")
+
+    monkeypatch.setattr(protocol, "Path", FakePath)
+    # Simulate macOS on every runner (Windows would take the nt branch).
+    monkeypatch.setattr(protocol.os, "name", "posix", raising=False)
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(
+            cmd, 0, "   1234     567 Tue Aug 11 10:00:00 2026\n", "")
+
+    monkeypatch.setattr(protocol.subprocess, "run", fake_run)
+    identity = protocol.process_identity(1234)
+    assert identity["pid"] == 1234
+    assert identity["pgid"] == 567
+    assert identity["start_time"] == int(datetime.datetime.strptime(
+        "Tue Aug 11 10:00:00 2026", "%a %b %d %H:%M:%S %Y").timestamp())
+    assert captured["cmd"] == ["ps", "-o", "pid=", "-o", "pgid=",
+                               "-o", "lstart=", "-p", "1234"]
+
+
+def test_macos_process_identity_padded_day_parses(monkeypatch):
+    """`ps` left-pads single-digit days ("Aug  8") — must still parse."""
+    class FakePath:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def read_text(self):
+            raise FileNotFoundError("no /proc on macOS")
+
+    monkeypatch.setattr(protocol, "Path", FakePath)
+    # Simulate macOS on every runner (Windows would take the nt branch).
+    monkeypatch.setattr(protocol.os, "name", "posix", raising=False)
+    monkeypatch.setattr(
+        protocol.subprocess, "run",
+        lambda cmd, **kw: subprocess.CompletedProcess(
+            cmd, 0, "  1234     567 Mon Aug  8 09:30:00 2026\n", ""))
+    identity = protocol.process_identity(1234)
+    assert identity["pgid"] == 567
+    assert identity["start_time"] == int(datetime.datetime.strptime(
+        "Mon Aug 08 09:30:00 2026", "%a %b %d %H:%M:%S %Y").timestamp())
+
+
+def test_macos_process_identity_missing_process_returns_none(monkeypatch):
+    """A dead/reaped PID must be untrackable, not a cleanup false-positive."""
+    class FakePath:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def read_text(self):
+            raise FileNotFoundError("no /proc on macOS")
+
+    monkeypatch.setattr(protocol, "Path", FakePath)
+    # Simulate macOS on every runner (Windows would take the nt branch).
+    monkeypatch.setattr(protocol.os, "name", "posix", raising=False)
+    monkeypatch.setattr(
+        protocol.subprocess, "run",
+        lambda cmd, **kw: subprocess.CompletedProcess(
+            cmd, 1, "", "ps: no such process"))
+    assert protocol.process_identity(999999) is None
+
+
+def test_macos_process_identity_unparseable_lstart_returns_none(monkeypatch):
+    """Zombies print '-' for lstart on BSD ps — treat as untrackable."""
+    class FakePath:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def read_text(self):
+            raise FileNotFoundError("no /proc on macOS")
+
+    monkeypatch.setattr(protocol, "Path", FakePath)
+    # Simulate macOS on every runner (Windows would take the nt branch).
+    monkeypatch.setattr(protocol.os, "name", "posix", raising=False)
+    monkeypatch.setattr(
+        protocol.subprocess, "run",
+        lambda cmd, **kw: subprocess.CompletedProcess(
+            cmd, 0, "  1234     567 -\n", ""))
+    assert protocol.process_identity(1234) is None
 
 
 def test_windows_cleanup_uses_taskkill_without_signal_sigkill(monkeypatch, tmp_path):
