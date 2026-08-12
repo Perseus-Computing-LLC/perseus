@@ -32,6 +32,9 @@ dependencies = ["pyyaml>=6.0.1,<7"]
 [project.optional-dependencies]
 dev = ["pytest>=8.0.0", "coverage", "hypothesis", "jsonschema>=4.0"]
 mcp = ["mcp"]
+# Optional context-adapter SDKs exercised by tests/test_adapters.py (#954) —
+# CI runs a dedicated leg installing these so the adapter tests never skip.
+adapters = ["langchain-core>=0.3", "llama-index-core>=0.12"]
 
 [project.urls]
 Homepage = "https://perseus.observer"
