@@ -13,11 +13,17 @@
 #   ./scripts/release.sh --verify  # only verify version coherence; build nothing
 #   ./scripts/release.sh --check   # verify a previously built dist/ matches the source
 #   ./scripts/release.sh --clean   # rm -rf dist/
+#
+# Environment:
+#   PYTHON              interpreter for the python3 invocations (default: python3)
+#   RELEASE_DIST_DIR    output directory (default: <repo>/dist) — tests isolate
+#                       builds here so runs are order-independent
 set -euo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 REPO_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
-DIST_DIR="$REPO_ROOT/dist"
+PYTHON="${PYTHON:-python3}"
+DIST_DIR="${RELEASE_DIST_DIR:-$REPO_ROOT/dist}"
 
 die() { printf 'release: %s\n' "$*" >&2; exit 1; }
 note() { printf 'release: %s\n' "$*"; }
@@ -44,13 +50,13 @@ VERSION=$(tr -d '[:space:]' < "$REPO_ROOT/VERSION")
 [ -n "$VERSION" ] || die "VERSION file is empty"
 
 # perseus.py
-PY_VERSION=$(python3 -c 'import ast, pathlib, sys; tree = ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")); print(next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign) for t in n.targets if isinstance(t, ast.Name) and t.id == "_PERSEUS_VERSION"))' "$REPO_ROOT/perseus.py")
+PY_VERSION=$("$PYTHON" -c 'import ast, pathlib, sys; tree = ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")); print(next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign) for t in n.targets if isinstance(t, ast.Name) and t.id == "_PERSEUS_VERSION"))' "$REPO_ROOT/perseus.py")
 [ -n "$PY_VERSION" ] || die "could not parse _PERSEUS_VERSION from perseus.py"
 [ "$PY_VERSION" = "$VERSION" ] || die "VERSION ($VERSION) != _PERSEUS_VERSION ($PY_VERSION) in perseus.py"
 
 # perseus --version (matches AC #1) — extracts "1.0.5" from
 # "perseus v1.0.5 — Patent Pending". Use POSIX-friendly sed (no grep -P).
-CLI_VERSION=$(python3 "$REPO_ROOT/perseus.py" --version | sed -nE 's/.*v([0-9.]+).*/\1/p')
+CLI_VERSION=$("$PYTHON" "$REPO_ROOT/perseus.py" --version | sed -nE 's/.*v([0-9.]+).*/\1/p')
 [ "$CLI_VERSION" = "$VERSION" ] || die "'perseus --version' ($CLI_VERSION) != VERSION ($VERSION)"
 
 # CHANGELOG must reference the version (unless it's a -dev tag).
@@ -73,7 +79,7 @@ fi
 # --- build ---------------------------------------------------------------------
 # Regenerate the single-file artifact from src/ before packaging.
 note "building perseus.py from src/"
-python3 "$REPO_ROOT/scripts/build.py" || { note "build.py failed — aborting release"; exit 1; }
+"$PYTHON" "$REPO_ROOT/scripts/build.py" || { note "build.py failed — aborting release"; exit 1; }
 
 mkdir -p "$DIST_DIR"
 STAGE=$(mktemp -d)
