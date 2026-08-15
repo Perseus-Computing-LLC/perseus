@@ -49,6 +49,10 @@ SURFACE_CHECKS = [
     ("README.md", "longmemeval_qa"),        # 73.8% plain-prompt methodology result
     ("manifest.json", "perseus_version"),   # current release
     ("index.html", "longmemeval_cot"),      # 79.0% official-CoT headline
+    ("index.html", "perseus_version"),      # PyPI pill must pin the current release
+    ("government/capability-statement.html", "vault_version"),  # footer pill: current vault release
+    ("readme-preview/index.html", "perseus_version"),
+    ("readme-preview/index.html", "vault_version"),
     (".well-known/mcp/server-card.json", "perseus_version"),  # current release
     # BEAM (vault #685/#697) published on the benchmarks page. These values are
     # unique to the BEAM section, so their presence pins the page to the signed
