@@ -42,12 +42,7 @@
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
-  <url>
-    <loc>https://perseus.observer/mcts/</loc>
-    <lastmod>2026-07-21</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
+  
   <url>
     <loc>https://perseus.observer/government/</loc>
     <lastmod>2026-07-21</lastmod>
@@ -78,12 +73,7 @@
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
-  <url>
-    <loc>https://perseus.observer/anna-recall/</loc>
-    <lastmod>2026-07-21</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
-  </url>
+  
   <url>
     <loc>https://perseus.observer/bench/</loc>
     <lastmod>2026-07-21</lastmod>
@@ -96,36 +86,11 @@
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
-  <url>
-    <loc>https://perseus.observer/blast-radius/</loc>
-    <lastmod>2026-07-21</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
-  </url>
-  <url>
-    <loc>https://perseus.observer/crewai/</loc>
-    <lastmod>2026-07-21</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
-  </url>
-  <url>
-    <loc>https://perseus.observer/pr-pilot/</loc>
-    <lastmod>2026-07-21</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
-  </url>
-  <url>
-    <loc>https://perseus.observer/qwen-memory/</loc>
-    <lastmod>2026-07-21</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
-  </url>
-  <url>
-    <loc>https://perseus.observer/rapid-agent/</loc>
-    <lastmod>2026-07-21</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
-  </url>
+  
+  
+  
+  
+  
   <url>
     <loc>https://perseus.observer/blog/agent-memory-context-never-leaves-your-machine/</loc>
     <lastmod>2026-07-21</lastmod>
@@ -138,4 +103,5 @@
     <changefreq>yearly</changefreq>
     <priority>0.6</priority>
   </url>
+<!-- 2026-08-15 product scope: Perseus, Vault, Ledger -->
 </urlset>
