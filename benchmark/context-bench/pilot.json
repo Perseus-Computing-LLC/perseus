@@ -1,0 +1,245 @@
+{
+  "schema_version": "perseus-context-bench-pilot/v1",
+  "seed": 961,
+  "n": 15,
+  "source": "letta-ai/letta-evals letta-leaderboard/filesystem-agent/datasets/filesystem_cloud.jsonl",
+  "source_sha256": "f809bd45f7a22cb3bd4f3423bd9c4de8d40cc8bcbc2d1eddcd793ecb33f2a932",
+  "framing": "adapter-based reproduction; public questions are not a hidden holdout",
+  "samples": [
+    {
+      "id": "cb-001",
+      "dataset_index": 1,
+      "question": "Among all people who live in the same state as the owner of the pet named 'Dawn', who owns the most vehicles? If there's a tie, who among them is the oldest?",
+      "ground_truth": "Tammy Roberts",
+      "required_files": [
+        "pets.txt",
+        "addresses.txt",
+        "vehicles.txt",
+        "people.txt"
+      ],
+      "question_type": "comparison_tiebreak",
+      "difficulty": "easy"
+    },
+    {
+      "id": "cb-005",
+      "dataset_index": 5,
+      "question": "Among people living in the same state as the owner of pet 'Adrian', who owns the most vehicles? If there's a tie, who is the oldest?",
+      "ground_truth": "Tammy Roberts",
+      "required_files": [
+        "pets.txt",
+        "addresses.txt",
+        "vehicles.txt",
+        "people.txt"
+      ],
+      "question_type": "comparison_tiebreak",
+      "difficulty": "medium"
+    },
+    {
+      "id": "cb-029",
+      "dataset_index": 29,
+      "question": "How many total records (bank accounts, vehicles, insurance policies, and internet accounts combined) does the person with the highest total bank balance among residents of the same state as the owner of the pet named 'Betty' have?",
+      "ground_truth": "13",
+      "required_files": [
+        "pets.txt",
+        "addresses.txt",
+        "bank_accounts.txt",
+        "vehicles.txt",
+        "insurance_policies.txt",
+        "internet_accounts.txt"
+      ],
+      "question_type": "cross_file_counting",
+      "difficulty": "medium"
+    },
+    {
+      "id": "cb-032",
+      "dataset_index": 32,
+      "question": "Who owns more vehicles: the person with the highest total bank balance among residents of the same state as the owner of pet 'Gloria', or the person with the highest total bank balance among residents of the same state as the owner of pet 'Betty'?",
+      "ground_truth": "Richard Lambert",
+      "required_files": [
+        "pets.txt",
+        "addresses.txt",
+        "bank_accounts.txt",
+        "vehicles.txt",
+        "people.txt"
+      ],
+      "question_type": "multi_hop_chain",
+      "difficulty": "hard"
+    },
+    {
+      "id": "cb-041",
+      "dataset_index": 41,
+      "question": "Who owns more vehicles: the person with the most credit cards among residents of the same state as the owner of the pet named 'Carol' (using highest total bank balance as a tiebreaker), or the person with the most credit cards among residents of the same state as the owner of the pet named 'Frederick' (using the same tiebreaker)?",
+      "ground_truth": "Tammy Roberts",
+      "required_files": [
+        "pets.txt",
+        "addresses.txt",
+        "credit_cards.txt",
+        "bank_accounts.txt",
+        "vehicles.txt",
+        "people.txt"
+      ],
+      "question_type": "multi_entity_comparison",
+      "difficulty": "hard"
+    },
+    {
+      "id": "cb-044",
+      "dataset_index": 44,
+      "question": "Among the 15 people with the highest total bank balance, who lives in the same state as the owner of the pet named 'Paige'?",
+      "ground_truth": "Jermaine Gomez",
+      "required_files": [
+        "bank_accounts.txt",
+        "pets.txt",
+        "addresses.txt",
+        "people.txt"
+      ],
+      "question_type": "set_intersection",
+      "difficulty": "medium"
+    },
+    {
+      "id": "cb-058",
+      "dataset_index": 58,
+      "question": "Who has a higher total bank account balance: the person with the highest salary among residents of the same state as the person with internet username 'jerry57', OR the person with the highest salary among residents of the same state as the person with internet username 'kevin66'?",
+      "ground_truth": "James Smith",
+      "required_files": [
+        "internet_accounts.txt",
+        "addresses.txt",
+        "employments.txt",
+        "people.txt",
+        "bank_accounts.txt"
+      ],
+      "question_type": "multi_hop_chain",
+      "difficulty": "hard"
+    },
+    {
+      "id": "cb-059",
+      "dataset_index": 59,
+      "question": "What is the total bank balance of the person with the most vehicles among residents of the same state as the owner of pet 'Cesar'? If there's a tie for most vehicles, use highest total bank balance as the tiebreaker.",
+      "ground_truth": "$147,549.67",
+      "required_files": [
+        "pets.txt",
+        "addresses.txt",
+        "vehicles.txt",
+        "bank_accounts.txt"
+      ],
+      "question_type": "aggregation",
+      "difficulty": "medium"
+    },
+    {
+      "id": "cb-061",
+      "dataset_index": 61,
+      "question": "Who has more bank accounts: the person with the highest total bank balance among residents of the same state as the owner of pet 'Betty', or the person with the most credit cards among residents of the same state as the owner of pet 'Alyssa'? (Use total bank balance as a tiebreaker if there's a tie for most credit cards.) If tied on bank accounts, return the person with the higher total bank balance.",
+      "ground_truth": "Richard Dean",
+      "required_files": [
+        "pets.txt",
+        "addresses.txt",
+        "bank_accounts.txt",
+        "credit_cards.txt",
+        "people.txt"
+      ],
+      "question_type": "multi_entity_comparison",
+      "difficulty": "hard"
+    },
+    {
+      "id": "cb-063",
+      "dataset_index": 63,
+      "question": "What is the combined bank balance of the 3 people with the most insurance policies among residents of the same state as the owner of pet 'Victor'?",
+      "ground_truth": "$173,519.82",
+      "required_files": [
+        "pets.txt",
+        "addresses.txt",
+        "insurance_policies.txt",
+        "bank_accounts.txt",
+        "people.txt"
+      ],
+      "question_type": "aggregation",
+      "difficulty": "medium"
+    },
+    {
+      "id": "cb-067",
+      "dataset_index": 67,
+      "question": "Who has more credit cards: the person with the highest salary among those with the same blood type as the owner of pet 'Frederick', OR the person with the highest salary among those with the same blood type as the owner of pet 'Tommy'?",
+      "ground_truth": "Judy Bender",
+      "required_files": [
+        "pets.txt",
+        "medical_records.txt",
+        "employments.txt",
+        "credit_cards.txt",
+        "people.txt"
+      ],
+      "question_type": "multi_hop_chain",
+      "difficulty": "hard"
+    },
+    {
+      "id": "cb-070",
+      "dataset_index": 70,
+      "question": "Who has more credit cards: the person with the highest salary among residents of the same state as the owner of pet 'Caleb', or the person with the highest salary among residents of the same state as the owner of pet 'Becky'?",
+      "ground_truth": "Michael Hall",
+      "required_files": [
+        "pets.txt",
+        "addresses.txt",
+        "employments.txt",
+        "credit_cards.txt",
+        "people.txt"
+      ],
+      "question_type": "multi_entity_comparison",
+      "difficulty": "hard"
+    },
+    {
+      "id": "cb-073",
+      "dataset_index": 73,
+      "question": "Who has more internet accounts: the person with the highest total bank balance among residents of the same state as the owner of pet 'Tara', OR the person with the highest total bank balance among residents of the same state as the owner of pet 'Victor'?",
+      "ground_truth": "Linda Robbins",
+      "required_files": [
+        "pets.txt",
+        "people.txt",
+        "addresses.txt",
+        "bank_accounts.txt",
+        "internet_accounts.txt"
+      ],
+      "question_type": "multi_hop_chain",
+      "difficulty": "hard"
+    },
+    {
+      "id": "cb-078",
+      "dataset_index": 78,
+      "question": "Among people living in the same state as the owner of vehicle with license plate '123-DJR', whose credit card expires first?",
+      "ground_truth": "Katie Wells",
+      "required_files": [
+        "vehicles.txt",
+        "people.txt",
+        "addresses.txt",
+        "credit_cards.txt"
+      ],
+      "question_type": "temporal_reasoning",
+      "difficulty": "medium"
+    },
+    {
+      "id": "cb-091",
+      "dataset_index": 91,
+      "question": "Who has more credit cards: the person with the most vehicles (using total bank balance as a tiebreaker) among residents of the same state as the owner of pet 'Alyssa', OR the person with the most vehicles (using the same tiebreaker) among residents of the same state as the owner of pet 'Eduardo'?",
+      "ground_truth": "Tammy Roberts",
+      "required_files": [
+        "pets.txt",
+        "addresses.txt",
+        "vehicles.txt",
+        "bank_accounts.txt",
+        "credit_cards.txt",
+        "people.txt"
+      ],
+      "question_type": "multi_entity_comparison",
+      "difficulty": "hard"
+    }
+  ],
+  "corpus_sha256": {
+    "addresses.txt": "71b2686aa482bee96e7b77554a8f68a639d77a81a883ac78c35baaee717b4705",
+    "bank_accounts.txt": "230667663fb1b1d700e8136c0f5f7a65966a07e33776236675f4b8d49fde7cc0",
+    "credit_cards.txt": "68451664f3dea44eb023d8719d9bdac48fdebc863b3784d7a285b113f22fb48e",
+    "employments.txt": "77301b100025de3c534743376f4b148f514d0c69958d768637c91dc193f12544",
+    "insurance_policies.txt": "9e601fa52a4624a1169bdd33b1e09f059a82f38caa1887e61e96302ad60ba122",
+    "internet_accounts.txt": "009a948d6ca659281a5840b4a0d137474dd1eba44a0c04a395b0095223dc60a6",
+    "medical_records.txt": "7feabab89682a87c6ac5e2a94f66ab375c7151ea33fab451b2ce6db3964f95b6",
+    "people.txt": "ec633879861d9c1b49c492b1d9c5656bcb1f22cebd54a3a2afcafab51c39ab97",
+    "pets.txt": "49a8b9a01e32e94c71c3a1ac32d23d03fe1282938bd741a2b0bb48ec09cf3338",
+    "vehicles.txt": "c7ee984009861a10eabbce9ec0699bca4017a330b01740680ed6c8d9766c8e17"
+  }
+}
