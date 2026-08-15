@@ -101,6 +101,7 @@ code, pre, .mono, .eyebrow, .nav-meta, .status, .source, .metric-value { font-fa
 .btn-shell:active { transform: translateY(1px); }
 .btn-shell-primary { background: var(--shell-accent); color: #15130d; border-color: var(--shell-accent); }
 .btn-shell-primary:hover { background: var(--shell-accent-strong); color: #15130d; }
+[data-theme="light"] .btn-shell-primary, [data-theme="light"] .btn-shell-primary:hover { color: #ffffff; }
 .btn-shell-quiet { color: var(--shell-muted); background: transparent; }
 .btn-shell-quiet:hover { color: var(--shell-ink); background: var(--shell-surface); }
 .theme-toggle { width: 40px; padding: 0; color: var(--shell-muted); background: transparent; }
