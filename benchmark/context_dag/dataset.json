@@ -1,0 +1,116 @@
+{
+  "schema_version": "perseus-context-dag-bench/v1",
+  "description": "Pinned synthetic tasks for the #962 assembly-mode comparison. All records, questions, and facts are fictional fixtures. 'facts' are the answer-bearing substrings used for deterministic synthetic-reference coverage; they are NOT model judgments.",
+  "tasks": [
+    {
+      "task_id": "arcade-01",
+      "question": "Who owns Arcade Royale, and how was that ownership verified?",
+      "facts": ["Alice Nguyen", "arcade license"],
+      "records": [
+        {"id": "r1", "text": "Deed transfer 2024-05-12: Arcade Royale conveyed to Alice Nguyen (deed no. AR-2281).", "validity": "observed", "verified": true, "relevance": 0.95},
+        {"id": "r2", "text": "Business registry lists the operator as Nguyen Entertainment LLC.", "validity": "derived", "verified": true, "relevance": 0.7},
+        {"id": "r3", "text": "City permit for the Arcade Royale arcade license issued to Alice Nguyen.", "validity": "observed", "verified": true, "relevance": 0.6},
+        {"id": "r4", "text": "Alice Nguyen's driver license lists 412 Juniper Lane.", "validity": "observed", "verified": true, "relevance": 0.9},
+        {"id": "r5", "text": "The arcade hosts a pinball league every Tuesday.", "validity": "observed", "verified": true, "relevance": 0.2},
+        {"id": "r6", "text": "Arcade Royale sells roughly 500 tickets per weekend.", "validity": "observed", "verified": true, "relevance": 0.1},
+        {"id": "r7", "text": "Neighborhood census data suggests the owner commutes from the east side.", "validity": "derived", "verified": true, "relevance": 0.8},
+        {"id": "r8", "text": "The 1998 lease named Marcus Feld as operator; that lease lapsed in 2020.", "validity": "stale", "verified": true, "relevance": 0.7},
+        {"id": "r9", "text": "The arcade jukebox plays only 1980s hits.", "validity": "observed", "verified": true, "relevance": 0.4},
+        {"id": "r10", "text": "Roof repairs were completed June 2025.", "validity": "observed", "verified": true, "relevance": 0.3},
+        {"id": "c1", "kind": "contradiction", "resolved_by": "r1", "text": "Parcel map from 2023 still lists Marcus Feld as owner.", "validity": "observed", "verified": true, "relevance": 0.0},
+        {"id": "p1", "kind": "policy_constraint", "policy_ref": "share-policy", "text": "Ownership facts may be shared only with explicit user consent.", "validity": "observed", "verified": true, "relevance": 0.0}
+      ]
+    },
+    {
+      "task_id": "clinic-02",
+      "question": "Which patients are flagged for follow-up this week?",
+      "facts": ["Dana Whitfield", "Priya Raman", "Tom Okafor"],
+      "records": [
+        {"id": "r1", "text": "Dana Whitfield (MRN 1042) flagged for follow-up on her cardiology panel.", "validity": "observed", "verified": true, "relevance": 0.9},
+        {"id": "r2", "text": "Priya Raman (MRN 2210) needs a repeat thyroid panel.", "validity": "observed", "verified": true, "relevance": 0.85},
+        {"id": "r3", "text": "Tom Okafor (MRN 3317) flagged for a medication reconciliation visit.", "validity": "observed", "verified": true, "relevance": 0.8},
+        {"id": "r4", "text": "Front-desk schedule shows the clinic closes at 5pm on Fridays.", "validity": "observed", "verified": true, "relevance": 0.2},
+        {"id": "r5", "text": "The new blood analyzer was installed in March.", "validity": "observed", "verified": true, "relevance": 0.1},
+        {"id": "r6", "text": "Billing audit notes two duplicate claims resolved in April.", "validity": "observed", "verified": true, "relevance": 0.15},
+        {"id": "r7", "text": "Dr. Chen is on vacation through the end of the month.", "validity": "stale", "verified": true, "relevance": 0.6},
+        {"id": "r8", "text": "Lab capacity report: follow-up panels run Tuesdays and Thursdays.", "validity": "derived", "verified": true, "relevance": 0.5},
+        {"id": "r9", "text": "Parking lot resurfacing starts next Monday.", "validity": "observed", "verified": true, "relevance": 0.05},
+        {"id": "r10", "text": "Clinic newsletter features a staff spotlight on the new nurse.", "validity": "observed", "verified": true, "relevance": 0.05}
+      ]
+    },
+    {
+      "task_id": "needle-03",
+      "question": "What is the vault combination?",
+      "facts": ["42-17-09"],
+      "records": [
+        {"id": "r1", "text": "Facility notes: the vault combination is 42-17-09; rotate it quarterly.", "validity": "observed", "verified": true, "relevance": 0.2},
+        {"id": "r2", "text": "The building lobby was repainted in June.", "validity": "observed", "verified": true, "relevance": 0.9},
+        {"id": "r3", "text": "Coffee machine on floor 3 was replaced last week.", "validity": "observed", "verified": true, "relevance": 0.85},
+        {"id": "r4", "text": "Fire drill scheduled for the first Thursday of each month.", "validity": "observed", "verified": true, "relevance": 0.8},
+        {"id": "r5", "text": "Elevator inspection certificate renewed through 2027.", "validity": "observed", "verified": true, "relevance": 0.75},
+        {"id": "r6", "text": "Catering vendor switched to a new menu in August.", "validity": "observed", "verified": true, "relevance": 0.7},
+        {"id": "r7", "text": "Window cleaning happens the second Saturday of each month.", "validity": "observed", "verified": true, "relevance": 0.65},
+        {"id": "r8", "text": "Recycling pickup is every Wednesday.", "validity": "observed", "verified": true, "relevance": 0.6},
+        {"id": "r9", "text": "The mailroom moved to the east wing.", "validity": "observed", "verified": true, "relevance": 0.55},
+        {"id": "r10", "text": "Visitor badges are issued at the security desk.", "validity": "observed", "verified": true, "relevance": 0.5}
+      ]
+    },
+    {
+      "task_id": "org-04",
+      "question": "What do we know about the user's workspace setup?",
+      "facts": ["standing desk", "two 4K monitors"],
+      "records": [
+        {"id": "r1", "text": "User's office has a standing desk purchased in 2024.", "validity": "observed", "verified": true, "relevance": 0.9},
+        {"id": "r2", "text": "Desk setup includes two 4K monitors on arms.", "validity": "observed", "verified": true, "relevance": 0.85},
+        {"id": "r3", "text": "The office chair is a refurbished ergonomic model.", "validity": "observed", "verified": true, "relevance": 0.6},
+        {"id": "r4", "text": "Corporate card number 4311-7719-2208-0012 was reissued in May.", "validity": "observed", "verified": true, "relevance": 0.3},
+        {"id": "r5", "text": "The user prefers warm lighting in the afternoon.", "validity": "observed", "verified": true, "relevance": 0.5},
+        {"id": "r6", "text": "Whiteboard on the north wall tracks sprint goals.", "validity": "observed", "verified": true, "relevance": 0.4},
+        {"id": "r7", "text": "Plants: one monstera and two succulents by the window.", "validity": "observed", "verified": true, "relevance": 0.35},
+        {"id": "r8", "text": "Air filter runs on a timer from 8am to 6pm.", "validity": "observed", "verified": true, "relevance": 0.2},
+        {"id": "p1", "kind": "policy_constraint", "policy_ref": "pii-policy", "text": "Financial account numbers must never enter compiled context.", "validity": "observed", "verified": true, "relevance": 0.0}
+      ]
+    },
+    {
+      "task_id": "escalate-05",
+      "question": "What was Q3 revenue?",
+      "facts": ["1.2M", "0.9M"],
+      "records": [
+        {"id": "r1", "text": "Finance ledger entry 2025-09-30: Q3 revenue 1.2M.", "validity": "observed", "verified": true, "relevance": 0.9},
+        {"id": "r2", "text": "Board deck draft lists Q3 revenue at 0.9M.", "validity": "observed", "verified": true, "relevance": 0.85},
+        {"id": "c1", "kind": "contradiction", "text": "Q3 revenue figures disagree: ledger 1.2M vs board deck 0.9M.", "validity": "derived", "verified": true, "relevance": 0.0},
+        {"id": "r3", "text": "Audit engagement began October 3rd.", "validity": "observed", "verified": true, "relevance": 0.4},
+        {"id": "r4", "text": "Revenue recognition policy was updated in Q1.", "validity": "observed", "verified": true, "relevance": 0.5},
+        {"id": "r5", "text": "The CFO joined in February.", "validity": "observed", "verified": true, "relevance": 0.2}
+      ]
+    },
+    {
+      "task_id": "chain-06",
+      "question": "What does the quarterly briefing say about the base and its grid?",
+      "facts": ["luna base", "power grid"],
+      "records": [
+        {"id": "s1", "kind": "summary", "text": "Quarterly briefing: the luna base expanded two habitat modules, and the power grid was upgraded to 240V three-phase.", "validity": "derived", "verified": true, "relevance": 0.95},
+        {"id": "r1", "text": "Habitat module B2 pressurization passed on the 12th.", "validity": "observed", "verified": true, "relevance": 0.6},
+        {"id": "r2", "text": "Grid upgrade contractor invoice settled in full.", "validity": "observed", "verified": true, "relevance": 0.55},
+        {"id": "r3", "text": "Mess hall menu rotated to a four-week cycle.", "validity": "observed", "verified": true, "relevance": 0.1},
+        {"id": "r4", "text": "Rover battery swap schedule updated.", "validity": "observed", "verified": true, "relevance": 0.1},
+        {"id": "r5", "text": "Greenhouse yield target raised for Q3.", "validity": "observed", "verified": true, "relevance": 0.3},
+        {"id": "r6", "text": "Solar array inspection notes minor dust accumulation.", "validity": "observed", "verified": true, "relevance": 0.4}
+      ]
+    },
+    {
+      "task_id": "budget-07",
+      "question": "Which team owns the analytics service, and who is the on-call lead?",
+      "facts": ["platform team", "Jordan Ellis"],
+      "records": [
+        {"id": "r1", "text": "Service catalog: analytics service owned by the platform team.", "validity": "observed", "verified": true, "relevance": 0.95},
+        {"id": "r2", "text": "On-call rotation lists Jordan Ellis as the current analytics lead.", "validity": "observed", "verified": true, "relevance": 0.9},
+        {"id": "r3", "text": "The analytics service runs on a managed Kubernetes cluster.", "validity": "observed", "verified": true, "relevance": 0.7},
+        {"id": "r4", "text": "Incident postmortem from May recommends adding a second reviewer.", "validity": "derived", "verified": true, "relevance": 0.65},
+        {"id": "r5", "text": "The team's office hours are Wednesdays at 10am.", "validity": "observed", "verified": true, "relevance": 0.3},
+        {"id": "r6", "text": "Old ownership docs still list the data-infra team.", "validity": "stale", "verified": true, "relevance": 0.6}
+      ],
+      "budget": {"max_tokens": 40}
+    }
+  ]
+}
