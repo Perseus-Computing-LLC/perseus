@@ -159,9 +159,9 @@ def _dag_fetch(sample: dict, files: dict[str, str], max_chunks: int = 10,
                 out.append(perseus.ContextNode(
                     kind="retrieved_record",
                     content=_block(c["file"], c["text"]),
-                    summary=f"{c['file']}: {c['header']}",
+                    summary="%s: %s" % (c["file"], c["header"]),
                     evidence={"validity": "observed", "verified": True,
-                              "source_ids": [f"file:{c['file']}"]}))
+                              "source_ids": ["file:" + c["file"]]}))
         if not out:
             out.append(perseus.ContextNode(
                 kind="retrieved_record",
@@ -178,14 +178,14 @@ def arm_perseus_dag(sample: dict, files: dict[str, str],
     root = perseus.ContextNode(
         kind="requirement", content=sample["question"],
         evidence={"validity": "observed", "verified": True,
-                  "source_ids": [f"pilot:{sample['id']}"]})
+                  "source_ids": ["pilot:" + sample["id"]]})
     n_files = len(sample.get("required_files") or [])
     budget = perseus.CompilationBudget(
         max_nodes=max_chunks + n_files + 4,
         max_depth=2, max_fanout=max_chunks + n_files + 2,
         max_tokens=max_tokens, deadline_s=30.0)
     artifact = perseus.compile_context_dag(
-        task_id=f"cb-{sample['id']}", root=root,
+        task_id="cb-" + sample["id"], root=root,
         fetch=_dag_fetch(sample, files, max_chunks=max_chunks),
         budget=budget, verdict_hint="sufficient",
         created_by="perseus-context-bench",
@@ -222,7 +222,7 @@ def arm_mem0_rag(sample: dict, files: dict[str, str], top_k: int = 5) -> Assembl
               for c in chunk_file(name, text)]
     mem = Memory()
     for c in chunks:
-        mem.add(f"[file: {c['file']}] {c['text']}", user_id="context-bench")
+        mem.add("[file: %s] %s" % (c["file"], c["text"]), user_id="context-bench")
     hits = mem.search(sample["question"], user_id="context-bench",
                       limit=top_k)
     blocks = [h.get("memory", "") or "" for h in hits if h.get("memory")]
@@ -252,7 +252,7 @@ def assemble(sample: dict, files: dict[str, str], config: Optional[dict] = None
             max_tokens=dag_cfg.get("max_tokens", 6000))
     if "mem0_rag" in config:
         m0_cfg = config["mem0_rag"] or {}
-        arms[f"mem0_rag_k{m0_cfg.get('top_k', 5)}"] = \
+        arms["mem0_rag_k%d" % m0_cfg.get("top_k", 5)] = \
             lambda: arm_mem0_rag(sample, files,
                                  top_k=m0_cfg.get("top_k", 5))
     out = {}
@@ -263,21 +263,3 @@ def assemble(sample: dict, files: dict[str, str], config: Optional[dict] = None
             out[name] = {"mode": name, "skipped": True,
                          "reason": str(exc)}
     return out
-
-
-if __name__ == "__main__":
-    pilot = json.load(open(os.path.join(HERE, "pilot.json")))
-    files = load_files()
-    for s in pilot["samples"][:2]:
-        print("=" * 70)
-        print(s["id"], s["question"][:80])
-        for name, a in assemble(s, files, {
-                "naive_rag": {"k_sweep": [3, 5]},
-                "perseus_dag": {"max_chunks": 10, "max_tokens": 6000},
-                "mem0_rag": {"top_k": 5}}).items():
-            if a.get("skipped"):
-                print(f"  {name}: SKIPPED ({a['reason']})")
-                continue
-            print(f"  {name}: {a['tokens_rendered']} tokens "
-                  f"meta={ {k: v for k, v in a['meta'].items()
-                          if k != 'compiled_digest'} }")

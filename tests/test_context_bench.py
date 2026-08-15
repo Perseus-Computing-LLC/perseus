@@ -143,3 +143,54 @@ def test_dry_run_end_to_end_seals_results():
     flat = json.dumps(res)
     assert "Question:" not in flat or flat.count("Question:") < 3
     assert "Answer:" not in flat
+
+
+def _dry_run_envelope(tmp_path):
+    env = dict(os.environ, PERSEUS_ALLOW_DANGEROUS="1")
+    out_dir = tmp_path / "env"
+    r = subprocess.run(
+        [sys.executable, "benchmark/context-bench/run.py", "--dry-run",
+         "--no-mem0", "--out", str(out_dir)],
+        cwd=str(REPO), capture_output=True, text=True, timeout=600, env=env)
+    assert r.returncode == 0, r.stderr
+    return out_dir / "results.json"
+
+
+def test_custody_verifies_clean_envelope(tmp_path):
+    env_path = _dry_run_envelope(tmp_path)
+    r = subprocess.run(
+        [sys.executable, "benchmark/context-bench/custody.py",
+         str(env_path)],
+        cwd=str(REPO), capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stdout + r.stderr
+    report = json.loads(r.stdout)
+    assert report["verified"] is True
+    assert report["rows"] == 15
+
+
+def test_custody_rejects_tampered_envelope(tmp_path):
+    env_path = _dry_run_envelope(tmp_path)
+    res = json.load(open(env_path, encoding="utf-8"))
+    first = next(iter(res["rows"]))
+    cur = res["rows"][first]["full_context"]["judge"]["score"]
+    res["rows"][first]["full_context"]["judge"]["score"] = \
+        ("0.0" if cur != "0.0" else "1.0")
+    tampered = tmp_path / "tampered.json"
+    tampered.write_text(json.dumps(res, indent=2, sort_keys=True))
+    r = subprocess.run(
+        [sys.executable, "benchmark/context-bench/custody.py", str(tampered)],
+        cwd=str(REPO), capture_output=True, text=True, timeout=120)
+    assert r.returncode != 0
+    assert "digest" in r.stdout
+
+
+def test_report_generates_with_framing(tmp_path):
+    env_path = _dry_run_envelope(tmp_path)
+    r = subprocess.run(
+        [sys.executable, "benchmark/context-bench/report.py", str(env_path)],
+        cwd=str(REPO), capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0
+    report = (env_path.parent / "report.md").read_text(encoding="utf-8")
+    assert "adapter" in report
+    assert "Not leaderboard-identical" in report
+    assert "| arm |" in report and "perseus_dag" in report
