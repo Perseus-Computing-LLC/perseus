@@ -1,0 +1,269 @@
+{
+  "aggregate": {
+    "budget_rejected": 1,
+    "dag_verdicts": {
+      "abstain": 0,
+      "escalate": 1,
+      "sufficient": 5
+    },
+    "mean_coverage": {
+      "dag": 0.833,
+      "direct": 1.0,
+      "linear": 0.833
+    },
+    "mean_reduction_pct": {
+      "dag": 29.7,
+      "linear": 1.8
+    },
+    "mean_tokens": {
+      "dag": 94.3,
+      "direct": 134.8,
+      "linear": 132.7
+    },
+    "replay_deterministic_all": true,
+    "tasks": 7,
+    "verified_artifact_all": true
+  },
+  "claims": {
+    "coverage": "synthetic reference: fixture-derived fact presence, not model accuracy",
+    "generalization": "not established: deterministic synthetic fixture only",
+    "tokens": "derived: dag_tokens estimate (chars//4), not provider billing"
+  },
+  "results_digest": "ef5591b9acc71615826b0ab1b264294c2099552ad31a0f45f9c99458c6080282",
+  "rows": [
+    {
+      "dag": {
+        "coverage": 1.0,
+        "depth": 1,
+        "mode": "dag",
+        "nodes": 9,
+        "outcome": "compiled",
+        "replay_deterministic": true,
+        "tokens": 151,
+        "verdict": "sufficient",
+        "verdict_reason": "advisory sufficiency upheld by evidence gates",
+        "verified_artifact": true
+      },
+      "direct": {
+        "coverage": 1.0,
+        "mode": "direct",
+        "records": 12,
+        "tokens": 197
+      },
+      "facts": [
+        "Alice Nguyen",
+        "arcade license"
+      ],
+      "linear": {
+        "coverage": 0.5,
+        "mode": "linear",
+        "records": 12,
+        "tokens": 195
+      },
+      "question": "Who owns Arcade Royale, and how was that ownership verified?",
+      "reduction_dag_pct": 23.4,
+      "reduction_linear_pct": 1.0,
+      "task_id": "arcade-01"
+    },
+    {
+      "dag": {
+        "coverage": 1.0,
+        "depth": 1,
+        "mode": "dag",
+        "nodes": 6,
+        "outcome": "compiled",
+        "replay_deterministic": true,
+        "tokens": 92,
+        "verdict": "sufficient",
+        "verdict_reason": "advisory sufficiency upheld by evidence gates",
+        "verified_artifact": true
+      },
+      "direct": {
+        "coverage": 1.0,
+        "mode": "direct",
+        "records": 10,
+        "tokens": 161
+      },
+      "facts": [
+        "Dana Whitfield",
+        "Priya Raman",
+        "Tom Okafor"
+      ],
+      "linear": {
+        "coverage": 1.0,
+        "mode": "linear",
+        "records": 10,
+        "tokens": 161
+      },
+      "question": "Which patients are flagged for follow-up this week?",
+      "reduction_dag_pct": 42.9,
+      "reduction_linear_pct": 0.0,
+      "task_id": "clinic-02"
+    },
+    {
+      "dag": {
+        "coverage": 0.0,
+        "depth": 1,
+        "mode": "dag",
+        "nodes": 10,
+        "outcome": "compiled",
+        "replay_deterministic": true,
+        "tokens": 119,
+        "verdict": "sufficient",
+        "verdict_reason": "advisory sufficiency upheld by evidence gates",
+        "verified_artifact": true
+      },
+      "direct": {
+        "coverage": 1.0,
+        "mode": "direct",
+        "records": 10,
+        "tokens": 135
+      },
+      "facts": [
+        "42-17-09"
+      ],
+      "linear": {
+        "coverage": 1.0,
+        "mode": "linear",
+        "records": 10,
+        "tokens": 135
+      },
+      "question": "What is the vault combination?",
+      "reduction_dag_pct": 11.9,
+      "reduction_linear_pct": 0.0,
+      "task_id": "needle-03"
+    },
+    {
+      "dag": {
+        "coverage": 1.0,
+        "depth": 1,
+        "mode": "dag",
+        "nodes": 6,
+        "outcome": "compiled",
+        "replay_deterministic": true,
+        "tokens": 77,
+        "verdict": "sufficient",
+        "verdict_reason": "advisory sufficiency upheld by evidence gates",
+        "verified_artifact": true
+      },
+      "direct": {
+        "coverage": 1.0,
+        "mode": "direct",
+        "records": 9,
+        "tokens": 130
+      },
+      "facts": [
+        "standing desk",
+        "two 4K monitors"
+      ],
+      "linear": {
+        "coverage": 1.0,
+        "mode": "linear",
+        "records": 9,
+        "tokens": 130
+      },
+      "question": "What do we know about the user's workspace setup?",
+      "reduction_dag_pct": 40.8,
+      "reduction_linear_pct": 0.0,
+      "task_id": "org-04"
+    },
+    {
+      "dag": {
+        "coverage": 1.0,
+        "depth": 1,
+        "mode": "dag",
+        "nodes": 5,
+        "outcome": "compiled",
+        "replay_deterministic": true,
+        "tokens": 56,
+        "verdict": "escalate",
+        "verdict_reason": "unresolved contradictions require a resolver",
+        "verified_artifact": true
+      },
+      "direct": {
+        "coverage": 1.0,
+        "mode": "direct",
+        "records": 6,
+        "tokens": 71
+      },
+      "facts": [
+        "1.2M",
+        "0.9M"
+      ],
+      "linear": {
+        "coverage": 1.0,
+        "mode": "linear",
+        "records": 6,
+        "tokens": 71
+      },
+      "question": "What was Q3 revenue?",
+      "reduction_dag_pct": 21.1,
+      "reduction_linear_pct": 0.0,
+      "task_id": "escalate-05"
+    },
+    {
+      "dag": {
+        "coverage": 1.0,
+        "depth": 1,
+        "mode": "dag",
+        "nodes": 4,
+        "outcome": "compiled",
+        "replay_deterministic": true,
+        "tokens": 71,
+        "verdict": "sufficient",
+        "verdict_reason": "advisory sufficiency upheld by evidence gates",
+        "verified_artifact": true
+      },
+      "direct": {
+        "coverage": 1.0,
+        "mode": "direct",
+        "records": 7,
+        "tokens": 115
+      },
+      "facts": [
+        "luna base",
+        "power grid"
+      ],
+      "linear": {
+        "coverage": 0.5,
+        "mode": "linear",
+        "records": 7,
+        "tokens": 104
+      },
+      "question": "What does the quarterly briefing say about the base and its grid?",
+      "reduction_dag_pct": 38.3,
+      "reduction_linear_pct": 9.6,
+      "task_id": "chain-06"
+    },
+    {
+      "dag": {
+        "budget_kind": "max_tokens",
+        "coverage": null,
+        "mode": "dag",
+        "outcome": "budget_rejected",
+        "tokens": null
+      },
+      "direct": {
+        "coverage": 1.0,
+        "mode": "direct",
+        "records": 6,
+        "tokens": 106
+      },
+      "facts": [
+        "platform team",
+        "Jordan Ellis"
+      ],
+      "linear": {
+        "coverage": 1.0,
+        "mode": "linear",
+        "records": 6,
+        "tokens": 106
+      },
+      "question": "Which team owns the analytics service, and who is the on-call lead?",
+      "reduction_dag_pct": null,
+      "reduction_linear_pct": 0.0,
+      "task_id": "budget-07"
+    }
+  ],
+  "schema_version": "perseus-context-dag-bench-results/v1"
+}
