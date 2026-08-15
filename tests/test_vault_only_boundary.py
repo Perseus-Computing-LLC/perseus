@@ -7,6 +7,10 @@ import subprocess
 
 ROOT = Path(__file__).parents[1]
 HISTORICAL = {"CHANGELOG.md", "ROADMAP.md"}
+# Benchmark-comparison surfaces legitimately name third-party memory systems
+# (e.g., Mnemosyne in the MemConflict seven-provider replication). Censoring
+# those names would falsify the comparison, so this subtree is exempt.
+COMPETITOR_EXEMPT_PREFIX = "benchmarks/memconflict/"
 FORBIDDEN = tuple(
     part for part in ("mi" + "mir", "mne" + "me", "mnē" + "mē", "mnemo" + "syne")
 )
@@ -24,7 +28,7 @@ def _tracked_paths():
 def test_current_facing_tree_is_vault_only():
     violations = []
     for rel in _tracked_paths():
-        if rel.name in HISTORICAL:
+        if rel.name in HISTORICAL or str(rel).startswith(COMPETITOR_EXEMPT_PREFIX):
             continue
         if PATTERN.search(str(rel)):
             violations.append(f"path:{rel}")
