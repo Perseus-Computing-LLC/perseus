@@ -12,7 +12,6 @@ HISTORICAL = {"CHANGELOG.md", "ROADMAP.md"}
 # the benchmark author tested). Censoring those names would falsify the
 # comparison, so this subtree is exempt. Note: this comment deliberately
 # avoids literal competitor tokens -- the sweep scans this file too.
-COMPETITOR_EXEMPT_PREFIX = "benchmarks/memconflict/"
 FORBIDDEN = tuple(
     part for part in ("mi" + "mir", "mne" + "me", "mnē" + "mē", "mnemo" + "syne")
 )
@@ -30,7 +29,11 @@ def _tracked_paths():
 def test_current_facing_tree_is_vault_only():
     violations = []
     for rel in _tracked_paths():
-        if rel.name in HISTORICAL or str(rel).startswith(COMPETITOR_EXEMPT_PREFIX):
+        # Platform-safe prefix match: git emits forward slashes everywhere,
+        # but pathlib renders them as backslashes on Windows.
+        if rel.name in HISTORICAL:
+            continue
+        if len(rel.parts) >= 2 and rel.parts[0] == "benchmarks" and rel.parts[1] == "memconflict":
             continue
         if PATTERN.search(str(rel)):
             violations.append(f"path:{rel}")
