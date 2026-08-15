@@ -8,7 +8,7 @@
   --shell-line-strong: #30404b;
   --shell-ink: #eff3f1;
   --shell-muted: #a4b0b4;
-  --shell-faint: #718087;
+  --shell-faint: #85949b;
   --shell-accent: #d5b66c;
   --shell-accent-strong: #e5c983;
   --shell-green: #71c29b;
@@ -29,10 +29,10 @@
   --shell-line-strong: #bdcccb;
   --shell-ink: #142022;
   --shell-muted: #526267;
-  --shell-faint: #76858a;
+  --shell-faint: #64737a;
   --shell-accent: #8b681c;
   --shell-accent-strong: #6c4c0a;
-  --shell-green: #247a56;
+  --shell-green: #1b7549;
   --shell-blue: #35667d;
   --shell-red: #a84646;
   --shell-header: rgba(246, 248, 247, .9);
@@ -154,14 +154,14 @@ code, pre, .mono, .eyebrow, .nav-meta, .status, .source, .metric-value { font-fa
 .detail-item p { margin: 0; color: var(--shell-muted); font-size: 13.5px; line-height: 1.55; }
 
 /* Terminal / install surfaces */
-.install-panel { border: 1px solid var(--shell-line-strong); border-radius: 12px; background: #080b0d; box-shadow: var(--shell-shadow); overflow: hidden; }
-.install-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--shell-line); color: var(--shell-faint); font-size: 11px; }
+.install-panel { color: #dbe5df; border: 1px solid var(--shell-line-strong); border-radius: 12px; background: #080b0d; box-shadow: var(--shell-shadow); overflow: hidden; }
+.install-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--shell-line); color: #85949b; font-size: 11px; }
 .install-panel pre { margin: 0; padding: 22px 20px; color: #dbe5df; font: 13px/1.8 'IBM Plex Mono', monospace; white-space: pre-wrap; overflow-x: auto; }
-.install-panel .prompt { color: var(--shell-green); }
+.install-panel .prompt { color: #71c29b; }
 .install-panel .comment { color: #6e7d7b; }
 .command-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 22px; padding: 12px 12px 12px 16px; border: 1px solid var(--shell-line-strong); border-radius: 9px; background: #080b0d; }
 .command-row code { overflow: auto; color: #dbe5df; font-size: 12.5px; white-space: nowrap; }
-.command-row button { flex: 0 0 auto; min-height: 30px; padding: 0 10px; color: var(--shell-muted); background: #11191d; border: 1px solid var(--shell-line-strong); border-radius: 6px; cursor: pointer; font: 11px 'IBM Plex Mono', monospace; }
+.command-row button { flex: 0 0 auto; min-height: 30px; padding: 0 10px; color: #a4b0b4; background: #11191d; border: 1px solid var(--shell-line-strong); border-radius: 6px; cursor: pointer; font: 11px 'IBM Plex Mono', monospace; }
 
 /* Security / posture labels */
 .posture-grid { display: grid; grid-template-columns: 1.2fr .8fr; gap: 1px; background: var(--shell-line); border: 1px solid var(--shell-line); border-radius: 14px; overflow: hidden; }
@@ -199,7 +199,8 @@ code, pre, .mono, .eyebrow, .nav-meta, .status, .source, .metric-value { font-fa
 .bench-table tbody tr:last-child th, .bench-table tbody tr:last-child td { border-bottom: 0; }
 .bench-table .emphasis { color: var(--shell-green); font-weight: 600; }
 .source { margin-top: 10px; color: color-mix(in srgb, var(--shell-faint) 78%, var(--shell-ink)); font-size: 11px; line-height: 1.5; }
-.source a { color: var(--shell-blue); text-decoration: none; }
+.source a { color: var(--shell-blue); text-decoration: underline; text-underline-offset: 2px; }
+.shell-copy a, .shell-lead a, .method a, .bench-highlight a, .mc-disclosure a { text-decoration: underline; text-underline-offset: 2px; }
 
 /* Forms, cards, footers */
 .card-grid-shell { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--shell-line); border: 1px solid var(--shell-line); border-radius: 12px; overflow: hidden; }
