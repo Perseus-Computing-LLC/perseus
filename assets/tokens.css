@@ -33,8 +33,8 @@
   /* — text — */
   --text: #F4F2FB;
   --text-dim: #8B8798;
-  --text-faint: #6A6676;
-  --text-ghost: #55525F;
+  --text-faint: #837E8E;
+  --text-ghost: #7C7786;
 
   /* — Perseus primary accent (violet) — */
   --amber: #A78BFA;
@@ -59,6 +59,22 @@
   --green: #4BD08A;
   --green-soft: rgba(75, 208, 138, .13);
   --red: #E5687A;
+  --amber-cta-ink: #1A1308;
+  --violet-cta-ink: #0C0814;
+
+  /* — always-dark terminal/code surfaces (theme-stable, both themes) — */
+  --term-ink: #C9C5D8;
+  --term-bright: #E6E3F2;
+  --term-dim: #7E7A8C;
+  --term-accent: #A78BFA;
+  --term-violet: #8B9CFF;
+  --term-violet-ink: #B7C2FF;
+  --term-amber-ink: #CBB8FF;
+  --term-gold: #D9B45F;
+  --term-green: #4BD08A;
+  --term-red: #E5687A;
+  --term-cta-ink: #1A1308;
+  --term-violet-cta-ink: #0C0814;
 
   /* — deep violet field glow (heroes/frames) — */
   --field: rgba(124, 92, 214, .26);
@@ -86,14 +102,14 @@
 
   --text: #14111F;
   --text-dim: #56535F;
-  --text-faint: #8E8A99;
-  --text-ghost: #A6A2B4;
+  --text-faint: #6F6B7C;
+  --text-ghost: #6F6B7C;
 
-  --amber: #7C5CD6;
+  --amber: #7455CE;
   --amber-ink: #6A38DE;
   --amber-soft: rgba(124, 92, 214, .09);
 
-  --violet: #5566E6;
+  --violet: #4F5FD9;
   --violet-ink: #3B49C9;
   --violet-soft: rgba(85, 102, 230, .09);
 
@@ -104,9 +120,25 @@
   --steel: #6B7488;
   --steel-soft: rgba(107, 116, 136, .10);
 
-  --green: #1F8A5B;
+  --green: #1E7F51;
   --green-soft: rgba(31, 138, 91, .10);
   --red: #C7415A;
+  --amber-cta-ink: #F4F2FB;
+  --violet-cta-ink: #F4F2FB;
+
+  /* — always-dark terminal/code surfaces (theme-stable, both themes) — */
+  --term-ink: #C9C5D8;
+  --term-bright: #E6E3F2;
+  --term-dim: #7E7A8C;
+  --term-accent: #A78BFA;
+  --term-violet: #8B9CFF;
+  --term-violet-ink: #B7C2FF;
+  --term-amber-ink: #CBB8FF;
+  --term-gold: #D9B45F;
+  --term-green: #4BD08A;
+  --term-red: #E5687A;
+  --term-cta-ink: #1A1308;
+  --term-violet-cta-ink: #0C0814;
 
   --field: rgba(124, 92, 214, .12);
   --field-2: rgba(80, 120, 255, .06);
