@@ -8,8 +8,10 @@ import subprocess
 ROOT = Path(__file__).parents[1]
 HISTORICAL = {"CHANGELOG.md", "ROADMAP.md"}
 # Benchmark-comparison surfaces legitimately name third-party memory systems
-# (e.g., Mnemosyne in the MemConflict seven-provider replication). Censoring
-# those names would falsify the comparison, so this subtree is exempt.
+# (e.g., the seven-provider MemConflict replication, which names every system
+# the benchmark author tested). Censoring those names would falsify the
+# comparison, so this subtree is exempt. Note: this comment deliberately
+# avoids literal competitor tokens -- the sweep scans this file too.
 COMPETITOR_EXEMPT_PREFIX = "benchmarks/memconflict/"
 FORBIDDEN = tuple(
     part for part in ("mi" + "mir", "mne" + "me", "mnē" + "mē", "mnemo" + "syne")
