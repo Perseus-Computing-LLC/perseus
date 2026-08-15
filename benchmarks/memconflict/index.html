@@ -41,6 +41,19 @@ table.mc-tbl .em{color:var(--shell-green);font-weight:600}
 .mc-cta .t{font:600 19px 'Space Grotesk',sans-serif;color:#e6efe9;letter-spacing:-.01em}
 .mc-cta .d{margin:8px 0 0;color:var(--shell-muted);font-size:13.5px;line-height:1.6}
 .mc-cta .go{margin-top:14px;font:12px 'IBM Plex Mono',monospace;color:var(--shell-green)}
+.mc-spotlight{border:1px solid var(--shell-green);border-radius:16px;margin:38px 0 0;overflow:hidden;background:linear-gradient(180deg,rgba(113,194,155,.10),rgba(113,194,155,.02));box-shadow:var(--shell-shadow)}
+.mc-spotlight-head{display:flex;align-items:center;gap:8px;padding:12px 22px;border-bottom:1px solid rgba(113,194,155,.28);font:11px 'IBM Plex Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--shell-green)}
+.mc-spotlight-head::before{content:'★';color:var(--shell-green)}
+.mc-spotlight-body{display:grid;grid-template-columns:auto 1fr;gap:28px;align-items:center;padding:28px 30px}
+.mc-spotlight-ratio{font:600 88px/1 'Space Grotesk',sans-serif;letter-spacing:-.05em;color:var(--shell-green);white-space:nowrap}
+.mc-spotlight-ratio small{display:block;font:11px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:var(--shell-muted);text-transform:uppercase;margin-top:10px}
+.mc-spotlight-copy h3{margin:0 0 8px;font:600 22px/1.25 'Space Grotesk',sans-serif;letter-spacing:-.02em;color:#e6efe9}
+.mc-spotlight-copy p{margin:0;color:var(--shell-muted);font-size:14px;line-height:1.65}
+.mc-spotlight-copy b{color:var(--shell-green)}
+.mc-spotlight-meta{display:flex;flex-wrap:wrap;gap:10px;padding:0 30px 22px}
+.mc-spotlight-meta span{border:1px solid var(--shell-line);border-radius:8px;padding:6px 11px;font:11px 'IBM Plex Mono',monospace;color:var(--shell-muted)}
+.mc-spotlight-meta span b{color:#dbe5df}
+@media(max-width:900px){.mc-spotlight-body{grid-template-columns:1fr;gap:14px;padding:22px}.mc-spotlight-ratio{font-size:60px}.mc-spotlight-meta{padding:0 22px 18px}}
 .mc-disclosure{border:1px solid var(--shell-line-strong);border-left:3px solid var(--shell-blue);border-radius:10px;padding:16px 18px;margin:22px 0 0;background:#080b0d}
 .mc-disclosure p{margin:0;color:var(--shell-muted);font-size:13px;line-height:1.65}
 .mc-disclosure b{color:#dbe5df}
@@ -56,9 +69,18 @@ table.mc-tbl .em{color:var(--shell-green);font-weight:600}
 <p class="shell-lead" style="font-size:16px;max-width:64ch;">The MemConflict benchmark asks an assistant hard questions about facts that changed, false claims planted later in a conversation, and preferences that only apply in specific situations. Perseus Vault answered those questions better than any of the seven other self-hosted memory providers tested — including Honcho, mem0, and Hindsight — while using the fewest model tokens of the field.</p>
 <div class="mc-rail">
 <div class="mc-cell win"><div class="v">0.542 <small>/ 1.0</small></div><div class="l">Macro answer score</div><div class="s">#1 of 8 providers · next best Honcho 0.477</div></div>
-<div class="mc-cell"><div class="v">0.408</div><div class="l">Static conflict</div><div class="s">#1 — more than double the next provider (0.181)</div></div>
+<div class="mc-cell win"><div class="v">0.408</div><div class="l">Static conflict — planted false memories</div><div class="s">#1 — 2.3× the next-best provider (Honcho 0.181)</div></div>
 <div class="mc-cell"><div class="v">0 / 3,750</div><div class="l">Wrong answers</div><div class="s">Only provider with zero false-fact assertions</div></div>
 <div class="mc-cell"><div class="v">739</div><div class="l">Weighted tokens* / turn</div><div class="s">~15× fewer than the next-best scorer (11,135)</div></div>
+</div>
+<div class="mc-spotlight">
+<div class="mc-spotlight-head">The hardest questions — planted false memories</div>
+<div class="mc-spotlight-body">
+<div class="mc-spotlight-ratio">2.3×<small>the next-best provider</small></div>
+<div class="mc-spotlight-copy"><h3>Rejected planted false memories at more than double the rate of every other provider — with zero false-fact assertions in 3,750 answers.</h3>
+<p>The benchmark plants a false claim after an established fact and asks what the user really said. Perseus Vault never repeated a planted falsehood as fact — <b>0 assertions</b> — while scoring <b>0.408</b> on static conflict. The next-best provider, Honcho, scored <b>0.181</b> and asserted the false fact <b>93 times</b>.</p></div>
+</div>
+<div class="mc-spotlight-meta"><span>static score <b>0.408</b> vs next best <b>0.181</b></span><span>false-fact assertions <b>0</b> (Honcho: 93)</span><span>static questions <b>360</b> · all 30 personas</span></div>
 </div>
 </div></section>
 
