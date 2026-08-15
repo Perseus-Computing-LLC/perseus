@@ -2,8 +2,8 @@
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Perseus Vault on MemConflict · 0.542 macro, #1 of 8 memory providers</title>
-<meta name="description" content="Perseus Vault scored 0.542 on the MemConflict macro protocol — best of eight self-hosted Hermes memory providers tested — with zero wrong answers across 3,750 questions and the lowest token workload of the field.">
+<title>Perseus Vault on MemConflict · 0.555 macro, #1 of 8 memory providers</title>
+<meta name="description" content="Perseus Vault scored 0.555 on the MemConflict macro protocol — best of eight self-hosted Hermes memory providers tested — with the fewest wrong answers in the field (18 of 3,750) and the lowest token workload.">
 <link rel="canonical" href="https://perseus.observer/benchmarks/memconflict/"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
 <link rel="stylesheet" href="/assets/fonts.css"><link rel="stylesheet" href="/assets/site-shell.css">
@@ -65,22 +65,22 @@ table.mc-tbl .em{color:var(--shell-green);font-weight:600}
 <main class="shell-main">
 <section class="mc-hero"><div class="shell-wrap">
 <div class="mc-status"><b>MEMCONFLICT</b> · third-party benchmark, self-run replication</div>
-<h1 class="shell-heading">Perseus Vault scored <span style="color:var(--shell-green)">0.542</span> on the MemConflict macro protocol — best of eight memory providers.</h1>
+<h1 class="shell-heading">Perseus Vault scored <span style="color:var(--shell-green)">0.555</span> on the MemConflict macro protocol — best of eight memory providers.</h1>
 <p class="shell-lead" style="font-size:16px;max-width:64ch;">The MemConflict benchmark asks an assistant hard questions about facts that changed, false claims planted later in a conversation, and preferences that only apply in specific situations. Perseus Vault answered those questions better than any of the seven other self-hosted memory providers tested — including Honcho, mem0, and Hindsight — while using the fewest model tokens of the field.</p>
 <div class="mc-rail">
-<div class="mc-cell win"><div class="v">0.542 <small>/ 1.0</small></div><div class="l">Macro answer score</div><div class="s">#1 of 8 providers · next best Honcho 0.477</div></div>
-<div class="mc-cell win"><div class="v">0.408</div><div class="l">Static conflict — planted false memories</div><div class="s">#1 — 2.3× the next-best provider (Honcho 0.181)</div></div>
-<div class="mc-cell"><div class="v">0 / 3,750</div><div class="l">Wrong answers</div><div class="s">Only provider with zero false-fact assertions</div></div>
+<div class="mc-cell win"><div class="v">0.555 <small>/ 1.0</small></div><div class="l">Macro answer score</div><div class="s">#1 of 8 providers · next best Honcho 0.477</div></div>
+<div class="mc-cell win"><div class="v">0.439</div><div class="l">Static conflict — planted false memories</div><div class="s">#1 — 2.4× the next-best provider (Honcho 0.181)</div></div>
+<div class="mc-cell win"><div class="v">18 / 3,750</div><div class="l">Wrong answers</div><div class="s">Fewest in the field — 15× fewer than the next best (Honcho: 272)</div></div>
 <div class="mc-cell"><div class="v">739</div><div class="l">Weighted tokens* / turn</div><div class="s">~15× fewer than the next-best scorer (11,135)</div></div>
 </div>
 <div class="mc-spotlight">
 <div class="mc-spotlight-head">The hardest questions — planted false memories</div>
 <div class="mc-spotlight-body">
-<div class="mc-spotlight-ratio">2.3×<small>the next-best provider</small></div>
-<div class="mc-spotlight-copy"><h3>Rejected planted false memories at more than double the rate of every other provider — with zero false-fact assertions in 3,750 answers.</h3>
-<p>The benchmark plants a false claim after an established fact and asks what the user really said. Perseus Vault never repeated a planted falsehood as fact — <b>0 assertions</b> — while scoring <b>0.408</b> on static conflict. The next-best provider, Honcho, scored <b>0.181</b> and asserted the false fact <b>93 times</b>.</p></div>
+<div class="mc-spotlight-ratio">2.4×<small>the next-best provider</small></div>
+<div class="mc-spotlight-copy"><h3>Rejected planted false memories at more than double the rate of every other provider — with the fewest false-fact assertions in the field: 5, versus Honcho's 93.</h3>
+<p>The benchmark plants a false claim after an established fact and asks what the user really said. Perseus Vault scored <b>0.439</b> on static conflict and asserted the planted falsehood <b>5 times</b> in 360 questions. The next-best provider, Honcho, scored <b>0.181</b> and asserted the false fact <b>93 times</b>.</p></div>
 </div>
-<div class="mc-spotlight-meta"><span>static score <b>0.408</b> vs next best <b>0.181</b></span><span>false-fact assertions <b>0</b> (Honcho: 93)</span><span>static questions <b>360</b> · all 30 personas</span></div>
+<div class="mc-spotlight-meta"><span>static score <b>0.439</b> vs next best <b>0.181</b></span><span>false-fact assertions <b>5</b> (Honcho: 93)</span><span>static questions <b>360</b> · all 30 personas</span></div>
 </div>
 </div></section>
 
@@ -91,7 +91,7 @@ table.mc-tbl .em{color:var(--shell-green);font-weight:600}
 <p class="shell-copy">The benchmark's own headline chart plots answer score against weighted model-token workload — "the better region is upper left." Perseus Vault is the dot in that corner: the top macro score with the lowest token consumption per dialogue turn.</p>
 <div class="mc-formula"><span>weighted tokens* = <b>0.1 × cached input</b> + <b>1 × uncached input</b> + <b>5 × generated output</b></span><span>per dialogue turn · 71,060 turns</span></div>
 <table class="mc-tbl"><thead><tr><th>provider</th><th>macro score</th><th>weighted tokens* / turn</th></tr></thead><tbody>
-<tr class="me"><td>Perseus Vault</td><td class="em">0.542</td><td class="em">739</td></tr>
+<tr class="me"><td>Perseus Vault</td><td class="em">0.555</td><td class="em">739</td></tr>
 <tr><td>Honcho</td><td>0.477</td><td>11,135</td></tr>
 <tr><td>mem0</td><td>0.392</td><td>3,785</td></tr>
 <tr><td>Mnemosyne</td><td>0.142</td><td>808</td></tr>
@@ -104,8 +104,8 @@ table.mc-tbl .em{color:var(--shell-green);font-weight:600}
 </div>
 <div>
 <div class="mc-note"><h3>How tokens were measured</h3><p>Token counts come from the shared vLLM answer-server's own cumulative counters, differenced across the full run window — the same method and the same server every provider used. Uncached input averaged <b style="color:#dbe5df">50.3 tokens per turn</b> (the vault injects only its top-5 ranked memories), and total generated output was <b style="color:#dbe5df">9,783,027 tokens</b> across all 3,750 questions.</p><p style="margin-top:10px">Cached input reads 0 because prefix caching was disabled on the serving stack for this wave — a conservative measurement, since cached tokens would only have been cheaper. Embedding-model tokens are not part of this formula for any provider.</p><p class="src">Source: token_usage_v5ftc-perseusvault.json · validity: answer-model sidecar valid</p></div>
-<div class="mc-note" style="margin-top:16px"><h3>Why zero wrong answers matters</h3><p>The penalty rubric scores wrong answers −1: repeating a stale address or an invented education history is a worse failure than saying "I don't know." Perseus Vault answered <b style="color:#dbe5df">2,001 correct</b>, <b style="color:#dbe5df">259 partial</b>, <b style="color:#dbe5df">1,490 blank</b>, and <b style="color:#dbe5df">0 wrong</b>. The trade-off is real — 39.7% of questions were left blank rather than guessed — and that abstention is exactly why no false fact was ever asserted.</p></div>
-<div class="mc-disclosure"><p><b>Honest scope:</b> this is a self-run replication of the author's public benchmark — same dataset, models, prompts, and scoring, run on the same rental GPU class. It is not yet an official inclusion on the author's page. We are asking the benchmark author to add Perseus Vault to the canonical comparison for independent verification; this page will be updated when that happens.</p></div>
+<div class="mc-note" style="margin-top:16px"><h3>Why the low wrong-answer rate matters</h3><p>The penalty rubric scores wrong answers −1: repeating a stale address or an invented education history is a worse failure than saying "I don't know." Perseus Vault answered <b style="color:#dbe5df">1,996 correct</b>, <b style="color:#dbe5df">358 partial</b>, <b style="color:#dbe5df">1,378 blank</b>, and <b style="color:#dbe5df">18 wrong</b> — the fewest wrong answers in the field, 15× fewer than Honcho's 272. The trade-off is real — 36.7% of questions were left blank rather than guessed — and that abstention is why the false-fact assertion rate stayed so low.</p></div>
+<div class="mc-disclosure"><p><b>Honest scope:</b> this is a self-run replication of the author's public benchmark — same dataset, models, prompts, and scoring, judged with the author's revised penalty rubric after the author flagged our first run as non-comparable. It is not yet an official inclusion on the author's page. We are asking the benchmark author to add Perseus Vault to the canonical comparison for independent verification; this page will be updated when that happens.</p></div>
 </div>
 </div></div></section>
 
