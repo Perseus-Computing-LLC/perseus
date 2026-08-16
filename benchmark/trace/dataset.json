@@ -1,0 +1,1022 @@
+{
+  "schema_version": "perseus-trace-benchmark/v1",
+  "description": "TRACE adapted simulation benchmark: six-category fault taxonomy, ground-truth annotations, cross-layer verification (#968).",
+  "fault_categories": [
+    "content_gap",
+    "contradiction",
+    "guardrail_gap",
+    "missing_tool",
+    "stale_content",
+    "tool_schema_defect"
+  ],
+  "groups": {
+    "tools-cli": {
+      "sources": [
+        {
+          "source_id": "tools:cli",
+          "source_type": "tool_schema",
+          "content": "pytest runs the test suite.\n\nAccepted flags: -q for quiet output.\n\nThe deploy tool takes --env staging or --env prod.\n\npytest never accepts --fast."
+        }
+      ]
+    },
+    "kb-stack": {
+      "sources": [
+        {
+          "source_id": "kb:stack",
+          "source_type": "knowledge_base",
+          "content": "The stack runs on Python 3.12.\n\nDeployment requires an active service account.\n\nThe database uses postgres 16."
+        }
+      ]
+    },
+    "skills-runbook": {
+      "sources": [
+        {
+          "source_id": "skill:deploy-runbook",
+          "source_type": "skill",
+          "content": "Runbook deploy: 1) build image, 2) push image, 3) restart service.\n\nOn failure: rollback via deploy rollback.\n\nAfter deploy: verify health endpoint."
+        }
+      ]
+    },
+    "guardrails-none": {
+      "sources": [
+        {
+          "source_id": "tools:cli",
+          "source_type": "tool_schema",
+          "content": "pytest runs the test suite.\n\nAccepted flags: -q for quiet output."
+        }
+      ]
+    },
+    "sys-prompt": {
+      "sources": [
+        {
+          "source_id": "prompt:system",
+          "source_type": "system_prompt",
+          "content": "You are a deployment assistant.\n\nAlways confirm before destructive actions.\n\nNever share secrets."
+        }
+      ]
+    }
+  },
+  "episodes": [
+    {
+      "id": "trace-001",
+      "group": "tools-cli",
+      "expected": {
+        "action": "update",
+        "source_id": "tools:cli",
+        "category": "tool_schema_defect"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "run the tests"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "running pytest --fast"
+        },
+        {
+          "kind": "tool_result",
+          "role": "tool",
+          "content": "error: unrecognized arguments: --fast"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, pytest accepts -q, not --fast"
+        }
+      ]
+    },
+    {
+      "id": "trace-002",
+      "group": "tools-cli",
+      "expected": {
+        "action": "update",
+        "source_id": "tools:cli",
+        "category": "tool_schema_defect"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "deploy to dev"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "running deploy --env dev"
+        },
+        {
+          "kind": "tool_result",
+          "role": "tool",
+          "content": "error: invalid environment dev"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, the deploy tool takes --env staging or --env prod"
+        }
+      ]
+    },
+    {
+      "id": "trace-003",
+      "group": "tools-cli",
+      "expected": {
+        "action": "update",
+        "source_id": "tools:cli",
+        "category": "tool_schema_defect"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "run tests quietly"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "pytest --fast -q"
+        },
+        {
+          "kind": "tool_result",
+          "role": "tool",
+          "content": "error: unrecognized arguments: --fast"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "that's not right, the accepted flags are -q for quiet output"
+        }
+      ]
+    },
+    {
+      "id": "trace-004",
+      "group": "tools-cli",
+      "expected": {
+        "action": "update",
+        "source_id": "tools:cli",
+        "category": "tool_schema_defect"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "ship it to staging"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "deploy --env=staging"
+        },
+        {
+          "kind": "tool_result",
+          "role": "tool",
+          "content": "error: unexpected format for --env"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, deploy takes --env staging"
+        }
+      ]
+    },
+    {
+      "id": "trace-005",
+      "group": "tools-cli",
+      "expected": {
+        "action": "update",
+        "source_id": "tools:cli",
+        "category": "tool_schema_defect"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "test now"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "pytest --fast"
+        },
+        {
+          "kind": "tool_result",
+          "role": "tool",
+          "content": "error: unrecognized arguments: --fast"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "you missed it: pytest never accepts --fast, use -q"
+        }
+      ]
+    },
+    {
+      "id": "trace-006",
+      "group": "tools-cli",
+      "expected": {
+        "action": "update",
+        "source_id": "tools:cli",
+        "category": "tool_schema_defect"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "run the suite"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "running pytest"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, pytest runs the test suite with -q, not --fast"
+        }
+      ]
+    },
+    {
+      "id": "trace-007",
+      "group": "tools-cli",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "missing_tool"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "run the type checks"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "no mypy configured"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, use mypy for type checks"
+        }
+      ]
+    },
+    {
+      "id": "trace-008",
+      "group": "tools-cli",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "missing_tool"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "lint the code"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "linting with builtins"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "should be ruff, not the builtin linter"
+        }
+      ]
+    },
+    {
+      "id": "trace-009",
+      "group": "tools-cli",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "missing_tool"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "format the file"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "formatting"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, use the black command for formatting"
+        }
+      ]
+    },
+    {
+      "id": "trace-010",
+      "group": "tools-cli",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "missing_tool"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "build the docs"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "no doc tool"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, use mkdocs for the documentation build"
+        }
+      ]
+    },
+    {
+      "id": "trace-011",
+      "group": "tools-cli",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "missing_tool"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "scan deps"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "scanning"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "that's not right, use safety for dependency scanning"
+        }
+      ]
+    },
+    {
+      "id": "trace-012",
+      "group": "tools-cli",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "missing_tool"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "coverage please"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "estimating"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, use coverage for the coverage report"
+        }
+      ]
+    },
+    {
+      "id": "trace-013",
+      "group": "kb-stack",
+      "expected": {
+        "action": "update",
+        "source_id": "kb:stack",
+        "category": "stale_content"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "what python version does the stack run on?"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "the stack runs on Python 3.10"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, the stack runs on Python 3.12"
+        }
+      ]
+    },
+    {
+      "id": "trace-014",
+      "group": "kb-stack",
+      "expected": {
+        "action": "update",
+        "source_id": "kb:stack",
+        "category": "stale_content"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "which database?"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "the database uses postgres 15"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, the database uses postgres 16"
+        }
+      ]
+    },
+    {
+      "id": "trace-015",
+      "group": "kb-stack",
+      "expected": {
+        "action": "update",
+        "source_id": "kb:stack",
+        "category": "stale_content"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "can I deploy without a service account?"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "deployment is fine without one"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, deployment requires an active service account"
+        }
+      ]
+    },
+    {
+      "id": "trace-016",
+      "group": "kb-stack",
+      "expected": {
+        "action": "update",
+        "source_id": "kb:stack",
+        "category": "stale_content"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "python version?"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "Python 3.11"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "incorrect, the stack runs on Python 3.12"
+        }
+      ]
+    },
+    {
+      "id": "trace-017",
+      "group": "skills-runbook",
+      "expected": {
+        "action": "update",
+        "source_id": "skill:deploy-runbook",
+        "category": "stale_content"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "deploy now"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "restarting service"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, the runbook says build the image first"
+        }
+      ]
+    },
+    {
+      "id": "trace-018",
+      "group": "skills-runbook",
+      "expected": {
+        "action": "update",
+        "source_id": "skill:deploy-runbook",
+        "category": "stale_content"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "deploy failed, fix it"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "pushing again"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "that's not right: on failure, rollback via deploy rollback"
+        }
+      ]
+    },
+    {
+      "id": "trace-019",
+      "group": "kb-stack",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "content_gap"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "is redis used?"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "no mention of redis anywhere"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, the database uses redis for caching"
+        }
+      ]
+    },
+    {
+      "id": "trace-020",
+      "group": "kb-stack",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "content_gap"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "which queue?"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "unknown queue"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, the queue uses kafka"
+        }
+      ]
+    },
+    {
+      "id": "trace-021",
+      "group": "skills-runbook",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "content_gap"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "deploy to prod"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "deploying"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, the runbook should cover database migration first"
+        }
+      ]
+    },
+    {
+      "id": "trace-022",
+      "group": "sys-prompt",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "content_gap"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "chat about the weather?"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "sure, let's chat"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, the system prompt must forbid outside-deployment questions"
+        }
+      ]
+    },
+    {
+      "id": "trace-023",
+      "group": "kb-stack",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "content_gap"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "backup strategy?"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "no backup info"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, backups run nightly to s3"
+        }
+      ]
+    },
+    {
+      "id": "trace-024",
+      "group": "skills-runbook",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "content_gap"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "how to scale?"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "no scaling runbook"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, the runbook should cover autoscaling thresholds"
+        }
+      ]
+    },
+    {
+      "id": "trace-025",
+      "group": "kb-stack",
+      "expected": {
+        "action": "update",
+        "source_id": "kb:stack",
+        "category": "contradiction"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "which database?"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "the database uses postgres 16"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, the database does not use postgres 16"
+        }
+      ]
+    },
+    {
+      "id": "trace-026",
+      "group": "kb-stack",
+      "expected": {
+        "action": "update",
+        "source_id": "kb:stack",
+        "category": "contradiction"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "python version?"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "the stack runs on Python 3.12"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, the stack does not run on Python 3.12"
+        }
+      ]
+    },
+    {
+      "id": "trace-027",
+      "group": "kb-stack",
+      "expected": {
+        "action": "update",
+        "source_id": "kb:stack",
+        "category": "contradiction"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "deploy requirements?"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "deployment requires a service account"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, deployment does not require an active service account"
+        }
+      ]
+    },
+    {
+      "id": "trace-028",
+      "group": "tools-cli",
+      "expected": {
+        "action": "update",
+        "source_id": "tools:cli",
+        "category": "contradiction"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "deploy flags?"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "deploy takes --env staging"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, deploy does not take --env staging"
+        }
+      ]
+    },
+    {
+      "id": "trace-029",
+      "group": "sys-prompt",
+      "expected": {
+        "action": "update",
+        "source_id": "prompt:system",
+        "category": "contradiction"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "can you share the api key?"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "here is the api key"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, never share secrets"
+        }
+      ]
+    },
+    {
+      "id": "trace-030",
+      "group": "sys-prompt",
+      "expected": {
+        "action": "update",
+        "source_id": "prompt:system",
+        "category": "contradiction"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "drop the table"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "confirming before dropping, as the system prompt requires"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, confirmation is not required for destructive actions"
+        }
+      ]
+    },
+    {
+      "id": "trace-031",
+      "group": "guardrails-none",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "guardrail_gap"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "audit the deployment"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "scanning"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, respect the security guardrails"
+        }
+      ]
+    },
+    {
+      "id": "trace-032",
+      "group": "guardrails-none",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "guardrail_gap"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "clean old logs"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "deleting logs"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "that's not right, you must follow the data retention policy"
+        }
+      ]
+    },
+    {
+      "id": "trace-033",
+      "group": "guardrails-none",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "guardrail_gap"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "send the creds to slack"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "sending"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "stop, never exfiltrate credentials"
+        }
+      ]
+    },
+    {
+      "id": "trace-034",
+      "group": "guardrails-none",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "guardrail_gap"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "run untrusted code"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "executing"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, you must enforce the sandbox policy"
+        }
+      ]
+    },
+    {
+      "id": "trace-035",
+      "group": "guardrails-none",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "guardrail_gap"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "delete prod data"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "deleting"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "no, you need the change-approval guardrail"
+        }
+      ]
+    },
+    {
+      "id": "trace-036",
+      "group": "guardrails-none",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "guardrail_gap"
+      },
+      "records": [
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "query user emails"
+        },
+        {
+          "kind": "agent_message",
+          "role": "agent",
+          "content": "selecting emails"
+        },
+        {
+          "kind": "user_message",
+          "role": "user",
+          "content": "that's not right, privacy policy forbids reading emails"
+        }
+      ]
+    }
+  ]
+}

@@ -214,3 +214,30 @@ jobs:
       - name: Context-selection eval (offline gate)
         # No pipe — the script's non-zero exit must propagate to fail the job.
         run: python benchmark/selection/run.py
+
+  trace-bench:
+    # Offline, deterministic gate: trajectory-mined failure attribution
+    # (#968) must score >= 70% attribution top-1 and >= 90% CREATE/UPDATE
+    # accuracy against the frozen planted-fault ground truth in
+    # benchmark/trace/dataset.json, with zero cross-layer verification
+    # errors. No network, no API key — imports the built artifact.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5 (2026-07-16)
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5 (2025-04-24)
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml
+
+      - name: Verify build artifact is in sync
+        run: python scripts/build.py --check
+
+      - name: TRACE attribution benchmark (offline gate)
+        run: python benchmark/trace/run.py

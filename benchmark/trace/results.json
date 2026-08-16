@@ -1,0 +1,708 @@
+{
+  "schema_version": "perseus-trace-benchmark-results/v1",
+  "dataset": "dataset.json",
+  "dataset_sha256": "fef3e87d5225f96de744327f1f359366f2e21f488d1f7c902291415d113c6fe5",
+  "episodes": 36,
+  "attribution": {
+    "top1_accuracy": 1.0,
+    "scored_episodes": 18,
+    "gate": 0.7,
+    "pass": true
+  },
+  "create_update": {
+    "accuracy": 1.0,
+    "scored_episodes": 36,
+    "gate": 0.9,
+    "pass": true
+  },
+  "structural_verification": {
+    "episodes_with_errors": 0,
+    "pass": true
+  },
+  "per_episode": [
+    {
+      "id": "trace-001",
+      "expected": {
+        "action": "update",
+        "source_id": "tools:cli",
+        "category": "tool_schema_defect"
+      },
+      "decision": "update",
+      "fault_category": "tool_schema_defect",
+      "decision_correct": true,
+      "attributed_source_id": "tools:cli",
+      "attribution_correct": true,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "81120552a353e8d02a243954d60d3e159bcf3da1a7f7ccd0d8707ed5015955f1"
+    },
+    {
+      "id": "trace-002",
+      "expected": {
+        "action": "update",
+        "source_id": "tools:cli",
+        "category": "tool_schema_defect"
+      },
+      "decision": "update",
+      "fault_category": "tool_schema_defect",
+      "decision_correct": true,
+      "attributed_source_id": "tools:cli",
+      "attribution_correct": true,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "ae35098da320c275eb4177d546ac8c2e0113fe19c461c91400759c58278d4ff7"
+    },
+    {
+      "id": "trace-003",
+      "expected": {
+        "action": "update",
+        "source_id": "tools:cli",
+        "category": "tool_schema_defect"
+      },
+      "decision": "update",
+      "fault_category": "tool_schema_defect",
+      "decision_correct": true,
+      "attributed_source_id": "tools:cli",
+      "attribution_correct": true,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "0ed062b493f609108686a1f99ac105cf1aefc8781324f748e6c90548d933b254"
+    },
+    {
+      "id": "trace-004",
+      "expected": {
+        "action": "update",
+        "source_id": "tools:cli",
+        "category": "tool_schema_defect"
+      },
+      "decision": "update",
+      "fault_category": "tool_schema_defect",
+      "decision_correct": true,
+      "attributed_source_id": "tools:cli",
+      "attribution_correct": true,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "921c3c16a64e357bf852d4d64536c25738f6f9243b4d9c1d85fa3517c3c0ae91"
+    },
+    {
+      "id": "trace-005",
+      "expected": {
+        "action": "update",
+        "source_id": "tools:cli",
+        "category": "tool_schema_defect"
+      },
+      "decision": "update",
+      "fault_category": "contradiction",
+      "decision_correct": true,
+      "attributed_source_id": "tools:cli",
+      "attribution_correct": true,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "6bca839e73d620af3c427a567988da16554b9630607a2da717b8931f38c0fb5b"
+    },
+    {
+      "id": "trace-006",
+      "expected": {
+        "action": "update",
+        "source_id": "tools:cli",
+        "category": "tool_schema_defect"
+      },
+      "decision": "update",
+      "fault_category": "tool_schema_defect",
+      "decision_correct": true,
+      "attributed_source_id": "tools:cli",
+      "attribution_correct": true,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "15abd62bb210b48d8de6391bb41e4b301bd5c986943cf635a89865867a95f6bb"
+    },
+    {
+      "id": "trace-007",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "missing_tool"
+      },
+      "decision": "create",
+      "fault_category": "content_gap",
+      "decision_correct": true,
+      "attributed_source_id": "",
+      "attribution_correct": null,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "89708d13aeb89bb5b411814a4c05de058b7f3657459fc6233914f55aa21c7f0c"
+    },
+    {
+      "id": "trace-008",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "missing_tool"
+      },
+      "decision": "create",
+      "fault_category": "content_gap",
+      "decision_correct": true,
+      "attributed_source_id": "",
+      "attribution_correct": null,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "abc61b5bf0f777f5b6aae923a7ee4854e92dc2c364069a03d19a7c2090beea61"
+    },
+    {
+      "id": "trace-009",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "missing_tool"
+      },
+      "decision": "create",
+      "fault_category": "missing_tool",
+      "decision_correct": true,
+      "attributed_source_id": "",
+      "attribution_correct": null,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "603695fd75e299dd2d77d8d6ea298abab43f6dc69e3c1de7fe6c1d46090040ce"
+    },
+    {
+      "id": "trace-010",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "missing_tool"
+      },
+      "decision": "create",
+      "fault_category": "content_gap",
+      "decision_correct": true,
+      "attributed_source_id": "",
+      "attribution_correct": null,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "8b72761fd96c5d93bb233b02fe5446d1ca8ab098bf9f4916174f8a7915e3eb19"
+    },
+    {
+      "id": "trace-011",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "missing_tool"
+      },
+      "decision": "create",
+      "fault_category": "guardrail_gap",
+      "decision_correct": true,
+      "attributed_source_id": "",
+      "attribution_correct": null,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "07b48ec61ab82cec676a4051a31313f5aa01aff912367178a665dcd5a12d3125"
+    },
+    {
+      "id": "trace-012",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "missing_tool"
+      },
+      "decision": "create",
+      "fault_category": "content_gap",
+      "decision_correct": true,
+      "attributed_source_id": "",
+      "attribution_correct": null,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "83065a58fdf4dc0c5ecdbe087a9e852def4b7fe99b3863e1f1ccff2787ee6d07"
+    },
+    {
+      "id": "trace-013",
+      "expected": {
+        "action": "update",
+        "source_id": "kb:stack",
+        "category": "stale_content"
+      },
+      "decision": "update",
+      "fault_category": "stale_content",
+      "decision_correct": true,
+      "attributed_source_id": "kb:stack",
+      "attribution_correct": true,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "affcf663decc8e5c6f6028e62cacf74567bb587979730b4bd116f224f1e7bbc3"
+    },
+    {
+      "id": "trace-014",
+      "expected": {
+        "action": "update",
+        "source_id": "kb:stack",
+        "category": "stale_content"
+      },
+      "decision": "update",
+      "fault_category": "stale_content",
+      "decision_correct": true,
+      "attributed_source_id": "kb:stack",
+      "attribution_correct": true,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "0442ce53b2f1178e0ce9fd3fad9320a3015851855062a45e280b1c28fe7d49e2"
+    },
+    {
+      "id": "trace-015",
+      "expected": {
+        "action": "update",
+        "source_id": "kb:stack",
+        "category": "stale_content"
+      },
+      "decision": "update",
+      "fault_category": "stale_content",
+      "decision_correct": true,
+      "attributed_source_id": "kb:stack",
+      "attribution_correct": true,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "9a19b286d9866f9f0cd412fd06236e2b1ef95b55a2cd2769d630f8763e6c0969"
+    },
+    {
+      "id": "trace-016",
+      "expected": {
+        "action": "update",
+        "source_id": "kb:stack",
+        "category": "stale_content"
+      },
+      "decision": "update",
+      "fault_category": "stale_content",
+      "decision_correct": true,
+      "attributed_source_id": "kb:stack",
+      "attribution_correct": true,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "ddf61a1498ca6a50f6567daef53f29b5e28892932f9ad268ddc5dd50b0a03f16"
+    },
+    {
+      "id": "trace-017",
+      "expected": {
+        "action": "update",
+        "source_id": "skill:deploy-runbook",
+        "category": "stale_content"
+      },
+      "decision": "update",
+      "fault_category": "stale_content",
+      "decision_correct": true,
+      "attributed_source_id": "skill:deploy-runbook",
+      "attribution_correct": true,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "288efb333e793a8afadbb62ef1a6737d751792aeb1057520171f51b91b4170f2"
+    },
+    {
+      "id": "trace-018",
+      "expected": {
+        "action": "update",
+        "source_id": "skill:deploy-runbook",
+        "category": "stale_content"
+      },
+      "decision": "update",
+      "fault_category": "stale_content",
+      "decision_correct": true,
+      "attributed_source_id": "skill:deploy-runbook",
+      "attribution_correct": true,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "ee6a39b412428636dd12fb6404734264fc031834fb461129f19c8121c9601609"
+    },
+    {
+      "id": "trace-019",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "content_gap"
+      },
+      "decision": "create",
+      "fault_category": "content_gap",
+      "decision_correct": true,
+      "attributed_source_id": "kb:stack",
+      "attribution_correct": null,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "dd6eda091080afc262dc529d979cf1d46fa5474aaa9ffc743715c843a85aa91a"
+    },
+    {
+      "id": "trace-020",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "content_gap"
+      },
+      "decision": "create",
+      "fault_category": "content_gap",
+      "decision_correct": true,
+      "attributed_source_id": "",
+      "attribution_correct": null,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "f60cc82b1f34fbb784942a45d4742f5f0ebe432cac4bb21a71e5487b3ae36a3a"
+    },
+    {
+      "id": "trace-021",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "content_gap"
+      },
+      "decision": "create",
+      "fault_category": "content_gap",
+      "decision_correct": true,
+      "attributed_source_id": "",
+      "attribution_correct": null,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "8a7c9758bb055760978853213f156776549a0e771a9fc9ade3e45411506dee05"
+    },
+    {
+      "id": "trace-022",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "content_gap"
+      },
+      "decision": "create",
+      "fault_category": "content_gap",
+      "decision_correct": true,
+      "attributed_source_id": "",
+      "attribution_correct": null,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "57f4d8573c30cda460f7e09d9f5d7b4f8eb30a65f0f922ec19bead1b645ae154"
+    },
+    {
+      "id": "trace-023",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "content_gap"
+      },
+      "decision": "create",
+      "fault_category": "content_gap",
+      "decision_correct": true,
+      "attributed_source_id": "",
+      "attribution_correct": null,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "a0bf03960015b3095afc22828e706036fe6fec0c37838d894ceda5642172c5af"
+    },
+    {
+      "id": "trace-024",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "content_gap"
+      },
+      "decision": "create",
+      "fault_category": "content_gap",
+      "decision_correct": true,
+      "attributed_source_id": "",
+      "attribution_correct": null,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "c63f08180848fdc520031358e9310b32c8f74bc7c5bee5658ee1c16fa20b07c0"
+    },
+    {
+      "id": "trace-025",
+      "expected": {
+        "action": "update",
+        "source_id": "kb:stack",
+        "category": "contradiction"
+      },
+      "decision": "update",
+      "fault_category": "stale_content",
+      "decision_correct": true,
+      "attributed_source_id": "kb:stack",
+      "attribution_correct": true,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "7768ebabaecbb5eabfc25167b3a632ce6471a6ca8ee47269f6d9360ec27655eb"
+    },
+    {
+      "id": "trace-026",
+      "expected": {
+        "action": "update",
+        "source_id": "kb:stack",
+        "category": "contradiction"
+      },
+      "decision": "update",
+      "fault_category": "contradiction",
+      "decision_correct": true,
+      "attributed_source_id": "kb:stack",
+      "attribution_correct": true,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "e5eb268fd1f2b1269904219373e6c6787b70c050176fdb4ee166b562a4bd9613"
+    },
+    {
+      "id": "trace-027",
+      "expected": {
+        "action": "update",
+        "source_id": "kb:stack",
+        "category": "contradiction"
+      },
+      "decision": "update",
+      "fault_category": "contradiction",
+      "decision_correct": true,
+      "attributed_source_id": "kb:stack",
+      "attribution_correct": true,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "e675643ebdcbd636ebdc72615a7616b7cca63d40684c308e5aefda7dff4ab3ac"
+    },
+    {
+      "id": "trace-028",
+      "expected": {
+        "action": "update",
+        "source_id": "tools:cli",
+        "category": "contradiction"
+      },
+      "decision": "update",
+      "fault_category": "contradiction",
+      "decision_correct": true,
+      "attributed_source_id": "tools:cli",
+      "attribution_correct": true,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "6adc7935d52c5dde62bed28ebd9178c51327d98a372204432f8ba73954e769e3"
+    },
+    {
+      "id": "trace-029",
+      "expected": {
+        "action": "update",
+        "source_id": "prompt:system",
+        "category": "contradiction"
+      },
+      "decision": "update",
+      "fault_category": "contradiction",
+      "decision_correct": true,
+      "attributed_source_id": "prompt:system",
+      "attribution_correct": true,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "a336a40272aa5d8bb3a81e07854c4599c5f1bb74d78a6ba73d5e7358a7f4abd5"
+    },
+    {
+      "id": "trace-030",
+      "expected": {
+        "action": "update",
+        "source_id": "prompt:system",
+        "category": "contradiction"
+      },
+      "decision": "update",
+      "fault_category": "contradiction",
+      "decision_correct": true,
+      "attributed_source_id": "prompt:system",
+      "attribution_correct": true,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "9feed0c36451bca82f9a644831a1d6a281513181d83eb6e2b213826b82a34bab"
+    },
+    {
+      "id": "trace-031",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "guardrail_gap"
+      },
+      "decision": "create",
+      "fault_category": "guardrail_gap",
+      "decision_correct": true,
+      "attributed_source_id": "",
+      "attribution_correct": null,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "71a9c82baac2a17bbec2230d80944b6077675021291f116209263ff69c818b8a"
+    },
+    {
+      "id": "trace-032",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "guardrail_gap"
+      },
+      "decision": "create",
+      "fault_category": "guardrail_gap",
+      "decision_correct": true,
+      "attributed_source_id": "",
+      "attribution_correct": null,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "9616d254e3f95c7972d09de1842e473de7d1c30e687ec70689ff5353d7c37381"
+    },
+    {
+      "id": "trace-033",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "guardrail_gap"
+      },
+      "decision": "create",
+      "fault_category": "content_gap",
+      "decision_correct": true,
+      "attributed_source_id": "",
+      "attribution_correct": null,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "abandonment"
+      ],
+      "report_digest": "c13baa699b6c34a02df4510686bddb2aa43efecc8e9989f0631e8e77b6ba7420"
+    },
+    {
+      "id": "trace-034",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "guardrail_gap"
+      },
+      "decision": "create",
+      "fault_category": "guardrail_gap",
+      "decision_correct": true,
+      "attributed_source_id": "",
+      "attribution_correct": null,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "0c7dd0ed849c77bec691c0ab750be137ce591e20124257414ea914e7057cfd53"
+    },
+    {
+      "id": "trace-035",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "guardrail_gap"
+      },
+      "decision": "create",
+      "fault_category": "guardrail_gap",
+      "decision_correct": true,
+      "attributed_source_id": "",
+      "attribution_correct": null,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "873837475a7a0589e4b03a4c292ae14f541f3872bca9b1fa11c806abf87bc3bd"
+    },
+    {
+      "id": "trace-036",
+      "expected": {
+        "action": "create",
+        "source_id": null,
+        "category": "guardrail_gap"
+      },
+      "decision": "create",
+      "fault_category": "guardrail_gap",
+      "decision_correct": true,
+      "attributed_source_id": "",
+      "attribution_correct": null,
+      "structural_ok": true,
+      "issues": [],
+      "signals": [
+        "correction"
+      ],
+      "report_digest": "182870c8f41e3b7b3c0df2c6f7170b3c1c457a719e8aa6c7836c931754a85268"
+    }
+  ]
+}
