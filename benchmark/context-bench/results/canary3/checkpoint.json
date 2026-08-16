@@ -1,0 +1,161 @@
+{
+  "cb-001": {
+    "full_context": {
+      "answer_finish": "length",
+      "answer_model": "gpt-5-mini",
+      "answer_usage": {
+        "completion_tokens": 1024,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 1024,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens": 29549,
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 30573
+      },
+      "assembly_meta": {
+        "files": 10,
+        "truncated_files": [
+          "addresses.txt",
+          "bank_accounts.txt",
+          "credit_cards.txt",
+          "employments.txt",
+          "insurance_policies.txt",
+          "internet_accounts.txt",
+          "medical_records.txt",
+          "people.txt",
+          "pets.txt",
+          "vehicles.txt"
+        ],
+        "window_chars": 8000
+      },
+      "judge": {
+        "parse_error": "empty judge content",
+        "score": null
+      },
+      "mode": "full_context",
+      "tokens_rendered": 20169
+    },
+    "naive_rag_k3": {
+      "answer_finish": "stop",
+      "answer_model": "gpt-5-mini",
+      "answer_usage": {
+        "completion_tokens": 875,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 640,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens": 270,
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 1145
+      },
+      "assembly_meta": {
+        "chunks_selected": [
+          "emp-0163 (owner: pers-0151)",
+          "addr-0001 (owner: pers-0001)",
+          "addr-0002 (owner: pers-0001)"
+        ],
+        "chunks_total": 9224,
+        "k": 3,
+        "top_scores": [
+          0.12,
+          0.08,
+          0.08
+        ]
+      },
+      "judge": {
+        "parse_error": "empty judge content",
+        "score": null
+      },
+      "mode": "naive_rag_k3",
+      "tokens_rendered": 244
+    },
+    "naive_rag_k5": {
+      "answer_finish": "stop",
+      "answer_model": "gpt-5-mini",
+      "answer_usage": {
+        "completion_tokens": 615,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 384,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens": 385,
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 1000
+      },
+      "assembly_meta": {
+        "chunks_selected": [
+          "emp-0163 (owner: pers-0151)",
+          "addr-0001 (owner: pers-0001)",
+          "addr-0002 (owner: pers-0001)",
+          "addr-0003 (owner: pers-0001)",
+          "addr-0004 (owner: pers-0002)"
+        ],
+        "chunks_total": 9224,
+        "k": 5,
+        "top_scores": [
+          0.12,
+          0.08,
+          0.08,
+          0.08,
+          0.08
+        ]
+      },
+      "judge": {
+        "parse_error": "empty judge content",
+        "score": null
+      },
+      "mode": "naive_rag_k5",
+      "tokens_rendered": 336
+    },
+    "perseus_dag": {
+      "answer_finish": "length",
+      "answer_model": "gpt-5-mini",
+      "answer_usage": {
+        "completion_tokens": 1024,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 1024,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens": 746,
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 1770
+      },
+      "assembly_meta": {
+        "compiled_digest": "f64d6de441e2ec6e",
+        "depth": 1,
+        "max_chunks": 10,
+        "max_tokens": 6000,
+        "nodes": 15,
+        "replay_verified": true,
+        "verdict": "sufficient"
+      },
+      "judge": {
+        "parse_error": "empty judge content",
+        "score": null
+      },
+      "mode": "perseus_dag",
+      "tokens_rendered": 538
+    }
+  }
+}

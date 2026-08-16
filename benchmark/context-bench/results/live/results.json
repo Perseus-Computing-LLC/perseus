@@ -1,0 +1,3503 @@
+{
+  "aggregate": {
+    "full_context": {
+      "mean_score": 0.167,
+      "mean_tokens_rendered": 20186.6,
+      "n": 15,
+      "scores": [
+        0.0,
+        0.0,
+        0.0,
+        0.5,
+        0.5,
+        0.5,
+        0.0,
+        0.0,
+        0.5,
+        0.0,
+        0.0,
+        0.5,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "naive_rag_k3": {
+      "mean_score": 0.333,
+      "mean_tokens_rendered": 266.5,
+      "n": 15,
+      "reduction_vs_full_context_pct": 98.7,
+      "scores": [
+        0.5,
+        0.0,
+        0.5,
+        0.0,
+        0.0,
+        0.5,
+        1.0,
+        0.5,
+        0.0,
+        0.5,
+        0.0,
+        0.5,
+        0.5,
+        0.0,
+        0.5
+      ]
+    },
+    "naive_rag_k5": {
+      "mean_score": 0.233,
+      "mean_tokens_rendered": 360.0,
+      "n": 15,
+      "reduction_vs_full_context_pct": 98.2,
+      "scores": [
+        0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.5,
+        0.5,
+        0.5,
+        0.0,
+        0.5,
+        0.5,
+        0.0,
+        0.0,
+        0.5,
+        0.0,
+        0.0
+      ]
+    },
+    "perseus_dag": {
+      "mean_score": 0.267,
+      "mean_tokens_rendered": 573.1,
+      "n": 15,
+      "reduction_vs_full_context_pct": 97.2,
+      "scores": [
+        0.5,
+        0.5,
+        0.0,
+        0.0,
+        0.5,
+        0.0,
+        0.5,
+        0.5,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.5
+      ]
+    }
+  },
+  "claims": {
+    "answer_usage": "observed provider-returned usage telemetry",
+    "generalization": "not established: 15-question adapter pilot on public questions",
+    "rubric_score": "observed judge scores from the official 0/0.5/1.0 rubric contract",
+    "tokens_rendered": "derived dag_tokens estimate (chars//4); provider usage reported separately"
+  },
+  "manifest": {
+    "answer_provider": {
+      "endpoint_host": "api.openai.com",
+      "key_env": "OPENAI_API_KEY",
+      "max_tokens": 4096,
+      "model": "gpt-5-mini",
+      "reasoning_effort": "low",
+      "role": "answer",
+      "temperature": 1.0
+    },
+    "arms": {
+      "naive_rag": {
+        "k_sweep": [
+          3,
+          5
+        ]
+      },
+      "perseus_dag": {
+        "max_chunks": 10,
+        "max_tokens": 6000
+      }
+    },
+    "corpus_sha256": {
+      "addresses.txt": "71b2686aa482bee96e7b77554a8f68a639d77a81a883ac78c35baaee717b4705",
+      "bank_accounts.txt": "230667663fb1b1d700e8136c0f5f7a65966a07e33776236675f4b8d49fde7cc0",
+      "credit_cards.txt": "68451664f3dea44eb023d8719d9bdac48fdebc863b3784d7a285b113f22fb48e",
+      "employments.txt": "77301b100025de3c534743376f4b148f514d0c69958d768637c91dc193f12544",
+      "insurance_policies.txt": "9e601fa52a4624a1169bdd33b1e09f059a82f38caa1887e61e96302ad60ba122",
+      "internet_accounts.txt": "009a948d6ca659281a5840b4a0d137474dd1eba44a0c04a395b0095223dc60a6",
+      "medical_records.txt": "7feabab89682a87c6ac5e2a94f66ab375c7151ea33fab451b2ce6db3964f95b6",
+      "people.txt": "ec633879861d9c1b49c492b1d9c5656bcb1f22cebd54a3a2afcafab51c39ab97",
+      "pets.txt": "49a8b9a01e32e94c71c3a1ac32d23d03fe1282938bd741a2b0bb48ec09cf3338",
+      "vehicles.txt": "c7ee984009861a10eabbce9ec0699bca4017a330b01740680ed6c8d9766c8e17"
+    },
+    "dry_run": false,
+    "framing": "adapter-based reproduction of the letta-evals filesystem suite; public questions are not a hidden holdout; not leaderboard-identical",
+    "judge_contract_note": "official rubric pins gpt-5-mini at temperature 0.0; the model API rejects 0.0, so judge runs at temperature 1.0 \u2014 disclosed deviation",
+    "judge_provider": {
+      "endpoint_host": "api.openai.com",
+      "key_env": "OPENAI_API_KEY",
+      "max_tokens": 512,
+      "model": "gpt-5-mini",
+      "reasoning_effort": "minimal",
+      "role": "judge",
+      "temperature": 1.0
+    },
+    "perseus_version": "unknown",
+    "pilot_n": 15,
+    "pilot_sha256": "12f842cf270b0bfe3323ea59fb842e2091e6d98fdc6881a84a8961fd7085339a",
+    "rubric_sha256": "9c124fc9cc34841d1bc0c601d13a96246986ca4caaa7730eb3abbd6e8761b385",
+    "schema_version": "perseus-context-bench-manifest/v1",
+    "started_unix_s": 1786853528.308
+  },
+  "results_digest": "defee0f5ddcffcd0d027979ff1a2f7a732d8c2faa29bf8cb523e3be19a74df65",
+  "rows": {
+    "cb-001": {
+      "full_context": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 932,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 832,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 29549,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 30481
+        },
+        "assembly_meta": {
+          "files": 10,
+          "truncated_files": [
+            "addresses.txt",
+            "bank_accounts.txt",
+            "credit_cards.txt",
+            "employments.txt",
+            "insurance_policies.txt",
+            "internet_accounts.txt",
+            "medical_records.txt",
+            "people.txt",
+            "pets.txt",
+            "vehicles.txt"
+          ],
+          "window_chars": 8000
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853162.813,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 679,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 691
+          }
+        },
+        "mode": "full_context",
+        "tokens_rendered": 20169
+      },
+      "naive_rag_k3": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 304,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 128,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 270,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 574
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "emp-0163 (owner: pers-0151)",
+            "addr-0001 (owner: pers-0001)",
+            "addr-0002 (owner: pers-0001)"
+          ],
+          "chunks_total": 9224,
+          "k": 3,
+          "top_scores": [
+            0.12,
+            0.08,
+            0.08
+          ]
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853168.17,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 755,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 767
+          }
+        },
+        "mode": "naive_rag_k3",
+        "tokens_rendered": 244
+      },
+      "naive_rag_k5": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 439,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 128,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 385,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 824
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "emp-0163 (owner: pers-0151)",
+            "addr-0001 (owner: pers-0001)",
+            "addr-0002 (owner: pers-0001)",
+            "addr-0003 (owner: pers-0001)",
+            "addr-0004 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 5,
+          "top_scores": [
+            0.12,
+            0.08,
+            0.08,
+            0.08,
+            0.08
+          ]
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853175.869,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 890,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 902
+          }
+        },
+        "mode": "naive_rag_k5",
+        "tokens_rendered": 336
+      },
+      "perseus_dag": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 300,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 128,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 746,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1046
+        },
+        "assembly_meta": {
+          "compiled_digest": "f64d6de441e2ec6e",
+          "depth": 1,
+          "max_chunks": 10,
+          "max_tokens": 6000,
+          "nodes": 15,
+          "replay_verified": true,
+          "verdict": "sufficient"
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853180.701,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 751,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 763
+          }
+        },
+        "mode": "perseus_dag",
+        "tokens_rendered": 538
+      }
+    },
+    "cb-005": {
+      "full_context": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 294,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 128,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 29543,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 29440
+          },
+          "total_tokens": 29837
+        },
+        "assembly_meta": {
+          "files": 10,
+          "truncated_files": [
+            "addresses.txt",
+            "bank_accounts.txt",
+            "credit_cards.txt",
+            "employments.txt",
+            "insurance_policies.txt",
+            "internet_accounts.txt",
+            "medical_records.txt",
+            "people.txt",
+            "pets.txt",
+            "vehicles.txt"
+          ],
+          "window_chars": 8000
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853186.418,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 739,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 751
+          }
+        },
+        "mode": "full_context",
+        "tokens_rendered": 20163
+      },
+      "naive_rag_k3": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 343,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 320,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 264,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 607
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "emp-0163 (owner: pers-0151)",
+            "addr-0001 (owner: pers-0001)",
+            "addr-0002 (owner: pers-0001)"
+          ],
+          "chunks_total": 9224,
+          "k": 3,
+          "top_scores": [
+            0.136,
+            0.091,
+            0.091
+          ]
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853192.362,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 596,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 608
+          }
+        },
+        "mode": "naive_rag_k3",
+        "tokens_rendered": 238
+      },
+      "naive_rag_k5": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 453,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 384,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 379,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 832
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "emp-0163 (owner: pers-0151)",
+            "addr-0001 (owner: pers-0001)",
+            "addr-0002 (owner: pers-0001)",
+            "addr-0003 (owner: pers-0001)",
+            "addr-0004 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 5,
+          "top_scores": [
+            0.136,
+            0.091,
+            0.091,
+            0.091,
+            0.091
+          ]
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853200.399,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 642,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 654
+          }
+        },
+        "mode": "naive_rag_k5",
+        "tokens_rendered": 329
+      },
+      "perseus_dag": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 408,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 256,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 734,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1142
+        },
+        "assembly_meta": {
+          "compiled_digest": "d8ac8e4306cd125c",
+          "depth": 1,
+          "max_chunks": 10,
+          "max_tokens": 6000,
+          "nodes": 15,
+          "replay_verified": true,
+          "verdict": "sufficient"
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853207.703,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 725,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 737
+          }
+        },
+        "mode": "perseus_dag",
+        "tokens_rendered": 531
+      }
+    },
+    "cb-029": {
+      "full_context": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 246,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 128,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 29557,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 29440
+          },
+          "total_tokens": 29803
+        },
+        "assembly_meta": {
+          "files": 10,
+          "truncated_files": [
+            "addresses.txt",
+            "bank_accounts.txt",
+            "credit_cards.txt",
+            "employments.txt",
+            "insurance_policies.txt",
+            "internet_accounts.txt",
+            "medical_records.txt",
+            "people.txt",
+            "pets.txt",
+            "vehicles.txt"
+          ],
+          "window_chars": 8000
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853212.249,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 705,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 717
+          }
+        },
+        "mode": "full_context",
+        "tokens_rendered": 20187
+      },
+      "naive_rag_k3": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 520,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 320,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 306,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 826
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0002 (owner: pers-0002)",
+            "acct-0004 (owner: pers-0002)",
+            "acct-0006 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 3,
+          "top_scores": [
+            0.138,
+            0.138,
+            0.138
+          ]
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853218.94,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 787,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 799
+          }
+        },
+        "mode": "naive_rag_k3",
+        "tokens_rendered": 278
+      },
+      "naive_rag_k5": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 712,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 512,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 440,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1152
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0002 (owner: pers-0002)",
+            "acct-0004 (owner: pers-0002)",
+            "acct-0006 (owner: pers-0002)",
+            "acct-0018 (owner: pers-0006)",
+            "acct-0021 (owner: pers-0006)"
+          ],
+          "chunks_total": 9224,
+          "k": 5,
+          "top_scores": [
+            0.138,
+            0.138,
+            0.138,
+            0.138,
+            0.138
+          ]
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853228.171,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 787,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 799
+          }
+        },
+        "mode": "naive_rag_k5",
+        "tokens_rendered": 379
+      },
+      "perseus_dag": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 759,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 704,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 884,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1643
+        },
+        "assembly_meta": {
+          "compiled_digest": "0f0977f266b65f80",
+          "depth": 1,
+          "max_chunks": 10,
+          "max_tokens": 6000,
+          "nodes": 17,
+          "replay_verified": true,
+          "verdict": "sufficient"
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853238.25,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 642,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 654
+          }
+        },
+        "mode": "perseus_dag",
+        "tokens_rendered": 625
+      }
+    },
+    "cb-032": {
+      "full_context": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 214,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 64,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 29564,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 29440
+          },
+          "total_tokens": 29778
+        },
+        "assembly_meta": {
+          "files": 10,
+          "truncated_files": [
+            "addresses.txt",
+            "bank_accounts.txt",
+            "credit_cards.txt",
+            "employments.txt",
+            "insurance_policies.txt",
+            "internet_accounts.txt",
+            "medical_records.txt",
+            "people.txt",
+            "pets.txt",
+            "vehicles.txt"
+          ],
+          "window_chars": 8000
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853242.797,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 744,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 756
+          }
+        },
+        "mode": "full_context",
+        "tokens_rendered": 20192
+      },
+      "naive_rag_k3": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 412,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 256,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 307,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 719
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0001 (owner: pers-0001)",
+            "acct-0002 (owner: pers-0002)",
+            "acct-0003 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 3,
+          "top_scores": [
+            0.136,
+            0.136,
+            0.136
+          ]
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853248.905,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 749,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 761
+          }
+        },
+        "mode": "naive_rag_k3",
+        "tokens_rendered": 274
+      },
+      "naive_rag_k5": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 395,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 256,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 441,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 836
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0001 (owner: pers-0001)",
+            "acct-0002 (owner: pers-0002)",
+            "acct-0003 (owner: pers-0002)",
+            "acct-0004 (owner: pers-0002)",
+            "acct-0005 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 5,
+          "top_scores": [
+            0.136,
+            0.136,
+            0.136,
+            0.136,
+            0.136
+          ]
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853255.122,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 733,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 745
+          }
+        },
+        "mode": "naive_rag_k5",
+        "tokens_rendered": 374
+      },
+      "perseus_dag": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 661,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 640,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 872,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1533
+        },
+        "assembly_meta": {
+          "compiled_digest": "5cdb3daa0692be37",
+          "depth": 1,
+          "max_chunks": 10,
+          "max_tokens": 6000,
+          "nodes": 16,
+          "replay_verified": true,
+          "verdict": "sufficient"
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853265.061,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 615,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 627
+          }
+        },
+        "mode": "perseus_dag",
+        "tokens_rendered": 598
+      }
+    },
+    "cb-041": {
+      "full_context": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 470,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 320,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 29587,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 29440
+          },
+          "total_tokens": 30057
+        },
+        "assembly_meta": {
+          "files": 10,
+          "truncated_files": [
+            "addresses.txt",
+            "bank_accounts.txt",
+            "credit_cards.txt",
+            "employments.txt",
+            "insurance_policies.txt",
+            "internet_accounts.txt",
+            "medical_records.txt",
+            "people.txt",
+            "pets.txt",
+            "vehicles.txt"
+          ],
+          "window_chars": 8000
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853272.541,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 767,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 779
+          }
+        },
+        "mode": "full_context",
+        "tokens_rendered": 20213
+      },
+      "naive_rag_k3": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 382,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 320,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 330,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 712
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0001 (owner: pers-0001)",
+            "acct-0002 (owner: pers-0002)",
+            "acct-0003 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 3,
+          "top_scores": [
+            0.103,
+            0.103,
+            0.103
+          ]
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853278.271,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 679,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 691
+          }
+        },
+        "mode": "naive_rag_k3",
+        "tokens_rendered": 295
+      },
+      "naive_rag_k5": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 605,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 256,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 464,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1069
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0001 (owner: pers-0001)",
+            "acct-0002 (owner: pers-0002)",
+            "acct-0003 (owner: pers-0002)",
+            "acct-0004 (owner: pers-0002)",
+            "acct-0005 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 5,
+          "top_scores": [
+            0.103,
+            0.103,
+            0.103,
+            0.103,
+            0.103
+          ]
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853286.135,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 966,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 978
+          }
+        },
+        "mode": "naive_rag_k5",
+        "tokens_rendered": 395
+      },
+      "perseus_dag": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 305,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 192,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 930,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1235
+        },
+        "assembly_meta": {
+          "compiled_digest": "e90a3d154554d0c9",
+          "depth": 1,
+          "max_chunks": 10,
+          "max_tokens": 6000,
+          "nodes": 17,
+          "replay_verified": true,
+          "verdict": "sufficient"
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853291.285,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 730,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 742
+          }
+        },
+        "mode": "perseus_dag",
+        "tokens_rendered": 629
+      }
+    },
+    "cb-044": {
+      "full_context": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 1435,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 1280,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 29541,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 29440
+          },
+          "total_tokens": 30976
+        },
+        "assembly_meta": {
+          "files": 10,
+          "truncated_files": [
+            "addresses.txt",
+            "bank_accounts.txt",
+            "credit_cards.txt",
+            "employments.txt",
+            "insurance_policies.txt",
+            "internet_accounts.txt",
+            "medical_records.txt",
+            "people.txt",
+            "pets.txt",
+            "vehicles.txt"
+          ],
+          "window_chars": 8000
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853310.505,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 727,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 739
+          }
+        },
+        "mode": "full_context",
+        "tokens_rendered": 20161
+      },
+      "naive_rag_k3": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 421,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 256,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 284,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 705
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0001 (owner: pers-0001)",
+            "acct-0002 (owner: pers-0002)",
+            "acct-0003 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 3,
+          "top_scores": [
+            0.15,
+            0.15,
+            0.15
+          ]
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853318.962,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 737,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 749
+          }
+        },
+        "mode": "naive_rag_k3",
+        "tokens_rendered": 243
+      },
+      "naive_rag_k5": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 253,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 128,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 418,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 671
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0001 (owner: pers-0001)",
+            "acct-0002 (owner: pers-0002)",
+            "acct-0003 (owner: pers-0002)",
+            "acct-0004 (owner: pers-0002)",
+            "acct-0005 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 5,
+          "top_scores": [
+            0.15,
+            0.15,
+            0.15,
+            0.15,
+            0.15
+          ]
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853324.631,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 697,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 709
+          }
+        },
+        "mode": "naive_rag_k5",
+        "tokens_rendered": 343
+      },
+      "perseus_dag": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 341,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 320,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 817,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1158
+        },
+        "assembly_meta": {
+          "compiled_digest": "4291cfa45287a251",
+          "depth": 1,
+          "max_chunks": 10,
+          "max_tokens": 6000,
+          "nodes": 15,
+          "replay_verified": true,
+          "verdict": "sufficient"
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853331.21,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 591,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 603
+          }
+        },
+        "mode": "perseus_dag",
+        "tokens_rendered": 559
+      }
+    },
+    "cb-058": {
+      "full_context": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 207,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 128,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 29568,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 29775
+        },
+        "assembly_meta": {
+          "files": 10,
+          "truncated_files": [
+            "addresses.txt",
+            "bank_accounts.txt",
+            "credit_cards.txt",
+            "employments.txt",
+            "insurance_policies.txt",
+            "internet_accounts.txt",
+            "medical_records.txt",
+            "people.txt",
+            "pets.txt",
+            "vehicles.txt"
+          ],
+          "window_chars": 8000
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853335.94,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 677,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 689
+          }
+        },
+        "mode": "full_context",
+        "tokens_rendered": 20200
+      },
+      "naive_rag_k3": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 465,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 384,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 311,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 776
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0001 (owner: pers-0001)",
+            "acct-0002 (owner: pers-0002)",
+            "acct-0003 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 3,
+          "top_scores": [
+            0.125,
+            0.125,
+            0.125
+          ]
+        },
+        "judge": {
+          "raw": "1.0",
+          "score": "1.0",
+          "unix_s": 1786853342.014,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 679,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 691
+          }
+        },
+        "mode": "naive_rag_k3",
+        "tokens_rendered": 283
+      },
+      "naive_rag_k5": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 333,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 192,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 445,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 778
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0001 (owner: pers-0001)",
+            "acct-0002 (owner: pers-0002)",
+            "acct-0003 (owner: pers-0002)",
+            "acct-0004 (owner: pers-0002)",
+            "acct-0005 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 5,
+          "top_scores": [
+            0.125,
+            0.125,
+            0.125,
+            0.125,
+            0.125
+          ]
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853347.583,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 739,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 751
+          }
+        },
+        "mode": "naive_rag_k5",
+        "tokens_rendered": 382
+      },
+      "perseus_dag": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 351,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 192,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 883,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1234
+        },
+        "assembly_meta": {
+          "compiled_digest": "50d116413a023f50",
+          "depth": 1,
+          "max_chunks": 10,
+          "max_tokens": 6000,
+          "nodes": 16,
+          "replay_verified": true,
+          "verdict": "sufficient"
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853352.65,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 757,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 769
+          }
+        },
+        "mode": "perseus_dag",
+        "tokens_rendered": 612
+      }
+    },
+    "cb-059": {
+      "full_context": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 398,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 384,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 29559,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 29440
+          },
+          "total_tokens": 29957
+        },
+        "assembly_meta": {
+          "files": 10,
+          "truncated_files": [
+            "addresses.txt",
+            "bank_accounts.txt",
+            "credit_cards.txt",
+            "employments.txt",
+            "insurance_policies.txt",
+            "internet_accounts.txt",
+            "medical_records.txt",
+            "people.txt",
+            "pets.txt",
+            "vehicles.txt"
+          ],
+          "window_chars": 8000
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853359.371,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 609,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 621
+          }
+        },
+        "mode": "full_context",
+        "tokens_rendered": 20184
+      },
+      "naive_rag_k3": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 345,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 192,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 302,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 647
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0001 (owner: pers-0001)",
+            "acct-0002 (owner: pers-0002)",
+            "acct-0003 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 3,
+          "top_scores": [
+            0.111,
+            0.111,
+            0.111
+          ]
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853363.738,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 746,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 758
+          }
+        },
+        "mode": "naive_rag_k3",
+        "tokens_rendered": 266
+      },
+      "naive_rag_k5": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 544,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 384,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 436,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 980
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0001 (owner: pers-0001)",
+            "acct-0002 (owner: pers-0002)",
+            "acct-0003 (owner: pers-0002)",
+            "acct-0004 (owner: pers-0002)",
+            "acct-0005 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 5,
+          "top_scores": [
+            0.111,
+            0.111,
+            0.111,
+            0.111,
+            0.111
+          ]
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853372.068,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 754,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 766
+          }
+        },
+        "mode": "naive_rag_k5",
+        "tokens_rendered": 366
+      },
+      "perseus_dag": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 372,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 128,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 854,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1226
+        },
+        "assembly_meta": {
+          "compiled_digest": "3413644906ca95cf",
+          "depth": 1,
+          "max_chunks": 10,
+          "max_tokens": 6000,
+          "nodes": 15,
+          "replay_verified": true,
+          "verdict": "sufficient"
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853377.35,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 837,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 849
+          }
+        },
+        "mode": "perseus_dag",
+        "tokens_rendered": 582
+      }
+    },
+    "cb-061": {
+      "full_context": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 240,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 128,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 29600,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 29440
+          },
+          "total_tokens": 29840
+        },
+        "assembly_meta": {
+          "files": 10,
+          "truncated_files": [
+            "addresses.txt",
+            "bank_accounts.txt",
+            "credit_cards.txt",
+            "employments.txt",
+            "insurance_policies.txt",
+            "internet_accounts.txt",
+            "medical_records.txt",
+            "people.txt",
+            "pets.txt",
+            "vehicles.txt"
+          ],
+          "window_chars": 8000
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853381.756,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 742,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 754
+          }
+        },
+        "mode": "full_context",
+        "tokens_rendered": 20231
+      },
+      "naive_rag_k3": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 570,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 448,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 343,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 913
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0001 (owner: pers-0001)",
+            "acct-0002 (owner: pers-0002)",
+            "acct-0003 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 3,
+          "top_scores": [
+            0.079,
+            0.079,
+            0.079
+          ]
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853388.48,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 752,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 764
+          }
+        },
+        "mode": "naive_rag_k3",
+        "tokens_rendered": 313
+      },
+      "naive_rag_k5": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 431,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 192,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 477,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 908
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0001 (owner: pers-0001)",
+            "acct-0002 (owner: pers-0002)",
+            "acct-0003 (owner: pers-0002)",
+            "acct-0004 (owner: pers-0002)",
+            "acct-0005 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 5,
+          "top_scores": [
+            0.079,
+            0.079,
+            0.079,
+            0.079,
+            0.079
+          ]
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853395.882,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 869,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 881
+          }
+        },
+        "mode": "naive_rag_k5",
+        "tokens_rendered": 413
+      },
+      "perseus_dag": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 933,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 832,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 947,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1880
+        },
+        "assembly_meta": {
+          "compiled_digest": "95456ae576dd9075",
+          "depth": 1,
+          "max_chunks": 10,
+          "max_tokens": 6000,
+          "nodes": 16,
+          "replay_verified": true,
+          "verdict": "sufficient"
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853407.537,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 731,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 743
+          }
+        },
+        "mode": "perseus_dag",
+        "tokens_rendered": 639
+      }
+    },
+    "cb-063": {
+      "full_context": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 329,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 128,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 29542,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 29440
+          },
+          "total_tokens": 29871
+        },
+        "assembly_meta": {
+          "files": 10,
+          "truncated_files": [
+            "addresses.txt",
+            "bank_accounts.txt",
+            "credit_cards.txt",
+            "employments.txt",
+            "insurance_policies.txt",
+            "internet_accounts.txt",
+            "medical_records.txt",
+            "people.txt",
+            "pets.txt",
+            "vehicles.txt"
+          ],
+          "window_chars": 8000
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853412.865,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 777,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 789
+          }
+        },
+        "mode": "full_context",
+        "tokens_rendered": 20166
+      },
+      "naive_rag_k3": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 277,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 128,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 285,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 562
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0001 (owner: pers-0001)",
+            "acct-0002 (owner: pers-0002)",
+            "acct-0003 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 3,
+          "top_scores": [
+            0.143,
+            0.143,
+            0.143
+          ]
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853417.294,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 725,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 737
+          }
+        },
+        "mode": "naive_rag_k3",
+        "tokens_rendered": 249
+      },
+      "naive_rag_k5": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 618,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 384,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 419,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1037
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0001 (owner: pers-0001)",
+            "acct-0002 (owner: pers-0002)",
+            "acct-0003 (owner: pers-0002)",
+            "acct-0004 (owner: pers-0002)",
+            "acct-0005 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 5,
+          "top_scores": [
+            0.143,
+            0.143,
+            0.143,
+            0.143,
+            0.143
+          ]
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853425.81,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 803,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 815
+          }
+        },
+        "mode": "naive_rag_k5",
+        "tokens_rendered": 348
+      },
+      "perseus_dag": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 719,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 704,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 830,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1549
+        },
+        "assembly_meta": {
+          "compiled_digest": "7f4c33d9a8df3e4e",
+          "depth": 1,
+          "max_chunks": 10,
+          "max_tokens": 6000,
+          "nodes": 16,
+          "replay_verified": true,
+          "verdict": "sufficient"
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853436.662,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 593,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 605
+          }
+        },
+        "mode": "perseus_dag",
+        "tokens_rendered": 576
+      }
+    },
+    "cb-067": {
+      "full_context": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 137,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 64,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 29564,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 29440
+          },
+          "total_tokens": 29701
+        },
+        "assembly_meta": {
+          "files": 10,
+          "truncated_files": [
+            "addresses.txt",
+            "bank_accounts.txt",
+            "credit_cards.txt",
+            "employments.txt",
+            "insurance_policies.txt",
+            "internet_accounts.txt",
+            "medical_records.txt",
+            "people.txt",
+            "pets.txt",
+            "vehicles.txt"
+          ],
+          "window_chars": 8000
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853440.48,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 668,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 680
+          }
+        },
+        "mode": "full_context",
+        "tokens_rendered": 20189
+      },
+      "naive_rag_k3": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 302,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 256,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 305,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 607
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "emp-0163 (owner: pers-0151)",
+            "emp-0194 (owner: pers-0191)",
+            "emp-0214 (owner: pers-0208)"
+          ],
+          "chunks_total": 9224,
+          "k": 3,
+          "top_scores": [
+            0.136,
+            0.136,
+            0.136
+          ]
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853445.422,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 641,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 653
+          }
+        },
+        "mode": "naive_rag_k3",
+        "tokens_rendered": 272
+      },
+      "naive_rag_k5": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 387,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 320,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 399,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 786
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "emp-0163 (owner: pers-0151)",
+            "emp-0194 (owner: pers-0191)",
+            "emp-0214 (owner: pers-0208)",
+            "med-0001 (owner: pers-0001)",
+            "med-0002 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 5,
+          "top_scores": [
+            0.136,
+            0.136,
+            0.136,
+            0.136,
+            0.136
+          ]
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853452.126,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 662,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 674
+          }
+        },
+        "mode": "naive_rag_k5",
+        "tokens_rendered": 338
+      },
+      "perseus_dag": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 375,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 192,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 738,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1113
+        },
+        "assembly_meta": {
+          "compiled_digest": "38caa58c9761333e",
+          "depth": 1,
+          "max_chunks": 10,
+          "max_tokens": 6000,
+          "nodes": 16,
+          "replay_verified": true,
+          "verdict": "sufficient"
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853458.263,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 778,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 790
+          }
+        },
+        "mode": "perseus_dag",
+        "tokens_rendered": 483
+      }
+    },
+    "cb-070": {
+      "full_context": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 351,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 192,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 29561,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 29440
+          },
+          "total_tokens": 29912
+        },
+        "assembly_meta": {
+          "files": 10,
+          "truncated_files": [
+            "addresses.txt",
+            "bank_accounts.txt",
+            "credit_cards.txt",
+            "employments.txt",
+            "insurance_policies.txt",
+            "internet_accounts.txt",
+            "medical_records.txt",
+            "people.txt",
+            "pets.txt",
+            "vehicles.txt"
+          ],
+          "window_chars": 8000
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853463.831,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 750,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 762
+          }
+        },
+        "mode": "full_context",
+        "tokens_rendered": 20186
+      },
+      "naive_rag_k3": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 436,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 192,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 302,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 738
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "emp-0163 (owner: pers-0151)",
+            "emp-0194 (owner: pers-0191)",
+            "emp-0214 (owner: pers-0208)"
+          ],
+          "chunks_total": 9224,
+          "k": 3,
+          "top_scores": [
+            0.143,
+            0.143,
+            0.143
+          ]
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853470.224,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 821,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 833
+          }
+        },
+        "mode": "naive_rag_k3",
+        "tokens_rendered": 270
+      },
+      "naive_rag_k5": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 444,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 128,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 412,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 856
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "emp-0163 (owner: pers-0151)",
+            "emp-0194 (owner: pers-0191)",
+            "emp-0214 (owner: pers-0208)",
+            "addr-0001 (owner: pers-0001)",
+            "addr-0002 (owner: pers-0001)"
+          ],
+          "chunks_total": 9224,
+          "k": 5,
+          "top_scores": [
+            0.143,
+            0.143,
+            0.143,
+            0.095,
+            0.095
+          ]
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853476.243,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 907,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 919
+          }
+        },
+        "mode": "naive_rag_k5",
+        "tokens_rendered": 358
+      },
+      "perseus_dag": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 299,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 256,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 803,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1102
+        },
+        "assembly_meta": {
+          "compiled_digest": "5edec185c64b83d5",
+          "depth": 1,
+          "max_chunks": 10,
+          "max_tokens": 6000,
+          "nodes": 16,
+          "replay_verified": true,
+          "verdict": "sufficient"
+        },
+        "judge": {
+          "raw": "1.0",
+          "score": "1.0",
+          "unix_s": 1786853481.146,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 634,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 646
+          }
+        },
+        "mode": "perseus_dag",
+        "tokens_rendered": 572
+      }
+    },
+    "cb-073": {
+      "full_context": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 211,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 128,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 29564,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 29440
+          },
+          "total_tokens": 29775
+        },
+        "assembly_meta": {
+          "files": 10,
+          "truncated_files": [
+            "addresses.txt",
+            "bank_accounts.txt",
+            "credit_cards.txt",
+            "employments.txt",
+            "insurance_policies.txt",
+            "internet_accounts.txt",
+            "medical_records.txt",
+            "people.txt",
+            "pets.txt",
+            "vehicles.txt"
+          ],
+          "window_chars": 8000
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853484.698,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 677,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 689
+          }
+        },
+        "mode": "full_context",
+        "tokens_rendered": 20193
+      },
+      "naive_rag_k3": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 211,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 128,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 307,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 518
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0001 (owner: pers-0001)",
+            "acct-0002 (owner: pers-0002)",
+            "acct-0003 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 3,
+          "top_scores": [
+            0.13,
+            0.13,
+            0.13
+          ]
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853487.934,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 677,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 689
+          }
+        },
+        "mode": "naive_rag_k3",
+        "tokens_rendered": 276
+      },
+      "naive_rag_k5": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 599,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 448,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 441,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1040
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0001 (owner: pers-0001)",
+            "acct-0002 (owner: pers-0002)",
+            "acct-0003 (owner: pers-0002)",
+            "acct-0004 (owner: pers-0002)",
+            "acct-0005 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 5,
+          "top_scores": [
+            0.13,
+            0.13,
+            0.13,
+            0.13,
+            0.13
+          ]
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853497.424,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 745,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 757
+          }
+        },
+        "mode": "naive_rag_k5",
+        "tokens_rendered": 375
+      },
+      "perseus_dag": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 661,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 640,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 874,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1535
+        },
+        "assembly_meta": {
+          "compiled_digest": "56e99528ebfc1161",
+          "depth": 1,
+          "max_chunks": 10,
+          "max_tokens": 6000,
+          "nodes": 16,
+          "replay_verified": true,
+          "verdict": "sufficient"
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853506.534,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 615,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 627
+          }
+        },
+        "mode": "perseus_dag",
+        "tokens_rendered": 603
+      }
+    },
+    "cb-078": {
+      "full_context": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 414,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 384,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 29537,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 29440
+          },
+          "total_tokens": 29951
+        },
+        "assembly_meta": {
+          "files": 10,
+          "truncated_files": [
+            "addresses.txt",
+            "bank_accounts.txt",
+            "credit_cards.txt",
+            "employments.txt",
+            "insurance_policies.txt",
+            "internet_accounts.txt",
+            "medical_records.txt",
+            "people.txt",
+            "pets.txt",
+            "vehicles.txt"
+          ],
+          "window_chars": 8000
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853534.542,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 597,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 609
+          }
+        },
+        "mode": "full_context",
+        "tokens_rendered": 20161
+      },
+      "naive_rag_k3": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 234,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 128,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 237,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 471
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "veh-0001 (owner: pers-0001)",
+            "veh-0002 (owner: pers-0001)",
+            "veh-0003 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 3,
+          "top_scores": [
+            0.2,
+            0.2,
+            0.2
+          ]
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853538.174,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 673,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 685
+          }
+        },
+        "mode": "naive_rag_k3",
+        "tokens_rendered": 209
+      },
+      "naive_rag_k5": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 226,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 128,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 338,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 564
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "veh-0001 (owner: pers-0001)",
+            "veh-0002 (owner: pers-0001)",
+            "veh-0003 (owner: pers-0002)",
+            "veh-0004 (owner: pers-0002)",
+            "veh-0005 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 5,
+          "top_scores": [
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2
+          ]
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853541.544,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 665,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 677
+          }
+        },
+        "mode": "naive_rag_k5",
+        "tokens_rendered": 278
+      },
+      "perseus_dag": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 419,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 320,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 658,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1077
+        },
+        "assembly_meta": {
+          "compiled_digest": "7529b430a8b556d8",
+          "depth": 1,
+          "max_chunks": 10,
+          "max_tokens": 6000,
+          "nodes": 15,
+          "replay_verified": true,
+          "verdict": "sufficient"
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853548.222,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 666,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 678
+          }
+        },
+        "mode": "perseus_dag",
+        "tokens_rendered": 428
+      }
+    },
+    "cb-091": {
+      "full_context": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 293,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 128,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 29583,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 29440
+          },
+          "total_tokens": 29876
+        },
+        "assembly_meta": {
+          "files": 10,
+          "truncated_files": [
+            "addresses.txt",
+            "bank_accounts.txt",
+            "credit_cards.txt",
+            "employments.txt",
+            "insurance_policies.txt",
+            "internet_accounts.txt",
+            "medical_records.txt",
+            "people.txt",
+            "pets.txt",
+            "vehicles.txt"
+          ],
+          "window_chars": 8000
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853553.428,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 778,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 790
+          }
+        },
+        "mode": "full_context",
+        "tokens_rendered": 20204
+      },
+      "naive_rag_k3": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 326,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 192,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 326,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 652
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0001 (owner: pers-0001)",
+            "acct-0002 (owner: pers-0002)",
+            "acct-0003 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 3,
+          "top_scores": [
+            0.111,
+            0.111,
+            0.111
+          ]
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853558.207,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 747,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 759
+          }
+        },
+        "mode": "naive_rag_k3",
+        "tokens_rendered": 287
+      },
+      "naive_rag_k5": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 453,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 384,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 460,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 913
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "acct-0001 (owner: pers-0001)",
+            "acct-0002 (owner: pers-0002)",
+            "acct-0003 (owner: pers-0002)",
+            "acct-0004 (owner: pers-0002)",
+            "acct-0005 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 5,
+          "top_scores": [
+            0.111,
+            0.111,
+            0.111,
+            0.111,
+            0.111
+          ]
+        },
+        "judge": {
+          "raw": "0.0",
+          "score": "0.0",
+          "unix_s": 1786853564.59,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 682,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 694
+          }
+        },
+        "mode": "naive_rag_k5",
+        "tokens_rendered": 386
+      },
+      "perseus_dag": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 1255,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 256,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 921,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 2176
+        },
+        "assembly_meta": {
+          "compiled_digest": "a0c7b4dc8fb9f391",
+          "depth": 1,
+          "max_chunks": 10,
+          "max_tokens": 6000,
+          "nodes": 17,
+          "replay_verified": true,
+          "verdict": "sufficient"
+        },
+        "judge": {
+          "raw": "0.5",
+          "score": "0.5",
+          "unix_s": 1786853580.056,
+          "usage": {
+            "completion_tokens": 12,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 0,
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 0
+            },
+            "prompt_tokens": 1612,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0
+            },
+            "total_tokens": 1624
+          }
+        },
+        "mode": "perseus_dag",
+        "tokens_rendered": 621
+      }
+    }
+  },
+  "schema_version": "perseus-context-bench-results/v1"
+}

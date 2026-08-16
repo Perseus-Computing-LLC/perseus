@@ -56,19 +56,23 @@ def build_providers(dry_run: bool) -> tuple:
         answer = MockChatClient(role="answer", salt="cb-dry-run")
         judge = MockChatClient(role="judge", salt="cb-dry-run-judge")
     else:
+        # gpt-5-mini is a reasoning model: it rejects temperature 0.0 and the
+        # legacy max_tokens parameter. The official rubric YAML pins
+        # temperature 0.0 — running at 1.0 is a DISCLOSED deviation, recorded
+        # in the manifest below.
         answer = ChatClient(
             role="answer",
             endpoint=os.environ["CB_ANSWER_ENDPOINT"],
             model=os.environ.get("CB_ANSWER_MODEL", "gpt-5-mini"),
             key_env=os.environ.get("CB_ANSWER_KEY_ENV", "OPENAI_API_KEY"),
-            temperature=0.0, max_tokens=1024)
+            temperature=1.0, max_tokens=4096, reasoning_effort="low")
         judge = ChatClient(
             role="judge",
             endpoint=os.environ.get("CB_JUDGE_ENDPOINT",
                                     os.environ["CB_ANSWER_ENDPOINT"]),
             model=os.environ.get("CB_JUDGE_MODEL", "gpt-5-mini"),
             key_env=os.environ.get("CB_JUDGE_KEY_ENV", "OPENAI_API_KEY"),
-            temperature=0.0, max_tokens=1024)
+            temperature=1.0, max_tokens=512, reasoning_effort="minimal")
     return answer, judge
 
 
@@ -91,6 +95,7 @@ def run_sample(sample: dict, files: dict, arms_cfg: dict, answer, judge,
         ans = answer.complete(asm.prompt)
         if ans.get("error"):
             rows[name] = {"mode": name, "answer_error": ans["error"],
+                          "answer_detail": str(ans.get("detail", ""))[:200],
                           "tokens_rendered": asm.tokens_rendered}
             continue
         submission = ans["content"]
@@ -122,6 +127,17 @@ def main() -> None:
     ap.add_argument("--no-mem0", action="store_true",
                     help="skip the optional Mem0 arm")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--limit", type=int, default=None,
+                    help="run only the first N pilot samples (canary mode)")
+    ap.add_argument("--checkpoint", default=None,
+                    help="durable per-sample checkpoint path "
+                         "(rows fsync'd after each sample)")
+    ap.add_argument("--resume", default=None,
+                    help="resume from a checkpoint file, skipping completed "
+                         "samples")
+    ap.add_argument("--max-total-tokens", type=int, default=20000000,
+                    help="hard runaway guard: abort when cumulative "
+                         "provider total_tokens exceeds this")
     args = ap.parse_args()
 
     pilot_path = os.path.join(HERE, "pilot.json")
@@ -155,12 +171,45 @@ def main() -> None:
                     "filesystem suite; public questions are not a hidden "
                     "holdout; not leaderboard-identical"),
         "started_unix_s": round(time.time(), 3),
+        "judge_contract_note": ("official rubric pins gpt-5-mini at "
+                                "temperature 0.0; the model API rejects 0.0, "
+                                "so judge runs at temperature 1.0 — disclosed "
+                                "deviation") if not args.dry_run else None,
     }
 
     rows = {}
-    for sample in pilot["samples"]:
+    if args.resume and os.path.exists(args.resume):
+        rows = json.load(open(args.resume, encoding="utf-8"))
+    checkpoint_path = args.checkpoint or os.path.join(out_dir,
+                                                      "checkpoint.json")
+    total_tokens = 0
+    os.makedirs(out_dir, exist_ok=True)
+    samples = pilot["samples"]
+    if args.limit is not None:
+        samples = samples[:args.limit]
+    for sample in samples:
+        if sample["id"] in rows:
+            continue
         rows[sample["id"]] = run_sample(
             sample, files, arms_cfg, answer, judge, args.dry_run)
+        for arm_row in rows[sample["id"]].values():
+            if not isinstance(arm_row, dict):
+                continue
+            u = arm_row.get("answer_usage") or {}
+            j = (arm_row.get("judge") or {}).get("usage") or {}
+            total_tokens += int(u.get("total_tokens") or 0) \
+                + int(j.get("total_tokens") or 0)
+        if total_tokens > args.max_total_tokens:
+            print("SPEND CEILING: cumulative total_tokens %d > %d — aborting"
+                  % (total_tokens, args.max_total_tokens))
+            sys.exit(3)
+        tmp = checkpoint_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(rows, f, indent=2, sort_keys=True)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, checkpoint_path)
+    print("cumulative provider total_tokens:", total_tokens)
 
     results = {
         "schema_version": "perseus-context-bench-results/v1",
