@@ -1,0 +1,37 @@
+{
+  "schema_version": "perseus-retry-isolation-benchmark-results/v1",
+  "pass": true,
+  "errors": [],
+  "simulation": {
+    "trials": 4000,
+    "eps0": 0.025,
+    "eps1": 0.1775,
+    "cascade_ratio": 7.1,
+    "iid_pass_at_3": 0.9948,
+    "contaminated_pass_at_3": 0.8885,
+    "clean_restart_pass_at_3": 0.9948,
+    "iid_overestimate_pp": 10.63,
+    "clean_restart_recovery_pp": 10.63
+  },
+  "allocation": {
+    "schema_version": "perseus-attempt-allocation/v1",
+    "total_budget": 1000.0,
+    "eps0": 0.025,
+    "eps1": 0.1775,
+    "cascade_ratio": 7.1,
+    "t_star_continuous": 87.853,
+    "optimal_attempts": 16,
+    "per_attempt_budget": 62.5,
+    "derivation": {
+      "log0": 0.025318,
+      "log1": 0.195407,
+      "formula": "T* = sqrt(B * log(1/(1-eps1)) / log(1/(1-eps0)))"
+    }
+  },
+  "fence": {
+    "quarantined_turns": 3,
+    "summary_tokens": 58,
+    "retry_tokens": 82,
+    "event_digest": "15e281f26f598d21732dd9bc87c41c4fea4098ca3d50f6559f0697245c54d52d"
+  }
+}
