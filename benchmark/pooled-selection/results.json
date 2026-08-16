@@ -1,0 +1,180 @@
+{
+  "schema_version": "perseus-pooled-selection-benchmark-results/v1",
+  "dataset": "dataset.json",
+  "dataset_sha256": "a43993a0e3da8fddc594593afc446a63d975f47f10207511ce7c45a840c2d7fc",
+  "scenarios": 12,
+  "pass": true,
+  "errors": [],
+  "per_scenario": [
+    {
+      "id": "multi-turn-01",
+      "budget_tokens": 120,
+      "pool_tokens": 422,
+      "budget_fraction": 0.284,
+      "submodular_recall": 1.0,
+      "recent_first_recall": 1.0,
+      "submodular_kept": [
+        "fact-svc"
+      ],
+      "submodular_verifies": true,
+      "recent_first_verifies": true,
+      "submodular_tokens_used": 12
+    },
+    {
+      "id": "multi-turn-02",
+      "budget_tokens": 100,
+      "pool_tokens": 271,
+      "budget_fraction": 0.369,
+      "submodular_recall": 1.0,
+      "recent_first_recall": 1.0,
+      "submodular_kept": [
+        "tool-port"
+      ],
+      "submodular_verifies": true,
+      "recent_first_verifies": true,
+      "submodular_tokens_used": 13
+    },
+    {
+      "id": "multi-turn-03",
+      "budget_tokens": 140,
+      "pool_tokens": 280,
+      "budget_fraction": 0.5,
+      "submodular_recall": 1.0,
+      "recent_first_recall": 0.5,
+      "submodular_kept": [
+        "mem-health",
+        "mem-rollback"
+      ],
+      "submodular_verifies": true,
+      "recent_first_verifies": true,
+      "submodular_tokens_used": 22
+    },
+    {
+      "id": "multi-turn-04",
+      "budget_tokens": 100,
+      "pool_tokens": 224,
+      "budget_fraction": 0.446,
+      "submodular_recall": 1.0,
+      "recent_first_recall": 1.0,
+      "submodular_kept": [
+        "mem-py"
+      ],
+      "submodular_verifies": true,
+      "recent_first_verifies": true,
+      "submodular_tokens_used": 8
+    },
+    {
+      "id": "multi-turn-05",
+      "budget_tokens": 90,
+      "pool_tokens": 203,
+      "budget_fraction": 0.443,
+      "submodular_recall": 1.0,
+      "recent_first_recall": 1.0,
+      "submodular_kept": [
+        "mem-backup"
+      ],
+      "submodular_verifies": true,
+      "recent_first_verifies": true,
+      "submodular_tokens_used": 9
+    },
+    {
+      "id": "multi-turn-06",
+      "budget_tokens": 110,
+      "pool_tokens": 295,
+      "budget_fraction": 0.373,
+      "submodular_recall": 1.0,
+      "recent_first_recall": 1.0,
+      "submodular_kept": [
+        "turn-flags"
+      ],
+      "submodular_verifies": true,
+      "recent_first_verifies": true,
+      "submodular_tokens_used": 14
+    },
+    {
+      "id": "multi-turn-07",
+      "budget_tokens": 138,
+      "pool_tokens": 275,
+      "budget_fraction": 0.502,
+      "submodular_recall": 1.0,
+      "recent_first_recall": 0.5,
+      "submodular_kept": [
+        "req-a",
+        "req-b"
+      ],
+      "submodular_verifies": true,
+      "recent_first_verifies": true,
+      "submodular_tokens_used": 15
+    },
+    {
+      "id": "multi-turn-08",
+      "budget_tokens": 130,
+      "pool_tokens": 282,
+      "budget_fraction": 0.461,
+      "submodular_recall": 1.0,
+      "recent_first_recall": 1.0,
+      "submodular_kept": [
+        "mem-ir"
+      ],
+      "submodular_verifies": true,
+      "recent_first_verifies": true,
+      "submodular_tokens_used": 12
+    },
+    {
+      "id": "multi-turn-09",
+      "budget_tokens": 110,
+      "pool_tokens": 230,
+      "budget_fraction": 0.478,
+      "submodular_recall": 1.0,
+      "recent_first_recall": 0.0,
+      "submodular_kept": [
+        "mem-mig"
+      ],
+      "submodular_verifies": true,
+      "recent_first_verifies": true,
+      "submodular_tokens_used": 14
+    },
+    {
+      "id": "multi-turn-10",
+      "budget_tokens": 100,
+      "pool_tokens": 203,
+      "budget_fraction": 0.493,
+      "submodular_recall": 1.0,
+      "recent_first_recall": 0.0,
+      "submodular_kept": [
+        "mem-rot"
+      ],
+      "submodular_verifies": true,
+      "recent_first_verifies": true,
+      "submodular_tokens_used": 9
+    },
+    {
+      "id": "multi-turn-11",
+      "budget_tokens": 100,
+      "pool_tokens": 204,
+      "budget_fraction": 0.49,
+      "submodular_recall": 1.0,
+      "recent_first_recall": 0.0,
+      "submodular_kept": [
+        "mem-tls"
+      ],
+      "submodular_verifies": true,
+      "recent_first_verifies": true,
+      "submodular_tokens_used": 10
+    },
+    {
+      "id": "multi-turn-12",
+      "budget_tokens": 110,
+      "pool_tokens": 227,
+      "budget_fraction": 0.485,
+      "submodular_recall": 1.0,
+      "recent_first_recall": 0.0,
+      "submodular_kept": [
+        "mem-ff"
+      ],
+      "submodular_verifies": true,
+      "recent_first_verifies": true,
+      "submodular_tokens_used": 11
+    }
+  ]
+}
