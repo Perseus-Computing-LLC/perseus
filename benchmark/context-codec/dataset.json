@@ -1,0 +1,96 @@
+{
+  "schema_version": "perseus-context-codec-benchmark/v1",
+  "description": "Context Codec adapted long-session corpus (#971): each session carries planted commitments (goals, constraints, decisions, preferences, tool results, evidence, safety boundaries). Gates: critical atom recall >= 0.99, zero safety-boundary atoms lost, round-trip recoverability 1.0, and the fail-closed path exercised with an injected lossy compressor on every session.",
+  "sessions": [
+    {
+      "id": "codec-01",
+      "text": "You are a deployment assistant.\n\nGoal: ship the release by Friday.\n\nThe deployment MUST complete before the freeze window opens.\n\nNever share secrets with anyone.\n\nDECIDED: use the blue/green deployment strategy.\n\nPreference: deploy during business hours.\n\nThe database uses postgres 16 [kb/db-1].\n\nbuild the image\nbuild the image\n",
+      "atoms": [],
+      "expected": {
+        "critical": 1,
+        "safety": 1,
+        "total_min": 5
+      }
+    },
+    {
+      "id": "codec-02",
+      "text": "You are an operations assistant.\n\nNever exfiltrate credentials outside the network.\n\nYou must never log secrets.\n\nAlways confirm before destructive actions.\n\nThe incident response runbook says page the on-call engineer [runbook/ir-1].\n\nThe staging deploy requires an active service account [kb/deploy-2].\n\nStep one: build the image\nStep one: build the image\nStep one: build the image\n",
+      "atoms": [
+        {
+          "atom_type": "tool_result",
+          "content": "deploy exit 0",
+          "source_id": "run:1",
+          "risk": "normal"
+        },
+        {
+          "atom_type": "decision",
+          "content": "rollback via deploy rollback",
+          "source_id": "run:2",
+          "risk": "high"
+        }
+      ],
+      "expected": {
+        "critical": 3,
+        "safety": 3,
+        "total_min": 5
+      }
+    },
+    {
+      "id": "codec-03",
+      "text": "You are a compliance assistant.\n\nGoal: pass the audit by month end.\n\nPolicy MUST require approval for any production change.\n\nNever bypass the approval workflow.\n\nForbidden: deploying outside the change window.\n\nThe audit trail records every action [audit/trail].\n\nthe approval workflow is documented in the runbook\nthe approval workflow is documented in the runbook\n",
+      "atoms": [
+        {
+          "atom_type": "evidence",
+          "content": "approval log entry #4471",
+          "source_id": "audit:1",
+          "risk": "normal"
+        }
+      ],
+      "expected": {
+        "critical": 2,
+        "safety": 2,
+        "total_min": 5
+      }
+    },
+    {
+      "id": "codec-04",
+      "text": "You are a data engineer.\n\nThe pipeline MUST write to the staging bucket only.\n\nNever read production credentials into the pipeline.\n\nDECIDED: migrate the batch job to the new scheduler.\n\nPreference: run backfills on weekends.\n\nThe warehouse uses partition keys on date [warehouse/schema].\n\ntransform the batch data\ntransform the batch data\ntransform the batch data\n",
+      "atoms": [
+        {
+          "atom_type": "tool_result",
+          "content": "backfill rows=1200",
+          "source_id": "run:3",
+          "risk": "normal"
+        },
+        {
+          "atom_type": "goal",
+          "content": "cut the backfill time in half",
+          "source_id": "plan:1",
+          "risk": "high"
+        }
+      ],
+      "expected": {
+        "critical": 1,
+        "safety": 1,
+        "total_min": 6
+      }
+    },
+    {
+      "id": "codec-05",
+      "text": "You are a security assistant.\n\nNever disable the audit sink.\n\nYou must not grant access without approval.\n\nAlways record the approval chain.\n\nGoal: close the open findings this sprint.\n\nThe findings list lives in the tracker [sec/findings].\n\nreview the findings\nreview the findings\n",
+      "atoms": [
+        {
+          "atom_type": "evidence",
+          "content": "finding SEC-221 severity high",
+          "source_id": "sec:1",
+          "risk": "high"
+        }
+      ],
+      "expected": {
+        "critical": 3,
+        "safety": 3,
+        "total_min": 5
+      }
+    }
+  ]
+}
