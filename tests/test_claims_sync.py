@@ -53,6 +53,8 @@ SURFACE_CHECKS = [
     ("government/capability-statement.html", "vault_version"),  # footer pill: current vault release
     ("readme-preview/index.html", "perseus_version"),
     ("readme-preview/index.html", "vault_version"),
+    ("benchmarks/index.html", "memora_locomo_s_baseline"),  # 0.859 (our re-run)
+    ("benchmarks/index.html", "memora_locomo_p_baseline"),  # 0.874 (our re-run)
     (".well-known/mcp/server-card.json", "perseus_version"),  # current release
     # BEAM (vault #685/#697) published on the benchmarks page. These values are
     # unique to the BEAM section, so their presence pins the page to the signed
