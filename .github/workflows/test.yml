@@ -221,6 +221,11 @@ jobs:
     # accuracy against the frozen planted-fault ground truth in
     # benchmark/trace/dataset.json, with zero cross-layer verification
     # errors. No network, no API key — imports the built artifact.
+  context-quality-bench:
+    # Offline, deterministic gate: the 7-criteria preflight scorer (#969)
+    # must degrade monotonically on planted defects and block every
+    # degraded sample while passing the healthy baseline, with replay-first
+    # verification. No network, no API key — imports the built artifact.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -241,3 +246,5 @@ jobs:
 
       - name: TRACE attribution benchmark (offline gate)
         run: python benchmark/trace/run.py
+      - name: Context-quality preflight benchmark (offline gate)
+        run: python benchmark/context-quality/run.py

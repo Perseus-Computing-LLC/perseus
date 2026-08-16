@@ -1,0 +1,189 @@
+{
+  "schema_version": "perseus-context-quality-benchmark-results/v1",
+  "dataset": "dataset.json",
+  "dataset_sha256": "0341ccc36d76dc7252104e42ba4831a9069a5b18512b70ff1597eeb2dbaff572",
+  "samples": 9,
+  "pass": true,
+  "errors": [],
+  "per_sample": [
+    {
+      "id": "healthy-baseline",
+      "degrade": null,
+      "overall": 0.904,
+      "preflight_pass": true,
+      "blocked": [],
+      "verifies": true,
+      "criteria": {
+        "role_clarity": 1.0,
+        "guardrail_coverage": 0.75,
+        "instruction_consistency": 1.0,
+        "tool_schema_quality": 0.833,
+        "grounding_sufficiency": 0.867,
+        "injection_hardening": 0.88,
+        "token_efficiency": 1.0
+      }
+    },
+    {
+      "id": "degraded-role_clarity",
+      "degrade": "role_clarity",
+      "overall": 0.756,
+      "preflight_pass": false,
+      "blocked": [
+        "role_clarity"
+      ],
+      "verifies": true,
+      "criteria": {
+        "role_clarity": 0.0,
+        "guardrail_coverage": 0.75,
+        "instruction_consistency": 1.0,
+        "tool_schema_quality": 0.833,
+        "grounding_sufficiency": 0.867,
+        "injection_hardening": 0.845,
+        "token_efficiency": 1.0
+      }
+    },
+    {
+      "id": "degraded-guardrail_coverage",
+      "degrade": "guardrail_coverage",
+      "overall": 0.793,
+      "preflight_pass": false,
+      "blocked": [
+        "guardrail_coverage"
+      ],
+      "verifies": true,
+      "criteria": {
+        "role_clarity": 1.0,
+        "guardrail_coverage": 0.0,
+        "instruction_consistency": 1.0,
+        "tool_schema_quality": 0.833,
+        "grounding_sufficiency": 0.867,
+        "injection_hardening": 0.852,
+        "token_efficiency": 1.0
+      }
+    },
+    {
+      "id": "degraded-instruction_consistency",
+      "degrade": "instruction_consistency",
+      "overall": 0.816,
+      "preflight_pass": false,
+      "blocked": [
+        "instruction_consistency"
+      ],
+      "verifies": true,
+      "criteria": {
+        "role_clarity": 1.0,
+        "guardrail_coverage": 0.75,
+        "instruction_consistency": 0.4,
+        "tool_schema_quality": 0.833,
+        "grounding_sufficiency": 0.867,
+        "injection_hardening": 0.86,
+        "token_efficiency": 1.0
+      }
+    },
+    {
+      "id": "degraded-tool_schema_quality",
+      "degrade": "tool_schema_quality",
+      "overall": 0.831,
+      "preflight_pass": false,
+      "blocked": [
+        "tool_schema_quality"
+      ],
+      "verifies": true,
+      "criteria": {
+        "role_clarity": 1.0,
+        "guardrail_coverage": 0.75,
+        "instruction_consistency": 1.0,
+        "tool_schema_quality": 0.333,
+        "grounding_sufficiency": 0.867,
+        "injection_hardening": 0.865,
+        "token_efficiency": 1.0
+      }
+    },
+    {
+      "id": "degraded-grounding_sufficiency",
+      "degrade": "grounding_sufficiency",
+      "overall": 0.798,
+      "preflight_pass": false,
+      "blocked": [
+        "grounding_sufficiency"
+      ],
+      "verifies": true,
+      "criteria": {
+        "role_clarity": 1.0,
+        "guardrail_coverage": 0.75,
+        "instruction_consistency": 1.0,
+        "tool_schema_quality": 0.833,
+        "grounding_sufficiency": 0.0,
+        "injection_hardening": 1.0,
+        "token_efficiency": 1.0
+      }
+    },
+    {
+      "id": "degraded-injection_hardening",
+      "degrade": "injection_hardening",
+      "overall": 0.683,
+      "preflight_pass": false,
+      "blocked": [
+        "grounding_sufficiency",
+        "injection_hardening"
+      ],
+      "verifies": true,
+      "criteria": {
+        "role_clarity": 1.0,
+        "guardrail_coverage": 0.75,
+        "instruction_consistency": 1.0,
+        "tool_schema_quality": 0.833,
+        "grounding_sufficiency": 0.2,
+        "injection_hardening": 0.0,
+        "token_efficiency": 1.0
+      }
+    },
+    {
+      "id": "degraded-token_efficiency",
+      "degrade": "token_efficiency",
+      "overall": 0.761,
+      "preflight_pass": false,
+      "blocked": [
+        "token_efficiency"
+      ],
+      "verifies": true,
+      "criteria": {
+        "role_clarity": 1.0,
+        "guardrail_coverage": 0.75,
+        "instruction_consistency": 1.0,
+        "tool_schema_quality": 0.833,
+        "grounding_sufficiency": 0.867,
+        "injection_hardening": 0.88,
+        "token_efficiency": 0.0
+      }
+    },
+    {
+      "id": "degraded-multi-fault",
+      "degrade": [
+        "role_clarity",
+        "guardrail_coverage",
+        "grounding_sufficiency",
+        "injection_hardening"
+      ],
+      "overall": 0.362,
+      "preflight_pass": false,
+      "blocked": [
+        "role_clarity",
+        "guardrail_coverage",
+        "tool_schema_quality",
+        "grounding_sufficiency",
+        "injection_hardening"
+      ],
+      "verifies": true,
+      "criteria": {
+        "role_clarity": 0.0,
+        "guardrail_coverage": 0.0,
+        "instruction_consistency": 1.0,
+        "tool_schema_quality": 0.333,
+        "grounding_sufficiency": 0.2,
+        "injection_hardening": 0.0,
+        "token_efficiency": 1.0
+      }
+    }
+  ]
+}
