@@ -1,0 +1,24 @@
+{
+  "cb-001": {
+    "full_context": {
+      "answer_error": "http 400",
+      "mode": "full_context",
+      "tokens_rendered": 20169
+    },
+    "naive_rag_k3": {
+      "answer_error": "http 400",
+      "mode": "naive_rag_k3",
+      "tokens_rendered": 244
+    },
+    "naive_rag_k5": {
+      "answer_error": "http 400",
+      "mode": "naive_rag_k5",
+      "tokens_rendered": 336
+    },
+    "perseus_dag": {
+      "answer_error": "http 400",
+      "mode": "perseus_dag",
+      "tokens_rendered": 538
+    }
+  }
+}

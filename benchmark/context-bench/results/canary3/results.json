@@ -1,0 +1,223 @@
+{
+  "aggregate": {},
+  "claims": {
+    "answer_usage": "observed provider-returned usage telemetry",
+    "generalization": "not established: 15-question adapter pilot on public questions",
+    "rubric_score": "observed judge scores from the official 0/0.5/1.0 rubric contract",
+    "tokens_rendered": "derived dag_tokens estimate (chars//4); provider usage reported separately"
+  },
+  "manifest": {
+    "answer_provider": {
+      "endpoint_host": "api.openai.com",
+      "key_env": "OPENAI_API_KEY",
+      "max_tokens": 1024,
+      "model": "gpt-5-mini",
+      "role": "answer",
+      "temperature": 1.0
+    },
+    "arms": {
+      "naive_rag": {
+        "k_sweep": [
+          3,
+          5
+        ]
+      },
+      "perseus_dag": {
+        "max_chunks": 10,
+        "max_tokens": 6000
+      }
+    },
+    "corpus_sha256": {
+      "addresses.txt": "71b2686aa482bee96e7b77554a8f68a639d77a81a883ac78c35baaee717b4705",
+      "bank_accounts.txt": "230667663fb1b1d700e8136c0f5f7a65966a07e33776236675f4b8d49fde7cc0",
+      "credit_cards.txt": "68451664f3dea44eb023d8719d9bdac48fdebc863b3784d7a285b113f22fb48e",
+      "employments.txt": "77301b100025de3c534743376f4b148f514d0c69958d768637c91dc193f12544",
+      "insurance_policies.txt": "9e601fa52a4624a1169bdd33b1e09f059a82f38caa1887e61e96302ad60ba122",
+      "internet_accounts.txt": "009a948d6ca659281a5840b4a0d137474dd1eba44a0c04a395b0095223dc60a6",
+      "medical_records.txt": "7feabab89682a87c6ac5e2a94f66ab375c7151ea33fab451b2ce6db3964f95b6",
+      "people.txt": "ec633879861d9c1b49c492b1d9c5656bcb1f22cebd54a3a2afcafab51c39ab97",
+      "pets.txt": "49a8b9a01e32e94c71c3a1ac32d23d03fe1282938bd741a2b0bb48ec09cf3338",
+      "vehicles.txt": "c7ee984009861a10eabbce9ec0699bca4017a330b01740680ed6c8d9766c8e17"
+    },
+    "dry_run": false,
+    "framing": "adapter-based reproduction of the letta-evals filesystem suite; public questions are not a hidden holdout; not leaderboard-identical",
+    "judge_contract_note": "official rubric pins gpt-5-mini at temperature 0.0; the model API rejects 0.0, so judge runs at temperature 1.0 \u2014 disclosed deviation",
+    "judge_provider": {
+      "endpoint_host": "api.openai.com",
+      "key_env": "OPENAI_API_KEY",
+      "max_tokens": 1024,
+      "model": "gpt-5-mini",
+      "role": "judge",
+      "temperature": 1.0
+    },
+    "perseus_version": "unknown",
+    "pilot_n": 15,
+    "pilot_sha256": "12f842cf270b0bfe3323ea59fb842e2091e6d98fdc6881a84a8961fd7085339a",
+    "rubric_sha256": "9c124fc9cc34841d1bc0c601d13a96246986ca4caaa7730eb3abbd6e8761b385",
+    "schema_version": "perseus-context-bench-manifest/v1",
+    "started_unix_s": 1786853002.277
+  },
+  "results_digest": "ba7a281bc74a6a3481ae813af2a7888e9e4594717461bfc00a745bfcff63b2f4",
+  "rows": {
+    "cb-001": {
+      "full_context": {
+        "answer_finish": "length",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 1024,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 1024,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 29549,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 30573
+        },
+        "assembly_meta": {
+          "files": 10,
+          "truncated_files": [
+            "addresses.txt",
+            "bank_accounts.txt",
+            "credit_cards.txt",
+            "employments.txt",
+            "insurance_policies.txt",
+            "internet_accounts.txt",
+            "medical_records.txt",
+            "people.txt",
+            "pets.txt",
+            "vehicles.txt"
+          ],
+          "window_chars": 8000
+        },
+        "judge": {
+          "parse_error": "empty judge content",
+          "score": null
+        },
+        "mode": "full_context",
+        "tokens_rendered": 20169
+      },
+      "naive_rag_k3": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 875,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 640,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 270,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1145
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "emp-0163 (owner: pers-0151)",
+            "addr-0001 (owner: pers-0001)",
+            "addr-0002 (owner: pers-0001)"
+          ],
+          "chunks_total": 9224,
+          "k": 3,
+          "top_scores": [
+            0.12,
+            0.08,
+            0.08
+          ]
+        },
+        "judge": {
+          "parse_error": "empty judge content",
+          "score": null
+        },
+        "mode": "naive_rag_k3",
+        "tokens_rendered": 244
+      },
+      "naive_rag_k5": {
+        "answer_finish": "stop",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 615,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 384,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 385,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1000
+        },
+        "assembly_meta": {
+          "chunks_selected": [
+            "emp-0163 (owner: pers-0151)",
+            "addr-0001 (owner: pers-0001)",
+            "addr-0002 (owner: pers-0001)",
+            "addr-0003 (owner: pers-0001)",
+            "addr-0004 (owner: pers-0002)"
+          ],
+          "chunks_total": 9224,
+          "k": 5,
+          "top_scores": [
+            0.12,
+            0.08,
+            0.08,
+            0.08,
+            0.08
+          ]
+        },
+        "judge": {
+          "parse_error": "empty judge content",
+          "score": null
+        },
+        "mode": "naive_rag_k5",
+        "tokens_rendered": 336
+      },
+      "perseus_dag": {
+        "answer_finish": "length",
+        "answer_model": "gpt-5-mini",
+        "answer_usage": {
+          "completion_tokens": 1024,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 1024,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 746,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 1770
+        },
+        "assembly_meta": {
+          "compiled_digest": "f64d6de441e2ec6e",
+          "depth": 1,
+          "max_chunks": 10,
+          "max_tokens": 6000,
+          "nodes": 15,
+          "replay_verified": true,
+          "verdict": "sufficient"
+        },
+        "judge": {
+          "parse_error": "empty judge content",
+          "score": null
+        },
+        "mode": "perseus_dag",
+        "tokens_rendered": 538
+      }
+    }
+  },
+  "schema_version": "perseus-context-bench-results/v1"
+}
