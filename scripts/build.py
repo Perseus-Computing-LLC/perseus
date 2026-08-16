@@ -94,6 +94,8 @@ MODULE_ORDER = [
     "src/perseus/frontdoor.py",         # ← #896: single front-door routing and degraded modes
     "src/perseus/context_contract.py",  # ← #916/#917: bounded Rank/Ask and sanitized agent projection/release
     "src/perseus/context_dag.py",         # ← #962: auditable typed context-compilation DAG (AGoT/CISC)
+    "src/perseus/trace_attribution.py",   # ← #968: trajectory-mined context-source failure attribution (TRACE)
+
 
     "src/perseus/code_graph.py",         # ← #921: optional symbol/dependency-aware context provider
     "src/perseus/promptsize.py",        # ← #606: perseus prompt-size + @budget forensics (depends on renderer, compress, serve helpers)
