@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "Canonical claim registry for Perseus Computing public surfaces. Every public figure derives from here. When a benchmark re-runs, update THIS file only; scripts/render_claims.py regenerates manifest strings and tests/test_claims_sync.py fails CI if any surface drifts.",
-    "updated": "2026-08-14",
+    "updated": "2026-08-15",
     "public_headline": "longmemeval_cot",
     "public_headline_policy": "The validated official-CoT result is the current public QA headline. The plain-prompt result remains separately labeled methodology context.",
     "public_site_positioning": "Perseus is the system around the model: Perseus resolves live context, Vault persists memory, and Ledger records evidence."
@@ -254,6 +254,22 @@
       "source": "perseus-vault src/mcp.rs TOOL_SCOPES side table + scripts/registry_metadata_check.py",
       "status": "code-enforced",
       "label": "derived",
+      "publishable": true
+    },
+    "memora_locomo_s_baseline": {
+      "value": "0.859",
+      "detail": "Microsoft Memora semantic retriever (S) on LoCoMo cats 1-4 (1,540 QA), re-run on Perseus Computing hardware 2026-08-15; gpt-4.1-mini judge+answerer, temp 0, top_k 30; overall LLM-judge 0.8591, per-cat 0.7908/0.8505/0.6458/0.9096; paper reports 0.849 under a gpt-4o-mini judge (different judge - brackets the published range, not a parity claim); NOT a head-to-head vs Perseus Vault",
+      "source": "perseus-vault/benchmark/memora/RESULTS.md + memora_s_scores.json",
+      "status": "committed",
+      "label": "measured-baseline",
+      "publishable": true
+    },
+    "memora_locomo_p_baseline": {
+      "value": "0.874",
+      "detail": "Microsoft Memora policy/prompted retriever (P) on LoCoMo cats 1-4 (1,540 QA), re-run on Perseus Computing hardware 2026-08-15; gpt-4.1-mini judge+answerer, temp 0, top_k 30; overall LLM-judge 0.8740, per-cat 0.8085/0.8598/0.6667/0.9251; paper reports 0.863 under a gpt-4o-mini judge (different judge - brackets the published range, not a parity claim); NOT a head-to-head vs Perseus Vault",
+      "source": "perseus-vault/benchmark/memora/RESULTS.md + memora_p_scores.json",
+      "status": "committed",
+      "label": "measured-baseline",
       "publishable": true
     }
   }
