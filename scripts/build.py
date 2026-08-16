@@ -96,6 +96,7 @@ MODULE_ORDER = [
     "src/perseus/context_dag.py",         # ← #962: auditable typed context-compilation DAG (AGoT/CISC)
     "src/perseus/trace_attribution.py",   # ← #968: trajectory-mined context-source failure attribution (TRACE)
     "src/perseus/context_quality.py",  # ← #969: 7-criteria context-quality preflight scoring (2607.14275)
+    "src/perseus/commitment_codec.py", # ← #971: commitment-preserving verifiable compression (Context Codec)
     "src/perseus/pooled_selection.py", # ← #970: pluggable submodular context-selection engine (PACMS)
 
 
