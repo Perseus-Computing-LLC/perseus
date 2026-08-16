@@ -1,0 +1,28 @@
+{
+  "cb-001": {
+    "full_context": {
+      "answer_detail": "{\n  \"error\": {\n    \"message\": \"Unsupported value: 'temperature' does not support 0.0 with this model. Only the default (1) value is supported.\",\n    \"type\": \"invalid_request_error\",\n    \"param\": \"temp",
+      "answer_error": "http 400",
+      "mode": "full_context",
+      "tokens_rendered": 20169
+    },
+    "naive_rag_k3": {
+      "answer_detail": "{\n  \"error\": {\n    \"message\": \"Unsupported value: 'temperature' does not support 0.0 with this model. Only the default (1) value is supported.\",\n    \"type\": \"invalid_request_error\",\n    \"param\": \"temp",
+      "answer_error": "http 400",
+      "mode": "naive_rag_k3",
+      "tokens_rendered": 244
+    },
+    "naive_rag_k5": {
+      "answer_detail": "{\n  \"error\": {\n    \"message\": \"Unsupported value: 'temperature' does not support 0.0 with this model. Only the default (1) value is supported.\",\n    \"type\": \"invalid_request_error\",\n    \"param\": \"temp",
+      "answer_error": "http 400",
+      "mode": "naive_rag_k5",
+      "tokens_rendered": 336
+    },
+    "perseus_dag": {
+      "answer_detail": "{\n  \"error\": {\n    \"message\": \"Unsupported value: 'temperature' does not support 0.0 with this model. Only the default (1) value is supported.\",\n    \"type\": \"invalid_request_error\",\n    \"param\": \"temp",
+      "answer_error": "http 400",
+      "mode": "perseus_dag",
+      "tokens_rendered": 538
+    }
+  }
+}

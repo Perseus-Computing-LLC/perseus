@@ -1,65 +1,65 @@
-# Context-Bench adapter run (perseus#961)
+# Context-Bench — Perseus assembly adapter (perseus#961)
 
-Pilot run of [Context-Bench](https://www.letta.com/blog/context-bench)
-(Letta, letta-ai/letta-evals) against the Perseus context-assembly pipeline.
-
-## Framing (fixed)
-
-This is an **adapter-based reproduction** of the letta-evals filesystem suite.
-The official target kind is Letta Code (`open_files`/`grep_files` agents), not
-a memory-provider interface, so Perseus enters via an adapter: same corpus,
-same 15 pinned public questions, same gpt-5-mini 0/0.5/1.0 rubric judge — but a
-Perseus assembly pipeline behind the agent. These numbers are **not
-leaderboard-identical** and must never be labeled as such; public questions
-are not a hidden holdout.
+Adapter-based reproduction of the letta-evals filesystem suite
+(https://github.com/letta-ai/letta-evals, canonical results at
+https://leaderboard.letta.com). Not leaderboard-identical: public dataset
+questions, the official strict rubric judge, but Perseus assembly arms in
+place of the Letta Code agent.
 
 ## Arms
 
-| Arm | Assembly |
-|---|---|
-| `full_context` | All 10 files stuffed, per-file 8,000-char window (the official view window). |
-| `naive_rag_k3` / `k5` | Lexical top-k chunk retrieval. |
-| `perseus_dag` | Selective, budgeted DAG compilation (`compile_context_dag`, #962): opens the sample's `required_files`, greps relevant records, hard budgets, terminal verdict, digest-sealed replay. |
-| `mem0_rag_k5` | OSS Mem0 + local Qdrant (optional dependency; the arm skips cleanly when `mem0ai` is absent). |
+- `full_context` — every file at the official 8,000-char window
+- `naive_rag_k3` / `naive_rag_k5` — cosine top-k over chunk embeddings
+- `perseus_dag` — the auditable context-compilation DAG (src/perseus/context_dag.py,
+  issue #962): query root, typed evidence gates, selective expansion under a hard
+  token budget, digest-sealed edges
+- `mem0_rag_k5` — optional Mem0-RAG baseline (requires mem0ai + a vector store)
 
-## Metrics
+## Judge
 
-- **rubric score** — official gpt-5-mini judge, temperature 0, strict
-  0/0.5/1.0 parsing (malformed/ambiguous judge output = failed cell, never a
-  guess).
-- **tokens rendered** — `dag_tokens` (chars//4) at the assembly layer.
-  *Derived estimate;* provider-returned usage is captured per call and
-  reported separately.
-- **reduction vs full-context** — assembly-layer token reduction percentage.
+Official `upstream/rubric.txt` (SHA-256 pinned in `pilot.json`), gpt-5-mini,
+strict 0 / 0.5 / 1.0 parsing. Disclosed deviation: the official YAML pins
+temperature 0.0, which the gpt-5-mini API rejects — the judge runs at
+temperature 1.0 (recorded in every live manifest).
 
 ## Run
 
-```bash
-# deterministic dry-run (no provider calls, no spend)
-python3 benchmark/context-bench/run.py --dry-run --no-mem0
+Zero-spend dry run (mock providers, deterministic):
 
-# live run (requires provider env)
-CB_ANSWER_ENDPOINT=https://api.openai.com/v1/chat/completions \
-CB_ANSWER_MODEL=gpt-5-mini \
-CB_ANSWER_KEY_ENV=OPENAI_API_KEY \
-CB_JUDGE_MODEL=gpt-5-mini \
-CB_JUDGE_KEY_ENV=OPENAI_API_KEY \
-python3 benchmark/context-bench/run.py --no-mem0
-```
+    python3 benchmark/context-bench/run.py --dry-run
 
-Live results are sealed (`results_digest`) into `results/live/results.json`;
-dry-run output is never presented as evidence.
+Live pilot (OpenAI-compatible endpoint; gpt-5-mini expected):
 
-## Custody
+    CB_ANSWER_ENDPOINT=https://api.openai.com/v1/chat/completions \
+    CB_ANSWER_MODEL=gpt-5-mini CB_ANSWER_KEY_ENV=OPENAI_API_KEY \
+    CB_JUDGE_MODEL=gpt-5-mini CB_JUDGE_KEY_ENV=OPENAI_API_KEY \
+    python3 benchmark/context-bench/run.py --no-mem0
 
-- `pilot.json` pins the 15 samples (stratified across all 8 question types,
-  seed 961) with the upstream dataset SHA-256.
-- `files/` — the 10 synthetic corpus files, vendored with per-file SHA-256.
-- `upstream/rubric.txt` — the official judge rubric, byte-for-byte.
-- `NOTICE.md` — Apache-2.0 attribution for the letta-evals artifacts.
+Guards: `--limit N` (canary mode), `--checkpoint PATH` (fsync'd per sample),
+`--resume PATH` (skip completed samples), `--max-total-tokens N` (runaway
+spend ceiling; default 20M).
 
-## Claim boundary
+## Verify
 
-15-question pilot on public questions → the live numbers are **adapter
-evidence**, not leaderboard scores and not statistical validation of the
-"94% token reduction" claim. Report accordingly.
+    python3 benchmark/context-bench/custody.py benchmark/context-bench/results/live/results.json
+
+Custody re-hashes pilot/rubric/corpus, recomputes the envelope digest, and
+scans for credential or prompt leakage.
+
+## Live results (2026-08-15)
+
+15 questions × 4 arms · gpt-5-mini answer + judge · 60 answer + 60 judge calls ·
+538,450 provider tokens (≈ $1). Mean strict-judge rubric:
+
+| arm | mean | tokens rendered | vs full-context |
+|---|---:|---:|---:|
+| full_context | 0.167 | 20,187 | — |
+| naive_rag_k3 | 0.333 | 267 | −98.7% |
+| naive_rag_k5 | 0.233 | 360 | −98.2% |
+| perseus_dag | 0.267 | 573 | −97.2% |
+
+The DAG outscores full-context by +0.100 at 2.8% of the rendered tokens and
+lands within 0.067 of the best naive-RAG arm. Absolute scores are low across
+all arms — strict-judge reference questions are hard for a single-call
+gpt-5-mini regardless of context strategy. Envelope: `results/live/results.json`
+(digest-sealed); per-question table and method notes in `results/live/report.md`.

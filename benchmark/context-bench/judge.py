@@ -57,7 +57,7 @@ def judge_submission(*, question: str, ground_truth: str, submission: str,
     failed-cell marker ``{"score": None, "parse_error": ...}``.
     """
     prompt = rubric_prompt(question, ground_truth, submission)
-    result = provider.complete(prompt, max_tokens=16)
+    result = provider.complete(prompt)
     if result.get("error"):
         return {"score": None, "provider_error": result["error"]}
     content = result.get("content") or ""

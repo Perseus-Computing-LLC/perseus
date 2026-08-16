@@ -1,0 +1,225 @@
+{
+  "cb-001": {
+    "full_context": {
+      "answer_finish": "stop",
+      "answer_model": "gpt-5-mini",
+      "answer_usage": {
+        "completion_tokens": 305,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 192,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens": 29549,
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 29854
+      },
+      "assembly_meta": {
+        "files": 10,
+        "truncated_files": [
+          "addresses.txt",
+          "bank_accounts.txt",
+          "credit_cards.txt",
+          "employments.txt",
+          "insurance_policies.txt",
+          "internet_accounts.txt",
+          "medical_records.txt",
+          "people.txt",
+          "pets.txt",
+          "vehicles.txt"
+        ],
+        "window_chars": 8000
+      },
+      "judge": {
+        "raw": "0.0",
+        "score": "0.0",
+        "unix_s": 1786853094.572,
+        "usage": {
+          "completion_tokens": 12,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 692,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 704
+        }
+      },
+      "mode": "full_context",
+      "tokens_rendered": 20169
+    },
+    "naive_rag_k3": {
+      "answer_finish": "stop",
+      "answer_model": "gpt-5-mini",
+      "answer_usage": {
+        "completion_tokens": 454,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 256,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens": 270,
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 724
+      },
+      "assembly_meta": {
+        "chunks_selected": [
+          "emp-0163 (owner: pers-0151)",
+          "addr-0001 (owner: pers-0001)",
+          "addr-0002 (owner: pers-0001)"
+        ],
+        "chunks_total": 9224,
+        "k": 3,
+        "top_scores": [
+          0.12,
+          0.08,
+          0.08
+        ]
+      },
+      "judge": {
+        "raw": "0.0",
+        "score": "0.0",
+        "unix_s": 1786853103.011,
+        "usage": {
+          "completion_tokens": 12,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 777,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 789
+        }
+      },
+      "mode": "naive_rag_k3",
+      "tokens_rendered": 244
+    },
+    "naive_rag_k5": {
+      "answer_finish": "stop",
+      "answer_model": "gpt-5-mini",
+      "answer_usage": {
+        "completion_tokens": 655,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 512,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens": 385,
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 1040
+      },
+      "assembly_meta": {
+        "chunks_selected": [
+          "emp-0163 (owner: pers-0151)",
+          "addr-0001 (owner: pers-0001)",
+          "addr-0002 (owner: pers-0001)",
+          "addr-0003 (owner: pers-0001)",
+          "addr-0004 (owner: pers-0002)"
+        ],
+        "chunks_total": 9224,
+        "k": 5,
+        "top_scores": [
+          0.12,
+          0.08,
+          0.08,
+          0.08,
+          0.08
+        ]
+      },
+      "judge": {
+        "raw": "0.5",
+        "score": "0.5",
+        "unix_s": 1786853113.309,
+        "usage": {
+          "completion_tokens": 12,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 722,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 734
+        }
+      },
+      "mode": "naive_rag_k5",
+      "tokens_rendered": 336
+    },
+    "perseus_dag": {
+      "answer_finish": "stop",
+      "answer_model": "gpt-5-mini",
+      "answer_usage": {
+        "completion_tokens": 426,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 320,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens": 746,
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 1172
+      },
+      "assembly_meta": {
+        "compiled_digest": "f64d6de441e2ec6e",
+        "depth": 1,
+        "max_chunks": 10,
+        "max_tokens": 6000,
+        "nodes": 15,
+        "replay_verified": true,
+        "verdict": "sufficient"
+      },
+      "judge": {
+        "raw": "1.0",
+        "score": "1.0",
+        "unix_s": 1786853119.663,
+        "usage": {
+          "completion_tokens": 12,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0
+          },
+          "prompt_tokens": 685,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+          },
+          "total_tokens": 697
+        }
+      },
+      "mode": "perseus_dag",
+      "tokens_rendered": 538
+    }
+  }
+}

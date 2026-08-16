@@ -23,7 +23,8 @@ from typing import Optional
 class ChatClient:
     def __init__(self, *, role: str, endpoint: str, model: str,
                  key_env: str, temperature: float = 0.0,
-                 max_tokens: int = 2048, timeout_s: float = 300.0):
+                 max_tokens: int = 2048, timeout_s: float = 300.0,
+                 reasoning_effort: Optional[str] = None):
         self.role = role
         self.endpoint = endpoint.rstrip("/")
         self.model = model
@@ -31,6 +32,7 @@ class ChatClient:
         self.temperature = float(temperature)
         self.max_tokens = int(max_tokens)
         self.timeout_s = float(timeout_s)
+        self.reasoning_effort = reasoning_effort
         key = os.environ.get(key_env, "")
         if not key:
             raise RuntimeError(f"{key_env} is not set for {role}")
@@ -38,13 +40,25 @@ class ChatClient:
 
     def complete(self, prompt: str,
                  max_tokens: Optional[int] = None) -> dict:
-        """One chat completion; returns content + provider usage verbatim."""
+        """One chat completion; returns content + provider usage verbatim.
+
+        Reasoning-capable models (gpt-5*, o-series) reject the legacy
+        ``max_tokens`` parameter with HTTP 400 and require
+        ``max_completion_tokens`` instead.
+        """
+        cap = max_tokens or self.max_tokens
+        if self.model.startswith(("gpt-5", "o1", "o3", "o4")):
+            cap_key, cap_val = "max_completion_tokens", cap
+        else:
+            cap_key, cap_val = "max_tokens", cap
         body = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": self.temperature,
-            "max_tokens": max_tokens or self.max_tokens,
+            cap_key: cap_val,
         }
+        if self.reasoning_effort:
+            body["reasoning_effort"] = self.reasoning_effort
         req = urllib.request.Request(
             self.endpoint, data=json.dumps(body).encode("utf-8"),
             headers={"Authorization": self._auth,
@@ -82,6 +96,7 @@ class ChatClient:
         return {"role": self.role, "model": self.model,
                 "temperature": self.temperature,
                 "max_tokens": self.max_tokens,
+                "reasoning_effort": self.reasoning_effort,
                 "endpoint_host": self.endpoint.split("//")[-1].split("/")[0],
                 "key_env": self.key_env}
 
