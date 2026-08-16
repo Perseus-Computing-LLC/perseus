@@ -97,6 +97,7 @@ MODULE_ORDER = [
     "src/perseus/trace_attribution.py",   # ← #968: trajectory-mined context-source failure attribution (TRACE)
     "src/perseus/context_quality.py",  # ← #969: 7-criteria context-quality preflight scoring (2607.14275)
     "src/perseus/commitment_codec.py", # ← #971: commitment-preserving verifiable compression (Context Codec)
+    "src/perseus/retry_isolation.py",  # ← #972: clean-restart attempt isolation (CCRM retry contamination)
     "src/perseus/pooled_selection.py", # ← #970: pluggable submodular context-selection engine (PACMS)
 
 
