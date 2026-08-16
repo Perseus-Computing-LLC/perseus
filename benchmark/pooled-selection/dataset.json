@@ -1,0 +1,418 @@
+{
+  "schema_version": "perseus-pooled-selection-benchmark/v1",
+  "description": "PACMS adapted multi-turn corpus (#970): each scenario plants ground-truth-relevant candidates under recent noise and a budget <= 50% of the pooled tokens. The submodular policy must keep every required candidate; recency truncation is measured as the failing baseline.",
+  "scenarios": [
+    {
+      "id": "multi-turn-01",
+      "query": "what is the service account id",
+      "budget_tokens": 120,
+      "required": [
+        "fact-svc"
+      ],
+      "pool": [
+        {
+          "kind": "memory_entry",
+          "content": "The deployment service account id is svc-4471.",
+          "candidate_id": "fact-svc"
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 10
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 11
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 12
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 13
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        }
+      ]
+    },
+    {
+      "id": "multi-turn-02",
+      "query": "which port does postgres listen on",
+      "budget_tokens": 100,
+      "required": [
+        "tool-port"
+      ],
+      "pool": [
+        {
+          "kind": "tool_output",
+          "candidate_id": "tool-port",
+          "content": "postgres listens on port 5432 per the config dump."
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 20
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 21
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 22
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        }
+      ]
+    },
+    {
+      "id": "multi-turn-03",
+      "query": "rollback procedure and health endpoint",
+      "budget_tokens": 140,
+      "required": [
+        "mem-rollback",
+        "mem-health"
+      ],
+      "pool": [
+        {
+          "kind": "memory_entry",
+          "content": "On failure: rollback via deploy rollback.",
+          "candidate_id": "mem-rollback"
+        },
+        {
+          "kind": "memory_entry",
+          "content": "After deploy: verify the health endpoint.",
+          "candidate_id": "mem-health"
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 30
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 31
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        }
+      ]
+    },
+    {
+      "id": "multi-turn-04",
+      "query": "python version of the stack",
+      "budget_tokens": 100,
+      "required": [
+        "mem-py"
+      ],
+      "pool": [
+        {
+          "kind": "memory_entry",
+          "content": "The stack runs on Python 3.12.",
+          "candidate_id": "mem-py"
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 40
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 41
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        }
+      ]
+    },
+    {
+      "id": "multi-turn-05",
+      "query": "database backup schedule",
+      "budget_tokens": 90,
+      "required": [
+        "mem-backup"
+      ],
+      "pool": [
+        {
+          "kind": "memory_entry",
+          "content": "Backups run nightly to s3 at 02:00.",
+          "candidate_id": "mem-backup"
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 50
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 51
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        }
+      ]
+    },
+    {
+      "id": "multi-turn-06",
+      "query": "staging deploy flags",
+      "budget_tokens": 110,
+      "required": [
+        "turn-flags"
+      ],
+      "pool": [
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 1
+          },
+          "candidate_id": "turn-flags",
+          "content": "deploy takes --env staging or --env prod for the target."
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 60
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 61
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 62
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        }
+      ]
+    },
+    {
+      "id": "multi-turn-07",
+      "query": "alpha beta requirements",
+      "budget_tokens": 138,
+      "required": [
+        "req-a",
+        "req-b"
+      ],
+      "pool": [
+        {
+          "kind": "memory_entry",
+          "content": "alpha requirement from memory",
+          "candidate_id": "req-a"
+        },
+        {
+          "kind": "memory_entry",
+          "content": "beta requirement from memory",
+          "candidate_id": "req-b"
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 70
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 71
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 72
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 73
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        }
+      ]
+    },
+    {
+      "id": "multi-turn-08",
+      "query": "incident response contacts",
+      "budget_tokens": 130,
+      "required": [
+        "mem-ir"
+      ],
+      "pool": [
+        {
+          "kind": "memory_entry",
+          "content": "incident response: page the on-call engineer.",
+          "candidate_id": "mem-ir"
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 80
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 81
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 82
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        }
+      ]
+    },
+    {
+      "id": "multi-turn-09",
+      "query": "migration lockout window",
+      "budget_tokens": 110,
+      "required": [
+        "mem-mig"
+      ],
+      "pool": [
+        {
+          "kind": "memory_entry",
+          "content": "database migration runs in a lockout window on sunday.",
+          "candidate_id": "mem-mig"
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 90
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 91
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        }
+      ]
+    },
+    {
+      "id": "multi-turn-10",
+      "query": "secret rotation policy",
+      "budget_tokens": 100,
+      "required": [
+        "mem-rot"
+      ],
+      "pool": [
+        {
+          "kind": "memory_entry",
+          "content": "secrets rotate every thirty days.",
+          "candidate_id": "mem-rot"
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 100
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 101
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        }
+      ]
+    },
+    {
+      "id": "multi-turn-11",
+      "query": "tls certificate renewal",
+      "budget_tokens": 100,
+      "required": [
+        "mem-tls"
+      ],
+      "pool": [
+        {
+          "kind": "memory_entry",
+          "content": "tls certificates renew automatically.",
+          "candidate_id": "mem-tls"
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 110
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 111
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        }
+      ]
+    },
+    {
+      "id": "multi-turn-12",
+      "query": "feature flag service",
+      "budget_tokens": 110,
+      "required": [
+        "mem-ff"
+      ],
+      "pool": [
+        {
+          "kind": "memory_entry",
+          "content": "feature flags live in the config service.",
+          "candidate_id": "mem-ff"
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 120
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        },
+        {
+          "kind": "session_turn",
+          "meta": {
+            "sequence": 121
+          },
+          "content": "casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans casual unrelated chatter about lunch plans "
+        }
+      ]
+    }
+  ]
+}
