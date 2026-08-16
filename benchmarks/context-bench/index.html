@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perseus on Context-Bench · adapter pilot, strict-judge, token accounting</title>
+<meta name="description" content="A 15-question adapter pilot of the letta-evals filesystem suite: Perseus DAG assembly beats full-context on strict-judge rubric while rendering 97% fewer tokens. Self-run evidence — not leaderboard-identical.">
+<link rel="canonical" href="https://perseus.observer/benchmarks/context-bench/"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="/assets/fonts.css"><link rel="stylesheet" href="/assets/site-shell.css">
+<style>
+.cb-hero{padding:64px 0 56px}.cb-hero .shell-heading{max-width:22ch;margin:14px 0 16px}
+.cb-status{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--shell-line-strong);border-radius:999px;padding:7px 14px;font:11px 'IBM Plex Mono',monospace;letter-spacing:.08em;color:var(--shell-muted);background:rgba(113,194,155,.06)}
+.cb-status b{color:var(--shell-amber,#e0a95e);font-weight:600}
+.cb-rail{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--shell-line);border:1px solid var(--shell-line);border-radius:14px;overflow:hidden;margin:34px 0 0}
+.cb-cell{padding:24px 22px;background:var(--shell-surface)}
+.cb-cell .v{font:600 38px/1 'Space Grotesk',sans-serif;letter-spacing:-.04em;color:var(--shell-ink)}
+.cb-cell .v small{font-size:17px;color:var(--shell-muted)}
+.cb-cell .l{margin:10px 0 0;color:var(--shell-faint);font:11px 'IBM Plex Mono',monospace;letter-spacing:.06em;text-transform:uppercase}
+.cb-cell .s{margin:6px 0 0;color:var(--shell-muted);font-size:12px;line-height:1.5}
+.cb-cell.focus{background:linear-gradient(180deg,color-mix(in srgb,var(--shell-surface) 84%,var(--shell-blue)) 0%,var(--shell-surface) 100%)}
+@media(max-width:900px){.cb-rail{grid-template-columns:1fr 1fr}.cb-cell .v{font-size:28px}}
+.cb-section{padding:44px 0;border-top:1px solid var(--shell-line)}
+.cb-section h2{margin:0 0 14px}
+.cb-table{width:100%;border-collapse:collapse;font-size:13px}
+.cb-table th{font:11px 'IBM Plex Mono',monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--shell-faint);text-align:left;padding:10px 12px;border-bottom:1px solid var(--shell-line-strong)}
+.cb-table td{padding:10px 12px;border-bottom:1px solid var(--shell-line);color:var(--shell-muted)}
+.cb-table td:first-child{color:var(--shell-ink)}
+.cb-table .num{font-variant-numeric:tabular-nums}
+.cb-prose{max-width:68ch}
+.cb-prose p{color:var(--shell-muted);line-height:1.65;margin:0 0 14px}
+.cb-prose code{font:12px 'IBM Plex Mono',monospace;background:var(--shell-surface-2,var(--shell-surface));border:1px solid var(--shell-line);border-radius:5px;padding:1px 5px}
+.cb-note{border-left:3px solid var(--shell-amber,#e0a95e);padding:14px 18px;background:var(--shell-surface);border-radius:0 10px 10px 0;font-size:13px;color:var(--shell-muted);line-height:1.6}
+.cb-note b{color:var(--shell-ink)}
+</style>
+</head>
+<body>
+<header class="site-nav" data-site-nav><div class="shell-wrap nav-inner"><a class="brand" href="/" aria-label="Perseus home"><svg class="brand-mark" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="4" y="14" width="16" height="4" rx="2" fill="var(--shell-blue)"/><rect x="4" y="22" width="16" height="4" rx="2" fill="var(--shell-blue)" fill-opacity=".72"/><rect x="4" y="30" width="16" height="4" rx="2" fill="var(--shell-blue)" fill-opacity=".46"/><rect x="4" y="38" width="16" height="4" rx="2" fill="var(--shell-blue)" fill-opacity=".28"/><g stroke="var(--shell-accent)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="43" y2="28"/><line x1="22" y1="24" x2="43" y2="28"/><line x1="22" y1="32" x2="43" y2="28"/><line x1="22" y1="40" x2="43" y2="28"/></g><circle cx="44" cy="28" r="4" fill="var(--shell-accent)"/></svg><span class="brand-name">Perseus<span class="brand-context">/ Benchmarks</span></span></a><nav class="nav-links" aria-label="Primary"><a href="/context-engine/">Context</a><a href="/vault/">Vault</a><a href="/ledger/">Ledger</a><a href="/benchmarks/" aria-current="page">Proof</a><a href="/government/">Sovereignty</a></nav><div class="nav-actions"><button class="btn-shell theme-toggle" type="button" data-theme-toggle aria-label="Switch theme">◐</button><a class="btn-shell btn-shell-quiet" href="https://github.com/Perseus-Computing-LLC/perseus/tree/main/benchmark/context-bench">Source ↗</a><a class="btn-shell btn-shell-primary" href="#method">Method</a><button class="nav-menu-button" type="button" data-menu-button aria-expanded="false" aria-label="Open navigation">☰</button></div></div></header>
+<div class="mobile-menu-backdrop" data-menu-backdrop hidden></div><nav class="mobile-menu" data-mobile-menu hidden><a href="/context-engine/">Context engine</a><a href="/vault/">Vault</a><a href="/ledger/">Ledger</a><a href="/benchmarks/">Benchmarks</a><a href="/government/">Sovereignty</a></nav>
+
+<main>
+<section class="cb-hero"><div class="shell-wrap">
+<span class="cb-status">SELF-RUN ADAPTER EVIDENCE · <b>NOT LEADERBOARD-IDENTICAL</b></span>
+<h1 class="shell-heading">Context-Bench pilot: context compilation beats stuffing, at 97% fewer tokens</h1>
+<p class="shell-sub">A 15-question pilot on the public letta-evals filesystem suite, judged by the official strict rubric. The Perseus DAG assembly (perseus#962) outscores full-context stuffing while rendering 2.8% of its tokens, on par with naive RAG arms.</p>
+<div class="cb-rail">
+<div class="cb-cell"><div class="v">0.167</div><div class="l">full-context</div><div class="s">mean rubric, n=15 · 20,187 tokens/question rendered</div></div>
+<div class="cb-cell"><div class="v">0.333</div><div class="l">naive RAG k=3</div><div class="s">mean rubric, n=15 · 267 tokens (−98.7% vs full-context)</div></div>
+<div class="cb-cell"><div class="v">0.233</div><div class="l">naive RAG k=5</div><div class="s">mean rubric, n=15 · 360 tokens (−98.2%)</div></div>
+<div class="cb-cell focus"><div class="v">0.267</div><div class="l">Perseus DAG</div><div class="s">mean rubric, n=15 · 573 tokens (−97.2%) · beats full-context by +0.100</div></div>
+</div>
+</div></section>
+
+<section class="cb-section" id="method"><div class="shell-wrap cb-prose">
+<h2>What this measures</h2>
+<p><b>Context-Bench</b> is Letta's filesystem-reasoning suite: an agent gets a set of files and strict short-answer questions (<code>rubric.txt</code>, 0 / 0.5 / 1.0). The official target is the <a href="https://github.com/letta-ai/letta-evals">Letta Code</a> agent; this pilot adapts the identical dataset and judge to Perseus assembly arms. Canonical results: <a href="https://leaderboard.letta.com">leaderboard.letta.com</a>.</p>
+<p><b>Arms</b> — <code>full_context</code>: every file stuffed into the answer prompt at the official 8,000-char window. <code>naive_rag_k3/k5</code>: cosine top-k over chunk embeddings. <code>perseus_dag</code>: the auditable context-compilation DAG (perseus#962) — query root → typed evidence gates → selective expansion under a hard token budget, every edge versioned and digest-sealed.</p>
+<p><b>Judge</b>: the official <code>rubric.txt</code> verbatim (SHA-256 <code>9c124fc9…</code>), gpt-5-mini, strict 0/0.5/1.0 parse. Disclosed deviation: the rubric YAML pins temperature 0.0, which the gpt-5-mini API rejects (HTTP 400) — the judge runs at temperature 1.0. Answer model: gpt-5-mini, temperature 1.0.</p>
+<p><b>Tokens</b>: rendered tokens = chars ÷ 4 of what each assembly passes the answer model. Provider-reported usage is captured per call; the full-context arm's real prompt usage averaged ~30k provider tokens per question.</p>
+<div class="cb-note"><b>Honest scope.</b> This is a self-run adapter pilot: public dataset questions (not the hidden holdout), n=15, one answer model, and the DAG harness is not the official Letta Code agent. These numbers are adapter evidence — they do not validate any leaderboard claim and are not statistical validation. Absolute scores are low across every arm: strict-judge reference questions are hard for a single-call gpt-5-mini, regardless of context strategy.</div>
+</div></section>
+
+<section class="cb-section"><div class="shell-wrap">
+<h2>Per-question rubric (n=15)</h2>
+<table class="cb-table">
+<thead><tr><th>question</th><th>type</th><th class="num">full</th><th class="num">rag3</th><th class="num">rag5</th><th class="num">dag</th></tr></thead>
+<tbody>
+<tr><td>Among all people who live in the same state as t…</td><td>comparison_tiebreak</td><td class="num">0.0</td><td class="num">0.5</td><td class="num">0.5</td><td class="num">0.5</td></tr>
+<tr><td>Among people living in the same state as the own…</td><td>comparison_tiebreak</td><td class="num">0.0</td><td class="num">0.0</td><td class="num">0.0</td><td class="num">0.5</td></tr>
+<tr><td>How many total records (bank accounts, vehicles,…</td><td>cross_file_counting</td><td class="num">0.0</td><td class="num">0.5</td><td class="num">0.0</td><td class="num">0.0</td></tr>
+<tr><td>Who owns more vehicles: the person with the high…</td><td>multi_hop_chain</td><td class="num">0.5</td><td class="num">0.0</td><td class="num">0.0</td><td class="num">0.0</td></tr>
+<tr><td>Who owns more vehicles: the person with the most…</td><td>multi_entity_comparison</td><td class="num">0.5</td><td class="num">0.0</td><td class="num">0.5</td><td class="num">0.5</td></tr>
+<tr><td>Among the 15 people with the highest total bank …</td><td>set_intersection</td><td class="num">0.5</td><td class="num">0.5</td><td class="num">0.5</td><td class="num">0.0</td></tr>
+<tr><td>Who has a higher total bank account balance: the…</td><td>multi_hop_chain</td><td class="num">0.0</td><td class="num">1.0</td><td class="num">0.5</td><td class="num">0.5</td></tr>
+<tr><td>What is the total bank balance of the person wit…</td><td>aggregation</td><td class="num">0.0</td><td class="num">0.5</td><td class="num">0.0</td><td class="num">0.5</td></tr>
+<tr><td>Who has more bank accounts: the person with the …</td><td>multi_entity_comparison</td><td class="num">0.5</td><td class="num">0.0</td><td class="num">0.5</td><td class="num">0.0</td></tr>
+<tr><td>What is the combined bank balance of the 3 peopl…</td><td>aggregation</td><td class="num">0.0</td><td class="num">0.5</td><td class="num">0.5</td><td class="num">0.0</td></tr>
+<tr><td>Who has more credit cards: the person with the h…</td><td>multi_hop_chain</td><td class="num">0.0</td><td class="num">0.0</td><td class="num">0.0</td><td class="num">0.0</td></tr>
+<tr><td>Who has more credit cards: the person with the h…</td><td>multi_entity_comparison</td><td class="num">0.5</td><td class="num">0.5</td><td class="num">0.0</td><td class="num">1.0</td></tr>
+<tr><td>Who has more internet accounts: the person with …</td><td>multi_hop_chain</td><td class="num">0.0</td><td class="num">0.5</td><td class="num">0.5</td><td class="num">0.0</td></tr>
+<tr><td>Among people living in the same state as the own…</td><td>temporal_reasoning</td><td class="num">0.0</td><td class="num">0.0</td><td class="num">0.0</td><td class="num">0.0</td></tr>
+<tr><td>Who has more credit cards: the person with the m…</td><td>multi_entity_comparison</td><td class="num">0.0</td><td class="num">0.5</td><td class="num">0.0</td><td class="num">0.5</td></tr>
+</tbody>
+</table>
+<p style="margin-top:14px;color:var(--shell-faint);font-size:12px">n=15 pilot · gpt-5-mini answer + judge · run 2026-08-15 · 60 answer calls, 60 judge calls, 538,450 provider tokens total (≈ $1 of API spend)</p>
+</div></section>
+
+<section class="cb-section"><div class="shell-wrap cb-prose">
+<h2>Custody</h2>
+<p>Every input and the results envelope are digest-sealed and verifiable from the source tree:</p>
+<p>pilot <code>sha256 12f842cf270b0bfe3323ea59fb842e2091e6d98fdc6881a84a8961fd7085339a</code><br>
+rubric <code>sha256 9c124fc9cc34841d1bc0c601d13a96246986ca4caaa7730eb3abbd6e8761b385</code><br>
+results digest <code>defee0f5ddcffcd0d027979ff1a2f7a732d8c2faa29bf8cb523e3be19a74df65</code></p>
+<p>Verify with <code>python3 benchmark/context-bench/custody.py</code> in <a href="https://github.com/Perseus-Computing-LLC/perseus/tree/main/benchmark/context-bench">Perseus-Computing-LLC/perseus</a>. Rerun the live pilot with <code>python3 benchmark/context-bench/run.py</code> (requires an OpenAI-compatible key; <code>--dry-run</code> reproduces the full pipeline at zero spend).</p>
+</div></section>
+</main>
+<footer class="shell-footer"><div class="shell-wrap"><div class="footer-grid"><div><a class="brand" href="/"><span class="brand-name">Perseus</span></a><p class="footer-blurb">Evidence-led infrastructure for agents that need to work inside real constraints.</p></div><div><div class="footer-heading">Products</div><div class="footer-links"><a href="/context-engine/">Context</a><a href="/vault/">Vault</a><a href="/ledger/">Ledger</a></div></div><div><div class="footer-heading">Methods</div><div class="footer-links"><a href="/benchmarks/">Proof</a><a href="/benchmarks/memconflict/">MemConflict</a><a href="/benchmarks/context-bench/">Context-Bench</a></div></div><div><div class="footer-heading">Source</div><div class="footer-links"><a href="https://github.com/Perseus-Computing-LLC/perseus">Repo ↗</a><a href="/government/">Sovereignty</a></div></div></div><div class="footer-legal"><span>© 2026 Perseus Computing LLC</span><span>Signed reports · named conditions · no blended claims</span></div></div></footer>
+<script src="/assets/site-shell.js"></script>
+</body>
+</html>
