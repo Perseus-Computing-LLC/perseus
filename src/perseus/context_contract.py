@@ -564,6 +564,8 @@ def _cc_prepare_records(records: Any, scope: Any, policy: Mapping[str, Any], lim
         if not isinstance(raw, Mapping):
             return [], [], [], "invalid_input"
         _cc_content_commitment(raw)
+        if "verified" in raw and not isinstance(raw["verified"], bool):
+            return [], [], [], "invalid_input"
         candidate_id = _cc_record_id(raw)
         if not candidate_id:
             return [], [], [], "invalid_input"

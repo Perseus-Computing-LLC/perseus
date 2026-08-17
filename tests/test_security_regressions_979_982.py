@@ -1126,3 +1126,24 @@ def test_context_rank_rejects_overflow_and_non_finite_relevance():
             integrations={"vault": "active", "ledger": "active"},
         )
         assert result["status"] == "invalid_input"
+
+
+
+def test_public_evidence_and_context_rank_reject_string_verified_flags():
+    body = "verified type sentinel"
+    record = _entry(
+        candidate_id="verified-type",
+        content=body,
+        agent_text=body,
+        verified="false",
+        evidence_digest=hashlib.sha256(body.encode()).hexdigest(),
+    )
+    with pytest.raises(perseus.ContextEvidenceError):
+        perseus.project_context_evidence([record], evidence_required=True)
+    result = perseus.context_rank(
+        [record],
+        task="verified type",
+        policy={"evidence_required": True},
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    assert result["status"] == "invalid_input"
