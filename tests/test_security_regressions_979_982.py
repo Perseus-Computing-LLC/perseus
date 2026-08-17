@@ -524,3 +524,23 @@ def test_context_ask_rejects_raw_content_projection_even_when_requested():
     )
     assert result["status"] == "invalid_input"
     assert "999-88-7777" not in json.dumps(result, sort_keys=True)
+
+
+@pytest.mark.parametrize("coverage_state", ["empty", "partial", "stale", "conflicted", "unavailable", "timeout"])
+def test_context_ask_propagates_explicit_coverage_state_when_evidence_is_required(coverage_state):
+    result = perseus.context_ask(
+        "Which signed release path is used?",
+        context=[{
+            "candidate_id": "coverage-" + coverage_state,
+            "summary": "The signed release path is used.",
+            "source_id": "vault:coverage-" + coverage_state,
+            "validity": "observed",
+            "coverage_state": coverage_state,
+            "content": "The signed release path is used.",
+            "evidence_digest": hashlib.sha256("The signed release path is used.".encode("utf-8")).hexdigest(),
+        }],
+        policy={"evidence_required": True},
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    assert result["answer"] is None
+    assert result["status"] in {"abstain", "review", "unavailable"}
