@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "26a930d"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "7a1a11c"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -36843,6 +36843,9 @@ _CE_PROVIDER_STATES = frozenset({"active", "partial", "degraded", "unavailable",
 _CE_UNCERTAINTY_CLASSES = frozenset({"high", "medium", "low", "stale", "inferred", "tie"})
 _CE_DIGEST_RE = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
 _CE_PUBLIC_SOURCE_RE = re.compile(r"^(?:file|vault|ledger|artifact):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
+_CE_SENSITIVE_SOURCE_RE = re.compile(
+    r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private(?:[_-]?(?:body|scalar|data))?|raw(?:[_-]?payload)?)(?:$|[:/#._-])"
+)
 _CE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$")
 _CE_MAX_ENTRIES = 64
 _CE_MAX_SELECTED = 64
@@ -36944,6 +36947,9 @@ def _ce_id(value: Any, field: str) -> str:
     if _CE_DIGEST_RE.fullmatch(text):
         return "sha256:" + text.removeprefix("sha256:").lower()
     if field == "source_ref" and _CE_PUBLIC_SOURCE_RE.fullmatch(text):
+        if _CE_SENSITIVE_SOURCE_RE.search(text.split(":", 1)[1]):
+            namespace = text.split(":", 1)[0]
+            return f"{namespace}:sha256:{hashlib.sha256(text_bytes).hexdigest()}"
         return text
     if field == "provider" and text in {"vault", "ledger"}:
         return text
@@ -37917,7 +37923,7 @@ def _cc_safe_id(value: Any, *, fallback: str = "") -> str:
         return ""
     # URI/userinfo/query syntax can carry credentials or private material even
     # when the scalar matches the broad identifier grammar.
-    if any(marker in raw for marker in ("://", "@", "?", "&", "=")):
+    if any(marker in raw for marker in ("://", "@", "?", "&", "=")) or _CC_SENSITIVE_SOURCE_RE.search(raw):
         return "sha256:" + _cc_text_sha(raw)
     # A source identifier is a commitment, not a place to carry arbitrary text.
     if not _SAFE_ID_RE.fullmatch(raw):
@@ -38091,6 +38097,9 @@ def _cc_content_commitment(record: Mapping[str, Any]) -> str | None:
 
 
 _CC_PUBLIC_SOURCE_RE = re.compile(r"^(?:file|vault|ledger|artifact):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
+_CC_SENSITIVE_SOURCE_RE = re.compile(
+    r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private(?:[_-]?(?:body|scalar|data))?|raw(?:[_-]?payload)?)(?:$|[:/#._-])"
+)
 
 
 def _cc_source_ids(record: Mapping[str, Any], candidate_id: str, *, require_explicit: bool = False) -> list[str]:
@@ -38127,6 +38136,9 @@ def _cc_source_ids(record: Mapping[str, Any], candidate_id: str, *, require_expl
         source = item.strip()
         if not _CC_PUBLIC_SOURCE_RE.fullmatch(source):
             raise ValueError(f"{candidate_id} contains a non-public source reference")
+        if _CC_SENSITIVE_SOURCE_RE.search(source.split(":", 1)[1]):
+            namespace = source.split(":", 1)[0]
+            source = f"{namespace}:sha256:{_cc_text_sha(source)}"
         result.add(source)
     ordered = sorted(result)
     if len(ordered) > CONTEXT_MAX_SOURCE_REFS:
@@ -39516,6 +39528,8 @@ def _dag_uncertainty(validity: str, verified: bool) -> dict[str, Any]:
 
 
 def _norm_evidence(evidence: Optional[dict]) -> dict:
+    if evidence is not None and not isinstance(evidence, Mapping):
+        raise ContextDagError("node evidence must be an object")
     ev = dict(evidence or {})
     ev.setdefault("validity", "inferred")
     ev.setdefault("verified", False)
@@ -39558,6 +39572,8 @@ class ContextNode:
             raise ContextDagError("node version must be a positive integer")
         if not isinstance(self.meta, dict):
             raise ContextDagError("node metadata must be an object")
+        if self.uncertainty is not None and not isinstance(self.uncertainty, Mapping):
+            raise ContextDagError("node uncertainty must be an object")
         ev = _norm_evidence(self.evidence)
         object.__setattr__(self, "evidence", ev)
         if not self.summary:
@@ -39566,6 +39582,8 @@ class ContextNode:
             object.__setattr__(self, "uncertainty",
                                _dag_uncertainty(ev["validity"],
                                                 bool(ev["verified"])))
+        else:
+            object.__setattr__(self, "uncertainty", dict(self.uncertainty))
         object.__setattr__(self, "content_ref", _dag_sha(self.content))
         if not self.node_id:
             object.__setattr__(self, "node_id", _dag_sha(
@@ -39909,6 +39927,8 @@ class ContextDAG:
 
     @classmethod
     def from_dict(cls, data: dict) -> "ContextDAG":
+        if not isinstance(data, Mapping):
+            raise ContextDagError("graph must be an object")
         if data.get("schema_version") != "perseus-context-dag/v1":
             raise ContextDagError("unsupported context DAG schema version")
         g = cls(task_id=data["task_id"], version=int(data["version"]),
@@ -40424,7 +40444,7 @@ def verify_compiled_dag(artifact: dict) -> dict:
         return {"valid": False, "errors": ["unsupported schema version"]}
     try:
         graph = ContextDAG.from_dict(artifact["graph"])
-    except (ContextDagError, TypeError, KeyError, ValueError) as exc:
+    except (ContextDagError, TypeError, KeyError, ValueError, AttributeError, IndexError, OverflowError) as exc:
         return {"valid": False, "errors": [f"graph invalid: {exc}"]}
     selected = artifact.get("selected_node_ids")
     if not isinstance(selected, list) or any(not isinstance(nid, str) for nid in selected):
@@ -40505,7 +40525,8 @@ def verify_compiled_dag(artifact: dict) -> dict:
     if artifact.get("token_accounting") != TOKEN_ACCOUNTING_NOTE:
         errors.append("top-level token accounting note is invalid")
     errors.extend(_dag_validate_budget_report(artifact, graph, profile_manifest or None))
-    budget_sealed = dict(artifact.get("budget") or {})
+    budget_raw = artifact.get("budget")
+    budget_sealed = dict(budget_raw) if isinstance(budget_raw, Mapping) else {}
     budget_sealed.pop("wall_clock_s", None)
     digest_parts = [
         "packet", _dag_json(packet),
