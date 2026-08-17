@@ -1,0 +1,65 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "https://perseus.observer/schemas/context-evidence/v1"
+title: Perseus context evidence projection
+version: "perseus-context-evidence/v1"
+type: object
+additionalProperties: false
+required: [schema_version, status, coverage, selected, excluded, diagnostics, projection_digest]
+properties:
+  schema_version: {type: string, const: perseus-context-evidence/v1}
+  status: {type: string, enum: [complete, degraded, review, empty, unavailable, abstention_required]}
+  coverage:
+    type: object
+    additionalProperties: false
+    required: [state, reason, provider_states, evidence_required, abstention_required]
+    properties:
+      state: {type: string, enum: [evidence_backed, partial, conflicted, stale, empty, unavailable, timeout]}
+      reason: {type: string, minLength: 1, maxLength: 256}
+      provider_states:
+        type: object
+        additionalProperties: {type: string, enum: [active, partial, degraded, unavailable, timeout, not_configured]}
+      evidence_required: {type: boolean}
+      abstention_required: {type: boolean}
+  selected:
+    type: array
+    maxItems: 64
+    items:
+      type: object
+      additionalProperties: false
+      required: [candidate_id, source_refs, evidence_digest, coverage_state, uncertainty, inclusion_reason]
+      properties:
+        candidate_id: {type: string, minLength: 1, maxLength: 160}
+        source_refs: {type: array, maxItems: 64, items: {type: string, minLength: 1, maxLength: 160}}
+        evidence_digest: {type: string, pattern: "^[0-9a-f]{64}$"}
+        coverage_state: {type: string, enum: [evidence_backed, partial, conflicted, stale, empty, unavailable, timeout]}
+        uncertainty:
+          type: object
+          additionalProperties: false
+          required: [class, score]
+          properties:
+            class: {type: string, enum: [high, medium, low, stale, inferred, tie]}
+            score: {type: number, minimum: 0, maximum: 1}
+        inclusion_reason: {type: string, maxLength: 256}
+        valid_at: {type: string, maxLength: 40}
+        transaction_time: {type: string, maxLength: 40}
+        recorded_at: {type: string, maxLength: 40}
+        observed_at: {type: string, maxLength: 40}
+  excluded:
+    type: array
+    maxItems: 128
+    items:
+      type: object
+      additionalProperties: false
+      required: [candidate_id, reason]
+      properties:
+        candidate_id: {type: string, minLength: 1, maxLength: 160}
+        reason: {type: string, minLength: 1, maxLength: 256}
+  diagnostics:
+    type: object
+    additionalProperties: false
+    required: [relevance_is_not_truth_gate, selected_count, excluded_count]
+    properties:
+      relevance_is_not_truth_gate: {type: boolean, const: true}
+      selected_count: {type: integer, minimum: 0}
+      excluded_count: {type: integer, minimum: 0}
+  projection_digest: {type: string, pattern: "^[0-9a-f]{64}$"}

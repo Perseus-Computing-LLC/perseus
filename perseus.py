@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "8fff46d"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "a33591e-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -11806,6 +11806,46 @@ def _context_contract_output_schema() -> dict:
         "revocation_epoch": {"type": "integer", "minimum": 0},
     }, required=("schema_version", "receipt_id", "projection_digest", "release_decision", "status"))
 
+    evidence_coverage = obj({
+        "state": {"type": "string", "enum": ["evidence_backed", "partial", "conflicted", "stale", "empty", "unavailable", "timeout"]},
+        "reason": {"type": "string", "maxLength": 256},
+        "provider_states": obj({
+            "vault": {"type": "string", "enum": ["active", "partial", "degraded", "unavailable", "timeout", "not_configured"]},
+            "ledger": {"type": "string", "enum": ["active", "partial", "degraded", "unavailable", "timeout", "not_configured"]},
+        }),
+        "evidence_required": {"type": "boolean"},
+        "abstention_required": {"type": "boolean"},
+    }, required=("state", "reason", "provider_states", "evidence_required", "abstention_required"))
+    evidence_item = obj({
+        "candidate_id": string_id,
+        "source_refs": {"type": "array", "maxItems": 64, "items": string_id},
+        "evidence_digest": sha256,
+        "coverage_state": {"type": "string", "enum": ["evidence_backed", "partial", "conflicted", "stale", "empty", "unavailable", "timeout"]},
+        "uncertainty": uncertainty,
+        "inclusion_reason": {"type": "string", "maxLength": 256},
+        "valid_at": {"type": "string", "maxLength": 64},
+        "transaction_time": {"type": "string", "maxLength": 64},
+        "recorded_at": {"type": "string", "maxLength": 64},
+        "observed_at": {"type": "string", "maxLength": 64},
+    }, required=("candidate_id", "source_refs", "evidence_digest", "coverage_state", "uncertainty", "inclusion_reason"))
+    evidence_excluded = obj({
+        "candidate_id": string_id,
+        "reason": {"type": "string", "maxLength": 256},
+    }, required=("candidate_id", "reason"))
+    evidence_projection = obj({
+        "schema_version": {"type": "string", "const": "perseus-context-evidence/v1"},
+        "status": {"type": "string", "enum": ["complete", "degraded", "review", "empty", "unavailable", "abstention_required"]},
+        "coverage": evidence_coverage,
+        "selected": {"type": "array", "maxItems": 64, "items": evidence_item},
+        "excluded": {"type": "array", "maxItems": 128, "items": evidence_excluded},
+        "diagnostics": obj({
+            "relevance_is_not_truth_gate": {"type": "boolean", "const": True},
+            "selected_count": {"type": "integer", "minimum": 0},
+            "excluded_count": {"type": "integer", "minimum": 0},
+        }, required=("relevance_is_not_truth_gate", "selected_count", "excluded_count")),
+        "projection_digest": sha256,
+    }, required=("schema_version", "status", "coverage", "selected", "excluded", "diagnostics", "projection_digest"))
+
     return obj({
         "schema_version": {"type": "string", "enum": [
             "perseus-context-rank/v1", "perseus-context-ask/v1",
@@ -11855,6 +11895,7 @@ def _context_contract_output_schema() -> dict:
         "evidence": {"type": "array", "maxItems": 64, "items": evidence},
         "projection": projection,
         "projection_digest": sha256,
+        "evidence_projection": evidence_projection,
         "selection": {"type": "array", "maxItems": 64, "items": selection},
         "provenance": {"type": "array", "maxItems": 64, "items": {"type": "array", "maxItems": 64, "items": evidence}},
         "release_decision": {"type": "string", "enum": [
@@ -35722,6 +35763,1273 @@ def decision_from_prompt_size(report: dict, **policy: Any) -> dict:
     return decide_context_route(actual_tokens=actual,
                                 counterfactual_tokens=counterfactual,
                                 **policy)
+"""Versioned, resource-aware execution profiles for context compilation (#980).
+
+This module defines a deterministic planning contract only. It does not select a
+model, call a provider, measure hardware, or persist resource telemetry. A
+profile describes hard context limits and explicit degradation/network policy;
+resolution returns a sanitized manifest that a compiler or runtime adapter can
+consume.
+"""
+
+import hashlib
+import json
+import re
+from dataclasses import dataclass
+from typing import Any, Mapping
+
+_EP_SCHEMA_VERSION = "perseus-execution-profile/v1"
+_EP_DIAGNOSTIC_SCHEMA_VERSION = "perseus-execution-diagnostics/v1"
+_EP_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$")
+_EP_ALLOWED_FIELDS = frozenset({
+    "schema_version", "profile_id", "mode", "max_context_tokens",
+    "max_context_bytes", "max_items", "max_depth", "latency_target_ms",
+    "resource_class", "network_mode", "runtime_capabilities",
+    "degradation_policy", "auth_mode", "runtime_ref", "model_ref",
+})
+_EP_REQUIREMENT_FIELDS = frozenset({
+    "network_mode", "require_offline", "required_capabilities",
+    "max_context_tokens", "max_context_bytes", "max_items", "max_depth",
+    "latency_target_ms",
+})
+_EP_RESOURCE_FIELDS = frozenset({
+    "memory_class", "compute_class", "network_available",
+    "available_memory_mb", "available_compute_units", "resource_metrics",
+})
+_EP_NETWORK_MODES = frozenset({"offline", "local", "approved_network"})
+_EP_DEGRADATION_POLICIES = frozenset({"fail_closed", "partial", "omit_low_priority"})
+_EP_RETRIEVAL_STATES = frozenset({"complete", "partial", "degraded", "unavailable", "timeout"})
+_EP_MODE_DEFAULTS = {
+    "standard-local": {
+        "max_context_tokens": 8192,
+        "max_context_bytes": 32768,
+        "max_items": 64,
+        "max_depth": 4,
+        "latency_target_ms": None,
+        "resource_class": "unknown",
+        "network_mode": "local",
+        "degradation_policy": "partial",
+    },
+    "constrained-edge": {
+        "max_context_tokens": 2048,
+        "max_context_bytes": 8192,
+        "max_items": 16,
+        "max_depth": 2,
+        "latency_target_ms": 500,
+        "resource_class": "edge",
+        "network_mode": "local",
+        "degradation_policy": "partial",
+    },
+    "air-gapped": {
+        "max_context_tokens": 4096,
+        "max_context_bytes": 16384,
+        "max_items": 32,
+        "max_depth": 3,
+        "latency_target_ms": None,
+        "resource_class": "isolated",
+        "network_mode": "offline",
+        "degradation_policy": "fail_closed",
+    },
+}
+_EP_FORBIDDEN_KEYS = frozenset({
+    "api_key", "authorization", "body", "content", "credential", "credentials",
+    "password", "private_body", "prompt", "raw", "raw_payload", "secret",
+    "token", "tool_args", "tool_arguments",
+})
+
+
+class ExecutionProfileError(ValueError):
+    """Raised when a profile or hard capability requirement is invalid."""
+
+
+def _ep_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+
+
+def _ep_sha(value: Any) -> str:
+    return hashlib.sha256(_ep_json(value).encode("utf-8")).hexdigest()
+
+
+def _ep_text(value: Any, field: str, *, max_length: int = 160) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ExecutionProfileError(f"{field} must be a non-empty string")
+    text = value.strip()
+    if len(text) > max_length:
+        raise ExecutionProfileError(f"{field} is too long")
+    if any(key in text.casefold().replace("-", "_") for key in _EP_FORBIDDEN_KEYS):
+        raise ExecutionProfileError(f"{field} contains forbidden credential/raw-data marker")
+    return text
+
+
+def _ep_id(value: Any, field: str, *, default: str = "") -> str:
+    text = _ep_text(value if value is not None else default, field)
+    if not _EP_ID_RE.fullmatch(text):
+        raise ExecutionProfileError(f"{field} must be a bounded identifier")
+    return text
+
+
+def _ep_limit(value: Any, field: str, *, maximum: int = 10_000_000) -> int:
+    if isinstance(value, bool):
+        raise ExecutionProfileError(f"{field} must be a positive integer")
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise ExecutionProfileError(f"{field} must be a positive integer") from None
+    if number < 1 or number > maximum:
+        raise ExecutionProfileError(f"{field} must be between 1 and {maximum}")
+    return number
+
+
+def _ep_optional_limit(value: Any, field: str, *, maximum: int = 10_000_000) -> int | None:
+    if value is None or value == "":
+        return None
+    return _ep_limit(value, field, maximum=maximum)
+
+
+def _ep_forbidden_keys(value: Any, path: str = "profile") -> None:
+    if isinstance(value, Mapping):
+        for key, nested in value.items():
+            normalized = str(key).casefold().replace("-", "_")
+            if normalized in _EP_FORBIDDEN_KEYS:
+                raise ExecutionProfileError(f"{path}.{key} is not permitted")
+            _ep_forbidden_keys(nested, f"{path}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for index, nested in enumerate(value):
+            _ep_forbidden_keys(nested, f"{path}[{index}]")
+
+
+@dataclass(frozen=True)
+class ExecutionProfile:
+    """A bounded, portable description of the resources a compiler may use."""
+
+    schema_version: str
+    profile_id: str
+    mode: str
+    max_context_tokens: int
+    max_context_bytes: int
+    max_items: int
+    max_depth: int
+    latency_target_ms: int | None
+    resource_class: str
+    network_mode: str
+    runtime_capabilities: tuple[str, ...]
+    degradation_policy: str
+    auth_mode: str
+    runtime_ref: str = ""
+    model_ref: str = ""
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any] | "ExecutionProfile" | None) -> "ExecutionProfile":
+        if isinstance(value, cls):
+            return value
+        if value is None:
+            value = {"mode": "standard-local", "profile_id": "default-local"}
+        if not isinstance(value, Mapping):
+            raise ExecutionProfileError("execution profile must be an object")
+        _ep_forbidden_keys(value)
+        unknown = set(value) - _EP_ALLOWED_FIELDS
+        if unknown:
+            raise ExecutionProfileError(f"unsupported execution profile fields: {sorted(map(str, unknown))}")
+        mode = str(value.get("mode", "standard-local")).strip()
+        if mode not in _EP_MODE_DEFAULTS:
+            raise ExecutionProfileError(f"unsupported execution profile mode: {mode!r}")
+        defaults = _EP_MODE_DEFAULTS[mode]
+        schema_version = str(value.get("schema_version", _EP_SCHEMA_VERSION)).strip()
+        if schema_version != _EP_SCHEMA_VERSION:
+            raise ExecutionProfileError("unsupported execution profile schema version")
+        profile_id = _ep_id(value.get("profile_id", mode), "profile_id")
+        network_mode = str(value.get("network_mode", defaults["network_mode"])).strip()
+        if network_mode not in _EP_NETWORK_MODES:
+            raise ExecutionProfileError("network_mode must be offline, local, or approved_network")
+        if mode == "air-gapped" and network_mode != "offline":
+            raise ExecutionProfileError("air-gapped mode requires offline network_mode")
+        degradation_policy = str(value.get("degradation_policy", defaults["degradation_policy"])).strip()
+        if degradation_policy not in _EP_DEGRADATION_POLICIES:
+            raise ExecutionProfileError("unsupported degradation_policy")
+        capabilities = value.get("runtime_capabilities", ())
+        if isinstance(capabilities, str):
+            capabilities = [capabilities]
+        if not isinstance(capabilities, (list, tuple)) or len(capabilities) > 32:
+            raise ExecutionProfileError("runtime_capabilities must contain at most 32 identifiers")
+        capability_values = tuple(sorted({_ep_id(item, "runtime_capability") for item in capabilities}))
+        auth_mode = _ep_text(value.get("auth_mode", "none"), "auth_mode", max_length=64)
+        runtime_ref = _ep_id(value.get("runtime_ref", "ref:none"), "runtime_ref")
+        model_ref = _ep_id(value.get("model_ref", "ref:none"), "model_ref")
+        return cls(
+            schema_version=schema_version,
+            profile_id=profile_id,
+            mode=mode,
+            max_context_tokens=_ep_limit(value.get("max_context_tokens", defaults["max_context_tokens"]), "max_context_tokens"),
+            max_context_bytes=_ep_limit(value.get("max_context_bytes", defaults["max_context_bytes"]), "max_context_bytes"),
+            max_items=_ep_limit(value.get("max_items", defaults["max_items"]), "max_items", maximum=4096),
+            max_depth=_ep_limit(value.get("max_depth", defaults["max_depth"]), "max_depth", maximum=128),
+            latency_target_ms=_ep_optional_limit(value.get("latency_target_ms", defaults["latency_target_ms"]), "latency_target_ms", maximum=86_400_000),
+            resource_class=_ep_text(value.get("resource_class", defaults["resource_class"]), "resource_class", max_length=64),
+            network_mode=network_mode,
+            runtime_capabilities=capability_values,
+            degradation_policy=degradation_policy,
+            auth_mode=auth_mode,
+            runtime_ref=runtime_ref,
+            model_ref=model_ref,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "profile_id": self.profile_id,
+            "mode": self.mode,
+            "max_context_tokens": self.max_context_tokens,
+            "max_context_bytes": self.max_context_bytes,
+            "max_items": self.max_items,
+            "max_depth": self.max_depth,
+            "latency_target_ms": self.latency_target_ms,
+            "resource_class": self.resource_class,
+            "network_mode": self.network_mode,
+            "runtime_capabilities": list(self.runtime_capabilities),
+            "degradation_policy": self.degradation_policy,
+            "auth_mode": self.auth_mode,
+            "runtime_ref": self.runtime_ref,
+            "model_ref": self.model_ref,
+        }
+
+
+def _ep_requirements(value: Mapping[str, Any] | None) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ExecutionProfileError("profile requirements must be an object")
+    _ep_forbidden_keys(value, "requirements")
+    unknown = set(value) - _EP_REQUIREMENT_FIELDS
+    if unknown:
+        raise ExecutionProfileError(f"unsupported profile requirements: {sorted(map(str, unknown))}")
+    result: dict[str, Any] = {}
+    for field in ("max_context_tokens", "max_context_bytes", "max_items", "max_depth", "latency_target_ms"):
+        if field in value and value[field] is not None:
+            result[field] = _ep_limit(value[field], f"requirements.{field}", maximum=86_400_000 if field == "latency_target_ms" else 10_000_000)
+    required = value.get("required_capabilities", ())
+    if isinstance(required, str):
+        required = [required]
+    if not isinstance(required, (list, tuple)) or len(required) > 32:
+        raise ExecutionProfileError("required_capabilities must contain at most 32 identifiers")
+    result["required_capabilities"] = sorted({_ep_id(item, "required_capability") for item in required})
+    if "network_mode" in value:
+        network_mode = str(value["network_mode"]).strip()
+        if network_mode not in _EP_NETWORK_MODES:
+            raise ExecutionProfileError("requirements.network_mode is unsupported")
+        result["network_mode"] = network_mode
+    result["require_offline"] = value.get("require_offline", False)
+    if not isinstance(result["require_offline"], bool):
+        raise ExecutionProfileError("requirements.require_offline must be boolean")
+    return result
+
+
+def _ep_resources(value: Mapping[str, Any] | None) -> tuple[dict[str, Any], str]:
+    if value is None:
+        return {}, "unknown"
+    if not isinstance(value, Mapping):
+        raise ExecutionProfileError("resources must be an object")
+    _ep_forbidden_keys(value, "resources")
+    unknown = set(value) - _EP_RESOURCE_FIELDS
+    if unknown:
+        raise ExecutionProfileError(f"unsupported resource fields: {sorted(map(str, unknown))}")
+    result: dict[str, Any] = {}
+    for field in ("memory_class", "compute_class"):
+        if value.get(field) is not None:
+            result[field] = _ep_text(value[field], f"resources.{field}", max_length=64)
+    if value.get("network_available") is not None:
+        if not isinstance(value["network_available"], bool):
+            raise ExecutionProfileError("resources.network_available must be boolean")
+        result["network_available"] = value["network_available"]
+    for field in ("available_memory_mb", "available_compute_units"):
+        if value.get(field) is not None:
+            result[field] = _ep_limit(value[field], f"resources.{field}", maximum=10_000_000_000)
+    metrics = value.get("resource_metrics")
+    if metrics is not None:
+        if isinstance(metrics, str):
+            metrics = [metrics]
+        if not isinstance(metrics, (list, tuple)) or len(metrics) > 32:
+            raise ExecutionProfileError("resources.resource_metrics must contain at most 32 names")
+        result["resource_metrics"] = sorted({_ep_id(item, "resource_metric") for item in metrics})
+    return result, "known" if result else "unknown"
+
+
+def execution_profile_compilation_budget(resolved: Mapping[str, Any]) -> dict[str, Any]:
+    """Project a resolved profile into the existing DAG budget vocabulary."""
+    if not isinstance(resolved, Mapping) or not isinstance(resolved.get("effective"), Mapping):
+        raise ExecutionProfileError("resolved execution profile is malformed")
+    effective = resolved["effective"]
+    max_tokens = min(int(effective["max_context_tokens"]), max(1, int(effective["max_context_bytes"]) // 4))
+    latency = effective.get("latency_target_ms")
+    return {
+        "max_nodes": max(1, int(effective["max_items"])),
+        "max_depth": max(1, int(effective["max_depth"])),
+        "max_fanout": max(1, int(effective["max_items"])),
+        "max_tokens": max_tokens,
+        "deadline_s": max(0.001, float(latency) / 1000.0) if latency is not None else 30.0,
+    }
+
+
+def _ep_resolve_execution_profile_impl(
+    profile: Mapping[str, Any] | ExecutionProfile | None = None,
+    *,
+    requirements: Mapping[str, Any] | None = None,
+    resources: Mapping[str, Any] | None = None,
+    retrieval_status: str = "complete",
+) -> dict[str, Any]:
+    """Resolve hard limits and capabilities into a digest-sealed manifest."""
+    base = ExecutionProfile.from_mapping(profile)
+    req = _ep_requirements(requirements)
+    if retrieval_status not in _EP_RETRIEVAL_STATES:
+        raise ExecutionProfileError("retrieval_status is unsupported")
+    if req.get("network_mode") and base.network_mode == "offline" and req["network_mode"] != "offline":
+        raise ExecutionProfileError("offline profile cannot satisfy a network requirement")
+    if req.get("require_offline") and base.network_mode != "offline":
+        raise ExecutionProfileError("profile does not satisfy required offline mode")
+    missing = sorted(set(req.get("required_capabilities", ())) - set(base.runtime_capabilities))
+    if missing:
+        raise ExecutionProfileError(f"required capabilities are unsupported: {', '.join(missing)}")
+    safe_resources, resource_state = _ep_resources(resources)
+    effective = base.to_dict()
+    for field in ("max_context_tokens", "max_context_bytes", "max_items", "max_depth", "latency_target_ms"):
+        if field in req and req[field] is not None:
+            effective[field] = min(int(effective[field]), int(req[field]))
+    if effective["max_context_tokens"] < 1 or effective["max_context_bytes"] < 1 or effective["max_items"] < 1 or effective["max_depth"] < 1:
+        raise ExecutionProfileError("requirements leave no usable context budget")
+    reasons: list[str] = []
+    status = "complete"
+    abstention_required = False
+    if retrieval_status in {"partial", "degraded"}:
+        status = "degraded"
+        reasons.append("retrieval_partial")
+    elif retrieval_status in {"unavailable", "timeout"}:
+        status = "degraded"
+        reasons.append(f"retrieval_{retrieval_status}")
+        abstention_required = True
+    diagnostics = {
+        "schema_version": _EP_DIAGNOSTIC_SCHEMA_VERSION,
+        "degraded": bool(reasons),
+        "reasons": reasons,
+        "resource_state": resource_state,
+        "abstention_required": abstention_required,
+        "degradation_policy": base.degradation_policy,
+    }
+    resolved: dict[str, Any] = {
+        "schema_version": _EP_SCHEMA_VERSION,
+        "profile": base.to_dict(),
+        "effective": effective,
+        "requirements": req,
+        "resources": safe_resources,
+        "resource_state": resource_state,
+        "status": status,
+        "diagnostics": diagnostics,
+    }
+    resolved["compilation_budget"] = execution_profile_compilation_budget(resolved)
+    resolved["profile_digest"] = _ep_sha(resolved)
+    return resolved
+
+
+class _EPExecutionProfileResolver:
+    """Callable API object kept outside the directive resolver registry."""
+
+    def __call__(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return _ep_resolve_execution_profile_impl(*args, **kwargs)
+
+
+resolve_execution_profile = _EPExecutionProfileResolver()
+
+
+def negotiate_context_budget(
+    profile: Mapping[str, Any] | ExecutionProfile | None = None,
+    *,
+    requested_tokens: int | None = None,
+    requested_bytes: int | None = None,
+    requested_items: int | None = None,
+    requested_depth: int | None = None,
+    retrieval_status: str = "complete",
+    resources: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    requirements: dict[str, Any] = {}
+    for name, value in (
+        ("max_context_tokens", requested_tokens),
+        ("max_context_bytes", requested_bytes),
+        ("max_items", requested_items),
+        ("max_depth", requested_depth),
+    ):
+        if value is not None:
+            requirements[name] = value
+    return resolve_execution_profile(
+        profile,
+        requirements=requirements,
+        resources=resources,
+        retrieval_status=retrieval_status,
+    )
+
+
+def verify_execution_profile(resolved: Mapping[str, Any]) -> dict[str, Any]:
+    """Verify the commitment over a resolved, sanitized profile manifest."""
+    if not isinstance(resolved, Mapping) or not isinstance(resolved.get("profile_digest"), str):
+        return {"valid": False, "error": "missing profile digest"}
+    unsigned = dict(resolved)
+    supplied = unsigned.pop("profile_digest")
+    try:
+        expected = _ep_sha(unsigned)
+    except (TypeError, ValueError):
+        return {"valid": False, "error": "profile manifest is not canonical JSON"}
+    return {"valid": expected == supplied, "profile_digest": supplied, "expected_digest": expected}
+"""Portable local/edge runtime adapter envelopes (#981).
+
+The adapter seam is an integration contract, not an inference engine. Requests
+carry only bounded context/profile commitments; results carry explicit status,
+sanitary output, usage, and runtime provenance. The bundled reference adapter
+never opens a network connection and exists only to exercise the contract.
+"""
+
+import hashlib
+import json
+import re
+from dataclasses import dataclass
+from typing import Any, Mapping
+
+
+_RA_CAPABILITIES_SCHEMA = "perseus-runtime-capabilities/v1"
+_RA_REQUEST_SCHEMA = "perseus-runtime-request/v1"
+_RA_RESULT_SCHEMA = "perseus-runtime-result/v1"
+_RA_NEGOTIATION_SCHEMA = "perseus-runtime-negotiation/v1"
+_RA_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$")
+_RA_DIGEST_RE = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
+_RA_EXECUTION_MODES = frozenset({"offline", "local", "approved_network"})
+_RA_RESULT_STATUSES = frozenset({"success", "partial", "unavailable", "timeout", "cancelled", "malformed"})
+_RA_CAPABILITY_FIELDS = frozenset({
+    "schema_version", "backend_id", "backend_version", "model_id", "model_version",
+    "tokenizer_id", "context_capacity_tokens", "execution_modes", "streaming", "tools",
+    "hardware_class", "resource_metrics", "auth_mode", "provider_ref",
+})
+_RA_REQUEST_FIELDS = frozenset({
+    "schema_version", "request_id", "execution_profile", "execution_profile_digest", "context_digest",
+    "evidence_digest", "input_digest", "execution_mode", "required_capabilities",
+    "max_output_chars",
+})
+_RA_RESULT_FIELDS = frozenset({
+    "schema_version", "request_id", "status", "output", "usage", "runtime",
+    "error_code", "error_message", "external_fallback_allowed",
+})
+_RA_FORBIDDEN_KEYS = frozenset({
+    "api_key", "authorization", "body", "content", "credential", "credentials",
+    "password", "private_body", "prompt", "raw", "raw_payload", "secret", "token",
+    "tool_args", "tool_arguments",
+})
+_RA_RUNTIME_FIELDS = frozenset({
+    "backend_id", "backend_version", "model_id", "model_version", "auth_mode",
+    "provider_ref", "execution_mode",
+})
+_RA_USAGE_FIELDS = frozenset({"input_tokens", "output_tokens", "latency_ms"})
+
+
+class RuntimeAdapterError(ValueError):
+    """Raised when an adapter envelope cannot be admitted safely."""
+
+
+def _ra_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+
+
+def _ra_sha(value: Any) -> str:
+    return hashlib.sha256(_ra_json(value).encode("utf-8")).hexdigest()
+
+
+def _ra_text(value: Any, field: str, *, max_length: int = 160, allow_empty: bool = False) -> str:
+    if not isinstance(value, str):
+        raise RuntimeAdapterError(f"{field} must be text")
+    text = value.strip()
+    if not text and not allow_empty:
+        raise RuntimeAdapterError(f"{field} must not be empty")
+    if len(text) > max_length:
+        raise RuntimeAdapterError(f"{field} is too long")
+    return text
+
+
+def _ra_id(value: Any, field: str, *, allow_empty: bool = False) -> str:
+    text = _ra_text(value, field, allow_empty=allow_empty)
+    if text and not _RA_ID_RE.fullmatch(text):
+        raise RuntimeAdapterError(f"{field} must be a bounded identifier")
+    return text
+
+
+def _ra_digest(value: Any, field: str) -> str:
+    text = _ra_text(value, field, max_length=71).lower()
+    if not _RA_DIGEST_RE.fullmatch(text):
+        raise RuntimeAdapterError(f"{field} must be a SHA-256 digest")
+    return text.removeprefix("sha256:")
+
+
+def _ra_limit(value: Any, field: str, *, maximum: int = 10_000_000) -> int:
+    if isinstance(value, bool):
+        raise RuntimeAdapterError(f"{field} must be a positive integer")
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise RuntimeAdapterError(f"{field} must be a positive integer") from None
+    if number < 1 or number > maximum:
+        raise RuntimeAdapterError(f"{field} must be between 1 and {maximum}")
+    return number
+
+
+def _ra_forbidden_keys(value: Any, path: str = "envelope") -> None:
+    if isinstance(value, Mapping):
+        for key, nested in value.items():
+            normalized = str(key).casefold().replace("-", "_")
+            if normalized in _RA_FORBIDDEN_KEYS:
+                raise RuntimeAdapterError(f"{path}.{key} is not permitted")
+            _ra_forbidden_keys(nested, f"{path}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for index, nested in enumerate(value):
+            _ra_forbidden_keys(nested, f"{path}[{index}]")
+
+
+def _ra_string_list(value: Any, field: str, *, maximum: int = 32) -> tuple[str, ...]:
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, (list, tuple)) or len(value) > maximum:
+        raise RuntimeAdapterError(f"{field} must contain at most {maximum} identifiers")
+    return tuple(sorted({_ra_id(item, field) for item in value}))
+
+
+@dataclass(frozen=True)
+class RuntimeCapabilities:
+    """Sanitized capabilities advertised by one runtime/backend."""
+
+    schema_version: str
+    backend_id: str
+    backend_version: str
+    model_id: str
+    model_version: str
+    tokenizer_id: str
+    context_capacity_tokens: int
+    execution_modes: tuple[str, ...]
+    streaming: bool
+    tools: bool
+    hardware_class: str
+    resource_metrics: tuple[str, ...]
+    auth_mode: str
+    provider_ref: str
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any] | "RuntimeCapabilities") -> "RuntimeCapabilities":
+        if isinstance(value, cls):
+            return value
+        if not isinstance(value, Mapping):
+            raise RuntimeAdapterError("runtime capabilities must be an object")
+        _ra_forbidden_keys(value, "capabilities")
+        unknown = set(value) - _RA_CAPABILITY_FIELDS
+        if unknown:
+            raise RuntimeAdapterError(f"unsupported capability fields: {sorted(map(str, unknown))}")
+        if value.get("schema_version", _RA_CAPABILITIES_SCHEMA) != _RA_CAPABILITIES_SCHEMA:
+            raise RuntimeAdapterError("unsupported runtime capabilities schema version")
+        modes = _ra_string_list(value.get("execution_modes", ()), "execution_modes")
+        if not modes or not set(modes).issubset(_RA_EXECUTION_MODES):
+            raise RuntimeAdapterError("execution_modes must contain offline, local, or approved_network")
+        metrics = _ra_string_list(value.get("resource_metrics", ()), "resource_metrics")
+        for field in ("backend_id", "backend_version", "model_id", "tokenizer_id", "auth_mode", "provider_ref"):
+            _ra_id(value.get(field, ""), field)
+        model_version = _ra_id(value.get("model_version", "unknown"), "model_version")
+        hardware_class = _ra_id(value.get("hardware_class", "unknown"), "hardware_class")
+        if not isinstance(value.get("streaming", False), bool) or not isinstance(value.get("tools", False), bool):
+            raise RuntimeAdapterError("streaming and tools must be booleans")
+        return cls(
+            schema_version=_RA_CAPABILITIES_SCHEMA,
+            backend_id=_ra_id(value["backend_id"], "backend_id"),
+            backend_version=_ra_id(value["backend_version"], "backend_version"),
+            model_id=_ra_id(value["model_id"], "model_id"),
+            model_version=model_version,
+            tokenizer_id=_ra_id(value["tokenizer_id"], "tokenizer_id"),
+            context_capacity_tokens=_ra_limit(value["context_capacity_tokens"], "context_capacity_tokens"),
+            execution_modes=modes,
+            streaming=value.get("streaming", False),
+            tools=value.get("tools", False),
+            hardware_class=hardware_class,
+            resource_metrics=metrics,
+            auth_mode=_ra_id(value["auth_mode"], "auth_mode"),
+            provider_ref=_ra_id(value["provider_ref"], "provider_ref"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "backend_id": self.backend_id,
+            "backend_version": self.backend_version,
+            "model_id": self.model_id,
+            "model_version": self.model_version,
+            "tokenizer_id": self.tokenizer_id,
+            "context_capacity_tokens": self.context_capacity_tokens,
+            "execution_modes": list(self.execution_modes),
+            "streaming": self.streaming,
+            "tools": self.tools,
+            "hardware_class": self.hardware_class,
+            "resource_metrics": list(self.resource_metrics),
+            "auth_mode": self.auth_mode,
+            "provider_ref": self.provider_ref,
+        }
+
+
+@dataclass(frozen=True)
+class AdapterRequest:
+    """A digest-only request envelope for a qualified runtime adapter."""
+
+    schema_version: str
+    request_id: str
+    execution_profile: dict[str, Any]
+    execution_profile_digest: str
+    context_digest: str
+    evidence_digest: str
+    input_digest: str
+    execution_mode: str
+    required_capabilities: dict[str, Any]
+    max_output_chars: int
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any] | "AdapterRequest") -> "AdapterRequest":
+        if isinstance(value, cls):
+            return value
+        if not isinstance(value, Mapping):
+            raise RuntimeAdapterError("adapter request must be an object")
+        _ra_forbidden_keys(value, "request")
+        unknown = set(value) - _RA_REQUEST_FIELDS
+        if unknown:
+            raise RuntimeAdapterError(f"unsupported request fields: {sorted(map(str, unknown))}")
+        if value.get("schema_version", _RA_REQUEST_SCHEMA) != _RA_REQUEST_SCHEMA:
+            raise RuntimeAdapterError("unsupported runtime request schema version")
+        profile = value.get("execution_profile")
+        if not isinstance(profile, Mapping):
+            raise RuntimeAdapterError("request requires a resolved execution_profile")
+        profile_check = verify_execution_profile(profile)
+        if not profile_check.get("valid"):
+            raise RuntimeAdapterError("execution_profile commitment is invalid")
+        requested = value.get("required_capabilities", {})
+        if not isinstance(requested, Mapping):
+            raise RuntimeAdapterError("required_capabilities must be an object")
+        allowed_required = {"streaming", "tools", "resource_metrics", "min_context_tokens"}
+        if set(requested) - allowed_required:
+            raise RuntimeAdapterError("unsupported required capability field")
+        normalized_required: dict[str, Any] = {}
+        for field in ("streaming", "tools"):
+            if field in requested:
+                if not isinstance(requested[field], bool):
+                    raise RuntimeAdapterError(f"required_capabilities.{field} must be boolean")
+                normalized_required[field] = requested[field]
+        if "resource_metrics" in requested:
+            normalized_required["resource_metrics"] = list(_ra_string_list(requested["resource_metrics"], "resource_metrics"))
+        if "min_context_tokens" in requested:
+            normalized_required["min_context_tokens"] = _ra_limit(requested["min_context_tokens"], "min_context_tokens")
+        mode = _ra_text(value.get("execution_mode", "local"), "execution_mode", max_length=32)
+        if mode not in _RA_EXECUTION_MODES:
+            raise RuntimeAdapterError("execution_mode is unsupported")
+        profile_digest = _ra_digest(value.get("execution_profile_digest", profile["profile_digest"]), "execution_profile_digest")
+        if profile_digest != str(profile["profile_digest"]).lower().removeprefix("sha256:"):
+            raise RuntimeAdapterError("execution_profile_digest does not match execution_profile")
+        return cls(
+            schema_version=_RA_REQUEST_SCHEMA,
+            request_id=_ra_id(value["request_id"], "request_id"),
+            execution_profile=dict(profile),
+            execution_profile_digest=profile_digest,
+            context_digest=_ra_digest(value["context_digest"], "context_digest"),
+            evidence_digest=_ra_digest(value["evidence_digest"], "evidence_digest"),
+            input_digest=_ra_digest(value["input_digest"], "input_digest"),
+            execution_mode=mode,
+            required_capabilities=normalized_required,
+            max_output_chars=_ra_limit(value.get("max_output_chars", 2048), "max_output_chars", maximum=1_000_000),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "request_id": self.request_id,
+            "execution_profile": dict(self.execution_profile),
+            "execution_profile_digest": self.execution_profile_digest,
+            "context_digest": self.context_digest,
+            "evidence_digest": self.evidence_digest,
+            "input_digest": self.input_digest,
+            "execution_mode": self.execution_mode,
+            "required_capabilities": dict(self.required_capabilities),
+            "max_output_chars": self.max_output_chars,
+        }
+
+
+@dataclass(frozen=True)
+class AdapterResult:
+    """Sanitized runtime result; unavailable paths never become success."""
+
+    schema_version: str
+    request_id: str
+    status: str
+    output: str | None
+    usage: dict[str, int]
+    runtime: dict[str, str]
+    error_code: str | None
+    error_message: str | None
+    external_fallback_allowed: bool = False
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any] | "AdapterResult") -> "AdapterResult":
+        if isinstance(value, cls):
+            return value
+        if not isinstance(value, Mapping):
+            raise RuntimeAdapterError("adapter result must be an object")
+        _ra_forbidden_keys(value, "result")
+        unknown = set(value) - _RA_RESULT_FIELDS
+        if unknown:
+            raise RuntimeAdapterError(f"unsupported result fields: {sorted(map(str, unknown))}")
+        if value.get("schema_version", _RA_RESULT_SCHEMA) != _RA_RESULT_SCHEMA:
+            raise RuntimeAdapterError("unsupported runtime result schema version")
+        status = _ra_text(value.get("status", ""), "status", max_length=32)
+        if status not in _RA_RESULT_STATUSES:
+            raise RuntimeAdapterError("unsupported runtime result status")
+        output = value.get("output")
+        if output is not None:
+            output = _ra_text(output, "output", max_length=1_000_000, allow_empty=True)
+        usage_raw = value.get("usage", {})
+        if not isinstance(usage_raw, Mapping) or set(usage_raw) - _RA_USAGE_FIELDS:
+            raise RuntimeAdapterError("usage contains unsupported fields")
+        usage: dict[str, int] = {}
+        for key, raw in usage_raw.items():
+            if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+                raise RuntimeAdapterError(f"usage.{key} must be a non-negative integer")
+            usage[key] = raw
+        runtime_raw = value.get("runtime", {})
+        if not isinstance(runtime_raw, Mapping) or set(runtime_raw) - _RA_RUNTIME_FIELDS:
+            raise RuntimeAdapterError("runtime provenance contains unsupported fields")
+        runtime = {str(key): _ra_id(raw, f"runtime.{key}") for key, raw in runtime_raw.items()}
+        error_code = value.get("error_code")
+        if error_code is not None:
+            error_code = _ra_id(error_code, "error_code")
+        error_message = value.get("error_message")
+        if error_message is not None:
+            error_message = _ra_text(error_message, "error_message", max_length=256)
+        fallback = value.get("external_fallback_allowed", False)
+        if fallback is not False:
+            raise RuntimeAdapterError("external fallback is permanently disabled by the core contract")
+        if status in {"success", "partial"} and output is None:
+            raise RuntimeAdapterError("successful result requires bounded output")
+        if status not in {"success", "partial"} and output is not None:
+            raise RuntimeAdapterError("non-success result cannot carry output")
+        return cls(
+            schema_version=_RA_RESULT_SCHEMA,
+            request_id=_ra_id(value["request_id"], "request_id"),
+            status=status,
+            output=output,
+            usage=usage,
+            runtime=runtime,
+            error_code=error_code,
+            error_message=error_message,
+            external_fallback_allowed=False,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "request_id": self.request_id,
+            "status": self.status,
+            "output": self.output,
+            "usage": dict(self.usage),
+            "runtime": dict(self.runtime),
+            "error_code": self.error_code,
+            "error_message": self.error_message,
+            "external_fallback_allowed": False,
+        }
+
+
+def negotiate_runtime_capabilities(
+    requirements: Mapping[str, Any] | None,
+    offered: Mapping[str, Any] | RuntimeCapabilities,
+) -> dict[str, Any]:
+    """Return a deterministic negotiation result; never selects another backend."""
+    requirements = dict(requirements or {})
+    _ra_forbidden_keys(requirements, "requirements")
+    allowed = {"execution_mode", "min_context_tokens", "streaming", "tools", "resource_metrics", "backend_id"}
+    if set(requirements) - allowed:
+        raise RuntimeAdapterError("unsupported runtime capability requirement")
+    capabilities = RuntimeCapabilities.from_mapping(offered)
+    normalized: dict[str, Any] = {}
+    if "execution_mode" in requirements:
+        mode = _ra_text(requirements["execution_mode"], "requirements.execution_mode", max_length=32)
+        if mode not in _RA_EXECUTION_MODES:
+            raise RuntimeAdapterError("requirements.execution_mode is unsupported")
+        normalized["execution_mode"] = mode
+    if "min_context_tokens" in requirements:
+        normalized["min_context_tokens"] = _ra_limit(requirements["min_context_tokens"], "requirements.min_context_tokens")
+    for field in ("streaming", "tools"):
+        if field in requirements:
+            if not isinstance(requirements[field], bool):
+                raise RuntimeAdapterError(f"requirements.{field} must be boolean")
+            normalized[field] = requirements[field]
+    if "resource_metrics" in requirements:
+        normalized["resource_metrics"] = list(_ra_string_list(requirements["resource_metrics"], "requirements.resource_metrics"))
+    if "backend_id" in requirements:
+        normalized["backend_id"] = _ra_id(requirements["backend_id"], "requirements.backend_id")
+    missing: list[dict[str, Any]] = []
+    if normalized.get("execution_mode") and normalized["execution_mode"] not in capabilities.execution_modes:
+        missing.append({"capability": "execution_mode", "required": normalized["execution_mode"], "available": list(capabilities.execution_modes)})
+    if normalized.get("min_context_tokens", 0) > capabilities.context_capacity_tokens:
+        missing.append({"capability": "context_capacity_tokens", "required": normalized["min_context_tokens"], "available": capabilities.context_capacity_tokens})
+    for field in ("streaming", "tools"):
+        if normalized.get(field) is True and not getattr(capabilities, field):
+            missing.append({"capability": field, "required": True, "available": False})
+    if "resource_metrics" in normalized:
+        absent = sorted(set(normalized["resource_metrics"]) - set(capabilities.resource_metrics))
+        if absent:
+            missing.append({"capability": "resource_metrics", "required": absent, "available": list(capabilities.resource_metrics)})
+    if normalized.get("backend_id") and normalized["backend_id"] != capabilities.backend_id:
+        missing.append({"capability": "backend_id", "required": normalized["backend_id"], "available": capabilities.backend_id})
+    return {
+        "schema_version": _RA_NEGOTIATION_SCHEMA,
+        "status": "complete" if not missing else "rejected",
+        "requirements": normalized,
+        "capabilities": capabilities.to_dict(),
+        "capabilities_digest": _ra_sha(capabilities.to_dict()),
+        "missing": missing,
+        "external_fallback_allowed": False,
+    }
+
+
+class ReferenceRuntimeAdapter:
+    """Deterministic offline adapter used for contract and failure-path tests."""
+
+    def __init__(
+        self,
+        *,
+        capabilities: Mapping[str, Any] | RuntimeCapabilities | None = None,
+        behavior: str = "success",
+        output: str = "",
+    ) -> None:
+        self.capabilities = RuntimeCapabilities.from_mapping(capabilities or {
+            "schema_version": _RA_CAPABILITIES_SCHEMA,
+            "backend_id": "reference-local",
+            "backend_version": "0.1",
+            "model_id": "reference-model",
+            "model_version": "0.1",
+            "tokenizer_id": "reference-tokenizer",
+            "context_capacity_tokens": 4096,
+            "execution_modes": ["offline", "local"],
+            "streaming": True,
+            "tools": False,
+            "hardware_class": "unknown",
+            "resource_metrics": ["latency_ms"],
+            "auth_mode": "none",
+            "provider_ref": "local-reference",
+        })
+        if behavior not in _RA_RESULT_STATUSES:
+            raise RuntimeAdapterError("unsupported reference adapter behavior")
+        self.behavior = behavior
+        self.output = _ra_text(output, "output", max_length=1_000_000, allow_empty=True)
+
+    def invoke(self, request: Mapping[str, Any] | AdapterRequest) -> AdapterResult:
+        try:
+            request_obj = AdapterRequest.from_mapping(request)
+        except (RuntimeAdapterError, ExecutionProfileError) as exc:
+            raise RuntimeAdapterError(str(exc)) from exc
+        requirements = dict(request_obj.required_capabilities)
+        requirements["execution_mode"] = request_obj.execution_mode
+        negotiation = negotiate_runtime_capabilities(requirements, self.capabilities)
+        runtime = {
+            "backend_id": self.capabilities.backend_id,
+            "backend_version": self.capabilities.backend_version,
+            "model_id": self.capabilities.model_id,
+            "model_version": self.capabilities.model_version,
+            "auth_mode": self.capabilities.auth_mode,
+            "provider_ref": self.capabilities.provider_ref,
+            "execution_mode": request_obj.execution_mode,
+        }
+        if negotiation["status"] == "rejected":
+            return AdapterResult(
+                schema_version=_RA_RESULT_SCHEMA,
+                request_id=request_obj.request_id,
+                status="unavailable",
+                output=None,
+                usage={},
+                runtime=runtime,
+                error_code="capability_mismatch",
+                error_message="required runtime capabilities are unavailable",
+            )
+        if self.behavior in {"unavailable", "timeout", "cancelled", "malformed"}:
+            return AdapterResult(
+                schema_version=_RA_RESULT_SCHEMA,
+                request_id=request_obj.request_id,
+                status=self.behavior,
+                output=None,
+                usage={},
+                runtime=runtime,
+                error_code=self.behavior,
+                error_message=f"reference adapter {self.behavior}",
+            )
+        bounded = self.output[: request_obj.max_output_chars]
+        usage = {"output_tokens": max(1, (len(bounded) + 3) // 4)}
+        return AdapterResult(
+            schema_version=_RA_RESULT_SCHEMA,
+            request_id=request_obj.request_id,
+            status=self.behavior,
+            output=bounded,
+            usage=usage,
+            runtime=runtime,
+            error_code=None,
+            error_message=None,
+        )
+"""Deterministic evidence/uncertainty projection for compiled context (#982).
+
+The projection consumes caller-supplied normalized evidence. It does not retrieve,
+store, or adjudicate Vault/Ledger records. It makes coverage and provider
+failure states explicit, carries only sanitized references/commitments, and
+turns evidence-required uncertainty into an abstention signal.
+"""
+
+import hashlib
+import json
+import re
+from typing import Any, Mapping
+
+_CE_SCHEMA_VERSION = "perseus-context-evidence/v1"
+_CE_STATES = frozenset({
+    "evidence_backed", "partial", "conflicted", "stale", "empty", "unavailable", "timeout",
+})
+_CE_PROVIDER_STATES = frozenset({"active", "partial", "degraded", "unavailable", "timeout", "not_configured"})
+_CE_UNCERTAINTY_CLASSES = frozenset({"high", "medium", "low", "stale", "inferred", "tie"})
+_CE_DIGEST_RE = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
+_CE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$")
+_CE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$")
+_CE_FORBIDDEN_KEYS = frozenset({
+    "api_key", "authorization", "body", "content", "credential", "credentials",
+    "password", "private_body", "prompt", "raw", "raw_payload", "secret", "token",
+    "tool_args", "tool_arguments",
+})
+_CE_STATE_ALIASES = {
+    "supported": "evidence_backed",
+    "evidence-backed": "evidence_backed",
+    "evidence_backed": "evidence_backed",
+    "complete": "evidence_backed",
+    "degraded": "partial",
+    "contradictory": "conflicted",
+    "conflict": "conflicted",
+    "no_evidence": "empty",
+    "no-evidence": "empty",
+}
+
+
+class ContextEvidenceError(ValueError):
+    """Raised when an evidence projection cannot be sanitized or verified."""
+
+
+def _ce_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+
+
+def _ce_sha(value: Any) -> str:
+    return hashlib.sha256(_ce_json(value).encode("utf-8")).hexdigest()
+
+
+def _ce_forbidden_keys(value: Any, path: str = "projection") -> None:
+    if isinstance(value, Mapping):
+        for key, nested in value.items():
+            if str(key).casefold().replace("-", "_") in _CE_FORBIDDEN_KEYS:
+                raise ContextEvidenceError(f"{path}.{key} is not permitted")
+            _ce_forbidden_keys(nested, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, nested in enumerate(value):
+            _ce_forbidden_keys(nested, f"{path}[{index}]")
+
+
+def _ce_text(value: Any, field: str, *, limit: int = 256) -> str:
+    if not isinstance(value, str):
+        raise ContextEvidenceError(f"{field} must be text")
+    text = re.sub(r"[\x00-\x1f\x7f]", " ", value).strip()
+    if not text:
+        return ""
+    if len(text) > limit:
+        text = text[:limit].rstrip()
+    markers = ("api_key", "authorization", "password", "private_body", "prompt", "raw_payload", "secret", "token")
+    if any(marker in text.casefold().replace("-", "_") for marker in markers):
+        return ""
+    return text
+
+
+def _ce_id(value: Any, field: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise ContextEvidenceError(f"{field} must not be empty")
+    if _CE_ID_RE.fullmatch(text):
+        return text[:160]
+    return "sha256:" + hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+
+
+def _ce_digest(value: Any, field: str) -> str | None:
+    if value is None or value == "":
+        return None
+    text = str(value).strip().lower()
+    if not _CE_DIGEST_RE.fullmatch(text):
+        raise ContextEvidenceError(f"{field} must be a SHA-256 digest")
+    return text.removeprefix("sha256:")
+
+
+def _ce_timestamp(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text if _CE_ISO_RE.fullmatch(text) else None
+
+
+def _ce_sources(record: Mapping[str, Any], candidate_id: str) -> list[str]:
+    values: list[Any] = []
+    for key in ("source_id", "source_ref", "provenance_id"):
+        if record.get(key):
+            values.append(record[key])
+    for key in ("source_refs", "provenance_refs"):
+        raw = record.get(key)
+        if isinstance(raw, (list, tuple)):
+            values.extend(raw)
+    for key in ("provenance", "evidence"):
+        nested = record.get(key)
+        if isinstance(nested, Mapping):
+            for nested_key in ("source_id", "source_ref", "provenance_id", "provenance_ref", "receipt_id", "id"):
+                if nested.get(nested_key):
+                    values.append(nested[nested_key])
+    refs = sorted({_ce_id(value, "source_ref") for value in values if str(value or "").strip()})
+    return refs
+
+
+def _ce_evidence_digest(record: Mapping[str, Any], candidate_id: str) -> str | None:
+    for key in ("evidence_digest", "content_sha256", "content_hash", "sha256"):
+        if record.get(key):
+            return _ce_digest(record[key], f"{candidate_id}.{key}")
+    # The body is never emitted; when a caller supplies it, only its commitment
+    # can cross this boundary.
+    for key in ("content", "body", "raw", "private_body"):
+        value = record.get(key)
+        if isinstance(value, str) and value:
+            return hashlib.sha256(value.encode("utf-8", errors="replace")).hexdigest()
+    return None
+
+
+def _ce_item_state(record: Mapping[str, Any], *, has_digest: bool) -> str:
+    raw = str(record.get("coverage_state", record.get("evidence_status", record.get("validity_state", record.get("status", ""))))).strip().lower().replace(" ", "_")
+    state = _CE_STATE_ALIASES.get(raw, raw)
+    if state in _CE_STATES:
+        return state
+    return "evidence_backed" if has_digest else "empty"
+
+
+def _ce_uncertainty(record: Mapping[str, Any], state: str) -> dict[str, Any]:
+    raw = record.get("uncertainty")
+    if isinstance(raw, Mapping):
+        cls = str(raw.get("class", "")).strip().lower()
+        score = raw.get("score")
+        if cls in _CE_UNCERTAINTY_CLASSES and isinstance(score, (int, float)) and not isinstance(score, bool) and 0 <= score <= 1:
+            return {"class": cls, "score": round(float(score), 6)}
+    if state == "evidence_backed":
+        return {"class": "high" if record.get("verified") else "medium", "score": 0.9 if record.get("verified") else 0.65}
+    if state == "stale":
+        return {"class": "stale", "score": 0.35}
+    if state == "conflicted":
+        return {"class": "tie", "score": 0.5}
+    return {"class": "low", "score": 0.2}
+
+
+def _ce_reason(record: Mapping[str, Any], default: str) -> str:
+    reason = _ce_text(record.get("selection_reason", ""), "selection_reason")
+    return reason or default
+
+
+def _ce_provider_states(value: Mapping[str, Any] | None) -> dict[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ContextEvidenceError("provider_states must be an object")
+    result: dict[str, str] = {}
+    for key, raw in value.items():
+        provider = _ce_id(key, "provider")
+        state = str(raw).strip().lower().replace("-", "_")
+        if state not in _CE_PROVIDER_STATES:
+            raise ContextEvidenceError(f"unsupported provider state: {state}")
+        result[provider] = state
+    return dict(sorted(result.items()))
+
+
+def _ce_selected_item(record: Mapping[str, Any], index: int) -> tuple[dict[str, Any] | None, dict[str, str]]:
+    if not isinstance(record, Mapping):
+        return None, {"candidate_id": f"item-{index + 1}", "reason": "invalid_record"}
+    candidate_id = _ce_id(record.get("candidate_id") or record.get("id") or record.get("key") or f"item-{index + 1}", "candidate_id")
+    digest = _ce_evidence_digest(record, candidate_id)
+    refs = _ce_sources(record, candidate_id)
+    state = _ce_item_state(record, has_digest=bool(digest))
+    if not refs:
+        return None, {"candidate_id": candidate_id, "reason": "source_reference_missing"}
+    if not digest:
+        return None, {"candidate_id": candidate_id, "reason": "evidence_digest_missing"}
+    item: dict[str, Any] = {
+        "candidate_id": candidate_id,
+        "source_refs": refs,
+        "evidence_digest": digest,
+        "coverage_state": state,
+        "uncertainty": _ce_uncertainty(record, state),
+        "inclusion_reason": _ce_reason(record, "selected_by_caller"),
+    }
+    for key in ("valid_at", "transaction_time", "recorded_at", "observed_at"):
+        timestamp = _ce_timestamp(record.get(key))
+        if timestamp:
+            item[key] = timestamp
+    return item, {}
+
+
+def _ce_normalized_exclusions(value: Any) -> list[dict[str, str]]:
+    if value is None:
+        return []
+    if not isinstance(value, (list, tuple)):
+        raise ContextEvidenceError("excluded must be a list")
+    result = []
+    for index, raw in enumerate(value):
+        if isinstance(raw, Mapping):
+            candidate_id = _ce_id(raw.get("candidate_id") or raw.get("id") or f"excluded-{index + 1}", "excluded.candidate_id")
+            reason = _ce_text(raw.get("reason") or raw.get("selection_reason") or "", "excluded.reason") or "excluded_by_policy"
+        else:
+            candidate_id = _ce_id(raw, "excluded.candidate_id")
+            reason = "excluded_by_policy"
+        result.append({"candidate_id": candidate_id, "reason": reason})
+    return result
+
+
+def project_context_evidence(
+    entries: Any,
+    *,
+    provider_states: Mapping[str, Any] | None = None,
+    excluded: Any = None,
+    evidence_required: bool = False,
+    selected_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Compile a sanitized evidence coverage projection without retrieval."""
+    if not isinstance(entries, (list, tuple)):
+        raise ContextEvidenceError("entries must be a list")
+    if not isinstance(evidence_required, bool):
+        raise ContextEvidenceError("evidence_required must be boolean")
+    providers = _ce_provider_states(provider_states)
+    wanted = {_ce_id(item, "selected_id") for item in selected_ids} if selected_ids is not None else None
+    selected: list[dict[str, Any]] = []
+    exclusions = _ce_normalized_exclusions(excluded)
+    seen: set[str] = set()
+    for index, raw in enumerate(entries):
+        item, omission = _ce_selected_item(raw, index)
+        if item is None:
+            exclusions.append(omission)
+            continue
+        if item["candidate_id"] in seen:
+            exclusions.append({"candidate_id": item["candidate_id"], "reason": "duplicate_candidate_id"})
+            continue
+        seen.add(item["candidate_id"])
+        if wanted is not None and item["candidate_id"] not in wanted:
+            exclusions.append({"candidate_id": item["candidate_id"], "reason": "not_selected"})
+            continue
+        selected.append(item)
+    selected.sort(key=lambda item: item["candidate_id"])
+    exclusions = sorted(exclusions, key=lambda item: (item["candidate_id"], item["reason"]))
+    item_states = [item["coverage_state"] for item in selected]
+    if any(state == "timeout" for state in providers.values()):
+        state = "timeout"
+    elif any(state == "unavailable" for state in providers.values()):
+        state = "unavailable"
+    elif "conflicted" in item_states:
+        state = "conflicted"
+    elif "stale" in item_states:
+        state = "stale"
+    elif any(state in {"partial", "degraded"} for state in providers.values()) or "partial" in item_states:
+        state = "partial"
+    elif not selected:
+        state = "empty"
+    else:
+        state = "evidence_backed"
+    abstention = bool(evidence_required and state != "evidence_backed")
+    status = "abstention_required" if abstention else {
+        "evidence_backed": "complete",
+        "partial": "degraded",
+        "conflicted": "review",
+        "stale": "degraded",
+        "empty": "empty",
+        "unavailable": "unavailable",
+        "timeout": "unavailable",
+    }[state]
+    reason = {
+        "evidence_backed": "evidence is linked to sanitized source references and a digest",
+        "partial": "provider or selected evidence is partial",
+        "conflicted": "evidence contains unresolved conflict",
+        "stale": "selected evidence is stale",
+        "empty": "no evidence-backed item was selected",
+        "unavailable": "provider evidence is unavailable",
+        "timeout": "provider evidence timed out",
+    }[state]
+    coverage = {
+        "state": state,
+        "reason": reason,
+        "provider_states": providers,
+        "evidence_required": evidence_required,
+        "abstention_required": abstention,
+    }
+    unsigned: dict[str, Any] = {
+        "schema_version": _CE_SCHEMA_VERSION,
+        "status": status,
+        "coverage": coverage,
+        "selected": selected,
+        "excluded": exclusions,
+        "diagnostics": {
+            "relevance_is_not_truth_gate": True,
+            "selected_count": len(selected),
+            "excluded_count": len(exclusions),
+        },
+    }
+    unsigned["projection_digest"] = _ce_sha(unsigned)
+    return unsigned
+
+
+def verify_context_evidence(projection: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(projection, Mapping) or projection.get("schema_version") != _CE_SCHEMA_VERSION:
+        return {"valid": False, "error": "unsupported evidence projection"}
+    try:
+        _ce_forbidden_keys(projection)
+        supplied = projection.get("projection_digest")
+        if not isinstance(supplied, str):
+            return {"valid": False, "error": "missing projection digest"}
+        unsigned = dict(projection)
+        unsigned.pop("projection_digest", None)
+        expected = _ce_sha(unsigned)
+    except (ContextEvidenceError, TypeError, ValueError):
+        return {"valid": False, "error": "invalid evidence projection"}
+    return {"valid": expected == supplied, "projection_digest": supplied, "expected_digest": expected}
+
+
+def render_context_evidence(projection: Mapping[str, Any]) -> str:
+    check = verify_context_evidence(projection)
+    if not check["valid"]:
+        raise ContextEvidenceError("refusing to render invalid evidence projection")
+    coverage = projection["coverage"]
+    lines = [
+        "# Context evidence projection",
+        "",
+        f"- coverage: **{coverage['state']}** — {coverage['reason']}",
+        f"- status: **{projection['status']}**",
+        f"- evidence required: `{str(coverage['evidence_required']).lower()}`",
+        f"- abstention required: `{str(coverage['abstention_required']).lower()}`",
+        f"- projection digest: `{projection['projection_digest']}`",
+        "",
+        "## Selected evidence",
+        "",
+    ]
+    if projection["selected"]:
+        for item in projection["selected"]:
+            lines.append(
+                f"- `{item['candidate_id']}` — sources: {', '.join(item['source_refs'])}; "
+                f"evidence: `{item['evidence_digest']}`; reason: {item['inclusion_reason']}"
+            )
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Excluded", ""])
+    if projection["excluded"]:
+        lines.extend(f"- `{item['candidate_id']}` — {item['reason']}" for item in projection["excluded"])
+    else:
+        lines.append("- none")
+    return "\n".join(lines) + "\n"
 """Runtime-owned evidence claim verification (#895).
 
 Models may propose structured claims, but the host owns the identity, scope,
@@ -36761,6 +38069,14 @@ def context_rank(
             "context_decision": decision,
             "budget": {"max_items": max_items, "max_chars": max_chars, "returned_items": len(output)},
         }
+        selected_ids = {item["candidate_id"] for item in output}
+        selected_records = [record for record in prepared if record.get("_contract_id") in selected_ids]
+        result["evidence_projection"] = project_context_evidence(
+            selected_records,
+            provider_states=states,
+            excluded=[{"candidate_id": item, "reason": "excluded_by_contract"} for item in excluded],
+            evidence_required=bool(policy_map.get("evidence_required", False)),
+        )
         return result
     except (TypeError, ValueError) as exc:
         message = str(exc)
@@ -38296,7 +39612,10 @@ def compile_context_dag(*, task_id: str,
                         verdict_hint: str = "sufficient",
                         confidence: Optional[float] = None,
                         created_by: str = "",
-                        meta: Optional[dict] = None) -> dict:
+                        meta: Optional[dict] = None,
+                        execution_profile: Optional[dict] = None,
+                        profile_requirements: Optional[dict] = None,
+                        profile_retrieval_status: str = "complete") -> dict:
     """Build, expand, and seal an auditable context-compilation DAG.
 
     Expansion is layer-wise and selective: only uncertain, contradictory, or
@@ -38306,8 +39625,32 @@ def compile_context_dag(*, task_id: str,
     the advisory inputs + policy so verification is a faithful replay.
     """
     policy = policy or CompilationPolicy()
-    budget = budget or CompilationBudget()
+    resolved_profile = None
+    if execution_profile is not None:
+        try:
+            resolved_profile = resolve_execution_profile(
+                execution_profile,
+                requirements=profile_requirements,
+                retrieval_status=profile_retrieval_status,
+            )
+        except ExecutionProfileError as exc:
+            raise ContextDagError(f"execution profile rejected: {exc}") from exc
+        profile_budget = resolved_profile["compilation_budget"]
+        if budget is None:
+            budget = CompilationBudget(**profile_budget)
+        else:
+            # A caller-supplied DAG budget may tighten a profile, never widen it.
+            budget = CompilationBudget(
+                max_nodes=min(int(budget.max_nodes), int(profile_budget["max_nodes"])),
+                max_depth=min(int(budget.max_depth), int(profile_budget["max_depth"])),
+                max_fanout=min(int(budget.max_fanout), int(profile_budget["max_fanout"])),
+                max_tokens=min(int(budget.max_tokens), int(profile_budget["max_tokens"])),
+                deadline_s=min(float(budget.deadline_s), float(profile_budget["deadline_s"])),
+            )
+    else:
+        budget = budget or CompilationBudget()
     ledger = budget.ledger()
+    profile_degradation_reasons: set[str] = set()
     graph = ContextDAG(task_id=task_id, created_by=created_by, meta=meta or {})
     graph.add_node(root, ledger, depth=0)
 
@@ -38331,7 +39674,30 @@ def compile_context_dag(*, task_id: str,
         if not expand:
             continue
         expanded.add(nid)
-        for child in list(fetch(node) or []):
+        children = list(fetch(node) or [])
+        if resolved_profile is not None:
+            children.sort(key=lambda child: child.node_id)
+            if depth >= budget.max_depth and children:
+                profile_degradation_reasons.add("max_depth")
+                children = []
+            if len(children) > budget.max_fanout:
+                profile_degradation_reasons.add("max_items")
+                children = children[: budget.max_fanout]
+            remaining_nodes = max(0, budget.max_nodes - len(ledger.nodes))
+            if len(children) > remaining_nodes:
+                profile_degradation_reasons.add("max_items")
+                children = children[:remaining_nodes]
+            remaining_tokens = max(0, budget.max_tokens - ledger.total_tokens)
+            kept_children: list[ContextNode] = []
+            for child in children:
+                needed = dag_tokens(child.content)
+                if needed > remaining_tokens:
+                    profile_degradation_reasons.add("max_context_tokens")
+                    continue
+                kept_children.append(child)
+                remaining_tokens -= needed
+            children = kept_children
+        for child in children:
             cid = graph.add_node(child, ledger, depth=depth + 1)
             kind = "supports" if child.kind != "contradiction" else "contradicts"
             edge_meta: dict = {}
@@ -38362,15 +39728,29 @@ def compile_context_dag(*, task_id: str,
         if nd is not None:
             packet.append(nd.to_dict())
     advisory = {"verdict_hint": verdict_hint, "confidence": confidence}
+    profile_manifest = resolved_profile or {}
+    profile_diagnostics = dict(resolved_profile["diagnostics"]) if resolved_profile else {}
+    if profile_degradation_reasons:
+        profile_diagnostics["degraded"] = True
+        profile_diagnostics["reasons"] = sorted(set(profile_diagnostics.get("reasons", [])) | profile_degradation_reasons)
+    profile_status = ("degraded" if profile_degradation_reasons else resolved_profile["status"]) if resolved_profile else None
+    digest_parts = [
+        "packet", _dag_json(packet),
+        "verdict", _dag_json(verdict),
+        "advisory", _dag_json(advisory),
+        "policy", _dag_json(policy.to_dict()),
+        "budget", _dag_json(ledger.digest_input()),
+        "graph", graph.digest(),
+        "execution_profile", _dag_json(profile_manifest),
+    ]
+    if resolved_profile is not None:
+        digest_parts.extend([
+            "profile_status", profile_status,
+            "profile_diagnostics", _dag_json(profile_diagnostics),
+        ])
     artifact = {
         "schema_version": "perseus-context-dag/v1",
-        "compiled_digest": _dag_sha(
-            "packet", _dag_json(packet),
-            "verdict", _dag_json(verdict),
-            "advisory", _dag_json(advisory),
-            "policy", _dag_json(policy.to_dict()),
-            "budget", _dag_json(ledger.digest_input()),
-            "graph", graph.digest()),
+        "compiled_digest": _dag_sha(*digest_parts),
         "graph": graph.to_dict(),
         "selected_node_ids": selected,
         "packet": packet,
@@ -38381,6 +39761,11 @@ def compile_context_dag(*, task_id: str,
         "token_accounting": TOKEN_ACCOUNTING_NOTE,
         "compiled_at_unix_s": round(time.time(), 3),
     }
+    if resolved_profile is not None:
+        artifact["status"] = profile_status
+        artifact["execution_profile"] = resolved_profile
+        artifact["execution_profile_digest"] = resolved_profile["profile_digest"]
+        artifact["profile_diagnostics"] = profile_diagnostics
     return artifact
 
 
@@ -38431,15 +39816,32 @@ def verify_compiled_dag(artifact: dict) -> dict:
     )
     if verdict != artifact.get("verdict"):
         errors.append("verdict does not recompute from graph state")
+    profile_manifest = artifact.get("execution_profile") or {}
+    profile_diagnostics = artifact.get("profile_diagnostics") or {}
+    profile_status = None
+    if profile_manifest:
+        profile_check = verify_execution_profile(profile_manifest)
+        if not profile_check.get("valid"):
+            errors.append("execution profile digest mismatch")
+        if artifact.get("execution_profile_digest") != profile_manifest.get("profile_digest"):
+            errors.append("execution_profile_digest does not match profile manifest")
+        profile_status = "degraded" if profile_diagnostics.get("degraded") else profile_manifest.get("status")
+        if artifact.get("status") != profile_status:
+            errors.append("profile status does not match profile manifest")
     budget_sealed = dict(artifact.get("budget") or {})
     budget_sealed.pop("wall_clock_s", None)
-    expected = _dag_sha(
+    digest_parts = [
         "packet", _dag_json(packet),
         "verdict", _dag_json(artifact.get("verdict")),
         "advisory", _dag_json(artifact.get("advisory")),
         "policy", _dag_json(policy.to_dict()),
         "budget", _dag_json(budget_sealed),
-        "graph", graph.digest())
+        "graph", graph.digest(),
+        "execution_profile", _dag_json(profile_manifest),
+    ]
+    if profile_manifest:
+        digest_parts.extend(["profile_status", profile_status, "profile_diagnostics", _dag_json(profile_diagnostics)])
+    expected = _dag_sha(*digest_parts)
     if expected != artifact.get("compiled_digest"):
         errors.append("compiled_digest mismatch")
     return {"valid": not errors, "errors": errors,
