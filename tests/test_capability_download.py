@@ -43,3 +43,20 @@ def test_tailored_capability_artifacts_exist_and_public_copy_is_not_internal_wor
         "intentionally short enough",
     ):
         assert phrase not in public_copy
+
+
+def test_government_landing_is_single_purpose_and_exposes_all_three_custom_routes():
+    landing = (ROOT / "government" / "index.html").read_text(encoding="utf-8")
+    assert "Capability" in landing and "statement." in landing
+    assert "Choose the version for the conversation." in landing
+    assert "Cyber-Networks.pdf" in landing
+    assert "C3BM.pdf" in landing
+    assert "Electronic-Systems.pdf" in landing
+    for retired_marker in (
+        "Deploy where the cloud cannot reach.",
+        "Security posture",
+        "Deployment models",
+        "Continue the review",
+        "Sovereignty",
+    ):
+        assert retired_marker not in landing
