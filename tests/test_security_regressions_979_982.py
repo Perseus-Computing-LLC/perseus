@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import time
 
 import pytest
 
@@ -1147,3 +1148,124 @@ def test_public_evidence_and_context_rank_reject_string_verified_flags():
         integrations={"vault": "active", "ledger": "active"},
     )
     assert result["status"] == "invalid_input"
+
+
+
+def test_answer_projection_requires_real_public_source_reference():
+    result = perseus.context_ask(
+        "answer body",
+        context=[{"candidate_id": "no-source", "agent_text": "answer body", "content": "answer body", "validity": "observed", "verified": True}],
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    assert result["status"] != "complete"
+    assert "artifact:candidate:" not in json.dumps(result)
+
+
+def test_dag_evidence_uncertainty_metadata_and_sources_are_closed():
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextNode(
+            kind="retrieved_record",
+            content="public node",
+            evidence={"validity": "observed", "verified": True, "source_ids": ["attacker:forged"], "private_scalar": "DAG_SECRET"},
+            meta={"private": "DAG_META_SECRET"},
+        )
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextNode(
+            kind="retrieved_record",
+            content="bad uncertainty",
+            uncertainty={"class": "bogus", "score": "not-a-number"},
+            evidence={"validity": "observed", "verified": True, "source_ids": ["file:source"]},
+        )
+
+
+def test_runtime_provider_reference_is_commitment_only():
+    capabilities = perseus.RuntimeCapabilities.from_mapping({
+        "schema_version": "perseus-runtime-capabilities/v1",
+        "backend_id": "backend",
+        "backend_version": "1",
+        "model_id": "model",
+        "model_version": "1",
+        "tokenizer_id": "tokenizer",
+        "context_capacity_tokens": 128,
+        "execution_modes": ["offline"],
+        "streaming": False,
+        "tools": False,
+        "hardware_class": "cpu",
+        "resource_metrics": [],
+        "auth_mode": "none",
+        "provider_ref": "RUNTIME_PRIVATE_SENTINEL",
+    })
+    output = capabilities.to_dict()
+    assert "RUNTIME_PRIVATE_SENTINEL" not in json.dumps(output)
+    assert output["provider_ref"].startswith("sha256:")
+
+
+def test_dag_rejects_duplicate_containers_and_cisc_non_finite_inputs():
+    node = perseus.ContextNode(kind="requirement", content="duplicate", evidence={"validity": "observed", "verified": True, "source_ids": ["file:root"]})
+    graph = perseus.ContextDAG(task_id="duplicate")
+    graph.add_node(node)
+    raw = graph.to_dict()
+    raw["nodes"].append(copy.deepcopy(raw["nodes"][0]))
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextDAG.from_dict(raw)
+    with pytest.raises(perseus.ContextDagError):
+        perseus.cisc_prioritize([{"path_id": "a", "confidence": float("inf")}])
+    with pytest.raises(perseus.ContextDagError):
+        perseus.cisc_prioritize([{"path_id": "a", "confidence": 1.0}], temperature=float("nan"))
+
+
+def test_dag_deadline_is_checked_after_slow_fetch():
+    root = perseus.ContextNode(
+        kind="requirement",
+        content="deadline root",
+        uncertainty={"class": "low", "score": 0.2},
+        evidence={"validity": "observed", "verified": True, "source_ids": ["file:root"]},
+    )
+    def slow_fetch(_node):
+        time.sleep(0.03)
+        return []
+    with pytest.raises(perseus.BudgetExceeded):
+        perseus.compile_context_dag(
+            task_id="deadline-after-fetch",
+            root=root,
+            fetch=slow_fetch,
+            budget=perseus.CompilationBudget(deadline_s=0.001),
+        )
+
+
+def test_multi_topic_revocation_blocks_old_projection():
+    boundary = perseus.AgentProjectionBoundary()
+    scope = {"tenant": "tenant-revoke", "workspace": "workspace-revoke"}
+    boundary.grant_consent(
+        agent_id="agent-revoke",
+        scope=scope,
+        permissions={"preview": True, "release": True},
+        topics=["alpha", "beta"],
+    )
+    records = []
+    for topic in ("alpha", "beta"):
+        body = f"{topic} decision"
+        records.append({
+            "candidate_id": topic,
+            "topic": topic,
+            "scope": scope,
+            "summary": body,
+            "agent_text": body,
+            "content": body,
+            "source_id": f"vault:{topic}",
+            "validity": "observed",
+            "verified": True,
+            "content_sha256": hashlib.sha256(body.encode()).hexdigest(),
+        })
+    preview = boundary.preview(
+        records,
+        agent_id="agent-revoke",
+        scope=scope,
+        task="decision",
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    assert preview["status"] == "complete"
+    assert boundary.release(preview)["status"] == "complete"
+    boundary.revoke(agent_id="agent-revoke", scope=scope, topic="alpha")
+    released = boundary.release(preview)
+    assert released["failure_state"] == "revoked"

@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "5d8d3d5"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "676dc64-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -36348,6 +36348,13 @@ def _ra_public_text(value: Any, field: str, *, max_length: int = 160, allow_empt
     return text
 
 
+def _ra_provider_commitment(value: Any, field: str = "provider_ref") -> str:
+    if isinstance(value, str) and _RA_DIGEST_RE.fullmatch(value):
+        return value.lower()
+    text = _ra_id(value, field)
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def _ra_id(value: Any, field: str, *, allow_empty: bool = False) -> str:
     text = _ra_text(value, field, allow_empty=allow_empty)
     if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", text) or any(marker in text for marker in ("://", "@", "?", "&", "=")):
@@ -36412,6 +36419,9 @@ class RuntimeCapabilities:
     auth_mode: str
     provider_ref: str
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "provider_ref", _ra_provider_commitment(self.provider_ref))
+
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "RuntimeCapabilities") -> "RuntimeCapabilities":
         if isinstance(value, cls):
@@ -36431,8 +36441,10 @@ class RuntimeCapabilities:
         if not modes or not set(modes).issubset(_RA_EXECUTION_MODES):
             raise RuntimeAdapterError("execution_modes must contain offline, local, or approved_network")
         metrics = _ra_string_list(value["resource_metrics"], "resource_metrics")
-        for field in ("backend_id", "backend_version", "model_id", "tokenizer_id", "auth_mode", "provider_ref"):
+        for field in ("backend_id", "backend_version", "model_id", "tokenizer_id", "auth_mode"):
             _ra_id(value[field], field)
+        if not (isinstance(value["provider_ref"], str) and _RA_DIGEST_RE.fullmatch(value["provider_ref"])):
+            _ra_id(value["provider_ref"], "provider_ref")
         model_version = _ra_id(value["model_version"], "model_version")
         hardware_class = _ra_id(value["hardware_class"], "hardware_class")
         if not isinstance(value["streaming"], bool) or not isinstance(value["tools"], bool):
@@ -36451,7 +36463,7 @@ class RuntimeCapabilities:
             hardware_class=hardware_class,
             resource_metrics=metrics,
             auth_mode=_ra_id(value["auth_mode"], "auth_mode"),
-            provider_ref=_ra_id(value["provider_ref"], "provider_ref"),
+            provider_ref=_ra_provider_commitment(value["provider_ref"]),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -36600,7 +36612,10 @@ class AdapterResult:
         if not isinstance(self.runtime, Mapping) or set(self.runtime) - _RA_RUNTIME_FIELDS:
             raise RuntimeAdapterError("runtime provenance contains unsupported fields")
         _ra_forbidden_keys(self.runtime, "runtime")
-        runtime = {str(key): _ra_id(raw, f"runtime.{key}") for key, raw in self.runtime.items()}
+        runtime = {
+            str(key): (_ra_provider_commitment(raw, f"runtime.{key}") if key == "provider_ref" else _ra_id(raw, f"runtime.{key}"))
+            for key, raw in self.runtime.items()
+        }
         error_code = None if self.error_code is None else _ra_id(self.error_code, "error_code")
         error_message = None if self.error_message is None else _ra_public_text(self.error_message, "error_message", max_length=256)
         if self.external_fallback_allowed is not False:
@@ -38132,10 +38147,7 @@ def _cc_source_ids(record: Mapping[str, Any], candidate_id: str, *, require_expl
     if len(values) > CONTEXT_MAX_SOURCE_REFS:
         raise ValueError(f"{candidate_id} contains too many source references")
     if not values:
-        if require_explicit:
-            raise ValueError(f"{candidate_id} is missing an explicit public source reference")
-        safe_candidate = _cc_safe_id(candidate_id, fallback="unknown")
-        values = [f"artifact:candidate:{safe_candidate}"]
+        raise ValueError(f"{candidate_id} is missing an explicit public source reference")
     result: set[str] = set()
     for item in values:
         if not isinstance(item, str):
@@ -38143,7 +38155,7 @@ def _cc_source_ids(record: Mapping[str, Any], candidate_id: str, *, require_expl
         source = item.strip()
         if not _CC_PUBLIC_SOURCE_RE.fullmatch(source):
             raise ValueError(f"{candidate_id} contains a non-public source reference")
-        if require_explicit and source.startswith("artifact:candidate:"):
+        if source.startswith("artifact:candidate:"):
             raise ValueError(f"{candidate_id} contains an unverified synthetic source reference")
         if _CC_SENSITIVE_SOURCE_RE.search(source.split(":", 1)[1]):
             namespace = source.split(":", 1)[0]
@@ -38904,6 +38916,12 @@ class AgentProjectionBoundary:
         # separately by _consent_decision.
         return permanent
 
+    def _revocation_epoch_topics(self, agent_id: str, scope_fp: str, topics: Sequence[str]) -> int:
+        topic_list = sorted({topic for topic in topics if isinstance(topic, str) and topic})
+        if not topic_list:
+            topic_list = [""]
+        return max(self._revocation_epoch(agent_id, scope_fp, topic) for topic in topic_list)
+
     def grant_consent(
         self,
         *,
@@ -38985,7 +39003,8 @@ class AgentProjectionBoundary:
         for digest, entry in list(self._cache.items()):
             if entry.get("agent_id") != safe_agent or entry.get("scope_fp") != scope_fp:
                 continue
-            if safe_topic and entry.get("topic") != safe_topic:
+            entry_topics = entry.get("topics") or ([entry.get("topic")] if entry.get("topic") else [])
+            if safe_topic and safe_topic not in entry_topics:
                 continue
             self._cache.pop(digest, None)
             invalidated += 1
@@ -39018,6 +39037,16 @@ class AgentProjectionBoundary:
             return "scope_mismatch"
         return None
 
+    def _consent_decision_topics(self, agent_id: str, scope: Mapping[str, str], scope_fp: str, topics: Sequence[str], permission: str) -> str | None:
+        topic_list = sorted({topic for topic in topics if isinstance(topic, str) and topic})
+        if not topic_list:
+            return self._consent_decision(agent_id, scope, scope_fp, "", permission)
+        for topic in topic_list:
+            denied = self._consent_decision(agent_id, scope, scope_fp, topic, permission)
+            if denied:
+                return denied
+        return None
+
     def _compile(self, records: Any, *, agent_id: Any, scope: Any, task: Any, request_class: str, policy_version: str, policy: Any, budget: Any, integrations: Any, cfg: Mapping[str, Any] | None) -> dict[str, Any]:
         safe_agent, normalized_scope, scope_fp = self._identity(agent_id, scope)
         policy_map = _cc_policy(policy)
@@ -39046,9 +39075,7 @@ class AgentProjectionBoundary:
         items, selection, budget_exhausted = _cc_projection_items(rank, record_map, policy_map, max_chars, cfg)
         topics = sorted({_cc_topic(record_map[item["candidate_id"]]) for item in items if _cc_topic(record_map[item["candidate_id"]])})
         topic = topics[0] if len(topics) == 1 else ""
-        consent_topics = self._consents.get((safe_agent, scope_fp), {}).get("topics", [])
-        if consent_topics and (not topic or any(candidate_topic not in consent_topics for candidate_topic in topics)):
-            topic = ""
+        revocation_epoch = self._revocation_epoch_topics(safe_agent, scope_fp, topics)
         route = rank.get("route", {})
         route_states = route.get("integration_state") if isinstance(route, Mapping) else None
         states = dict(route_states) if isinstance(route_states, Mapping) else _cc_integrations(integrations)
@@ -39062,7 +39089,7 @@ class AgentProjectionBoundary:
             "policy_commitment": "sha256:" + _cc_sha({key: value for key, value in policy_map.items() if key not in {"raw", "prompt", "tool_args"}}),
             "redaction_policy": _cc_projection_redaction_policy(cfg, policy_map),
             "permissions_commitment": "sha256:" + _cc_sha(self._consents.get((safe_agent, scope_fp), {}).get("permissions", {})),
-            "revocation_epoch": self._revocation_epoch(safe_agent, scope_fp, topic),
+            "revocation_epoch": revocation_epoch,
             "items": items,
             "selection": selection,
         }
@@ -39107,7 +39134,7 @@ class AgentProjectionBoundary:
             "redaction_policy": digest_payload["redaction_policy"],
             "items": items,
         }
-        consent_failure = self._consent_decision(safe_agent, normalized_scope, scope_fp, topic, "release")
+        consent_failure = self._consent_decision_topics(safe_agent, normalized_scope, scope_fp, topics, "release")
         release_decision = "ready" if consent_failure is None and status in {"complete", "degraded"} else (consent_failure or status)
         return {
             "schema_version": AGENT_PROJECTION_SCHEMA_VERSION,
@@ -39175,7 +39202,10 @@ class AgentProjectionBoundary:
             "recorded_at": sorted({str(item.get("recorded_at")) for item in items if isinstance(item, Mapping) and item.get("recorded_at")}),
             "release_decision": "released",
             "status": "complete",
-            "revocation_epoch": self._revocation_epoch(str(preview.get("agent_id", "")), scope_fp, topic),
+            "revocation_epoch": self._revocation_epoch_topics(
+                str(preview.get("agent_id", "")), scope_fp,
+                sorted({item.get("topic") for item in items if isinstance(item, Mapping) and isinstance(item.get("topic"), str) and item.get("topic")}),
+            ),
         }
         return receipt
 
@@ -39215,11 +39245,15 @@ class AgentProjectionBoundary:
             normalized_scope = _cc_validate_scope_contract(preview.get("scope", {}))
             scope_fp = _cc_sha(normalized_scope)
             topic = _cc_safe_id(preview.get("topic")) or normalized_scope.get("topic", "")
+            preview_projection = preview.get("projection", {})
+            preview_items = preview_projection.get("items", []) if isinstance(preview_projection, Mapping) else []
+            preview_topics = sorted({item.get("topic") for item in preview_items if isinstance(item, Mapping) and isinstance(item.get("topic"), str) and item.get("topic")})
+            revocation_topics = preview_topics or ([topic] if topic else [])
             # Consent, pause, and revoke are evaluated before trusting a
             # supplied preview. A stale/tampered preview must not mask the
             # current control decision (and a paused/revoked topic must remain
             # fail-closed even when the digest can no longer be reconstructed).
-            preflight_denied = self._consent_decision(safe_agent, normalized_scope, scope_fp, topic, "release")
+            preflight_denied = self._consent_decision_topics(safe_agent, normalized_scope, scope_fp, revocation_topics, "release")
             if preflight_denied:
                 status = "abstain" if preflight_denied == "revoked" else "review"
                 return {
@@ -39264,7 +39298,7 @@ class AgentProjectionBoundary:
                 "policy_commitment": str(projection.get("policy_commitment", "")),
                 "redaction_policy": projection.get("redaction_policy", {}),
                 "permissions_commitment": str(projection.get("permissions_commitment", "")),
-                "revocation_epoch": self._revocation_epoch(safe_agent, scope_fp, topic),
+                "revocation_epoch": self._revocation_epoch_topics(safe_agent, scope_fp, revocation_topics),
                 "items": projection.get("items", []),
                 "selection": preview.get("selection", []),
             })
@@ -39284,7 +39318,9 @@ class AgentProjectionBoundary:
             normalized_scope = _cc_validate_scope_contract(preview.get("scope", {}))
             scope_fp = str(preview.get("_scope_fp") or _cc_sha(normalized_scope))
             topic = _cc_safe_id(preview.get("topic")) or normalized_scope.get("topic", "")
-        denied = self._consent_decision(safe_agent, normalized_scope, scope_fp, topic, "release")
+            preview_items = preview.get("projection", {}).get("items", []) if isinstance(preview.get("projection"), Mapping) else []
+            revocation_topics = sorted({item.get("topic") for item in preview_items if isinstance(item, Mapping) and isinstance(item.get("topic"), str) and item.get("topic")}) or ([topic] if topic else [])
+        denied = self._consent_decision_topics(safe_agent, normalized_scope, scope_fp, revocation_topics, "release")
         if denied:
             status = "abstain" if denied == "revoked" else "review"
             return {
@@ -39329,7 +39365,7 @@ class AgentProjectionBoundary:
             "scope": normalized_scope,
             "cache": {"hit": False, "key": "sha256:" + digest},
         }
-        self._cache[digest] = {"result": dict(result), "agent_id": safe_agent, "scope_fp": scope_fp, "topic": topic}
+        self._cache[digest] = {"result": dict(result), "agent_id": safe_agent, "scope_fp": scope_fp, "topic": topic, "topics": list(revocation_topics)}
         return result
 
     def cache_stats(self) -> dict[str, int]:
@@ -39482,6 +39518,7 @@ Terminal verdicts: ``sufficient`` | ``abstain`` | ``escalate``.
 import hashlib
 import json
 import math
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Optional
@@ -39530,6 +39567,91 @@ def _dag_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
+_dag_validity_states = frozenset({
+    "observed", "derived", "inferred", "stale", "contradictory", "unavailable", "unknown",
+    "low", "medium", "high", "tie",
+})
+_dag_uncertainty_classes = frozenset({"high", "medium", "low", "inferred", "stale", "tie"})
+_dag_public_source_re = re.compile(r"^(?:file|vault|ledger|artifact):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
+_dag_opaque_id_re = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,159}$")
+_dag_meta_key_re = re.compile(r"^[A-Za-z][A-Za-z0-9_.\-]{0,63}$")
+_dag_commitment_re = re.compile(r"^sha256:[0-9a-fA-F]{64}$")
+_dag_sensitive_key_re = re.compile(r"(?i)(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private|prompt|body|content|raw)")
+
+
+def _dag_public_ref(value: Any, field: str) -> str:
+    if not isinstance(value, str):
+        raise ContextDagError(f"{field} must be a text reference")
+    source = value.strip()
+    if not source or len(source) > 160:
+        raise ContextDagError(f"{field} must be a bounded reference")
+    if source.startswith("artifact:candidate:"):
+        raise ContextDagError(f"{field} cannot use a synthetic artifact reference")
+    if _dag_public_source_re.fullmatch(source):
+        namespace, _, suffix = source.partition(":")
+        if re.search(r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private|raw)(?:$|[:/#._-])", suffix):
+            return f"{namespace}:sha256:{_dag_sha(source)}"
+        return source
+    if _dag_opaque_id_re.fullmatch(source):
+        return f"artifact:sha256:{_dag_sha(source)}"
+    raise ContextDagError(f"{field} contains an untrusted source namespace")
+
+
+def _dag_meta_value(value: Any, field: str) -> Any:
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        if abs(value) > 10**12:
+            raise ContextDagError(f"{field} integer is out of bounds")
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ContextDagError(f"{field} must contain finite numbers")
+        return value
+    if isinstance(value, str):
+        if _dag_commitment_re.fullmatch(value):
+            return value.lower()
+        if len(value) > 256:
+            raise ContextDagError(f"{field} string is too long")
+        return "sha256:" + _dag_sha(value)
+    if isinstance(value, Mapping):
+        return _dag_meta(value, field)
+    if isinstance(value, (list, tuple)):
+        if len(value) > 64:
+            raise ContextDagError(f"{field} list is too long")
+        return [_dag_meta_value(item, f"{field}[{index}]") for index, item in enumerate(value)]
+    raise ContextDagError(f"{field} contains an unsupported value")
+
+
+def _dag_meta(value: Any, field: str = "meta") -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ContextDagError(f"{field} must be an object")
+    if len(value) > 32:
+        raise ContextDagError(f"{field} contains too many fields")
+    result: dict[str, Any] = {}
+    for key, child in value.items():
+        if not isinstance(key, str) or not _dag_meta_key_re.fullmatch(key):
+            raise ContextDagError(f"{field} contains an invalid key")
+        if _dag_sensitive_key_re.search(key):
+            raise ContextDagError(f"{field}.{key} is not a permitted public field")
+        result[key] = _dag_meta_value(child, f"{field}.{key}")
+    return result
+
+
+def _dag_uncertainty_value(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != {"class", "score"}:
+        raise ContextDagError("node uncertainty must contain exactly class and score")
+    cls = value.get("class")
+    score = value.get("score")
+    if not isinstance(cls, str) or cls.strip().lower() not in _dag_uncertainty_classes:
+        raise ContextDagError("node uncertainty class is invalid")
+    if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(float(score)) or not 0 <= float(score) <= 1:
+        raise ContextDagError("node uncertainty score must be finite between 0 and 1")
+    return {"class": cls.strip().lower(), "score": round(float(score), 6)}
+
+
 def dag_tokens(text: str) -> int:
     """Deterministic rendered-token estimate (chars//4, ceil).
 
@@ -39556,14 +39678,25 @@ def _norm_evidence(evidence: Optional[dict]) -> dict:
     if evidence is not None and not isinstance(evidence, Mapping):
         raise ContextDagError("node evidence must be an object")
     ev = dict(evidence or {})
+    allowed = {"validity", "verified", "source_ids", "policy_ref", "resolved_by"}
+    if set(ev) - allowed:
+        raise ContextDagError("node evidence contains unsupported fields")
     ev.setdefault("validity", "inferred")
+    if not isinstance(ev["validity"], str) or ev["validity"].strip().lower() not in _dag_validity_states:
+        raise ContextDagError("node evidence.validity is invalid")
+    ev["validity"] = ev["validity"].strip().lower()
     ev.setdefault("verified", False)
     if not isinstance(ev["verified"], bool):
         raise ContextDagError("node evidence.verified must be boolean")
     ev.setdefault("source_ids", [])
     if isinstance(ev.get("source_ids"), str):
         ev["source_ids"] = [ev["source_ids"]]
-    ev["source_ids"] = sorted({str(s) for s in ev.get("source_ids") or []})
+    if not isinstance(ev.get("source_ids"), (list, tuple)) or len(ev["source_ids"]) > 64:
+        raise ContextDagError("node evidence.source_ids must be a bounded list")
+    ev["source_ids"] = sorted({_dag_public_ref(s, "node evidence.source_ids") for s in ev.get("source_ids")})
+    for field in ("policy_ref", "resolved_by"):
+        if field in ev and ev[field] is not None:
+            ev[field] = _dag_public_ref(ev[field], f"node evidence.{field}")
     return ev
 
 
@@ -39599,18 +39732,21 @@ class ContextNode:
             raise ContextDagError("node version must be a positive integer")
         if not isinstance(self.meta, dict):
             raise ContextDagError("node metadata must be an object")
+        normalized_meta = _dag_meta(self.meta, "node metadata")
         if self.uncertainty is not None and not isinstance(self.uncertainty, Mapping):
             raise ContextDagError("node uncertainty must be an object")
+        normalized_uncertainty = None if self.uncertainty is None else _dag_uncertainty_value(self.uncertainty)
         ev = _norm_evidence(self.evidence)
         object.__setattr__(self, "evidence", ev)
+        object.__setattr__(self, "meta", normalized_meta)
         if not self.summary:
             object.__setattr__(self, "summary", (self.content or "")[:120])
-        if not self.uncertainty:
+        if normalized_uncertainty is None:
             object.__setattr__(self, "uncertainty",
                                _dag_uncertainty(ev["validity"],
-                                                bool(ev["verified"])))
+                                                ev["verified"]))
         else:
-            object.__setattr__(self, "uncertainty", dict(self.uncertainty))
+            object.__setattr__(self, "uncertainty", normalized_uncertainty)
         object.__setattr__(self, "content_ref", _dag_sha(self.content))
         if not self.node_id:
             object.__setattr__(self, "node_id", _dag_sha(
@@ -39647,6 +39783,7 @@ class ContextEdge:
             raise ContextDagError(f"unknown edge kind: {self.kind!r}")
         if self.src == self.dst:
             raise ContextDagError("self-referential edge is not a DAG edge")
+        object.__setattr__(self, "meta", _dag_meta(self.meta, "edge metadata"))
         if not self.edge_id:
             object.__setattr__(self, "edge_id", _dag_sha(
                 self.kind, self.src, self.dst, self.version,
@@ -39787,7 +39924,7 @@ class ContextDAG:
         self.task_id = str(task_id)
         self.version = int(version)
         self.created_by = str(created_by)
-        self.meta = dict(meta or {})
+        self.meta = _dag_meta(meta or {}, "graph metadata")
         self._nodes: dict[str, ContextNode] = {}
         self._edges: dict[str, ContextEdge] = {}
         self._adj: dict[str, list[str]] = {}
@@ -39961,7 +40098,14 @@ class ContextDAG:
         g = cls(task_id=data["task_id"], version=int(data["version"]),
                 created_by=data.get("created_by", ""),
                 meta=data.get("meta") or {})
-        for raw in data.get("nodes", []):
+        raw_nodes = data.get("nodes", [])
+        raw_edges = data.get("edges", [])
+        if not isinstance(raw_nodes, list) or not isinstance(raw_edges, list):
+            raise ContextDagError("graph nodes and edges must be lists")
+        seen_node_ids: set[str] = set()
+        for raw in raw_nodes:
+            if not isinstance(raw, Mapping):
+                raise ContextDagError("graph node must be an object")
             node = ContextNode(
                 kind=raw["kind"], content=raw["content"],
                 summary=raw.get("summary", ""),
@@ -39974,9 +40118,15 @@ class ContextDAG:
                 raise ContextDagError(
                     f"node id mismatch: {node.node_id!r} != "
                     f"{raw['node_id']!r}")
+            if node.node_id in seen_node_ids:
+                raise ContextDagError("graph contains duplicate node containers")
+            seen_node_ids.add(node.node_id)
             g._nodes[node.node_id] = node
             g._adj.setdefault(node.node_id, [])
-        for raw in data.get("edges", []):
+        seen_edge_ids: set[str] = set()
+        for raw in raw_edges:
+            if not isinstance(raw, Mapping):
+                raise ContextDagError("graph edge must be an object")
             edge = ContextEdge(kind=raw["kind"], src=raw["src"],
                                dst=raw["dst"],
                                version=int(raw.get("version", 1)),
@@ -39985,6 +40135,9 @@ class ContextDAG:
                 raise ContextDagError(
                     f"edge id mismatch: {edge.edge_id!r} != "
                     f"{raw['edge_id']!r}")
+            if edge.edge_id in seen_edge_ids:
+                raise ContextDagError("graph contains duplicate edge containers")
+            seen_edge_ids.add(edge.edge_id)
             g._edges[edge.edge_id] = edge
             g._adj[edge.src].append(edge.dst)
         if g.digest() != data.get("digest"):
@@ -40108,20 +40261,27 @@ def cisc_prioritize(candidates: list[dict], *,
     effort, never an evidence substitute. The returned winner must still pass
     :func:`apply_evidence_gate` before its path may ship.
     """
+    if not isinstance(candidates, list):
+        raise ContextDagError("CISC candidates must be a list")
     if not candidates:
         return {"winner": None, "weights": {}, "vote_share": {},
                 "confidence_is": "uncalibrated model self-confidence "
                                  "(heuristic)"}
-    if temperature <= 0:
-        raise ContextDagError("CISC temperature must be positive")
+    if isinstance(temperature, bool) or not isinstance(temperature, (int, float)) or not math.isfinite(float(temperature)) or temperature <= 0:
+        raise ContextDagError("CISC temperature must be a finite positive number")
+    if any(not isinstance(c, Mapping) for c in candidates):
+        raise ContextDagError("CISC candidates must be objects")
     ids = [str(c.get("path_id", "")) for c in candidates]
     if any(not i for i in ids) or len(set(ids)) != len(ids):
         raise ContextDagError("CISC candidates need unique non-empty path_ids")
     scores: list[float] = []
     for c in candidates:
         try:
-            scores.append(max(0.0, float(c["confidence"])))
-        except (KeyError, TypeError, ValueError):
+            value = c["confidence"]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                raise ValueError
+            scores.append(max(0.0, float(value)))
+        except (KeyError, TypeError, ValueError, OverflowError):
             raise ContextDagError(
                 "CISC candidate requires numeric 'confidence'") from None
     total = sum(scores)
@@ -40130,9 +40290,11 @@ def cisc_prioritize(candidates: list[dict], *,
         weights = {i: 1.0 / len(ids) for i in ids}
     else:
         weights = {i: s / total for s, i in zip(scores, ids)}
-    # softmax-normalized weighting with temperature (CISC normalization step)
-    exp = {i: 2.718281828459045 ** (weights[i] / max(temperature, 1e-9))
-           for i in ids}
+    # Stable softmax normalization avoids overflow for very small positive
+    # temperatures while still rejecting non-finite caller inputs above.
+    logits = {i: weights[i] / float(temperature) for i in ids}
+    pivot = max(logits.values())
+    exp = {i: math.exp(logits[i] - pivot) for i in ids}
     z = sum(exp.values()) or 1.0
     vote = {i: exp[i] / z for i in ids}
     winner = max(vote, key=lambda k: vote[k])
@@ -40297,6 +40459,7 @@ def compile_context_dag(*, task_id: str,
             continue
         expanded.add(nid)
         children = list(fetch(node) or [])
+        ledger._tick()
         if resolved_profile is not None:
             children.sort(key=lambda child: child.node_id)
             if depth >= budget.max_depth and children:
@@ -40385,6 +40548,7 @@ def compile_context_dag(*, task_id: str,
         "execution_profile_present": resolved_profile is not None,
         "compiled_at_unix_s": round(time.time(), 3),
     }
+    ledger._tick()
     if resolved_profile is not None:
         artifact["status"] = profile_status
         artifact["execution_profile"] = resolved_profile

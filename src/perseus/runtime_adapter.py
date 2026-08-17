@@ -116,6 +116,13 @@ def _ra_public_text(value: Any, field: str, *, max_length: int = 160, allow_empt
     return text
 
 
+def _ra_provider_commitment(value: Any, field: str = "provider_ref") -> str:
+    if isinstance(value, str) and _RA_DIGEST_RE.fullmatch(value):
+        return value.lower()
+    text = _ra_id(value, field)
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def _ra_id(value: Any, field: str, *, allow_empty: bool = False) -> str:
     text = _ra_text(value, field, allow_empty=allow_empty)
     if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", text) or any(marker in text for marker in ("://", "@", "?", "&", "=")):
@@ -180,6 +187,9 @@ class RuntimeCapabilities:
     auth_mode: str
     provider_ref: str
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "provider_ref", _ra_provider_commitment(self.provider_ref))
+
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "RuntimeCapabilities") -> "RuntimeCapabilities":
         if isinstance(value, cls):
@@ -199,8 +209,10 @@ class RuntimeCapabilities:
         if not modes or not set(modes).issubset(_RA_EXECUTION_MODES):
             raise RuntimeAdapterError("execution_modes must contain offline, local, or approved_network")
         metrics = _ra_string_list(value["resource_metrics"], "resource_metrics")
-        for field in ("backend_id", "backend_version", "model_id", "tokenizer_id", "auth_mode", "provider_ref"):
+        for field in ("backend_id", "backend_version", "model_id", "tokenizer_id", "auth_mode"):
             _ra_id(value[field], field)
+        if not (isinstance(value["provider_ref"], str) and _RA_DIGEST_RE.fullmatch(value["provider_ref"])):
+            _ra_id(value["provider_ref"], "provider_ref")
         model_version = _ra_id(value["model_version"], "model_version")
         hardware_class = _ra_id(value["hardware_class"], "hardware_class")
         if not isinstance(value["streaming"], bool) or not isinstance(value["tools"], bool):
@@ -219,7 +231,7 @@ class RuntimeCapabilities:
             hardware_class=hardware_class,
             resource_metrics=metrics,
             auth_mode=_ra_id(value["auth_mode"], "auth_mode"),
-            provider_ref=_ra_id(value["provider_ref"], "provider_ref"),
+            provider_ref=_ra_provider_commitment(value["provider_ref"]),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -368,7 +380,10 @@ class AdapterResult:
         if not isinstance(self.runtime, Mapping) or set(self.runtime) - _RA_RUNTIME_FIELDS:
             raise RuntimeAdapterError("runtime provenance contains unsupported fields")
         _ra_forbidden_keys(self.runtime, "runtime")
-        runtime = {str(key): _ra_id(raw, f"runtime.{key}") for key, raw in self.runtime.items()}
+        runtime = {
+            str(key): (_ra_provider_commitment(raw, f"runtime.{key}") if key == "provider_ref" else _ra_id(raw, f"runtime.{key}"))
+            for key, raw in self.runtime.items()
+        }
         error_code = None if self.error_code is None else _ra_id(self.error_code, "error_code")
         error_message = None if self.error_message is None else _ra_public_text(self.error_message, "error_message", max_length=256)
         if self.external_fallback_allowed is not False:

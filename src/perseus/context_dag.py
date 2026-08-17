@@ -42,6 +42,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Optional
@@ -95,6 +96,91 @@ def _dag_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
+_dag_validity_states = frozenset({
+    "observed", "derived", "inferred", "stale", "contradictory", "unavailable", "unknown",
+    "low", "medium", "high", "tie",
+})
+_dag_uncertainty_classes = frozenset({"high", "medium", "low", "inferred", "stale", "tie"})
+_dag_public_source_re = re.compile(r"^(?:file|vault|ledger|artifact):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
+_dag_opaque_id_re = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,159}$")
+_dag_meta_key_re = re.compile(r"^[A-Za-z][A-Za-z0-9_.\-]{0,63}$")
+_dag_commitment_re = re.compile(r"^sha256:[0-9a-fA-F]{64}$")
+_dag_sensitive_key_re = re.compile(r"(?i)(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private|prompt|body|content|raw)")
+
+
+def _dag_public_ref(value: Any, field: str) -> str:
+    if not isinstance(value, str):
+        raise ContextDagError(f"{field} must be a text reference")
+    source = value.strip()
+    if not source or len(source) > 160:
+        raise ContextDagError(f"{field} must be a bounded reference")
+    if source.startswith("artifact:candidate:"):
+        raise ContextDagError(f"{field} cannot use a synthetic artifact reference")
+    if _dag_public_source_re.fullmatch(source):
+        namespace, _, suffix = source.partition(":")
+        if re.search(r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private|raw)(?:$|[:/#._-])", suffix):
+            return f"{namespace}:sha256:{_dag_sha(source)}"
+        return source
+    if _dag_opaque_id_re.fullmatch(source):
+        return f"artifact:sha256:{_dag_sha(source)}"
+    raise ContextDagError(f"{field} contains an untrusted source namespace")
+
+
+def _dag_meta_value(value: Any, field: str) -> Any:
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        if abs(value) > 10**12:
+            raise ContextDagError(f"{field} integer is out of bounds")
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ContextDagError(f"{field} must contain finite numbers")
+        return value
+    if isinstance(value, str):
+        if _dag_commitment_re.fullmatch(value):
+            return value.lower()
+        if len(value) > 256:
+            raise ContextDagError(f"{field} string is too long")
+        return "sha256:" + _dag_sha(value)
+    if isinstance(value, Mapping):
+        return _dag_meta(value, field)
+    if isinstance(value, (list, tuple)):
+        if len(value) > 64:
+            raise ContextDagError(f"{field} list is too long")
+        return [_dag_meta_value(item, f"{field}[{index}]") for index, item in enumerate(value)]
+    raise ContextDagError(f"{field} contains an unsupported value")
+
+
+def _dag_meta(value: Any, field: str = "meta") -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ContextDagError(f"{field} must be an object")
+    if len(value) > 32:
+        raise ContextDagError(f"{field} contains too many fields")
+    result: dict[str, Any] = {}
+    for key, child in value.items():
+        if not isinstance(key, str) or not _dag_meta_key_re.fullmatch(key):
+            raise ContextDagError(f"{field} contains an invalid key")
+        if _dag_sensitive_key_re.search(key):
+            raise ContextDagError(f"{field}.{key} is not a permitted public field")
+        result[key] = _dag_meta_value(child, f"{field}.{key}")
+    return result
+
+
+def _dag_uncertainty_value(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != {"class", "score"}:
+        raise ContextDagError("node uncertainty must contain exactly class and score")
+    cls = value.get("class")
+    score = value.get("score")
+    if not isinstance(cls, str) or cls.strip().lower() not in _dag_uncertainty_classes:
+        raise ContextDagError("node uncertainty class is invalid")
+    if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(float(score)) or not 0 <= float(score) <= 1:
+        raise ContextDagError("node uncertainty score must be finite between 0 and 1")
+    return {"class": cls.strip().lower(), "score": round(float(score), 6)}
+
+
 def dag_tokens(text: str) -> int:
     """Deterministic rendered-token estimate (chars//4, ceil).
 
@@ -121,14 +207,25 @@ def _norm_evidence(evidence: Optional[dict]) -> dict:
     if evidence is not None and not isinstance(evidence, Mapping):
         raise ContextDagError("node evidence must be an object")
     ev = dict(evidence or {})
+    allowed = {"validity", "verified", "source_ids", "policy_ref", "resolved_by"}
+    if set(ev) - allowed:
+        raise ContextDagError("node evidence contains unsupported fields")
     ev.setdefault("validity", "inferred")
+    if not isinstance(ev["validity"], str) or ev["validity"].strip().lower() not in _dag_validity_states:
+        raise ContextDagError("node evidence.validity is invalid")
+    ev["validity"] = ev["validity"].strip().lower()
     ev.setdefault("verified", False)
     if not isinstance(ev["verified"], bool):
         raise ContextDagError("node evidence.verified must be boolean")
     ev.setdefault("source_ids", [])
     if isinstance(ev.get("source_ids"), str):
         ev["source_ids"] = [ev["source_ids"]]
-    ev["source_ids"] = sorted({str(s) for s in ev.get("source_ids") or []})
+    if not isinstance(ev.get("source_ids"), (list, tuple)) or len(ev["source_ids"]) > 64:
+        raise ContextDagError("node evidence.source_ids must be a bounded list")
+    ev["source_ids"] = sorted({_dag_public_ref(s, "node evidence.source_ids") for s in ev.get("source_ids")})
+    for field in ("policy_ref", "resolved_by"):
+        if field in ev and ev[field] is not None:
+            ev[field] = _dag_public_ref(ev[field], f"node evidence.{field}")
     return ev
 
 
@@ -164,18 +261,21 @@ class ContextNode:
             raise ContextDagError("node version must be a positive integer")
         if not isinstance(self.meta, dict):
             raise ContextDagError("node metadata must be an object")
+        normalized_meta = _dag_meta(self.meta, "node metadata")
         if self.uncertainty is not None and not isinstance(self.uncertainty, Mapping):
             raise ContextDagError("node uncertainty must be an object")
+        normalized_uncertainty = None if self.uncertainty is None else _dag_uncertainty_value(self.uncertainty)
         ev = _norm_evidence(self.evidence)
         object.__setattr__(self, "evidence", ev)
+        object.__setattr__(self, "meta", normalized_meta)
         if not self.summary:
             object.__setattr__(self, "summary", (self.content or "")[:120])
-        if not self.uncertainty:
+        if normalized_uncertainty is None:
             object.__setattr__(self, "uncertainty",
                                _dag_uncertainty(ev["validity"],
-                                                bool(ev["verified"])))
+                                                ev["verified"]))
         else:
-            object.__setattr__(self, "uncertainty", dict(self.uncertainty))
+            object.__setattr__(self, "uncertainty", normalized_uncertainty)
         object.__setattr__(self, "content_ref", _dag_sha(self.content))
         if not self.node_id:
             object.__setattr__(self, "node_id", _dag_sha(
@@ -212,6 +312,7 @@ class ContextEdge:
             raise ContextDagError(f"unknown edge kind: {self.kind!r}")
         if self.src == self.dst:
             raise ContextDagError("self-referential edge is not a DAG edge")
+        object.__setattr__(self, "meta", _dag_meta(self.meta, "edge metadata"))
         if not self.edge_id:
             object.__setattr__(self, "edge_id", _dag_sha(
                 self.kind, self.src, self.dst, self.version,
@@ -352,7 +453,7 @@ class ContextDAG:
         self.task_id = str(task_id)
         self.version = int(version)
         self.created_by = str(created_by)
-        self.meta = dict(meta or {})
+        self.meta = _dag_meta(meta or {}, "graph metadata")
         self._nodes: dict[str, ContextNode] = {}
         self._edges: dict[str, ContextEdge] = {}
         self._adj: dict[str, list[str]] = {}
@@ -526,7 +627,14 @@ class ContextDAG:
         g = cls(task_id=data["task_id"], version=int(data["version"]),
                 created_by=data.get("created_by", ""),
                 meta=data.get("meta") or {})
-        for raw in data.get("nodes", []):
+        raw_nodes = data.get("nodes", [])
+        raw_edges = data.get("edges", [])
+        if not isinstance(raw_nodes, list) or not isinstance(raw_edges, list):
+            raise ContextDagError("graph nodes and edges must be lists")
+        seen_node_ids: set[str] = set()
+        for raw in raw_nodes:
+            if not isinstance(raw, Mapping):
+                raise ContextDagError("graph node must be an object")
             node = ContextNode(
                 kind=raw["kind"], content=raw["content"],
                 summary=raw.get("summary", ""),
@@ -539,9 +647,15 @@ class ContextDAG:
                 raise ContextDagError(
                     f"node id mismatch: {node.node_id!r} != "
                     f"{raw['node_id']!r}")
+            if node.node_id in seen_node_ids:
+                raise ContextDagError("graph contains duplicate node containers")
+            seen_node_ids.add(node.node_id)
             g._nodes[node.node_id] = node
             g._adj.setdefault(node.node_id, [])
-        for raw in data.get("edges", []):
+        seen_edge_ids: set[str] = set()
+        for raw in raw_edges:
+            if not isinstance(raw, Mapping):
+                raise ContextDagError("graph edge must be an object")
             edge = ContextEdge(kind=raw["kind"], src=raw["src"],
                                dst=raw["dst"],
                                version=int(raw.get("version", 1)),
@@ -550,6 +664,9 @@ class ContextDAG:
                 raise ContextDagError(
                     f"edge id mismatch: {edge.edge_id!r} != "
                     f"{raw['edge_id']!r}")
+            if edge.edge_id in seen_edge_ids:
+                raise ContextDagError("graph contains duplicate edge containers")
+            seen_edge_ids.add(edge.edge_id)
             g._edges[edge.edge_id] = edge
             g._adj[edge.src].append(edge.dst)
         if g.digest() != data.get("digest"):
@@ -673,20 +790,27 @@ def cisc_prioritize(candidates: list[dict], *,
     effort, never an evidence substitute. The returned winner must still pass
     :func:`apply_evidence_gate` before its path may ship.
     """
+    if not isinstance(candidates, list):
+        raise ContextDagError("CISC candidates must be a list")
     if not candidates:
         return {"winner": None, "weights": {}, "vote_share": {},
                 "confidence_is": "uncalibrated model self-confidence "
                                  "(heuristic)"}
-    if temperature <= 0:
-        raise ContextDagError("CISC temperature must be positive")
+    if isinstance(temperature, bool) or not isinstance(temperature, (int, float)) or not math.isfinite(float(temperature)) or temperature <= 0:
+        raise ContextDagError("CISC temperature must be a finite positive number")
+    if any(not isinstance(c, Mapping) for c in candidates):
+        raise ContextDagError("CISC candidates must be objects")
     ids = [str(c.get("path_id", "")) for c in candidates]
     if any(not i for i in ids) or len(set(ids)) != len(ids):
         raise ContextDagError("CISC candidates need unique non-empty path_ids")
     scores: list[float] = []
     for c in candidates:
         try:
-            scores.append(max(0.0, float(c["confidence"])))
-        except (KeyError, TypeError, ValueError):
+            value = c["confidence"]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                raise ValueError
+            scores.append(max(0.0, float(value)))
+        except (KeyError, TypeError, ValueError, OverflowError):
             raise ContextDagError(
                 "CISC candidate requires numeric 'confidence'") from None
     total = sum(scores)
@@ -695,9 +819,11 @@ def cisc_prioritize(candidates: list[dict], *,
         weights = {i: 1.0 / len(ids) for i in ids}
     else:
         weights = {i: s / total for s, i in zip(scores, ids)}
-    # softmax-normalized weighting with temperature (CISC normalization step)
-    exp = {i: 2.718281828459045 ** (weights[i] / max(temperature, 1e-9))
-           for i in ids}
+    # Stable softmax normalization avoids overflow for very small positive
+    # temperatures while still rejecting non-finite caller inputs above.
+    logits = {i: weights[i] / float(temperature) for i in ids}
+    pivot = max(logits.values())
+    exp = {i: math.exp(logits[i] - pivot) for i in ids}
     z = sum(exp.values()) or 1.0
     vote = {i: exp[i] / z for i in ids}
     winner = max(vote, key=lambda k: vote[k])
@@ -862,6 +988,7 @@ def compile_context_dag(*, task_id: str,
             continue
         expanded.add(nid)
         children = list(fetch(node) or [])
+        ledger._tick()
         if resolved_profile is not None:
             children.sort(key=lambda child: child.node_id)
             if depth >= budget.max_depth and children:
@@ -950,6 +1077,7 @@ def compile_context_dag(*, task_id: str,
         "execution_profile_present": resolved_profile is not None,
         "compiled_at_unix_s": round(time.time(), 3),
     }
+    ledger._tick()
     if resolved_profile is not None:
         artifact["status"] = profile_status
         artifact["execution_profile"] = resolved_profile
