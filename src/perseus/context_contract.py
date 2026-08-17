@@ -369,10 +369,7 @@ def _cc_source_ids(record: Mapping[str, Any], candidate_id: str, *, require_expl
     if len(values) > CONTEXT_MAX_SOURCE_REFS:
         raise ValueError(f"{candidate_id} contains too many source references")
     if not values:
-        if require_explicit:
-            raise ValueError(f"{candidate_id} is missing an explicit public source reference")
-        safe_candidate = _cc_safe_id(candidate_id, fallback="unknown")
-        values = [f"artifact:candidate:{safe_candidate}"]
+        raise ValueError(f"{candidate_id} is missing an explicit public source reference")
     result: set[str] = set()
     for item in values:
         if not isinstance(item, str):
@@ -380,7 +377,7 @@ def _cc_source_ids(record: Mapping[str, Any], candidate_id: str, *, require_expl
         source = item.strip()
         if not _CC_PUBLIC_SOURCE_RE.fullmatch(source):
             raise ValueError(f"{candidate_id} contains a non-public source reference")
-        if require_explicit and source.startswith("artifact:candidate:"):
+        if source.startswith("artifact:candidate:"):
             raise ValueError(f"{candidate_id} contains an unverified synthetic source reference")
         if _CC_SENSITIVE_SOURCE_RE.search(source.split(":", 1)[1]):
             namespace = source.split(":", 1)[0]
@@ -1141,6 +1138,12 @@ class AgentProjectionBoundary:
         # separately by _consent_decision.
         return permanent
 
+    def _revocation_epoch_topics(self, agent_id: str, scope_fp: str, topics: Sequence[str]) -> int:
+        topic_list = sorted({topic for topic in topics if isinstance(topic, str) and topic})
+        if not topic_list:
+            topic_list = [""]
+        return max(self._revocation_epoch(agent_id, scope_fp, topic) for topic in topic_list)
+
     def grant_consent(
         self,
         *,
@@ -1222,7 +1225,8 @@ class AgentProjectionBoundary:
         for digest, entry in list(self._cache.items()):
             if entry.get("agent_id") != safe_agent or entry.get("scope_fp") != scope_fp:
                 continue
-            if safe_topic and entry.get("topic") != safe_topic:
+            entry_topics = entry.get("topics") or ([entry.get("topic")] if entry.get("topic") else [])
+            if safe_topic and safe_topic not in entry_topics:
                 continue
             self._cache.pop(digest, None)
             invalidated += 1
@@ -1255,6 +1259,16 @@ class AgentProjectionBoundary:
             return "scope_mismatch"
         return None
 
+    def _consent_decision_topics(self, agent_id: str, scope: Mapping[str, str], scope_fp: str, topics: Sequence[str], permission: str) -> str | None:
+        topic_list = sorted({topic for topic in topics if isinstance(topic, str) and topic})
+        if not topic_list:
+            return self._consent_decision(agent_id, scope, scope_fp, "", permission)
+        for topic in topic_list:
+            denied = self._consent_decision(agent_id, scope, scope_fp, topic, permission)
+            if denied:
+                return denied
+        return None
+
     def _compile(self, records: Any, *, agent_id: Any, scope: Any, task: Any, request_class: str, policy_version: str, policy: Any, budget: Any, integrations: Any, cfg: Mapping[str, Any] | None) -> dict[str, Any]:
         safe_agent, normalized_scope, scope_fp = self._identity(agent_id, scope)
         policy_map = _cc_policy(policy)
@@ -1283,9 +1297,7 @@ class AgentProjectionBoundary:
         items, selection, budget_exhausted = _cc_projection_items(rank, record_map, policy_map, max_chars, cfg)
         topics = sorted({_cc_topic(record_map[item["candidate_id"]]) for item in items if _cc_topic(record_map[item["candidate_id"]])})
         topic = topics[0] if len(topics) == 1 else ""
-        consent_topics = self._consents.get((safe_agent, scope_fp), {}).get("topics", [])
-        if consent_topics and (not topic or any(candidate_topic not in consent_topics for candidate_topic in topics)):
-            topic = ""
+        revocation_epoch = self._revocation_epoch_topics(safe_agent, scope_fp, topics)
         route = rank.get("route", {})
         route_states = route.get("integration_state") if isinstance(route, Mapping) else None
         states = dict(route_states) if isinstance(route_states, Mapping) else _cc_integrations(integrations)
@@ -1299,7 +1311,7 @@ class AgentProjectionBoundary:
             "policy_commitment": "sha256:" + _cc_sha({key: value for key, value in policy_map.items() if key not in {"raw", "prompt", "tool_args"}}),
             "redaction_policy": _cc_projection_redaction_policy(cfg, policy_map),
             "permissions_commitment": "sha256:" + _cc_sha(self._consents.get((safe_agent, scope_fp), {}).get("permissions", {})),
-            "revocation_epoch": self._revocation_epoch(safe_agent, scope_fp, topic),
+            "revocation_epoch": revocation_epoch,
             "items": items,
             "selection": selection,
         }
@@ -1344,7 +1356,7 @@ class AgentProjectionBoundary:
             "redaction_policy": digest_payload["redaction_policy"],
             "items": items,
         }
-        consent_failure = self._consent_decision(safe_agent, normalized_scope, scope_fp, topic, "release")
+        consent_failure = self._consent_decision_topics(safe_agent, normalized_scope, scope_fp, topics, "release")
         release_decision = "ready" if consent_failure is None and status in {"complete", "degraded"} else (consent_failure or status)
         return {
             "schema_version": AGENT_PROJECTION_SCHEMA_VERSION,
@@ -1412,7 +1424,10 @@ class AgentProjectionBoundary:
             "recorded_at": sorted({str(item.get("recorded_at")) for item in items if isinstance(item, Mapping) and item.get("recorded_at")}),
             "release_decision": "released",
             "status": "complete",
-            "revocation_epoch": self._revocation_epoch(str(preview.get("agent_id", "")), scope_fp, topic),
+            "revocation_epoch": self._revocation_epoch_topics(
+                str(preview.get("agent_id", "")), scope_fp,
+                sorted({item.get("topic") for item in items if isinstance(item, Mapping) and isinstance(item.get("topic"), str) and item.get("topic")}),
+            ),
         }
         return receipt
 
@@ -1452,11 +1467,15 @@ class AgentProjectionBoundary:
             normalized_scope = _cc_validate_scope_contract(preview.get("scope", {}))
             scope_fp = _cc_sha(normalized_scope)
             topic = _cc_safe_id(preview.get("topic")) or normalized_scope.get("topic", "")
+            preview_projection = preview.get("projection", {})
+            preview_items = preview_projection.get("items", []) if isinstance(preview_projection, Mapping) else []
+            preview_topics = sorted({item.get("topic") for item in preview_items if isinstance(item, Mapping) and isinstance(item.get("topic"), str) and item.get("topic")})
+            revocation_topics = preview_topics or ([topic] if topic else [])
             # Consent, pause, and revoke are evaluated before trusting a
             # supplied preview. A stale/tampered preview must not mask the
             # current control decision (and a paused/revoked topic must remain
             # fail-closed even when the digest can no longer be reconstructed).
-            preflight_denied = self._consent_decision(safe_agent, normalized_scope, scope_fp, topic, "release")
+            preflight_denied = self._consent_decision_topics(safe_agent, normalized_scope, scope_fp, revocation_topics, "release")
             if preflight_denied:
                 status = "abstain" if preflight_denied == "revoked" else "review"
                 return {
@@ -1501,7 +1520,7 @@ class AgentProjectionBoundary:
                 "policy_commitment": str(projection.get("policy_commitment", "")),
                 "redaction_policy": projection.get("redaction_policy", {}),
                 "permissions_commitment": str(projection.get("permissions_commitment", "")),
-                "revocation_epoch": self._revocation_epoch(safe_agent, scope_fp, topic),
+                "revocation_epoch": self._revocation_epoch_topics(safe_agent, scope_fp, revocation_topics),
                 "items": projection.get("items", []),
                 "selection": preview.get("selection", []),
             })
@@ -1521,7 +1540,9 @@ class AgentProjectionBoundary:
             normalized_scope = _cc_validate_scope_contract(preview.get("scope", {}))
             scope_fp = str(preview.get("_scope_fp") or _cc_sha(normalized_scope))
             topic = _cc_safe_id(preview.get("topic")) or normalized_scope.get("topic", "")
-        denied = self._consent_decision(safe_agent, normalized_scope, scope_fp, topic, "release")
+            preview_items = preview.get("projection", {}).get("items", []) if isinstance(preview.get("projection"), Mapping) else []
+            revocation_topics = sorted({item.get("topic") for item in preview_items if isinstance(item, Mapping) and isinstance(item.get("topic"), str) and item.get("topic")}) or ([topic] if topic else [])
+        denied = self._consent_decision_topics(safe_agent, normalized_scope, scope_fp, revocation_topics, "release")
         if denied:
             status = "abstain" if denied == "revoked" else "review"
             return {
@@ -1566,7 +1587,7 @@ class AgentProjectionBoundary:
             "scope": normalized_scope,
             "cache": {"hit": False, "key": "sha256:" + digest},
         }
-        self._cache[digest] = {"result": dict(result), "agent_id": safe_agent, "scope_fp": scope_fp, "topic": topic}
+        self._cache[digest] = {"result": dict(result), "agent_id": safe_agent, "scope_fp": scope_fp, "topic": topic, "topics": list(revocation_topics)}
         return result
 
     def cache_stats(self) -> dict[str, int]:

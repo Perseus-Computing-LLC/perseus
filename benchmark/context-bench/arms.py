@@ -178,7 +178,7 @@ def arm_perseus_dag(sample: dict, files: dict[str, str],
     root = perseus.ContextNode(
         kind="requirement", content=sample["question"],
         evidence={"validity": "observed", "verified": True,
-                  "source_ids": ["pilot:" + sample["id"]]})
+                  "source_ids": ["artifact:pilot:" + sample["id"]]})
     n_files = len(sample.get("required_files") or [])
     budget = perseus.CompilationBudget(
         max_nodes=max_chunks + n_files + 4,
