@@ -20,6 +20,9 @@ _CE_PROVIDER_STATES = frozenset({"active", "partial", "degraded", "unavailable",
 _CE_UNCERTAINTY_CLASSES = frozenset({"high", "medium", "low", "stale", "inferred", "tie"})
 _CE_DIGEST_RE = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
 _CE_PUBLIC_SOURCE_RE = re.compile(r"^(?:file|vault|ledger|artifact):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
+_CE_SENSITIVE_SOURCE_RE = re.compile(
+    r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private(?:[_-]?(?:body|scalar|data))?|raw(?:[_-]?payload)?)(?:$|[:/#._-])"
+)
 _CE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$")
 _CE_MAX_ENTRIES = 64
 _CE_MAX_SELECTED = 64
@@ -121,6 +124,9 @@ def _ce_id(value: Any, field: str) -> str:
     if _CE_DIGEST_RE.fullmatch(text):
         return "sha256:" + text.removeprefix("sha256:").lower()
     if field == "source_ref" and _CE_PUBLIC_SOURCE_RE.fullmatch(text):
+        if _CE_SENSITIVE_SOURCE_RE.search(text.split(":", 1)[1]):
+            namespace = text.split(":", 1)[0]
+            return f"{namespace}:sha256:{hashlib.sha256(text_bytes).hexdigest()}"
         return text
     if field == "provider" and text in {"vault", "ledger"}:
         return text

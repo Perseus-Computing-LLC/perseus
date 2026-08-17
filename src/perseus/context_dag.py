@@ -118,6 +118,8 @@ def _dag_uncertainty(validity: str, verified: bool) -> dict[str, Any]:
 
 
 def _norm_evidence(evidence: Optional[dict]) -> dict:
+    if evidence is not None and not isinstance(evidence, Mapping):
+        raise ContextDagError("node evidence must be an object")
     ev = dict(evidence or {})
     ev.setdefault("validity", "inferred")
     ev.setdefault("verified", False)
@@ -160,6 +162,8 @@ class ContextNode:
             raise ContextDagError("node version must be a positive integer")
         if not isinstance(self.meta, dict):
             raise ContextDagError("node metadata must be an object")
+        if self.uncertainty is not None and not isinstance(self.uncertainty, Mapping):
+            raise ContextDagError("node uncertainty must be an object")
         ev = _norm_evidence(self.evidence)
         object.__setattr__(self, "evidence", ev)
         if not self.summary:
@@ -168,6 +172,8 @@ class ContextNode:
             object.__setattr__(self, "uncertainty",
                                _dag_uncertainty(ev["validity"],
                                                 bool(ev["verified"])))
+        else:
+            object.__setattr__(self, "uncertainty", dict(self.uncertainty))
         object.__setattr__(self, "content_ref", _dag_sha(self.content))
         if not self.node_id:
             object.__setattr__(self, "node_id", _dag_sha(
@@ -511,6 +517,8 @@ class ContextDAG:
 
     @classmethod
     def from_dict(cls, data: dict) -> "ContextDAG":
+        if not isinstance(data, Mapping):
+            raise ContextDagError("graph must be an object")
         if data.get("schema_version") != "perseus-context-dag/v1":
             raise ContextDagError("unsupported context DAG schema version")
         g = cls(task_id=data["task_id"], version=int(data["version"]),
@@ -1026,7 +1034,7 @@ def verify_compiled_dag(artifact: dict) -> dict:
         return {"valid": False, "errors": ["unsupported schema version"]}
     try:
         graph = ContextDAG.from_dict(artifact["graph"])
-    except (ContextDagError, TypeError, KeyError, ValueError) as exc:
+    except (ContextDagError, TypeError, KeyError, ValueError, AttributeError, IndexError, OverflowError) as exc:
         return {"valid": False, "errors": [f"graph invalid: {exc}"]}
     selected = artifact.get("selected_node_ids")
     if not isinstance(selected, list) or any(not isinstance(nid, str) for nid in selected):
@@ -1107,7 +1115,8 @@ def verify_compiled_dag(artifact: dict) -> dict:
     if artifact.get("token_accounting") != TOKEN_ACCOUNTING_NOTE:
         errors.append("top-level token accounting note is invalid")
     errors.extend(_dag_validate_budget_report(artifact, graph, profile_manifest or None))
-    budget_sealed = dict(artifact.get("budget") or {})
+    budget_raw = artifact.get("budget")
+    budget_sealed = dict(budget_raw) if isinstance(budget_raw, Mapping) else {}
     budget_sealed.pop("wall_clock_s", None)
     digest_parts = [
         "packet", _dag_json(packet),

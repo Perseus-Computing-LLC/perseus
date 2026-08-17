@@ -167,7 +167,7 @@ def _cc_safe_id(value: Any, *, fallback: str = "") -> str:
         return ""
     # URI/userinfo/query syntax can carry credentials or private material even
     # when the scalar matches the broad identifier grammar.
-    if any(marker in raw for marker in ("://", "@", "?", "&", "=")):
+    if any(marker in raw for marker in ("://", "@", "?", "&", "=")) or _CC_SENSITIVE_SOURCE_RE.search(raw):
         return "sha256:" + _cc_text_sha(raw)
     # A source identifier is a commitment, not a place to carry arbitrary text.
     if not _SAFE_ID_RE.fullmatch(raw):
@@ -341,6 +341,9 @@ def _cc_content_commitment(record: Mapping[str, Any]) -> str | None:
 
 
 _CC_PUBLIC_SOURCE_RE = re.compile(r"^(?:file|vault|ledger|artifact):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
+_CC_SENSITIVE_SOURCE_RE = re.compile(
+    r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private(?:[_-]?(?:body|scalar|data))?|raw(?:[_-]?payload)?)(?:$|[:/#._-])"
+)
 
 
 def _cc_source_ids(record: Mapping[str, Any], candidate_id: str, *, require_explicit: bool = False) -> list[str]:
@@ -377,6 +380,9 @@ def _cc_source_ids(record: Mapping[str, Any], candidate_id: str, *, require_expl
         source = item.strip()
         if not _CC_PUBLIC_SOURCE_RE.fullmatch(source):
             raise ValueError(f"{candidate_id} contains a non-public source reference")
+        if _CC_SENSITIVE_SOURCE_RE.search(source.split(":", 1)[1]):
+            namespace = source.split(":", 1)[0]
+            source = f"{namespace}:sha256:{_cc_text_sha(source)}"
         result.add(source)
     ordered = sorted(result)
     if len(ordered) > CONTEXT_MAX_SOURCE_REFS:
