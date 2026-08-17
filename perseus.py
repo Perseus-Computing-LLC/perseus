@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "2d5a285"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "c4988d9"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -36763,7 +36763,7 @@ _CE_STATES = frozenset({
 _CE_PROVIDER_STATES = frozenset({"active", "partial", "degraded", "unavailable", "timeout", "not_configured"})
 _CE_UNCERTAINTY_CLASSES = frozenset({"high", "medium", "low", "stale", "inferred", "tie"})
 _CE_DIGEST_RE = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
-_CE_PUBLIC_SOURCE_RE = re.compile(r"^(?:vault|ledger):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
+_CE_PUBLIC_SOURCE_RE = re.compile(r"^(?:file|vault|ledger|artifact):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
 _CE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$")
 _CE_MAX_ENTRIES = 64
 _CE_MAX_SELECTED = 64
@@ -36908,7 +36908,12 @@ def _ce_sources(record: Mapping[str, Any], candidate_id: str) -> list[str]:
                     values.append(nested[nested_key])
     if len(values) > _CE_MAX_SOURCE_REFS:
         raise ContextEvidenceError(f"{candidate_id} contains too many source references")
-    refs = sorted({_ce_id(value, "source_ref") for value in values if str(value or "").strip()})
+    refs: list[str] = []
+    for value in values:
+        if not isinstance(value, str) or not _CE_PUBLIC_SOURCE_RE.fullmatch(value.strip()):
+            raise ContextEvidenceError(f"{candidate_id} contains an untrusted source namespace")
+        refs.append(_ce_id(value, "source_ref"))
+    refs = sorted(set(refs))
     if len(refs) > _CE_MAX_SOURCE_REFS:
         raise ContextEvidenceError(f"{candidate_id} contains too many source references")
     return refs
@@ -36934,8 +36939,12 @@ def _ce_evidence_digest(record: Mapping[str, Any], candidate_id: str) -> str | N
             raw_values.append(value)
     if raw_values and any(value != raw_values[0] for value in raw_values[1:]):
         raise ContextEvidenceError(f"{candidate_id} contains conflicting raw evidence bodies")
+    if not raw_values:
+        # A caller-supplied commitment without the bytes needed to recompute it
+        # is not evidence. It may be retained only as an excluded diagnostic.
+        return None
     try:
-        computed = hashlib.sha256(raw_values[0].encode("utf-8")).hexdigest() if raw_values else None
+        computed = hashlib.sha256(raw_values[0].encode("utf-8")).hexdigest()
     except UnicodeEncodeError as exc:
         raise ContextEvidenceError(f"{candidate_id} evidence body must be valid UTF-8 text") from exc
     if computed is not None and claimed and claimed[0] != computed:
@@ -36974,22 +36983,27 @@ def _ce_reason(record: Mapping[str, Any], default: str) -> str:
     return _CE_SAFE_REASONS.get(reason.casefold(), "selection_reason_suppressed")
 
 
-def _ce_provider_states(value: Mapping[str, Any] | None) -> dict[str, str]:
+def _ce_provider_states(value: Mapping[str, Any] | None, *, evidence_required: bool = False) -> dict[str, str]:
     if value is None:
-        return {}
-    if not isinstance(value, Mapping):
-        raise ContextEvidenceError("provider_states must be an object")
-    if len(value) > _CE_MAX_PROVIDER_STATES:
-        raise ContextEvidenceError(f"provider_states must contain at most {_CE_MAX_PROVIDER_STATES} items")
-    result: dict[str, str] = {}
-    for key, raw in value.items():
-        provider = _ce_id(key, "provider")
-        if not isinstance(raw, str):
-            raise ContextEvidenceError("provider state must be text")
-        state = raw.strip().lower().replace("-", "_")
-        if state not in _CE_PROVIDER_STATES:
-            raise ContextEvidenceError(f"unsupported provider state: {state}")
-        result[provider] = state
+        result: dict[str, str] = {}
+    else:
+        if not isinstance(value, Mapping):
+            raise ContextEvidenceError("provider_states must be an object")
+        if len(value) > _CE_MAX_PROVIDER_STATES:
+            raise ContextEvidenceError(f"provider_states must contain at most {_CE_MAX_PROVIDER_STATES} items")
+        result = {}
+        for key, raw in value.items():
+            if key not in {"vault", "ledger"}:
+                raise ContextEvidenceError("provider_states contains an unsupported provider")
+            if not isinstance(raw, str):
+                raise ContextEvidenceError("provider state must be text")
+            state = raw.strip().lower().replace("-", "_")
+            if state not in _CE_PROVIDER_STATES:
+                raise ContextEvidenceError(f"unsupported provider state: {state}")
+            result[key] = state
+    if evidence_required:
+        for provider in ("vault", "ledger"):
+            result.setdefault(provider, "not_configured")
     return dict(sorted(result.items()))
 
 
@@ -37075,7 +37089,7 @@ def project_context_evidence(
         raise ContextEvidenceError(f"entries must contain at most {_CE_MAX_ENTRIES} items")
     if not isinstance(evidence_required, bool):
         raise ContextEvidenceError("evidence_required must be boolean")
-    providers = _ce_provider_states(provider_states)
+    providers = _ce_provider_states(provider_states, evidence_required=evidence_required)
     if selected_ids is not None and not isinstance(selected_ids, (list, tuple)):
         raise ContextEvidenceError("selected_ids must be a list")
     if selected_ids is not None and len(selected_ids) > _CE_MAX_SELECTED:
@@ -37162,7 +37176,7 @@ def _ce_validate_projection_shape(projection: Mapping[str, Any]) -> None:
     if len(coverage["provider_states"]) > _CE_MAX_PROVIDER_STATES:
         raise ContextEvidenceError("provider_states collection is invalid")
     for provider, provider_state in coverage["provider_states"].items():
-        if not isinstance(provider, str) or not provider or len(provider) > 160 or _ce_id(provider, "provider") != provider or not isinstance(provider_state, str) or provider_state not in _CE_PROVIDER_STATES:
+        if provider not in {"vault", "ledger"} or not isinstance(provider_state, str) or provider_state not in _CE_PROVIDER_STATES:
             raise ContextEvidenceError("provider state is invalid")
     if not isinstance(coverage["evidence_required"], bool) or not isinstance(coverage["abstention_required"], bool):
         raise ContextEvidenceError("coverage flags are invalid")
@@ -37196,6 +37210,8 @@ def _ce_validate_projection_shape(projection: Mapping[str, Any]) -> None:
     if coverage["state"] != expected_state:
         raise ContextEvidenceError("coverage state does not recompute from selected evidence")
     expected_abstention = bool(coverage["evidence_required"] and expected_state != "evidence_backed")
+    if coverage["evidence_required"] and expected_state == "evidence_backed" and coverage["provider_states"] != {"ledger": "active", "vault": "active"}:
+        raise ContextEvidenceError("evidence-backed coverage requires active Vault and Ledger attestations")
     if coverage["abstention_required"] != expected_abstention:
         raise ContextEvidenceError("abstention flag does not recompute from coverage")
     expected_status = "abstention_required" if expected_abstention else {"evidence_backed": "complete", "partial": "degraded", "conflicted": "review", "stale": "degraded", "empty": "empty", "unavailable": "unavailable", "timeout": "unavailable"}[expected_state]
@@ -37632,6 +37648,7 @@ credentials, or tool arguments.
 import copy
 import hashlib
 import json
+import math
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -37651,6 +37668,7 @@ CONTEXT_MAX_QUESTION_CHARS = 512
 CONTEXT_MAX_TASK_CHARS = 512
 PROJECTION_MAX_RECORDS = 64
 PROJECTION_MAX_CHARS = 8192
+CONTEXT_MAX_SOURCE_REFS = 64
 
 _VALIDITY_STATES = frozenset({
     "observed", "derived", "inferred", "stale", "contradictory", "unavailable", "unknown",
@@ -37959,6 +37977,8 @@ def _cc_source_ids(record: Mapping[str, Any], candidate_id: str) -> list[str]:
             values.append(record[key])
     refs = record.get("source_refs")
     if isinstance(refs, (list, tuple)):
+        if len(refs) > CONTEXT_MAX_SOURCE_REFS:
+            raise ValueError(f"{candidate_id} contains too many source references")
         values.extend(refs)
     provenance = record.get("provenance")
     if isinstance(provenance, Mapping):
@@ -37970,9 +37990,13 @@ def _cc_source_ids(record: Mapping[str, Any], candidate_id: str) -> list[str]:
         for key in ("source_id", "source_ref", "id"):
             if evidence.get(key):
                 values.append(evidence[key])
+    if len(values) > CONTEXT_MAX_SOURCE_REFS:
+        raise ValueError(f"{candidate_id} contains too many source references")
     if not values:
         values = [f"candidate:{candidate_id}"]
     result = sorted({_cc_safe_id(item) for item in values if _cc_safe_id(item)})
+    if len(result) > CONTEXT_MAX_SOURCE_REFS:
+        raise ValueError(f"{candidate_id} contains too many source references")
     return result
 
 
@@ -38014,17 +38038,36 @@ def _cc_policy(policy: Any) -> dict[str, Any]:
 def _cc_budget(budget: Any, *, default_items: int, default_chars: int) -> tuple[int, int]:
     if budget is None:
         return default_items, default_chars
+    if isinstance(budget, bool):
+        raise ValueError("budget must be an integer or object")
     if isinstance(budget, int):
-        return max(1, min(default_items, int(budget))), default_chars
+        if budget < 1:
+            raise ValueError("budget item limit must be positive")
+        return min(default_items, budget), default_chars
     if not isinstance(budget, Mapping):
         raise ValueError("budget must be an integer or object")
     raw_items = budget.get("max_items", budget.get("max_candidates", default_items))
     raw_chars = budget.get("max_chars", default_chars)
     if isinstance(raw_items, bool) or not isinstance(raw_items, int) or isinstance(raw_chars, bool) or not isinstance(raw_chars, int):
         raise ValueError("budget limits must be integers")
-    items = max(1, min(default_items, raw_items))
-    chars = max(1, min(PROJECTION_MAX_CHARS, raw_chars))
+    if raw_items < 1 or raw_chars < 1:
+        raise ValueError("budget limits must be positive")
+    items = min(default_items, raw_items)
+    chars = min(PROJECTION_MAX_CHARS, raw_chars)
     return items, chars
+
+
+def _cc_policy_controls(policy: Mapping[str, Any]) -> tuple[float, bool]:
+    raw_min_score = policy.get("min_score", 0.2)
+    if isinstance(raw_min_score, bool) or not isinstance(raw_min_score, (int, float)):
+        raise ValueError("min_score must be a finite number")
+    min_score = float(raw_min_score)
+    if not math.isfinite(min_score) or not 0.0 <= min_score <= 1.0:
+        raise ValueError("min_score must be a finite number between 0 and 1")
+    allow_content = policy.get("allow_content", False)
+    if not isinstance(allow_content, bool):
+        raise ValueError("allow_content must be boolean")
+    return min_score, allow_content
 
 
 def _cc_integrations(integrations: Any) -> dict[str, str]:
@@ -38228,17 +38271,20 @@ def context_rank(
     if isinstance(candidates, Mapping) and ("candidates" in candidates or "items" in candidates):
         request = dict(candidates)
         candidates = request.get("candidates", request.get("items"))
-        task = str(request.get("task", task) or "")
+        task = request.get("task", task) or ""
         scope = request.get("scope", scope)
         policy = request.get("policy", policy)
         budget = request.get("budget", budget)
         integrations = request.get("integrations", integrations)
         request_class = str(request.get("request_class", request_class) or request_class)
     try:
+        if not isinstance(task, str) or len(task) > CONTEXT_MAX_TASK_CHARS:
+            raise ValueError("task must be text within the maximum length")
         task = _cc_clean_text(task, CONTEXT_MAX_TASK_CHARS)
         if not task:
             return {"schema_version": CONTEXT_RANK_SCHEMA_VERSION, "operation": "context_rank", "status": "invalid_input", "failure_state": "invalid_input", "candidates": []}
         policy_map = _cc_policy(policy)
+        min_score, allow_content = _cc_policy_controls(policy_map)
         evidence_required = policy_map.get("evidence_required", False)
         if not isinstance(evidence_required, bool):
             raise ValueError("evidence_required must be boolean")
@@ -38373,10 +38419,13 @@ def context_ask(
         integrations = request.get("integrations", integrations)
         request_class = str(request.get("request_class", request_class) or request_class)
     try:
+        if not isinstance(question, str) or len(question) > CONTEXT_MAX_QUESTION_CHARS:
+            raise ValueError("question must be text within the maximum length")
         question_text = _cc_clean_text(question, CONTEXT_MAX_QUESTION_CHARS)
         if not question_text:
             return {"schema_version": CONTEXT_ASK_SCHEMA_VERSION, "operation": "context_ask", "status": "invalid_input", "failure_state": "invalid_input", "answer": None, "source_refs": []}
         policy_map = _cc_policy(policy)
+        min_score, allow_content = _cc_policy_controls(policy_map)
         evidence_required = policy_map.get("evidence_required", False)
         if not isinstance(evidence_required, bool):
             raise ValueError("evidence_required must be boolean")
@@ -38394,7 +38443,7 @@ def context_ask(
         scored = []
         question_terms = set(_cc_tokens(question_text))
         for index, record in enumerate(prepared):
-            text = _cc_record_text(record, allow_content=bool(policy_map.get("allow_content", False)))
+            text = _cc_record_text(record, allow_content=allow_content)
             overlap = len(question_terms.intersection(set(_cc_tokens(text + " " + _cc_scoring_text(record)))))
             score, components = _cc_rank_score(record, question_text, requested_scope)
             score += min(0.4, overlap * 0.08)
@@ -38428,7 +38477,7 @@ def context_ask(
                 "route": route,
             }
         best, score, components, overlap, _index = scored[0]
-        if overlap <= 0 or score < float(policy_map.get("min_score", 0.2)):
+        if overlap <= 0 or score < min_score:
             return {
                 "schema_version": CONTEXT_ASK_SCHEMA_VERSION,
                 "operation": "context_ask",
@@ -38443,8 +38492,10 @@ def context_ask(
         validity = str(best["_contract_validity"])
         source_refs = _cc_source_ids(best, str(best["_contract_id"]))
         integration_failure = _cc_failure_for_integrations(states)
-        has_authoritative_source = any(not ref.startswith("candidate:") for ref in source_refs)
-        if evidence_required and (validity != "observed" or not has_authoritative_source or integration_failure):
+        has_authoritative_source = any(ref.startswith(("file:", "vault:", "ledger:", "artifact:")) for ref in source_refs)
+        has_raw_body = any(isinstance(best.get(key), str) and bool(best.get(key)) for key in ("content", "body", "raw", "private_body"))
+        computed_commitment = _cc_content_commitment(best)
+        if evidence_required and (validity != "observed" or not has_authoritative_source or not has_raw_body or not computed_commitment or integration_failure):
             failure = integration_failure or "insufficient_evidence"
             return {
                 "schema_version": CONTEXT_ASK_SCHEMA_VERSION,
@@ -38457,7 +38508,7 @@ def context_ask(
                 "excluded_candidate_ids": sorted(set(excluded)),
                 "route": route,
             }
-        raw_answer = _cc_record_text(best, allow_content=bool(policy_map.get("allow_content", False)))
+        raw_answer = _cc_record_text(best, allow_content=allow_content)
         answer = _cc_redact(raw_answer, cfg)
         status = "complete"
         failure_state = None
@@ -39366,6 +39417,23 @@ class CompilationBudget:
     max_tokens: int = 4000
     max_bytes: int | None = None
     deadline_s: float = 30.0
+
+    def __post_init__(self) -> None:
+        for field_name in ("max_nodes", "max_depth", "max_fanout", "max_tokens"):
+            value = getattr(self, field_name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ContextDagError(f"{field_name} must be a positive integer")
+        if self.max_bytes is not None and (
+            isinstance(self.max_bytes, bool) or not isinstance(self.max_bytes, int) or self.max_bytes < 1
+        ):
+            raise ContextDagError("max_bytes must be a positive integer or None")
+        if (
+            isinstance(self.deadline_s, bool)
+            or not isinstance(self.deadline_s, (int, float))
+            or not math.isfinite(float(self.deadline_s))
+            or self.deadline_s <= 0
+        ):
+            raise ContextDagError("deadline_s must be a finite positive number")
 
     def ledger(self) -> "BudgetLedger":
         return BudgetLedger(self)
