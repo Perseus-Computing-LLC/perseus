@@ -19,11 +19,14 @@ _CE_STATES = frozenset({
 _CE_PROVIDER_STATES = frozenset({"active", "partial", "degraded", "unavailable", "timeout", "not_configured"})
 _CE_UNCERTAINTY_CLASSES = frozenset({"high", "medium", "low", "stale", "inferred", "tie"})
 _CE_DIGEST_RE = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
-_CE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$")
+_CE_PUBLIC_SOURCE_RE = re.compile(r"^(?:vault|ledger):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
 _CE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$")
 _CE_MAX_ENTRIES = 64
 _CE_MAX_SELECTED = 64
 _CE_MAX_EXCLUDED = 128
+_CE_MAX_SOURCE_REFS = 64
+_CE_MAX_PROVIDER_STATES = 128
+_CE_MAX_PROJECTION_BYTES = 262_144
 _CE_SAFE_REASONS = {
     "source matched the task": "source matched the task",
     "selected_by_caller": "selected_by_caller",
@@ -102,23 +105,31 @@ def _ce_text(value: Any, field: str, *, limit: int = 256) -> str:
 
 
 def _ce_id(value: Any, field: str) -> str:
-    text = str(value or "").strip()
+    if not isinstance(value, str):
+        raise ContextEvidenceError(f"{field} must be text")
+    text = value.strip()
     if not text:
         raise ContextEvidenceError(f"{field} must not be empty")
-    # URI/userinfo/query-like values are not safe to preserve in an
-    # allow-listed scalar: source references can carry credentials or private
-    # data even when their field name looks harmless.
-    unsafe_scalar = any(marker in text for marker in ("@", "?", "&", "=")) or "://" in text
-    if not unsafe_scalar and _CE_ID_RE.fullmatch(text):
-        return text[:160]
+    # Only explicit public namespaces may cross this boundary verbatim. All
+    # candidate IDs, arbitrary provider names, and unrecognized source values
+    # become stable commitments so an innocuous-looking private scalar cannot
+    # be published merely because it matches a broad identifier regex.
+    if _CE_DIGEST_RE.fullmatch(text):
+        return "sha256:" + text.removeprefix("sha256:").lower()
+    if field == "source_ref" and _CE_PUBLIC_SOURCE_RE.fullmatch(text):
+        return text
+    if field == "provider" and text in {"vault", "ledger"}:
+        return text
     return "sha256:" + hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
 
 
 def _ce_digest(value: Any, field: str) -> str | None:
-    if value is None or value == "":
+    if value is None:
         return None
-    text = str(value).strip().lower()
-    if not _CE_DIGEST_RE.fullmatch(text):
+    if not isinstance(value, str):
+        raise ContextEvidenceError(f"{field} must be a SHA-256 digest string")
+    text = value.strip().lower()
+    if not text or not _CE_DIGEST_RE.fullmatch(text):
         raise ContextEvidenceError(f"{field} must be a SHA-256 digest")
     return text.removeprefix("sha256:")
 
@@ -145,14 +156,18 @@ def _ce_sources(record: Mapping[str, Any], candidate_id: str) -> list[str]:
             for nested_key in ("source_id", "source_ref", "provenance_id", "provenance_ref", "receipt_id", "id"):
                 if nested.get(nested_key):
                     values.append(nested[nested_key])
+    if len(values) > _CE_MAX_SOURCE_REFS:
+        raise ContextEvidenceError(f"{candidate_id} contains too many source references")
     refs = sorted({_ce_id(value, "source_ref") for value in values if str(value or "").strip()})
+    if len(refs) > _CE_MAX_SOURCE_REFS:
+        raise ContextEvidenceError(f"{candidate_id} contains too many source references")
     return refs
 
 
 def _ce_evidence_digest(record: Mapping[str, Any], candidate_id: str) -> str | None:
     claimed: list[str] = []
     for key in ("evidence_digest", "content_sha256", "content_hash", "sha256"):
-        if record.get(key):
+        if key in record and record[key] is not None:
             digest = _ce_digest(record[key], f"{candidate_id}.{key}")
             if digest is not None:
                 claimed.append(digest)
@@ -211,10 +226,14 @@ def _ce_provider_states(value: Mapping[str, Any] | None) -> dict[str, str]:
         return {}
     if not isinstance(value, Mapping):
         raise ContextEvidenceError("provider_states must be an object")
+    if len(value) > _CE_MAX_PROVIDER_STATES:
+        raise ContextEvidenceError(f"provider_states must contain at most {_CE_MAX_PROVIDER_STATES} items")
     result: dict[str, str] = {}
     for key, raw in value.items():
         provider = _ce_id(key, "provider")
-        state = str(raw).strip().lower().replace("-", "_")
+        if not isinstance(raw, str):
+            raise ContextEvidenceError("provider state must be text")
+        state = raw.strip().lower().replace("-", "_")
         if state not in _CE_PROVIDER_STATES:
             raise ContextEvidenceError(f"unsupported provider state: {state}")
         result[provider] = state
@@ -300,6 +319,8 @@ def project_context_evidence(
     if not isinstance(evidence_required, bool):
         raise ContextEvidenceError("evidence_required must be boolean")
     providers = _ce_provider_states(provider_states)
+    if selected_ids is not None and not isinstance(selected_ids, (list, tuple)):
+        raise ContextEvidenceError("selected_ids must be a list")
     if selected_ids is not None and len(selected_ids) > _CE_MAX_SELECTED:
         raise ContextEvidenceError(f"selected_ids must contain at most {_CE_MAX_SELECTED} items")
     wanted = {_ce_id(item, "selected_id") for item in selected_ids} if selected_ids is not None else None
@@ -358,6 +379,8 @@ def project_context_evidence(
         },
     }
     unsigned["projection_digest"] = _ce_sha(unsigned)
+    if len(_ce_json(unsigned).encode("utf-8")) > _CE_MAX_PROJECTION_BYTES:
+        raise ContextEvidenceError(f"evidence projection exceeds {_CE_MAX_PROJECTION_BYTES} UTF-8 bytes")
     return unsigned
 
 
@@ -366,6 +389,8 @@ def _ce_validate_projection_shape(projection: Mapping[str, Any]) -> None:
     top = {"schema_version", "status", "coverage", "selected", "excluded", "diagnostics", "projection_digest"}
     if set(projection) != top or projection.get("schema_version") != _CE_SCHEMA_VERSION:
         raise ContextEvidenceError("projection shape is invalid")
+    if len(_ce_json(projection).encode("utf-8")) > _CE_MAX_PROJECTION_BYTES:
+        raise ContextEvidenceError(f"evidence projection exceeds {_CE_MAX_PROJECTION_BYTES} UTF-8 bytes")
     if projection.get("status") not in {"complete", "degraded", "review", "empty", "unavailable", "abstention_required"}:
         raise ContextEvidenceError("projection status is invalid")
     coverage = projection.get("coverage")
@@ -377,8 +402,10 @@ def _ce_validate_projection_shape(projection: Mapping[str, Any]) -> None:
         raise ContextEvidenceError("coverage state or reason is invalid")
     if not isinstance(coverage["provider_states"], Mapping):
         raise ContextEvidenceError("provider_states must be an object")
+    if len(coverage["provider_states"]) > _CE_MAX_PROVIDER_STATES:
+        raise ContextEvidenceError("provider_states collection is invalid")
     for provider, provider_state in coverage["provider_states"].items():
-        if not isinstance(provider, str) or not provider or len(provider) > 160 or _ce_id(provider, "provider") != provider or provider_state not in _CE_PROVIDER_STATES:
+        if not isinstance(provider, str) or not provider or len(provider) > 160 or _ce_id(provider, "provider") != provider or not isinstance(provider_state, str) or provider_state not in _CE_PROVIDER_STATES:
             raise ContextEvidenceError("provider state is invalid")
     if not isinstance(coverage["evidence_required"], bool) or not isinstance(coverage["abstention_required"], bool):
         raise ContextEvidenceError("coverage flags are invalid")
@@ -394,7 +421,7 @@ def _ce_validate_projection_shape(projection: Mapping[str, Any]) -> None:
             raise ContextEvidenceError("selected candidate_id is invalid")
         selected_ids.append(item["candidate_id"])
         refs = item["source_refs"]
-        if not isinstance(refs, list) or len(refs) > 64 or any(not isinstance(ref, str) or not 0 < len(ref) <= 160 or _ce_id(ref, "source_ref") != ref for ref in refs):
+        if not isinstance(refs, list) or len(refs) > _CE_MAX_SOURCE_REFS or any(not isinstance(ref, str) or not 0 < len(ref) <= 160 or _ce_id(ref, "source_ref") != ref for ref in refs):
             raise ContextEvidenceError("selected source_refs are invalid")
         if not isinstance(item["evidence_digest"], str) or not re.fullmatch(r"[0-9a-f]{64}", item["evidence_digest"]):
             raise ContextEvidenceError("selected evidence_digest is invalid")
@@ -404,7 +431,7 @@ def _ce_validate_projection_shape(projection: Mapping[str, Any]) -> None:
         if not isinstance(uncertainty, Mapping) or set(uncertainty) != {"class", "score"} or uncertainty["class"] not in _CE_UNCERTAINTY_CLASSES or isinstance(uncertainty["score"], bool) or not isinstance(uncertainty["score"], (int, float)) or not 0 <= uncertainty["score"] <= 1:
             raise ContextEvidenceError("selected uncertainty is invalid")
         for timestamp in ("valid_at", "transaction_time", "recorded_at", "observed_at"):
-            if timestamp in item and (not isinstance(item[timestamp], str) or len(item[timestamp]) > 40):
+            if timestamp in item and (not isinstance(item[timestamp], str) or _ce_timestamp(item[timestamp]) != item[timestamp] or len(item[timestamp]) > 40):
                 raise ContextEvidenceError("selected timestamp is invalid")
     if len(selected_ids) != len(set(selected_ids)):
         raise ContextEvidenceError("selected candidate IDs are duplicated")

@@ -1,11 +1,16 @@
 """Tests for the #982 context evidence/abstention projection."""
 from __future__ import annotations
 
+import hashlib
 import json
 
 import pytest
 
 from conftest import perseus
+
+
+def _candidate_commitment(identifier):
+    return "sha256:" + hashlib.sha256(identifier.encode("utf-8")).hexdigest()
 
 
 def _entry(identifier="item-1", **extra):
@@ -78,7 +83,7 @@ def test_score_does_not_become_a_truth_gate_and_exclusions_are_bounded():
     )
     assert projection["coverage"]["state"] == "evidence_backed"
     assert projection["diagnostics"]["relevance_is_not_truth_gate"] is True
-    assert projection["excluded"] == [{"candidate_id": "missing", "reason": "scope mismatch"}]
+    assert projection["excluded"] == [{"candidate_id": _candidate_commitment("missing"), "reason": "scope mismatch"}]
 
 
 def test_raw_material_digest_mismatch_is_rejected_before_projection():
@@ -94,7 +99,7 @@ def test_item_without_source_reference_is_excluded_even_with_a_digest():
         {"candidate_id": "no-source", "evidence_digest": "e" * 64}
     ])
     assert projection["coverage"]["state"] == "empty"
-    assert projection["excluded"] == [{"candidate_id": "no-source", "reason": "source_reference_missing"}]
+    assert projection["excluded"] == [{"candidate_id": _candidate_commitment("no-source"), "reason": "source_reference_missing"}]
 
 
 def test_context_rank_composes_evidence_projection_and_abstains_on_stale_required_evidence():

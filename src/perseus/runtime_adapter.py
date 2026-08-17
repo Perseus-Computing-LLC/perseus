@@ -257,7 +257,8 @@ class AdapterRequest:
         if _RA_NETWORK_RANK[mode] > _RA_NETWORK_RANK[effective_profile["network_mode"]]:
             raise RuntimeAdapterError("execution_mode exceeds execution_profile network policy")
         profile_digest = _ra_digest(value["execution_profile_digest"], "execution_profile_digest")
-        if profile_digest != str(profile["profile_digest"]).lower().removeprefix("sha256:"):
+        manifest_digest = profile.get("profile_digest")
+        if not isinstance(manifest_digest, str) or profile_digest != manifest_digest.lower().removeprefix("sha256:"):
             raise RuntimeAdapterError("execution_profile_digest does not match execution_profile")
         return cls(
             schema_version=_RA_REQUEST_SCHEMA,

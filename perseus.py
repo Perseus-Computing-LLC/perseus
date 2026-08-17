@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "c94ac0b"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "23f0e1f-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -35879,7 +35879,7 @@ def _ep_limit(value: Any, field: str, *, maximum: int = 10_000_000) -> int:
 
 
 def _ep_optional_limit(value: Any, field: str, *, maximum: int = 10_000_000) -> int | None:
-    if value is None or value == "":
+    if value is None:
         return None
     return _ep_limit(value, field, maximum=maximum)
 
@@ -36169,16 +36169,65 @@ def negotiate_context_budget(
 
 
 def verify_execution_profile(resolved: Mapping[str, Any]) -> dict[str, Any]:
-    """Verify the commitment over a resolved, sanitized profile manifest."""
-    if not isinstance(resolved, Mapping) or not isinstance(resolved.get("profile_digest"), str):
-        return {"valid": False, "error": "missing profile digest"}
-    unsigned = dict(resolved)
-    supplied = unsigned.pop("profile_digest")
+    """Verify the digest and recompute every resolved profile relationship."""
+    required = {
+        "schema_version", "profile", "effective", "requirements", "resources",
+        "resource_state", "status", "diagnostics", "compilation_budget",
+        "profile_digest",
+    }
+    if not isinstance(resolved, Mapping) or set(resolved) != required:
+        return {"valid": False, "error": "resolved profile shape is invalid"}
+    supplied = resolved.get("profile_digest")
+    if not isinstance(supplied, str) or not re.fullmatch(r"[0-9a-f]{64}", supplied):
+        return {"valid": False, "error": "profile digest must be a SHA-256 string"}
     try:
-        expected = _ep_sha(unsigned)
-    except (TypeError, ValueError):
-        return {"valid": False, "error": "profile manifest is not canonical JSON"}
-    return {"valid": expected == supplied, "profile_digest": supplied, "expected_digest": expected}
+        diagnostics = resolved["diagnostics"]
+        if not isinstance(diagnostics, Mapping) or set(diagnostics) != {
+            "schema_version", "degraded", "reasons", "resource_state",
+            "abstention_required", "degradation_policy",
+        }:
+            return {"valid": False, "error": "profile diagnostics shape is invalid"}
+        reasons = diagnostics["reasons"]
+        if not isinstance(reasons, list) or any(not isinstance(reason, str) for reason in reasons):
+            return {"valid": False, "error": "profile diagnostic reasons are invalid"}
+        retrieval_reasons = {
+            "retrieval_partial": "partial",
+            "retrieval_degraded": "degraded",
+            "retrieval_unavailable": "unavailable",
+            "retrieval_timeout": "timeout",
+        }
+        retrieval_states = {retrieval_reasons[reason] for reason in reasons if reason in retrieval_reasons}
+        if len(retrieval_states) > 1 or any(
+            reason not in retrieval_reasons and reason not in {"max_depth", "max_items", "max_context_tokens", "max_context_bytes"}
+            for reason in reasons
+        ):
+            return {"valid": False, "error": "profile diagnostic reasons are invalid"}
+        retrieval_status = next(iter(retrieval_states), "complete")
+        expected = _ep_resolve_execution_profile_impl(
+            resolved["profile"],
+            requirements=resolved["requirements"] or None,
+            resources=resolved["resources"],
+            retrieval_status=retrieval_status,
+        )
+        candidate = dict(resolved)
+        candidate["profile_digest"] = expected["profile_digest"]
+        if _ep_json(candidate) != _ep_json(expected):
+            return {
+                "valid": False,
+                "profile_digest": supplied,
+                "expected_digest": expected["profile_digest"],
+                "error": "resolved profile does not recompute from its inputs",
+            }
+        unsigned = dict(resolved)
+        unsigned.pop("profile_digest")
+        expected_digest = _ep_sha(unsigned)
+    except (ExecutionProfileError, TypeError, ValueError, KeyError):
+        return {"valid": False, "error": "profile manifest is not valid"}
+    return {
+        "valid": expected_digest == supplied,
+        "profile_digest": supplied,
+        "expected_digest": expected_digest,
+    }
 """Portable local/edge runtime adapter envelopes (#981).
 
 The adapter seam is an integration contract, not an inference engine. Requests
@@ -36436,7 +36485,8 @@ class AdapterRequest:
         if _RA_NETWORK_RANK[mode] > _RA_NETWORK_RANK[effective_profile["network_mode"]]:
             raise RuntimeAdapterError("execution_mode exceeds execution_profile network policy")
         profile_digest = _ra_digest(value["execution_profile_digest"], "execution_profile_digest")
-        if profile_digest != str(profile["profile_digest"]).lower().removeprefix("sha256:"):
+        manifest_digest = profile.get("profile_digest")
+        if not isinstance(manifest_digest, str) or profile_digest != manifest_digest.lower().removeprefix("sha256:"):
             raise RuntimeAdapterError("execution_profile_digest does not match execution_profile")
         return cls(
             schema_version=_RA_REQUEST_SCHEMA,
@@ -36707,11 +36757,14 @@ _CE_STATES = frozenset({
 _CE_PROVIDER_STATES = frozenset({"active", "partial", "degraded", "unavailable", "timeout", "not_configured"})
 _CE_UNCERTAINTY_CLASSES = frozenset({"high", "medium", "low", "stale", "inferred", "tie"})
 _CE_DIGEST_RE = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
-_CE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$")
+_CE_PUBLIC_SOURCE_RE = re.compile(r"^(?:vault|ledger):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
 _CE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$")
 _CE_MAX_ENTRIES = 64
 _CE_MAX_SELECTED = 64
 _CE_MAX_EXCLUDED = 128
+_CE_MAX_SOURCE_REFS = 64
+_CE_MAX_PROVIDER_STATES = 128
+_CE_MAX_PROJECTION_BYTES = 262_144
 _CE_SAFE_REASONS = {
     "source matched the task": "source matched the task",
     "selected_by_caller": "selected_by_caller",
@@ -36790,23 +36843,31 @@ def _ce_text(value: Any, field: str, *, limit: int = 256) -> str:
 
 
 def _ce_id(value: Any, field: str) -> str:
-    text = str(value or "").strip()
+    if not isinstance(value, str):
+        raise ContextEvidenceError(f"{field} must be text")
+    text = value.strip()
     if not text:
         raise ContextEvidenceError(f"{field} must not be empty")
-    # URI/userinfo/query-like values are not safe to preserve in an
-    # allow-listed scalar: source references can carry credentials or private
-    # data even when their field name looks harmless.
-    unsafe_scalar = any(marker in text for marker in ("@", "?", "&", "=")) or "://" in text
-    if not unsafe_scalar and _CE_ID_RE.fullmatch(text):
-        return text[:160]
+    # Only explicit public namespaces may cross this boundary verbatim. All
+    # candidate IDs, arbitrary provider names, and unrecognized source values
+    # become stable commitments so an innocuous-looking private scalar cannot
+    # be published merely because it matches a broad identifier regex.
+    if _CE_DIGEST_RE.fullmatch(text):
+        return "sha256:" + text.removeprefix("sha256:").lower()
+    if field == "source_ref" and _CE_PUBLIC_SOURCE_RE.fullmatch(text):
+        return text
+    if field == "provider" and text in {"vault", "ledger"}:
+        return text
     return "sha256:" + hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
 
 
 def _ce_digest(value: Any, field: str) -> str | None:
-    if value is None or value == "":
+    if value is None:
         return None
-    text = str(value).strip().lower()
-    if not _CE_DIGEST_RE.fullmatch(text):
+    if not isinstance(value, str):
+        raise ContextEvidenceError(f"{field} must be a SHA-256 digest string")
+    text = value.strip().lower()
+    if not text or not _CE_DIGEST_RE.fullmatch(text):
         raise ContextEvidenceError(f"{field} must be a SHA-256 digest")
     return text.removeprefix("sha256:")
 
@@ -36833,14 +36894,18 @@ def _ce_sources(record: Mapping[str, Any], candidate_id: str) -> list[str]:
             for nested_key in ("source_id", "source_ref", "provenance_id", "provenance_ref", "receipt_id", "id"):
                 if nested.get(nested_key):
                     values.append(nested[nested_key])
+    if len(values) > _CE_MAX_SOURCE_REFS:
+        raise ContextEvidenceError(f"{candidate_id} contains too many source references")
     refs = sorted({_ce_id(value, "source_ref") for value in values if str(value or "").strip()})
+    if len(refs) > _CE_MAX_SOURCE_REFS:
+        raise ContextEvidenceError(f"{candidate_id} contains too many source references")
     return refs
 
 
 def _ce_evidence_digest(record: Mapping[str, Any], candidate_id: str) -> str | None:
     claimed: list[str] = []
     for key in ("evidence_digest", "content_sha256", "content_hash", "sha256"):
-        if record.get(key):
+        if key in record and record[key] is not None:
             digest = _ce_digest(record[key], f"{candidate_id}.{key}")
             if digest is not None:
                 claimed.append(digest)
@@ -36899,10 +36964,14 @@ def _ce_provider_states(value: Mapping[str, Any] | None) -> dict[str, str]:
         return {}
     if not isinstance(value, Mapping):
         raise ContextEvidenceError("provider_states must be an object")
+    if len(value) > _CE_MAX_PROVIDER_STATES:
+        raise ContextEvidenceError(f"provider_states must contain at most {_CE_MAX_PROVIDER_STATES} items")
     result: dict[str, str] = {}
     for key, raw in value.items():
         provider = _ce_id(key, "provider")
-        state = str(raw).strip().lower().replace("-", "_")
+        if not isinstance(raw, str):
+            raise ContextEvidenceError("provider state must be text")
+        state = raw.strip().lower().replace("-", "_")
         if state not in _CE_PROVIDER_STATES:
             raise ContextEvidenceError(f"unsupported provider state: {state}")
         result[provider] = state
@@ -36988,6 +37057,8 @@ def project_context_evidence(
     if not isinstance(evidence_required, bool):
         raise ContextEvidenceError("evidence_required must be boolean")
     providers = _ce_provider_states(provider_states)
+    if selected_ids is not None and not isinstance(selected_ids, (list, tuple)):
+        raise ContextEvidenceError("selected_ids must be a list")
     if selected_ids is not None and len(selected_ids) > _CE_MAX_SELECTED:
         raise ContextEvidenceError(f"selected_ids must contain at most {_CE_MAX_SELECTED} items")
     wanted = {_ce_id(item, "selected_id") for item in selected_ids} if selected_ids is not None else None
@@ -37046,6 +37117,8 @@ def project_context_evidence(
         },
     }
     unsigned["projection_digest"] = _ce_sha(unsigned)
+    if len(_ce_json(unsigned).encode("utf-8")) > _CE_MAX_PROJECTION_BYTES:
+        raise ContextEvidenceError(f"evidence projection exceeds {_CE_MAX_PROJECTION_BYTES} UTF-8 bytes")
     return unsigned
 
 
@@ -37054,6 +37127,8 @@ def _ce_validate_projection_shape(projection: Mapping[str, Any]) -> None:
     top = {"schema_version", "status", "coverage", "selected", "excluded", "diagnostics", "projection_digest"}
     if set(projection) != top or projection.get("schema_version") != _CE_SCHEMA_VERSION:
         raise ContextEvidenceError("projection shape is invalid")
+    if len(_ce_json(projection).encode("utf-8")) > _CE_MAX_PROJECTION_BYTES:
+        raise ContextEvidenceError(f"evidence projection exceeds {_CE_MAX_PROJECTION_BYTES} UTF-8 bytes")
     if projection.get("status") not in {"complete", "degraded", "review", "empty", "unavailable", "abstention_required"}:
         raise ContextEvidenceError("projection status is invalid")
     coverage = projection.get("coverage")
@@ -37065,8 +37140,10 @@ def _ce_validate_projection_shape(projection: Mapping[str, Any]) -> None:
         raise ContextEvidenceError("coverage state or reason is invalid")
     if not isinstance(coverage["provider_states"], Mapping):
         raise ContextEvidenceError("provider_states must be an object")
+    if len(coverage["provider_states"]) > _CE_MAX_PROVIDER_STATES:
+        raise ContextEvidenceError("provider_states collection is invalid")
     for provider, provider_state in coverage["provider_states"].items():
-        if not isinstance(provider, str) or not provider or len(provider) > 160 or _ce_id(provider, "provider") != provider or provider_state not in _CE_PROVIDER_STATES:
+        if not isinstance(provider, str) or not provider or len(provider) > 160 or _ce_id(provider, "provider") != provider or not isinstance(provider_state, str) or provider_state not in _CE_PROVIDER_STATES:
             raise ContextEvidenceError("provider state is invalid")
     if not isinstance(coverage["evidence_required"], bool) or not isinstance(coverage["abstention_required"], bool):
         raise ContextEvidenceError("coverage flags are invalid")
@@ -37082,7 +37159,7 @@ def _ce_validate_projection_shape(projection: Mapping[str, Any]) -> None:
             raise ContextEvidenceError("selected candidate_id is invalid")
         selected_ids.append(item["candidate_id"])
         refs = item["source_refs"]
-        if not isinstance(refs, list) or len(refs) > 64 or any(not isinstance(ref, str) or not 0 < len(ref) <= 160 or _ce_id(ref, "source_ref") != ref for ref in refs):
+        if not isinstance(refs, list) or len(refs) > _CE_MAX_SOURCE_REFS or any(not isinstance(ref, str) or not 0 < len(ref) <= 160 or _ce_id(ref, "source_ref") != ref for ref in refs):
             raise ContextEvidenceError("selected source_refs are invalid")
         if not isinstance(item["evidence_digest"], str) or not re.fullmatch(r"[0-9a-f]{64}", item["evidence_digest"]):
             raise ContextEvidenceError("selected evidence_digest is invalid")
@@ -37092,7 +37169,7 @@ def _ce_validate_projection_shape(projection: Mapping[str, Any]) -> None:
         if not isinstance(uncertainty, Mapping) or set(uncertainty) != {"class", "score"} or uncertainty["class"] not in _CE_UNCERTAINTY_CLASSES or isinstance(uncertainty["score"], bool) or not isinstance(uncertainty["score"], (int, float)) or not 0 <= uncertainty["score"] <= 1:
             raise ContextEvidenceError("selected uncertainty is invalid")
         for timestamp in ("valid_at", "transaction_time", "recorded_at", "observed_at"):
-            if timestamp in item and (not isinstance(item[timestamp], str) or len(item[timestamp]) > 40):
+            if timestamp in item and (not isinstance(item[timestamp], str) or _ce_timestamp(item[timestamp]) != item[timestamp] or len(item[timestamp]) > 40):
                 raise ContextEvidenceError("selected timestamp is invalid")
     if len(selected_ids) != len(set(selected_ids)):
         raise ContextEvidenceError("selected candidate IDs are duplicated")
@@ -39051,9 +39128,10 @@ Terminal verdicts: ``sufficient`` | ``abstain`` | ``escalate``.
 
 import hashlib
 import json
+import math
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Mapping, Optional
 
 NODE_KINDS = frozenset({
     "requirement", "retrieved_record", "summary", "contradiction",
@@ -39918,6 +39996,73 @@ def compile_context_dag(*, task_id: str,
     return artifact
 
 
+def _dag_observed_budget(graph: ContextDAG) -> dict[str, int]:
+    """Recompute budget consumption from the sealed graph, not its report."""
+    order = graph.topo_order()
+    depths = {node_id: 0 for node_id in order}
+    for node_id in order:
+        for child_id in graph._adj.get(node_id, []):
+            depths[child_id] = max(depths.get(child_id, 0), depths[node_id] + 1)
+    return {
+        "nodes": len(graph.nodes),
+        "depth": max(depths.values(), default=0),
+        "max_fanout_used": max((len(children) for children in graph._adj.values()), default=0),
+        "tokens": sum(dag_tokens(node.content) for node in graph.nodes),
+        "bytes": sum(len(node.content.encode("utf-8")) for node in graph.nodes),
+    }
+
+
+def _dag_validate_budget_report(artifact: Mapping[str, Any], graph: ContextDAG,
+                                profile_manifest: Mapping[str, Any] | None = None) -> list[str]:
+    errors: list[str] = []
+    budget = artifact.get("budget")
+    if not isinstance(budget, Mapping):
+        return ["budget report is invalid"]
+    observed = _dag_observed_budget(graph)
+    for field, expected in observed.items():
+        value = budget.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value != expected:
+            errors.append(f"budget {field} does not recompute from graph")
+    if budget.get("token_accounting") != TOKEN_ACCOUNTING_NOTE:
+        errors.append("budget token accounting note is invalid")
+    limits = budget.get("limits")
+    limit_fields = {"max_nodes", "max_depth", "max_fanout", "max_tokens", "max_bytes", "deadline_s"}
+    if not isinstance(limits, Mapping) or set(limits) != limit_fields:
+        return errors + ["budget limits are invalid"]
+    for field in ("max_nodes", "max_depth", "max_fanout", "max_tokens"):
+        value = limits[field]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            errors.append(f"budget limit {field} is invalid")
+    max_bytes = limits["max_bytes"]
+    if max_bytes is not None and (isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1):
+        errors.append("budget limit max_bytes is invalid")
+    deadline = limits["deadline_s"]
+    if isinstance(deadline, bool) or not isinstance(deadline, (int, float)) or not math.isfinite(float(deadline)) or deadline <= 0:
+        errors.append("budget limit deadline_s is invalid")
+    wall_clock = budget.get("wall_clock_s")
+    if wall_clock is not None and (isinstance(wall_clock, bool) or not isinstance(wall_clock, (int, float)) or not math.isfinite(float(wall_clock)) or wall_clock < 0):
+        errors.append("budget wall_clock_s is invalid")
+    if isinstance(limits.get("max_nodes"), int) and observed["nodes"] > limits["max_nodes"]:
+        errors.append("budget nodes exceed max_nodes")
+    if isinstance(limits.get("max_depth"), int) and observed["depth"] > limits["max_depth"]:
+        errors.append("budget depth exceeds max_depth")
+    if isinstance(limits.get("max_fanout"), int) and observed["max_fanout_used"] > limits["max_fanout"]:
+        errors.append("budget fanout exceeds max_fanout")
+    if isinstance(limits.get("max_tokens"), int) and observed["tokens"] > limits["max_tokens"]:
+        errors.append("budget tokens exceed max_tokens")
+    if isinstance(max_bytes, int) and observed["bytes"] > max_bytes:
+        errors.append("budget bytes exceed max_bytes")
+    if profile_manifest:
+        profile_budget = profile_manifest.get("compilation_budget")
+        if isinstance(profile_budget, Mapping):
+            for field in ("max_nodes", "max_depth", "max_fanout", "max_tokens", "max_bytes"):
+                actual = limits.get(field)
+                ceiling = profile_budget.get(field)
+                if isinstance(actual, int) and isinstance(ceiling, int) and actual > ceiling:
+                    errors.append(f"budget limit {field} widens execution profile")
+    return errors
+
+
 def verify_compiled_dag(artifact: dict) -> dict:
     """Recompute every commitment in a compiled DAG artifact."""
     errors: list[str] = []
@@ -39927,13 +40072,17 @@ def verify_compiled_dag(artifact: dict) -> dict:
         return {"valid": False, "errors": ["unsupported schema version"]}
     try:
         graph = ContextDAG.from_dict(artifact["graph"])
-    except ContextDagError as exc:
+    except (ContextDagError, TypeError, KeyError, ValueError) as exc:
         return {"valid": False, "errors": [f"graph invalid: {exc}"]}
-    selected = artifact.get("selected_node_ids") or []
+    selected = artifact.get("selected_node_ids")
+    if not isinstance(selected, list) or any(not isinstance(nid, str) for nid in selected):
+        return {"valid": False, "errors": ["selected_node_ids must be a list of strings"]}
     for nid in selected:
         if graph.node(nid) is None:
             errors.append(f"selected node {nid!r} missing from graph")
-    packet = artifact.get("packet") or []
+    packet = artifact.get("packet")
+    if not isinstance(packet, list) or any(not isinstance(item, Mapping) for item in packet):
+        return {"valid": False, "errors": ["packet must be a list of objects"]}
     packet_ids = [p.get("node_id") for p in packet]
     if packet_ids != selected:
         errors.append("packet does not match selected_node_ids")
@@ -39942,33 +40091,42 @@ def verify_compiled_dag(artifact: dict) -> dict:
         if nd is None or nd.to_dict() != raw:
             errors.append(
                 f"packet node {raw.get('node_id')!r} drifted from graph")
-    policy_raw = artifact.get("policy") or {}
-    try:
-        policy = CompilationPolicy(
-            expand_uncertain=bool(policy_raw.get("expand_uncertain", True)),
-            expand_contradictions=bool(policy_raw.get("expand_contradictions",
-                                                      True)),
-            expand_high_impact=bool(policy_raw.get("expand_high_impact", True)),
-            requires_verified=bool(policy_raw.get("requires_verified", False)),
-        )
-    except Exception as exc:
-        return {"valid": False, "errors": [f"policy invalid: {exc}"]}
+    policy_raw = artifact.get("policy")
+    policy_fields = {"expand_uncertain", "expand_contradictions", "expand_high_impact", "requires_verified"}
+    if not isinstance(policy_raw, Mapping) or set(policy_raw) != policy_fields or any(not isinstance(policy_raw[field], bool) for field in policy_fields):
+        return {"valid": False, "errors": ["policy invalid"]}
+    policy = CompilationPolicy(
+        expand_uncertain=policy_raw["expand_uncertain"],
+        expand_contradictions=policy_raw["expand_contradictions"],
+        expand_high_impact=policy_raw["expand_high_impact"],
+        requires_verified=policy_raw["requires_verified"],
+    )
     policy_gaps, provenance_gaps, contradictions = _effective_gaps(
         graph, selected, policy)
+    advisory = artifact.get("advisory")
+    if not isinstance(advisory, Mapping):
+        return {"valid": False, "errors": ["advisory must be an object"]}
     verdict = evaluate_compilation(
-        verdict_hint=artifact.get("advisory", {}).get("verdict_hint",
-                                                      "abstain"),
+        verdict_hint=advisory.get("verdict_hint", "abstain"),
         policy_gaps=policy_gaps,
         provenance_gaps=provenance_gaps,
         unresolved_contradictions=contradictions,
-        confidence=artifact.get("advisory", {}).get("confidence"),
+        confidence=advisory.get("confidence"),
     )
     if verdict != artifact.get("verdict"):
         errors.append("verdict does not recompute from graph state")
-    profile_manifest = artifact.get("execution_profile") or {}
+    profile_raw = artifact.get("execution_profile")
+    profile_manifest: Mapping[str, Any] = {}
     profile_diagnostics = artifact.get("profile_diagnostics") or {}
+    if not isinstance(profile_diagnostics, Mapping):
+        errors.append("profile diagnostics are not an object")
+        profile_diagnostics = {}
     profile_status = None
-    if profile_manifest:
+    if profile_raw:
+        if not isinstance(profile_raw, Mapping):
+            errors.append("execution profile is not an object")
+        else:
+            profile_manifest = profile_raw
         profile_check = verify_execution_profile(profile_manifest)
         if not profile_check.get("valid"):
             errors.append("execution profile digest mismatch")
@@ -39977,6 +40135,7 @@ def verify_compiled_dag(artifact: dict) -> dict:
         profile_status = "degraded" if profile_diagnostics.get("degraded") else profile_manifest.get("status")
         if artifact.get("status") != profile_status:
             errors.append("profile status does not match profile manifest")
+    errors.extend(_dag_validate_budget_report(artifact, graph, profile_manifest or None))
     budget_sealed = dict(artifact.get("budget") or {})
     budget_sealed.pop("wall_clock_s", None)
     digest_parts = [
@@ -39990,9 +40149,13 @@ def verify_compiled_dag(artifact: dict) -> dict:
     ]
     if profile_manifest:
         digest_parts.extend(["profile_status", profile_status, "profile_diagnostics", _dag_json(profile_diagnostics)])
-    expected = _dag_sha(*digest_parts)
-    if expected != artifact.get("compiled_digest"):
-        errors.append("compiled_digest mismatch")
+    try:
+        expected = _dag_sha(*digest_parts)
+    except (TypeError, ValueError, OverflowError):
+        errors.append("compiled_digest inputs are not canonical JSON")
+    else:
+        if expected != artifact.get("compiled_digest"):
+            errors.append("compiled_digest mismatch")
     return {"valid": not errors, "errors": errors,
             "graph_digest": graph.digest(),
             "verdict": verdict}
