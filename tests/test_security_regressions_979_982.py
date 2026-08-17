@@ -16,7 +16,8 @@ def _entry(identifier: str = "item-1", **extra):
         "agent_text": "bounded evidence summary",
         "source_id": "vault:entity-1",
         "provenance_id": "ledger:receipt-1",
-        "evidence_digest": "a" * 64,
+        "content": "bounded evidence body",
+        "evidence_digest": hashlib.sha256("bounded evidence body".encode("utf-8")).hexdigest(),
         "valid_at": "2026-08-17T12:00:00Z",
         "transaction_time": "2026-08-17T12:01:00Z",
         "validity_state": "observed",
@@ -64,18 +65,14 @@ def _profile(**extra):
     return value
 
 
-def test_public_evidence_fields_cannot_leak_uri_credentials_or_private_reasons():
-    projection = perseus.project_context_evidence([
-        _entry(
-            source_id="https://user:supersecret@example.com/private",
-            selection_reason="private memory: child birth date 2010-01-01",
-        )
-    ])
-    serialized = json.dumps(projection, sort_keys=True)
-    assert "supersecret" not in serialized
-    assert "child birth date" not in serialized
-    assert any(ref.startswith("sha256:") for ref in projection["selected"][0]["source_refs"])
-    assert projection["selected"][0]["inclusion_reason"] == "selection_reason_suppressed"
+def test_public_evidence_fields_reject_uri_credentials_and_private_reasons():
+    with pytest.raises(perseus.ContextEvidenceError, match="source"):
+        perseus.project_context_evidence([
+            _entry(
+                source_id="https://user:supersecret@example.com/private",
+                selection_reason="private memory: child birth date 2010-01-01",
+            )
+        ])
 
 
 def test_raw_body_digest_is_recomputed_and_forged_claims_are_rejected():
@@ -94,7 +91,9 @@ def test_raw_body_digest_is_recomputed_and_forged_claims_are_rejected():
 @pytest.mark.parametrize("coverage_state", ["empty", "unavailable", "timeout"])
 def test_non_backed_item_states_require_abstention(coverage_state):
     projection = perseus.project_context_evidence(
-        [_entry(coverage_state=coverage_state)], evidence_required=True
+        [_entry(coverage_state=coverage_state)],
+        provider_states={"vault": "active", "ledger": "active"},
+        evidence_required=True,
     )
     assert projection["coverage"]["state"] == coverage_state
     assert projection["coverage"]["abstention_required"] is True
@@ -232,13 +231,9 @@ def test_forged_profile_manifest_is_rejected_at_adapter_boundary():
         )
 
 
-def test_arbitrary_source_sentinels_are_not_preserved():
-    projection = perseus.project_context_evidence([
-        _entry(source_id="safe-private-sentinel-9f2c")
-    ])
-    serialized = json.dumps(projection, sort_keys=True)
-    assert "safe-private-sentinel-9f2c" not in serialized
-    assert any(ref.startswith("sha256:") for ref in projection["selected"][0]["source_refs"])
+def test_arbitrary_source_sentinels_are_rejected():
+    with pytest.raises(perseus.ContextEvidenceError, match="source"):
+        perseus.project_context_evidence([_entry(source_id="safe-private-sentinel-9f2c")])
 
 
 def test_nested_evidence_collections_are_bounded_at_production():
@@ -408,3 +403,107 @@ def test_context_operations_reject_non_text_raw_body_aliases():
         }],
     )
     assert result["status"] == "invalid_input"
+
+
+def test_evidence_required_context_ask_requires_computed_body_commitment_and_trusted_source():
+    result = perseus.context_ask(
+        "Which signed release path is used?",
+        context=[{
+            "candidate_id": "forged-record",
+            "summary": "The signed release path is used.",
+            "source_id": "attacker:forged-record",
+            "validity": "observed",
+            "evidence_digest": "a" * 64,
+        }],
+        policy={"evidence_required": True},
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    assert result["status"] == "abstain"
+    assert result["answer"] is None
+
+
+def test_digest_only_records_cannot_become_evidence_backed():
+    projection = perseus.project_context_evidence(
+        [_entry(source_id="vault:digest-only", content="")], evidence_required=True
+    )
+    assert projection["coverage"]["state"] != "evidence_backed"
+    assert projection["coverage"]["abstention_required"] is True
+
+
+def test_untrusted_source_namespaces_cannot_become_evidence_backed():
+    body = "authoritative body"
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    with pytest.raises(perseus.ContextEvidenceError, match="source"):
+        perseus.project_context_evidence([_entry(
+            source_id="attacker:forged",
+            content=body,
+            evidence_digest=digest,
+        )], evidence_required=True)
+
+
+def test_context_ask_rejects_unbounded_source_reference_fanout():
+    result = perseus.context_ask(
+        "Which signed release path is used?",
+        context=[{
+            "candidate_id": "many-refs",
+            "summary": "The signed release path is used.",
+            "source_refs": [f"vault:ref-{index}" for index in range(65)],
+            "validity": "observed",
+            "content": "bounded evidence body",
+        }],
+    )
+    assert result["status"] == "invalid_input"
+
+
+@pytest.mark.parametrize("bad_budget", [True, 0, {"max_items": 0}, {"max_chars": 0}, {"max_items": 1.5}, {"max_items": None}])
+def test_context_limits_reject_boolean_fractional_none_and_nonpositive_values(bad_budget):
+    result = perseus.context_ask(
+        "Which signed release path is used?",
+        context=[_entry()],
+        budget=bad_budget,
+    )
+    assert result["status"] == "invalid_input"
+
+
+def test_context_question_task_and_policy_controls_are_strictly_typed_and_bounded():
+    question_result = perseus.context_ask("q" * 513, context=[_entry()])
+    task_result = perseus.context_rank([_entry()], task="t" * 513)
+    nan_result = perseus.context_rank([_entry()], task="signed release", policy={"min_score": float("nan")})
+    bool_result = perseus.context_ask("signed release", context=[_entry()], policy={"allow_content": "false"})
+    assert question_result["status"] == "invalid_input"
+    assert task_result["status"] == "invalid_input"
+    assert nan_result["status"] == "invalid_input"
+    assert bool_result["status"] == "invalid_input"
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"max_nodes": True}, {"max_nodes": 1.5}, {"max_nodes": 0},
+    {"max_bytes": False}, {"max_bytes": 0}, {"deadline_s": float("nan")},
+])
+def test_compilation_budget_rejects_manual_type_confusion_and_nonpositive_limits(kwargs):
+    with pytest.raises(perseus.ContextDagError):
+        perseus.CompilationBudget(**kwargs)
+
+
+
+def _resign_projection(projection):
+    unsigned = dict(projection)
+    unsigned.pop("projection_digest", None)
+    projection["projection_digest"] = hashlib.sha256(
+        json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return projection
+
+
+def test_projection_verifier_rejects_self_consistent_missing_or_unknown_provider_attestation():
+    projection = perseus.project_context_evidence(
+        [_entry()],
+        provider_states={"vault": "active", "ledger": "active"},
+        evidence_required=True,
+    )
+    missing = json.loads(json.dumps(projection))
+    missing["coverage"]["provider_states"] = {}
+    assert perseus.verify_context_evidence(_resign_projection(missing))["valid"] is False
+    unknown = json.loads(json.dumps(projection))
+    unknown["coverage"]["provider_states"] = {"sha256:" + "a" * 64: "active"}
+    assert perseus.verify_context_evidence(_resign_projection(unknown))["valid"] is False
