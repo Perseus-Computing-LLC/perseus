@@ -22,6 +22,7 @@ _RA_NEGOTIATION_SCHEMA = "perseus-runtime-negotiation/v1"
 _RA_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$")
 _RA_DIGEST_RE = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
 _RA_EXECUTION_MODES = frozenset({"offline", "local", "approved_network"})
+_RA_NETWORK_RANK = {"offline": 0, "local": 1, "approved_network": 2}
 _RA_RESULT_STATUSES = frozenset({"success", "partial", "unavailable", "timeout", "cancelled", "malformed"})
 _RA_CAPABILITY_FIELDS = frozenset({
     "schema_version", "backend_id", "backend_version", "model_id", "model_version",
@@ -87,12 +88,9 @@ def _ra_digest(value: Any, field: str) -> str:
 
 
 def _ra_limit(value: Any, field: str, *, maximum: int = 10_000_000) -> int:
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, int):
         raise RuntimeAdapterError(f"{field} must be a positive integer")
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        raise RuntimeAdapterError(f"{field} must be a positive integer") from None
+    number = value
     if number < 1 or number > maximum:
         raise RuntimeAdapterError(f"{field} must be between 1 and {maximum}")
     return number
@@ -140,24 +138,27 @@ class RuntimeCapabilities:
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "RuntimeCapabilities") -> "RuntimeCapabilities":
         if isinstance(value, cls):
-            return value
+            value = value.to_dict()
         if not isinstance(value, Mapping):
             raise RuntimeAdapterError("runtime capabilities must be an object")
         _ra_forbidden_keys(value, "capabilities")
+        missing = _RA_CAPABILITY_FIELDS - set(value)
+        if missing:
+            raise RuntimeAdapterError(f"capabilities missing required fields: {sorted(map(str, missing))}")
         unknown = set(value) - _RA_CAPABILITY_FIELDS
         if unknown:
             raise RuntimeAdapterError(f"unsupported capability fields: {sorted(map(str, unknown))}")
-        if value.get("schema_version", _RA_CAPABILITIES_SCHEMA) != _RA_CAPABILITIES_SCHEMA:
+        if value["schema_version"] != _RA_CAPABILITIES_SCHEMA:
             raise RuntimeAdapterError("unsupported runtime capabilities schema version")
-        modes = _ra_string_list(value.get("execution_modes", ()), "execution_modes")
+        modes = _ra_string_list(value["execution_modes"], "execution_modes")
         if not modes or not set(modes).issubset(_RA_EXECUTION_MODES):
             raise RuntimeAdapterError("execution_modes must contain offline, local, or approved_network")
-        metrics = _ra_string_list(value.get("resource_metrics", ()), "resource_metrics")
+        metrics = _ra_string_list(value["resource_metrics"], "resource_metrics")
         for field in ("backend_id", "backend_version", "model_id", "tokenizer_id", "auth_mode", "provider_ref"):
-            _ra_id(value.get(field, ""), field)
-        model_version = _ra_id(value.get("model_version", "unknown"), "model_version")
-        hardware_class = _ra_id(value.get("hardware_class", "unknown"), "hardware_class")
-        if not isinstance(value.get("streaming", False), bool) or not isinstance(value.get("tools", False), bool):
+            _ra_id(value[field], field)
+        model_version = _ra_id(value["model_version"], "model_version")
+        hardware_class = _ra_id(value["hardware_class"], "hardware_class")
+        if not isinstance(value["streaming"], bool) or not isinstance(value["tools"], bool):
             raise RuntimeAdapterError("streaming and tools must be booleans")
         return cls(
             schema_version=_RA_CAPABILITIES_SCHEMA,
@@ -168,8 +169,8 @@ class RuntimeCapabilities:
             tokenizer_id=_ra_id(value["tokenizer_id"], "tokenizer_id"),
             context_capacity_tokens=_ra_limit(value["context_capacity_tokens"], "context_capacity_tokens"),
             execution_modes=modes,
-            streaming=value.get("streaming", False),
-            tools=value.get("tools", False),
+            streaming=value["streaming"],
+            tools=value["tools"],
             hardware_class=hardware_class,
             resource_metrics=metrics,
             auth_mode=_ra_id(value["auth_mode"], "auth_mode"),
@@ -213,14 +214,17 @@ class AdapterRequest:
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "AdapterRequest") -> "AdapterRequest":
         if isinstance(value, cls):
-            return value
+            value = value.to_dict()
         if not isinstance(value, Mapping):
             raise RuntimeAdapterError("adapter request must be an object")
         _ra_forbidden_keys(value, "request")
+        missing = _RA_REQUEST_FIELDS - set(value)
+        if missing:
+            raise RuntimeAdapterError(f"request missing required fields: {sorted(map(str, missing))}")
         unknown = set(value) - _RA_REQUEST_FIELDS
         if unknown:
             raise RuntimeAdapterError(f"unsupported request fields: {sorted(map(str, unknown))}")
-        if value.get("schema_version", _RA_REQUEST_SCHEMA) != _RA_REQUEST_SCHEMA:
+        if value["schema_version"] != _RA_REQUEST_SCHEMA:
             raise RuntimeAdapterError("unsupported runtime request schema version")
         profile = value.get("execution_profile")
         if not isinstance(profile, Mapping):
@@ -244,10 +248,15 @@ class AdapterRequest:
             normalized_required["resource_metrics"] = list(_ra_string_list(requested["resource_metrics"], "resource_metrics"))
         if "min_context_tokens" in requested:
             normalized_required["min_context_tokens"] = _ra_limit(requested["min_context_tokens"], "min_context_tokens")
-        mode = _ra_text(value.get("execution_mode", "local"), "execution_mode", max_length=32)
+        mode = _ra_text(value["execution_mode"], "execution_mode", max_length=32)
         if mode not in _RA_EXECUTION_MODES:
             raise RuntimeAdapterError("execution_mode is unsupported")
-        profile_digest = _ra_digest(value.get("execution_profile_digest", profile["profile_digest"]), "execution_profile_digest")
+        effective_profile = profile.get("effective")
+        if not isinstance(effective_profile, Mapping) or effective_profile.get("network_mode") not in _RA_NETWORK_RANK:
+            raise RuntimeAdapterError("execution_profile effective network policy is missing")
+        if _RA_NETWORK_RANK[mode] > _RA_NETWORK_RANK[effective_profile["network_mode"]]:
+            raise RuntimeAdapterError("execution_mode exceeds execution_profile network policy")
+        profile_digest = _ra_digest(value["execution_profile_digest"], "execution_profile_digest")
         if profile_digest != str(profile["profile_digest"]).lower().removeprefix("sha256:"):
             raise RuntimeAdapterError("execution_profile_digest does not match execution_profile")
         return cls(
@@ -295,22 +304,25 @@ class AdapterResult:
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "AdapterResult") -> "AdapterResult":
         if isinstance(value, cls):
-            return value
+            value = value.to_dict()
         if not isinstance(value, Mapping):
             raise RuntimeAdapterError("adapter result must be an object")
         _ra_forbidden_keys(value, "result")
         unknown = set(value) - _RA_RESULT_FIELDS
         if unknown:
             raise RuntimeAdapterError(f"unsupported result fields: {sorted(map(str, unknown))}")
-        if value.get("schema_version", _RA_RESULT_SCHEMA) != _RA_RESULT_SCHEMA:
+        missing = _RA_RESULT_FIELDS - set(value)
+        if missing:
+            raise RuntimeAdapterError(f"result missing required fields: {sorted(map(str, missing))}")
+        if value["schema_version"] != _RA_RESULT_SCHEMA:
             raise RuntimeAdapterError("unsupported runtime result schema version")
-        status = _ra_text(value.get("status", ""), "status", max_length=32)
+        status = _ra_text(value["status"], "status", max_length=32)
         if status not in _RA_RESULT_STATUSES:
             raise RuntimeAdapterError("unsupported runtime result status")
-        output = value.get("output")
+        output = value["output"]
         if output is not None:
             output = _ra_text(output, "output", max_length=1_000_000, allow_empty=True)
-        usage_raw = value.get("usage", {})
+        usage_raw = value["usage"]
         if not isinstance(usage_raw, Mapping) or set(usage_raw) - _RA_USAGE_FIELDS:
             raise RuntimeAdapterError("usage contains unsupported fields")
         usage: dict[str, int] = {}
@@ -318,17 +330,17 @@ class AdapterResult:
             if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
                 raise RuntimeAdapterError(f"usage.{key} must be a non-negative integer")
             usage[key] = raw
-        runtime_raw = value.get("runtime", {})
+        runtime_raw = value["runtime"]
         if not isinstance(runtime_raw, Mapping) or set(runtime_raw) - _RA_RUNTIME_FIELDS:
             raise RuntimeAdapterError("runtime provenance contains unsupported fields")
         runtime = {str(key): _ra_id(raw, f"runtime.{key}") for key, raw in runtime_raw.items()}
-        error_code = value.get("error_code")
+        error_code = value["error_code"]
         if error_code is not None:
             error_code = _ra_id(error_code, "error_code")
-        error_message = value.get("error_message")
+        error_message = value["error_message"]
         if error_message is not None:
             error_message = _ra_text(error_message, "error_message", max_length=256)
-        fallback = value.get("external_fallback_allowed", False)
+        fallback = value["external_fallback_allowed"]
         if fallback is not False:
             raise RuntimeAdapterError("external fallback is permanently disabled by the core contract")
         if status in {"success", "partial"} and output is None:

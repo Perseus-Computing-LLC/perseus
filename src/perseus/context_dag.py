@@ -219,6 +219,7 @@ class CompilationBudget:
     max_depth: int = 4
     max_fanout: int = 6
     max_tokens: int = 4000
+    max_bytes: int | None = None
     deadline_s: float = 30.0
 
     def ledger(self) -> "BudgetLedger":
@@ -233,6 +234,7 @@ class BudgetLedger:
         self.nodes: list[str] = []
         self.depth: dict[str, int] = {}
         self.tokens: dict[str, int] = {}
+        self.bytes: dict[str, int] = {}
         self.children: dict[str, list[str]] = {}
         self.started_at = time.monotonic()
 
@@ -254,9 +256,13 @@ class BudgetLedger:
         self.nodes.append(node.node_id)
         self.depth[node.node_id] = depth
         self.tokens[node.node_id] = dag_tokens(node.content)
+        self.bytes[node.node_id] = len(node.content.encode("utf-8"))
         total = sum(self.tokens.values())
         if total > self.budget.max_tokens:
             raise BudgetExceeded("max_tokens", self.budget.max_tokens, total)
+        total_bytes = sum(self.bytes.values())
+        if self.budget.max_bytes is not None and total_bytes > self.budget.max_bytes:
+            raise BudgetExceeded("max_bytes", self.budget.max_bytes, total_bytes)
 
     def register_edge(self, parent_id: str, child_id: str) -> None:
         self._tick()
@@ -284,12 +290,14 @@ class BudgetLedger:
             "max_fanout_used": max((len(v) for v in self.children.values()),
                                    default=0),
             "tokens": self.total_tokens,
+            "bytes": sum(self.bytes.values()),
             "wall_clock_s": round(time.monotonic() - self.started_at, 3),
             "limits": {
                 "max_nodes": self.budget.max_nodes,
                 "max_depth": self.budget.max_depth,
                 "max_fanout": self.budget.max_fanout,
                 "max_tokens": self.budget.max_tokens,
+                "max_bytes": self.budget.max_bytes,
                 "deadline_s": self.budget.deadline_s,
             },
             "token_accounting": TOKEN_ACCOUNTING_NOTE,
@@ -780,6 +788,7 @@ def compile_context_dag(*, task_id: str,
                 max_depth=min(int(budget.max_depth), int(profile_budget["max_depth"])),
                 max_fanout=min(int(budget.max_fanout), int(profile_budget["max_fanout"])),
                 max_tokens=min(int(budget.max_tokens), int(profile_budget["max_tokens"])),
+                max_bytes=(int(profile_budget["max_bytes"]) if budget.max_bytes is None else min(int(budget.max_bytes), int(profile_budget["max_bytes"]))),
                 deadline_s=min(float(budget.deadline_s), float(profile_budget["deadline_s"])),
             )
     else:
