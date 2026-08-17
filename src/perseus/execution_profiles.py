@@ -100,6 +100,8 @@ def _ep_text(value: Any, field: str, *, max_length: int = 160) -> str:
 
 def _ep_id(value: Any, field: str, *, default: str = "") -> str:
     text = _ep_text(value if value is not None else default, field)
+    if any(marker in text for marker in ("://", "@", "?", "&", "=")):
+        raise ExecutionProfileError(f"{field} must not contain URI/userinfo/query syntax")
     if not _EP_ID_RE.fullmatch(text):
         raise ExecutionProfileError(f"{field} must be a bounded identifier")
     return text
