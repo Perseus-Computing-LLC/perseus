@@ -2,29 +2,31 @@
   "master": {
     "filename": "Perseus-Computing-LLC-Capability-Statement.pdf",
     "audience_label": "MASTER CAPABILITY STATEMENT",
-    "headline": "Infrastructure for AI agents that must keep context and evidence inside the boundary.",
-    "lead": "Perseus Computing LLC builds the system around the model: live context before an agent acts, governed memory after it acts, and evidence for the decisions that matter. It runs locally, including in disconnected and regulated environments where cloud memory and opaque state are not acceptable.",
-    "why_heading": "Why defense workflows",
-    "why_body": "AI can produce a plausible answer while losing the state that made it useful. Perseus keeps current context, governed memory, and a reviewable record in the same boundary as the workflow.",
-    "discussion": "Start with a bounded workflow, its data boundary, and the integration surface that needs to be made reviewable.",
+    "headline": "The infrastructure around the model.",
+    "lead": "Perseus Computing keeps context, governed memory, and evidence inside the boundary where an AI workflow operates. The system runs locally, including in disconnected and regulated environments where cloud memory and opaque state are not acceptable.",
+    "fit_tag": "All three routes",
+    "problem": "AI can produce a plausible answer while losing the state that made it useful. The next operator then has to reconstruct the repository state, prior decision, or evidence trail before work can continue.",
+    "change": "Perseus gives the workflow a current starting point, durable memory across sessions, and a record that can be reviewed later.",
+    "discussion": "Bring one bounded workflow, its data boundary, and the integration surface that needs to be made reviewable.",
     "fit_rows": [
-      ["CYBER & NETWORKS", "AI/ML, DevSecOps, cyber, and enterprise IT workflows where context and evidence must stay inside the controlled network."],
-      ["C3BM", "Software factories and distributed decision workflows; enabling infrastructure, not a claim to own the mission platform."],
-      ["ELECTRONIC SYSTEMS", "Partner-led support where local, reviewable AI connects to sensing, EW, PNT, or mission-system workflows."]
+      ["CYBER & NETWORKS", "AI/ML, DevSecOps, cyber, and enterprise IT workflows where context and evidence must stay inside the controlled network.", "PRIMARY FIT"],
+      ["C3BM", "Software factories and distributed decision workflows; enabling infrastructure, not a claim to own the mission platform.", "ENABLING FIT"],
+      ["ELECTRONIC SYSTEMS", "Partner-led support where local, reviewable AI connects to sensing, EW, PNT, or mission-system workflows.", "PARTNER-LED"]
     ]
   },
   "cyber-networks": {
     "filename": "Perseus-Computing-LLC-Capability-Statement-Cyber-Networks.pdf",
     "audience_label": "CYBER & NETWORKS",
-    "headline": "AI-assisted cyber workflows need more than a model.",
+    "headline": "AI-assisted cyber workflows need state that survives the handoff.",
     "lead": "Perseus keeps the working context, governed memory, and evidence trail inside the controlled environment where the workflow runs.",
-    "why_heading": "Why Cyber & Networks",
-    "why_body": "For AI/ML, DevSecOps, and enterprise cyber workflows, the failure mode is often context loss: an agent cannot see the current repository, ticket, deployment, or prior decision, and the next operator cannot reconstruct what happened. Perseus supplies that layer locally.",
-    "discussion": "A bounded cyber or DevSecOps workflow, its data boundary, and the integration surface between the agent, tools, and existing systems.",
+    "fit_tag": "Primary fit",
+    "problem": "For AI/ML, DevSecOps, and enterprise cyber workflows, the failure mode is often context loss. An agent cannot see the current repository, ticket, deployment, or prior decision, and the next operator cannot reconstruct what happened.",
+    "change": "Perseus resolves current workflow state before action and preserves the relevant record after action, without requiring a cloud memory service or vendor runtime.",
+    "discussion": "Bring one bounded cyber or DevSecOps workflow, its data boundary, and the integration surface between the agent, tools, and existing systems.",
     "fit_rows": [
-      ["AI/ML", "Context and memory for controlled model-assisted workflows."],
-      ["DEVSECOPS", "State and evidence across repositories, tickets, deployments, and handoffs."],
-      ["CYBER / IT", "Local deployment where cloud memory, telemetry, or opaque state is out of bounds."]
+      ["AI / ML", "Context and governed memory for controlled model-assisted workflows.", "PRIMARY FIT"],
+      ["DEVSECOPS", "State and evidence across repositories, tickets, deployments, and engineering handoffs.", "PRIMARY FIT"],
+      ["CYBER / IT", "Local deployment where cloud memory, telemetry, or opaque state is out of bounds.", "PRIMARY FIT"]
     ]
   },
   "c3bm": {
@@ -32,13 +34,14 @@
     "audience_label": "C3BM",
     "headline": "Software-factory agents need memory that survives the handoff.",
     "lead": "Perseus gives AI-enabled C2 and software-factory workflows a local context and evidence layer without claiming to be the mission platform.",
-    "why_heading": "Why C3BM",
-    "why_body": "Distributed teams and agents move through repositories, decisions, and operational artifacts. When state disappears between sessions, software-factory work becomes harder to review, re-plan, and trust. Perseus keeps the context and provenance available at the boundary where the work is done.",
-    "discussion": "A software-factory or distributed decision workflow, the context handoffs that fail today, and the existing integration surface.",
+    "fit_tag": "Enabling fit",
+    "problem": "Distributed teams and agents move through repositories, decisions, and operational artifacts. When state disappears between sessions, software-factory work becomes harder to review, re-plan, and trust.",
+    "change": "Perseus keeps the context and provenance available at the boundary where the work is done, so a later agent or operator can start from a defensible record.",
+    "discussion": "Bring one software-factory or distributed decision workflow, the context handoffs that fail today, and the existing integration surface.",
     "fit_rows": [
-      ["SOFTWARE FACTORIES", "Durable context across agent sessions, repositories, tickets, and engineering handoffs."],
-      ["C2 / DECISION", "Evidence-backed memory for workflows that must be re-planned and reviewed."],
-      ["PARTNER BOUNDARY", "An enabling layer that can sit beside the mission platform, not a claim to replace it."]
+      ["SOFTWARE FACTORIES", "Durable context across agent sessions, repositories, tickets, and engineering handoffs.", "PRIMARY FIT"],
+      ["C2 / DECISION", "Evidence-backed memory for workflows that must be re-planned and reviewed.", "ENABLING FIT"],
+      ["PARTNER BOUNDARY", "An enabling layer that can sit beside the mission platform, not a claim to replace it.", "ENABLING FIT"]
     ]
   },
   "electronic-systems": {
@@ -46,13 +49,14 @@
     "audience_label": "ELECTRONIC SYSTEMS",
     "headline": "Local AI support for mission-system workflows.",
     "lead": "Perseus provides the context, governed memory, and evidence layer around an AI system; sensing, EW, PNT, and mission-system integration remains a partner-led conversation.",
-    "why_heading": "Why Electronic Systems",
-    "why_body": "Mission-system teams need to know what data an AI assistant saw, what it retained, and how a decision can be reviewed without moving the working record outside the program boundary. Perseus is the local infrastructure for that record.",
-    "discussion": "A specific sensing, EW, PNT, or mission-system integration boundary, its deployment constraints, and the prime or partner role.",
+    "fit_tag": "Partner-led fit",
+    "problem": "Mission-system teams need to know what data an AI assistant saw, what it retained, and how a decision can be reviewed without moving the working record outside the program boundary.",
+    "change": "Perseus provides the local infrastructure for that record while leaving mission hardware, sensor integration, and prime-system responsibilities with the appropriate technical partner.",
+    "discussion": "Bring a specific sensing, EW, PNT, or mission-system integration boundary, its deployment constraints, and the prime or partner role.",
     "fit_rows": [
-      ["SENSING / EW / PNT", "Context and evidence support where local AI must remain close to the mission workflow."],
-      ["MISSION DATA", "Governed memory and provenance without requiring a cloud memory service."],
-      ["PARTNER-LED", "A bounded infrastructure contribution for a prime, integrator, or technical performer."]
+      ["SENSING / EW / PNT", "Context and evidence support where local AI must remain close to the mission workflow.", "PRIMARY FIT"],
+      ["MISSION DATA", "Governed memory and provenance without requiring a cloud memory service.", "ENABLING FIT"],
+      ["PARTNER-LED", "A bounded infrastructure contribution for a prime, integrator, or technical performer.", "PARTNER-LED"]
     ]
   }
 }
