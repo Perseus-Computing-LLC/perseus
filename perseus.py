@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "aeaf12c"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "6606595"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -36244,6 +36244,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Mapping
 
 
@@ -36570,8 +36571,8 @@ class AdapterResult:
     request_id: str
     status: str
     output: str | None
-    usage: dict[str, int]
-    runtime: dict[str, str]
+    usage: Mapping[str, int]
+    runtime: Mapping[str, str]
     error_code: str | None
     error_message: str | None
     external_fallback_allowed: bool = False
@@ -36609,8 +36610,8 @@ class AdapterResult:
         object.__setattr__(self, "request_id", request_id)
         object.__setattr__(self, "status", status)
         object.__setattr__(self, "output", output)
-        object.__setattr__(self, "usage", usage)
-        object.__setattr__(self, "runtime", runtime)
+        object.__setattr__(self, "usage", MappingProxyType(usage))
+        object.__setattr__(self, "runtime", MappingProxyType(runtime))
         object.__setattr__(self, "error_code", error_code)
         object.__setattr__(self, "error_message", error_message)
 
@@ -38030,8 +38031,9 @@ def _cc_topic(record: Mapping[str, Any]) -> str:
 
 
 def _cc_private(record: Mapping[str, Any], policy: Mapping[str, Any]) -> bool:
-    if bool(policy.get("allow_private", False)):
-        return False
+    # Public projections are never allowed to carry private scalars.  The
+    # legacy allow_private policy bit may affect caller policy commitments, but
+    # it cannot disable this unconditional privacy boundary.
     if bool(record.get("private") or record.get("contains_sensitive_data")):
         return True
     sensitivity = str(record.get("sensitivity", record.get("visibility", "")) or "").lower()
@@ -38088,7 +38090,7 @@ def _cc_content_commitment(record: Mapping[str, Any]) -> str | None:
 _CC_PUBLIC_SOURCE_RE = re.compile(r"^(?:file|vault|ledger|artifact):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
 
 
-def _cc_source_ids(record: Mapping[str, Any], candidate_id: str) -> list[str]:
+def _cc_source_ids(record: Mapping[str, Any], candidate_id: str, *, require_explicit: bool = False) -> list[str]:
     values: list[Any] = []
     for key in ("source_id", "source_ref", "provenance_id"):
         if record.get(key):
@@ -38111,6 +38113,8 @@ def _cc_source_ids(record: Mapping[str, Any], candidate_id: str) -> list[str]:
     if len(values) > CONTEXT_MAX_SOURCE_REFS:
         raise ValueError(f"{candidate_id} contains too many source references")
     if not values:
+        if require_explicit:
+            raise ValueError(f"{candidate_id} is missing an explicit public source reference")
         safe_candidate = _cc_safe_id(candidate_id, fallback="unknown")
         values = [f"artifact:candidate:{safe_candidate}"]
     result: set[str] = set()
@@ -38135,8 +38139,8 @@ def _cc_validate_commitments(records: Any) -> None:
             _cc_content_commitment(record)
 
 
-def _cc_evidence(record: Mapping[str, Any], candidate_id: str, validity: str) -> list[dict[str, Any]]:
-    refs = _cc_source_ids(record, candidate_id)
+def _cc_evidence(record: Mapping[str, Any], candidate_id: str, validity: str, *, require_explicit: bool = False) -> list[dict[str, Any]]:
+    refs = _cc_source_ids(record, candidate_id, require_explicit=require_explicit)
     content_hash = _cc_content_commitment(record)
     result = []
     for source_id in refs:
@@ -38366,7 +38370,7 @@ def _cc_rank_score(record: Mapping[str, Any], task: str, scope: Mapping[str, str
     return round(score, 6), {key: round(float(value), 6) for key, value in components.items()}
 
 
-def _cc_rank_candidate(record: Mapping[str, Any], rank: int, score: float, components: Mapping[str, float], tie: bool) -> dict[str, Any]:
+def _cc_rank_candidate(record: Mapping[str, Any], rank: int, score: float, components: Mapping[str, float], tie: bool, *, require_explicit: bool = False) -> dict[str, Any]:
     candidate_id = str(record["_contract_id"])
     validity = str(record["_contract_validity"])
     reasons = ["scope_match", "policy_allowed"]
@@ -38385,7 +38389,7 @@ def _cc_rank_candidate(record: Mapping[str, Any], rank: int, score: float, compo
         "rank": rank,
         "score": score,
         "rank_reasons": reasons,
-        "evidence": _cc_evidence(record, candidate_id, validity),
+        "evidence": _cc_evidence(record, candidate_id, validity, require_explicit=require_explicit),
         "uncertainty": _cc_uncertainty(validity, bool(record.get("verified")), tie),
     }
 
@@ -38479,7 +38483,7 @@ def context_rank(
             if index >= max_items:
                 excluded_by_budget.append(str(record["_contract_id"]))
                 continue
-            output.append(_cc_rank_candidate(record, len(output) + 1, score, components, str(record["_contract_id"]) in tie_ids))
+            output.append(_cc_rank_candidate(record, len(output) + 1, score, components, str(record["_contract_id"]) in tie_ids, require_explicit=evidence_required))
         if excluded_by_budget:
             excluded.extend(excluded_by_budget)
         source_refs = sorted({ref for item in output for evidence in item["evidence"] for ref in [evidence["source_id"]]})
@@ -38666,7 +38670,7 @@ def context_ask(
                 "route": route,
             }
         validity = str(best["_contract_validity"])
-        source_refs = _cc_source_ids(best, str(best["_contract_id"]))
+        source_refs = _cc_source_ids(best, str(best["_contract_id"]), require_explicit=evidence_required)
         integration_failure = _cc_failure_for_integrations(states)
         has_authoritative_source = any(ref.startswith(("file:", "vault:", "ledger:", "artifact:")) for ref in source_refs)
         has_raw_body = any(isinstance(best.get(key), str) and bool(best.get(key)) for key in ("content", "body", "raw", "private_body"))
@@ -38719,7 +38723,7 @@ def context_ask(
             "confidence": confidence,
             "uncertainty": confidence,
             "selection_reason": ["scope_match", "policy_allowed", "question_term_match", "evidence_linked"],
-            "evidence": _cc_evidence(best, str(best["_contract_id"]), validity),
+            "evidence": _cc_evidence(best, str(best["_contract_id"]), validity, require_explicit=evidence_required),
             "route": route,
             "context_decision": decision,
             "budget": {"max_items": max_items, "max_chars": max_chars},
@@ -39005,8 +39009,9 @@ class AgentProjectionBoundary:
         consent_topics = self._consents.get((safe_agent, scope_fp), {}).get("topics", [])
         if consent_topics and (not topic or any(candidate_topic not in consent_topics for candidate_topic in topics)):
             topic = ""
-        states = _cc_integrations(integrations)
         route = rank.get("route", {})
+        route_states = route.get("integration_state") if isinstance(route, Mapping) else None
+        states = dict(route_states) if isinstance(route_states, Mapping) else _cc_integrations(integrations)
         digest_payload = {
             "schema_version": AGENT_PROJECTION_SCHEMA_VERSION,
             "agent_id": safe_agent,
@@ -39023,15 +39028,29 @@ class AgentProjectionBoundary:
         }
         projection_digest = _cc_sha(digest_payload)
         integration_failure = _cc_failure_for_integrations(states)
-        if not items:
+        rank_status = rank.get("status")
+        rank_failure = rank.get("failure_state")
+        evidence_projection = rank.get("evidence_projection")
+        coverage = evidence_projection.get("coverage", {}) if isinstance(evidence_projection, Mapping) else {}
+        coverage_abstention = bool(
+            isinstance(evidence_projection, Mapping)
+            and (evidence_projection.get("status") == "abstention_required"
+                 or (isinstance(coverage, Mapping) and coverage.get("abstention_required") is True))
+        )
+        if rank_status == "invalid_input":
+            status, failure_state = "invalid_input", rank_failure or "invalid_input"
+        elif coverage_abstention or rank_status in {"abstain", "unavailable", "review"}:
+            status = "unavailable" if integration_failure and rank_status == "unavailable" else (rank_status if rank_status in {"abstain", "unavailable", "review"} else "abstain")
+            failure_state = rank_failure or integration_failure or "evidence_abstention_required"
+        elif not items:
             status, failure_state = ("unavailable", "vault_unavailable") if integration_failure else ("abstain", "projection_empty")
-        elif rank.get("failure_state") == "contradictory_evidence":
+        elif rank_failure == "contradictory_evidence":
             status, failure_state = "review", "contradictory_evidence"
         elif integration_failure:
             status, failure_state = "degraded", integration_failure
-        elif budget_exhausted or rank.get("failure_state") == "budget_exhausted":
+        elif budget_exhausted or rank_failure == "budget_exhausted":
             status, failure_state = "degraded", "budget_exhausted"
-        elif rank.get("failure_state") == "source_stale":
+        elif rank_failure == "source_stale":
             status, failure_state = "degraded", "source_stale"
         else:
             status, failure_state = "complete", None
@@ -39477,7 +39496,9 @@ def dag_tokens(text: str) -> int:
     Same convention as ``context_decision`` — an *estimate* for budget
     accounting, never a provider-billed reading.
     """
-    return max(1, (len(text or "") + 3) // 4)
+    if not isinstance(text, str):
+        raise ContextDagError("node content must be text")
+    return max(1, (len(text) + 3) // 4)
 
 
 def _dag_uncertainty(validity: str, verified: bool) -> dict[str, Any]:
@@ -39524,8 +39545,16 @@ class ContextNode:
     content_ref: str = ""
 
     def __post_init__(self) -> None:
-        if self.kind not in NODE_KINDS:
+        if not isinstance(self.kind, str) or self.kind not in NODE_KINDS:
             raise ContextDagError(f"unknown node kind: {self.kind!r}")
+        if not isinstance(self.content, str):
+            raise ContextDagError("node content must be text")
+        if not isinstance(self.summary, str):
+            raise ContextDagError("node summary must be text")
+        if isinstance(self.version, bool) or not isinstance(self.version, int) or self.version < 1:
+            raise ContextDagError("node version must be a positive integer")
+        if not isinstance(self.meta, dict):
+            raise ContextDagError("node metadata must be an object")
         ev = _norm_evidence(self.evidence)
         object.__setattr__(self, "evidence", ev)
         if not self.summary:
@@ -40162,6 +40191,11 @@ def compile_context_dag(*, task_id: str,
     the advisory inputs + policy so verification is a faithful replay.
     """
     policy = policy or CompilationPolicy()
+    # Every sealed artifact carries a resolved profile, including callers that
+    # omit one.  This makes profile-envelope presence an invariant rather than
+    # a caller-controlled optional field.
+    if execution_profile is None:
+        execution_profile = {"mode": "standard-local", "profile_id": "default-local"}
     resolved_profile = None
     if execution_profile is not None:
         try:
@@ -40279,6 +40313,7 @@ def compile_context_dag(*, task_id: str,
         "policy", _dag_json(policy.to_dict()),
         "budget", _dag_json(ledger.digest_input()),
         "graph", graph.digest(),
+        "execution_profile_present", resolved_profile is not None,
         "execution_profile", _dag_json(profile_manifest),
     ]
     if resolved_profile is not None:
@@ -40297,6 +40332,7 @@ def compile_context_dag(*, task_id: str,
         "policy": policy.to_dict(),
         "budget": ledger.report(),
         "token_accounting": TOKEN_ACCOUNTING_NOTE,
+        "execution_profile_present": resolved_profile is not None,
         "compiled_at_unix_s": round(time.time(), 3),
     }
     if resolved_profile is not None:
@@ -40432,7 +40468,12 @@ def verify_compiled_dag(artifact: dict) -> dict:
         errors.append("verdict does not recompute from graph state")
     profile_raw = artifact.get("execution_profile")
     profile_manifest: Mapping[str, Any] = {}
-    profile_related = any(key in artifact for key in ("execution_profile", "execution_profile_digest", "profile_diagnostics", "status"))
+    profile_present = artifact.get("execution_profile_present")
+    if profile_present is not True:
+        errors.append("execution_profile_present must be true")
+    profile_related = profile_present or any(key in artifact for key in ("execution_profile", "execution_profile_digest", "profile_diagnostics", "status"))
+    if not profile_present and any(key in artifact for key in ("execution_profile", "execution_profile_digest", "profile_diagnostics", "status")):
+        errors.append("profile fields are present without an execution profile envelope")
     profile_diagnostics = artifact.get("profile_diagnostics")
     profile_status = None
     if profile_related:
@@ -40468,6 +40509,7 @@ def verify_compiled_dag(artifact: dict) -> dict:
         "policy", _dag_json(policy.to_dict()),
         "budget", _dag_json(budget_sealed),
         "graph", graph.digest(),
+        "execution_profile_present", profile_present,
         "execution_profile", _dag_json(profile_manifest),
     ]
     if profile_manifest:
