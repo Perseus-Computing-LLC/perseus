@@ -303,3 +303,46 @@ def test_selected_ids_must_be_a_sequence():
 def test_malformed_empty_optional_latency_limit_is_rejected():
     with pytest.raises(perseus.ExecutionProfileError, match="latency_target_ms"):
         perseus.ExecutionProfile.from_mapping(_profile(latency_target_ms=""))
+
+
+def test_profile_and_capability_identifiers_reject_uri_userinfo_forms():
+    with pytest.raises(perseus.ExecutionProfileError):
+        perseus.ExecutionProfile.from_mapping(_profile(profile_id="https://user:hunter2@example.com/profile"))
+    with pytest.raises(perseus.ExecutionProfileError):
+        perseus.ExecutionProfile.from_mapping(_profile(runtime_capabilities=["https://user:hunter2@example.com/capability"]))
+
+
+def test_air_gapped_profile_cannot_be_rewritten_to_a_networked_policy():
+    with pytest.raises(perseus.ExecutionProfileError, match="offline"):
+        perseus.ExecutionProfile.from_mapping(_profile(mode="air-gapped", network_mode="approved_network"))
+
+
+def test_projection_verifier_requires_source_references():
+    projection = perseus.project_context_evidence([_entry()])
+    projection["selected"][0]["source_refs"] = []
+    unsigned = dict(projection)
+    unsigned.pop("projection_digest")
+    projection["projection_digest"] = _canonical_sha(unsigned)
+    assert perseus.verify_context_evidence(projection)["valid"] is False
+
+
+def test_malformed_unicode_bodies_fail_closed_in_evidence_commitments():
+    for body in ("\ud800", "\ud801"):
+        replacement_digest = hashlib.sha256(body.encode("utf-8", errors="replace")).hexdigest()
+        with pytest.raises(perseus.ContextEvidenceError):
+            perseus.project_context_evidence([_entry(content=body, evidence_digest=replacement_digest)])
+
+
+def test_context_ask_abstains_when_evidence_is_required_but_not_observed():
+    result = perseus.context_ask(
+        "Which signed release path is used?",
+        context=[{
+            "candidate_id": "partial-record",
+            "summary": "The signed release path is used.",
+            "validity": "partial",
+            "source_id": "vault:partial-record",
+        }],
+        policy={"evidence_required": True},
+    )
+    assert result["status"] == "abstain"
+    assert result["answer"] is None

@@ -110,6 +110,10 @@ def _ce_id(value: Any, field: str) -> str:
     text = value.strip()
     if not text:
         raise ContextEvidenceError(f"{field} must not be empty")
+    try:
+        text_bytes = text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ContextEvidenceError(f"{field} must be valid UTF-8 text") from exc
     # Only explicit public namespaces may cross this boundary verbatim. All
     # candidate IDs, arbitrary provider names, and unrecognized source values
     # become stable commitments so an innocuous-looking private scalar cannot
@@ -120,7 +124,7 @@ def _ce_id(value: Any, field: str) -> str:
         return text
     if field == "provider" and text in {"vault", "ledger"}:
         return text
-    return "sha256:" + hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+    return "sha256:" + hashlib.sha256(text_bytes).hexdigest()
 
 
 def _ce_digest(value: Any, field: str) -> str | None:
@@ -149,6 +153,8 @@ def _ce_sources(record: Mapping[str, Any], candidate_id: str) -> list[str]:
     for key in ("source_refs", "provenance_refs"):
         raw = record.get(key)
         if isinstance(raw, (list, tuple)):
+            if len(raw) > _CE_MAX_SOURCE_REFS:
+                raise ContextEvidenceError(f"{candidate_id} contains too many source references")
             values.extend(raw)
     for key in ("provenance", "evidence"):
         nested = record.get(key)
@@ -184,7 +190,10 @@ def _ce_evidence_digest(record: Mapping[str, Any], candidate_id: str) -> str | N
             raw_values.append(value)
     if raw_values and any(value != raw_values[0] for value in raw_values[1:]):
         raise ContextEvidenceError(f"{candidate_id} contains conflicting raw evidence bodies")
-    computed = hashlib.sha256(raw_values[0].encode("utf-8", errors="replace")).hexdigest() if raw_values else None
+    try:
+        computed = hashlib.sha256(raw_values[0].encode("utf-8")).hexdigest() if raw_values else None
+    except UnicodeEncodeError as exc:
+        raise ContextEvidenceError(f"{candidate_id} evidence body must be valid UTF-8 text") from exc
     if computed is not None and claimed and claimed[0] != computed:
         raise ContextEvidenceError(f"{candidate_id} evidence digest does not match supplied body")
     return computed or (claimed[0] if claimed else None)
@@ -260,8 +269,10 @@ def _ce_selected_item(record: Mapping[str, Any], index: int) -> tuple[dict[str, 
         "inclusion_reason": _ce_reason(record, "selected_by_caller"),
     }
     for key in ("valid_at", "transaction_time", "recorded_at", "observed_at"):
-        timestamp = _ce_timestamp(record.get(key))
-        if timestamp:
+        if key in record and record[key] is not None:
+            timestamp = _ce_timestamp(record[key])
+            if not timestamp:
+                raise ContextEvidenceError(f"{candidate_id}.{key} must be an ISO-8601 timestamp")
             item[key] = timestamp
     return item, {}
 
@@ -271,6 +282,8 @@ def _ce_normalized_exclusions(value: Any) -> list[dict[str, str]]:
         return []
     if not isinstance(value, (list, tuple)):
         raise ContextEvidenceError("excluded must be a list")
+    if len(value) > _CE_MAX_EXCLUDED:
+        raise ContextEvidenceError(f"excluded must contain at most {_CE_MAX_EXCLUDED} items")
     result = []
     for index, raw in enumerate(value):
         if isinstance(raw, Mapping):
@@ -421,7 +434,7 @@ def _ce_validate_projection_shape(projection: Mapping[str, Any]) -> None:
             raise ContextEvidenceError("selected candidate_id is invalid")
         selected_ids.append(item["candidate_id"])
         refs = item["source_refs"]
-        if not isinstance(refs, list) or len(refs) > _CE_MAX_SOURCE_REFS or any(not isinstance(ref, str) or not 0 < len(ref) <= 160 or _ce_id(ref, "source_ref") != ref for ref in refs):
+        if not isinstance(refs, list) or not refs or len(refs) > _CE_MAX_SOURCE_REFS or len(refs) != len(set(refs)) or any(not isinstance(ref, str) or not 0 < len(ref) <= 160 or _ce_id(ref, "source_ref") != ref for ref in refs):
             raise ContextEvidenceError("selected source_refs are invalid")
         if not isinstance(item["evidence_digest"], str) or not re.fullmatch(r"[0-9a-f]{64}", item["evidence_digest"]):
             raise ContextEvidenceError("selected evidence_digest is invalid")

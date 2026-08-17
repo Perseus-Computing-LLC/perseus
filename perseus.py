@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "23f0e1f-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "e80f516-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -35864,6 +35864,8 @@ def _ep_text(value: Any, field: str, *, max_length: int = 160) -> str:
 
 def _ep_id(value: Any, field: str, *, default: str = "") -> str:
     text = _ep_text(value if value is not None else default, field)
+    if any(marker in text for marker in ("://", "@", "?", "&", "=")):
+        raise ExecutionProfileError(f"{field} must not contain URI/userinfo/query syntax")
     if not _EP_ID_RE.fullmatch(text):
         raise ExecutionProfileError(f"{field} must be a bounded identifier")
     return text
@@ -36303,6 +36305,8 @@ def _ra_text(value: Any, field: str, *, max_length: int = 160, allow_empty: bool
 
 def _ra_id(value: Any, field: str, *, allow_empty: bool = False) -> str:
     text = _ra_text(value, field, allow_empty=allow_empty)
+    if any(marker in text for marker in ("://", "@", "?", "&", "=")):
+        raise RuntimeAdapterError(f"{field} must not contain URI/userinfo/query syntax")
     if text and not _RA_ID_RE.fullmatch(text):
         raise RuntimeAdapterError(f"{field} must be a bounded identifier")
     return text
@@ -36848,6 +36852,10 @@ def _ce_id(value: Any, field: str) -> str:
     text = value.strip()
     if not text:
         raise ContextEvidenceError(f"{field} must not be empty")
+    try:
+        text_bytes = text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ContextEvidenceError(f"{field} must be valid UTF-8 text") from exc
     # Only explicit public namespaces may cross this boundary verbatim. All
     # candidate IDs, arbitrary provider names, and unrecognized source values
     # become stable commitments so an innocuous-looking private scalar cannot
@@ -36858,7 +36866,7 @@ def _ce_id(value: Any, field: str) -> str:
         return text
     if field == "provider" and text in {"vault", "ledger"}:
         return text
-    return "sha256:" + hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+    return "sha256:" + hashlib.sha256(text_bytes).hexdigest()
 
 
 def _ce_digest(value: Any, field: str) -> str | None:
@@ -36887,6 +36895,8 @@ def _ce_sources(record: Mapping[str, Any], candidate_id: str) -> list[str]:
     for key in ("source_refs", "provenance_refs"):
         raw = record.get(key)
         if isinstance(raw, (list, tuple)):
+            if len(raw) > _CE_MAX_SOURCE_REFS:
+                raise ContextEvidenceError(f"{candidate_id} contains too many source references")
             values.extend(raw)
     for key in ("provenance", "evidence"):
         nested = record.get(key)
@@ -36922,7 +36932,10 @@ def _ce_evidence_digest(record: Mapping[str, Any], candidate_id: str) -> str | N
             raw_values.append(value)
     if raw_values and any(value != raw_values[0] for value in raw_values[1:]):
         raise ContextEvidenceError(f"{candidate_id} contains conflicting raw evidence bodies")
-    computed = hashlib.sha256(raw_values[0].encode("utf-8", errors="replace")).hexdigest() if raw_values else None
+    try:
+        computed = hashlib.sha256(raw_values[0].encode("utf-8")).hexdigest() if raw_values else None
+    except UnicodeEncodeError as exc:
+        raise ContextEvidenceError(f"{candidate_id} evidence body must be valid UTF-8 text") from exc
     if computed is not None and claimed and claimed[0] != computed:
         raise ContextEvidenceError(f"{candidate_id} evidence digest does not match supplied body")
     return computed or (claimed[0] if claimed else None)
@@ -36998,8 +37011,10 @@ def _ce_selected_item(record: Mapping[str, Any], index: int) -> tuple[dict[str, 
         "inclusion_reason": _ce_reason(record, "selected_by_caller"),
     }
     for key in ("valid_at", "transaction_time", "recorded_at", "observed_at"):
-        timestamp = _ce_timestamp(record.get(key))
-        if timestamp:
+        if key in record and record[key] is not None:
+            timestamp = _ce_timestamp(record[key])
+            if not timestamp:
+                raise ContextEvidenceError(f"{candidate_id}.{key} must be an ISO-8601 timestamp")
             item[key] = timestamp
     return item, {}
 
@@ -37009,6 +37024,8 @@ def _ce_normalized_exclusions(value: Any) -> list[dict[str, str]]:
         return []
     if not isinstance(value, (list, tuple)):
         raise ContextEvidenceError("excluded must be a list")
+    if len(value) > _CE_MAX_EXCLUDED:
+        raise ContextEvidenceError(f"excluded must contain at most {_CE_MAX_EXCLUDED} items")
     result = []
     for index, raw in enumerate(value):
         if isinstance(raw, Mapping):
@@ -37159,7 +37176,7 @@ def _ce_validate_projection_shape(projection: Mapping[str, Any]) -> None:
             raise ContextEvidenceError("selected candidate_id is invalid")
         selected_ids.append(item["candidate_id"])
         refs = item["source_refs"]
-        if not isinstance(refs, list) or len(refs) > _CE_MAX_SOURCE_REFS or any(not isinstance(ref, str) or not 0 < len(ref) <= 160 or _ce_id(ref, "source_ref") != ref for ref in refs):
+        if not isinstance(refs, list) or not refs or len(refs) > _CE_MAX_SOURCE_REFS or len(refs) != len(set(refs)) or any(not isinstance(ref, str) or not 0 < len(ref) <= 160 or _ce_id(ref, "source_ref") != ref for ref in refs):
             raise ContextEvidenceError("selected source_refs are invalid")
         if not isinstance(item["evidence_digest"], str) or not re.fullmatch(r"[0-9a-f]{64}", item["evidence_digest"]):
             raise ContextEvidenceError("selected evidence_digest is invalid")
@@ -37678,7 +37695,7 @@ def _cc_sha(value: Any) -> str:
 
 
 def _cc_text_sha(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8", errors="replace")).hexdigest()
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _cc_clean_text(value: Any, limit: int = CONTEXT_MAX_TEXT_CHARS) -> str:
@@ -37759,6 +37776,10 @@ def _cc_safe_id(value: Any, *, fallback: str = "") -> str:
     raw = str(value or fallback).strip()
     if not raw:
         return ""
+    # URI/userinfo/query syntax can carry credentials or private material even
+    # when the scalar matches the broad identifier grammar.
+    if any(marker in raw for marker in ("://", "@", "?", "&", "=")):
+        return "sha256:" + _cc_text_sha(raw)
     # A source identifier is a commitment, not a place to carry arbitrary text.
     if not _SAFE_ID_RE.fullmatch(raw):
         return "sha256:" + _cc_text_sha(raw)
@@ -38332,6 +38353,9 @@ def context_ask(
         if not question_text:
             return {"schema_version": CONTEXT_ASK_SCHEMA_VERSION, "operation": "context_ask", "status": "invalid_input", "failure_state": "invalid_input", "answer": None, "source_refs": []}
         policy_map = _cc_policy(policy)
+        evidence_required = policy_map.get("evidence_required", False)
+        if not isinstance(evidence_required, bool):
+            raise ValueError("evidence_required must be boolean")
         max_items, max_chars = _cc_budget(budget, default_items=CONTEXT_ASK_MAX_CONTEXT, default_chars=1024)
         records = context if context is not None else candidates
         if isinstance(records, Mapping):
@@ -38393,6 +38417,22 @@ def context_ask(
                 "route": route,
             }
         validity = str(best["_contract_validity"])
+        source_refs = _cc_source_ids(best, str(best["_contract_id"]))
+        integration_failure = _cc_failure_for_integrations(states)
+        has_authoritative_source = any(not ref.startswith("candidate:") for ref in source_refs)
+        if evidence_required and (validity != "observed" or not has_authoritative_source or integration_failure):
+            failure = integration_failure or "insufficient_evidence"
+            return {
+                "schema_version": CONTEXT_ASK_SCHEMA_VERSION,
+                "operation": "context_ask",
+                "status": "unavailable" if integration_failure else "abstain",
+                "failure_state": failure,
+                "outcome": "unavailable" if integration_failure else "insufficient_evidence",
+                "answer": None,
+                "source_refs": [],
+                "excluded_candidate_ids": sorted(set(excluded)),
+                "route": route,
+            }
         raw_answer = _cc_record_text(best, allow_content=bool(policy_map.get("allow_content", False)))
         answer = _cc_redact(raw_answer, cfg)
         status = "complete"
@@ -38402,13 +38442,11 @@ def context_ask(
         if len(answer) > max_chars:
             answer = _cc_clean_text(answer, max_chars)
             status, failure_state = "degraded", "budget_exhausted"
-        integration_failure = _cc_failure_for_integrations(states)
         if integration_failure:
             # Preserve the dependency failure even when the local answer also
             # hit a response budget; callers must not mistake unavailable
             # evidence for an ordinary truncation.
             status, failure_state = "degraded", integration_failure
-        source_refs = _cc_source_ids(best, str(best["_contract_id"]))
         confidence = _cc_uncertainty(validity, bool(best.get("verified")), len(scored) > 1 and scored[1][1] == score)
         decision = _cc_decision(
             actual_chars=len(answer),
