@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
-"""Build the sendable one-page federal capability statement PDF.
+"""Build the master and audience-specific capability statement PDFs.
 
-The PDF is a generated public artifact. Keep current figures and posture wording
-here aligned with claims.json and government/capability-statement.html.
+The PDFs share a single evidence and procurement layer, but the opening page is
+written for the reader's mission rather than for Perseus's internal submission
+workflow. All measured figures come from the root claims.json registry.
 
 Usage:
     uv run --with reportlab python3 scripts/build_capability_statement.py
+    uv run --with reportlab python3 scripts/build_capability_statement.py --profile cyber-networks
+    uv run --with reportlab python3 scripts/build_capability_statement.py --all
 """
-from pathlib import Path
+from __future__ import annotations
+
+import argparse
 import json
+from pathlib import Path
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.colors import HexColor
@@ -16,267 +23,240 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
-from reportlab.platypus import (
-    BaseDocTemplate,
-    Frame,
-    HRFlowable,
-    KeepTogether,
-    PageTemplate,
-    Paragraph,
-    Spacer,
-    Table,
-    TableStyle,
-)
+from reportlab.platypus import BaseDocTemplate, Frame, HRFlowable, PageTemplate, Paragraph, Spacer, Table, TableStyle
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / "government" / "assets" / "Perseus-Computing-LLC-Capability-Statement.pdf"
+PROFILES = ROOT / "scripts" / "capability_profiles.json"
+OUTPUT_DIR = ROOT / "government" / "assets"
 
-NAVY = HexColor("#102B46")
-BLUE = HexColor("#1769AA")
-GREEN = HexColor("#176B4D")
+NAVY = HexColor("#13283D")
+BLUE = HexColor("#1D6597")
+GREEN = HexColor("#236B4D")
 INK = HexColor("#17212B")
-MUTED = HexColor("#445566")
-FAINT = HexColor("#617384")
+MUTED = HexColor("#465968")
+FAINT = HexColor("#607381")
 PALE_BLUE = HexColor("#EAF2F8")
 PALE_GREEN = HexColor("#EAF5EF")
-RULE = HexColor("#C9D6DE")
+RULE = HexColor("#C4D2DA")
 WHITE = colors.white
 
 
-def make_styles():
+def styles() -> dict[str, ParagraphStyle]:
+    base = ParagraphStyle("base", fontName="Helvetica", fontSize=7.7, leading=9.2, textColor=INK)
     return {
-        "brand": ParagraphStyle(
-            "brand", fontName="Helvetica-Bold", fontSize=16.4, leading=18,
-            textColor=WHITE, spaceAfter=0,
-        ),
-        "tagline": ParagraphStyle(
-            "tagline", fontName="Helvetica", fontSize=8.5, leading=10.5,
-            textColor=HexColor("#D5E8F7"),
-        ),
-        "identity": ParagraphStyle(
-            "identity", fontName="Helvetica", fontSize=7.5, leading=9,
-            textColor=FAINT, alignment=TA_LEFT,
-        ),
-        "intro": ParagraphStyle(
-            "intro", fontName="Helvetica", fontSize=8.7, leading=11.2,
-            textColor=INK,
-        ),
-        "section": ParagraphStyle(
-            "section", fontName="Helvetica-Bold", fontSize=9.2, leading=10.8,
-            textColor=NAVY, spaceBefore=0, spaceAfter=2,
-        ),
-        "body": ParagraphStyle(
-            "body", fontName="Helvetica", fontSize=8.3, leading=10.2,
-            textColor=INK,
-        ),
-        "body_small": ParagraphStyle(
-            "body_small", fontName="Helvetica", fontSize=7.8, leading=9.4,
-            textColor=INK,
-        ),
-        "bullet": ParagraphStyle(
-            "bullet", fontName="Helvetica", fontSize=8.0, leading=10.0,
-            textColor=INK, leftIndent=8, firstLineIndent=-7, spaceAfter=1.4,
-        ),
-        "label": ParagraphStyle(
-            "label", fontName="Helvetica-Bold", fontSize=7.7, leading=9.2,
-            textColor=NAVY,
-        ),
-        "mission_label": ParagraphStyle(
-            "mission_label", fontName="Helvetica-Bold", fontSize=7.25, leading=8.7,
-            textColor=GREEN,
-        ),
-        "metric": ParagraphStyle(
-            "metric", fontName="Helvetica-Bold", fontSize=14.2, leading=15,
-            textColor=GREEN, alignment=TA_CENTER,
-        ),
-        "metric_label": ParagraphStyle(
-            "metric_label", fontName="Helvetica", fontSize=6.8, leading=8.2,
-            textColor=MUTED, alignment=TA_CENTER,
-        ),
-        "footer": ParagraphStyle(
-            "footer", fontName="Helvetica", fontSize=6.7, leading=8,
-            textColor=FAINT, alignment=TA_CENTER,
-        ),
+        "brand": ParagraphStyle("brand", fontName="Helvetica-Bold", fontSize=15.6, leading=17, textColor=WHITE),
+        "tagline": ParagraphStyle("tagline", fontName="Helvetica", fontSize=7.4, leading=8.8, textColor=HexColor("#D5E8F7"), alignment=TA_LEFT),
+        "label": ParagraphStyle("label", fontName="Helvetica-Bold", fontSize=6.8, leading=8.2, textColor=GREEN),
+        "title": ParagraphStyle("title", fontName="Helvetica-Bold", fontSize=15.2, leading=17.2, textColor=NAVY, spaceAfter=4),
+        "lead": ParagraphStyle("lead", fontName="Helvetica", fontSize=9.1, leading=11.3, textColor=INK),
+        "identity": ParagraphStyle("identity", fontName="Helvetica", fontSize=7.2, leading=8.7, textColor=FAINT),
+        "section": ParagraphStyle("section", fontName="Helvetica-Bold", fontSize=8.7, leading=10.2, textColor=NAVY, spaceAfter=2),
+        "body": ParagraphStyle("body", parent=base, fontSize=8.2, leading=9.8),
+        "body_small": ParagraphStyle("body_small", parent=base, fontSize=7.8, leading=9.2),
+        "bullet": ParagraphStyle("bullet", parent=base, fontSize=8.0, leading=9.5, leftIndent=7, firstLineIndent=-6, spaceAfter=1.8),
+        "metric": ParagraphStyle("metric", fontName="Helvetica-Bold", fontSize=13.2, leading=14, textColor=GREEN, alignment=TA_CENTER),
+        "metric_label": ParagraphStyle("metric_label", fontName="Helvetica", fontSize=6.1, leading=7.2, textColor=MUTED, alignment=TA_CENTER),
+        "footer": ParagraphStyle("footer", fontName="Helvetica", fontSize=6.1, leading=7.2, textColor=FAINT, alignment=TA_CENTER),
+        "footer_bold": ParagraphStyle("footer_bold", fontName="Helvetica-Bold", fontSize=6.1, leading=7.2, textColor=NAVY),
     }
 
 
-def section_heading(title, styles):
+def P(text: str, style: ParagraphStyle) -> Paragraph:
+    return Paragraph(escape(text).replace("\n", "<br/>").replace("&lt;b&gt;", "<b>").replace("&lt;/b&gt;", "</b>"), style)
+
+
+def rich(text: str, style: ParagraphStyle) -> Paragraph:
+    """Render trusted local copy with simple ReportLab markup."""
+    return Paragraph(text, style)
+
+
+def section_heading(title: str, st: dict[str, ParagraphStyle]) -> list:
     return [
-        Paragraph(title.upper(), styles["section"]),
-        HRFlowable(width="100%", thickness=0.65, color=BLUE, spaceBefore=0, spaceAfter=4),
+        rich(escape(title.upper()), st["section"]),
+        HRFlowable(width="100%", thickness=0.55, color=BLUE, spaceBefore=0, spaceAfter=3),
     ]
 
 
-def bullet(text, styles):
-    return Paragraph(f"&bull;&nbsp; {text}", styles["bullet"])
+def bullet(label: str, text: str, st: dict[str, ParagraphStyle]) -> Paragraph:
+    return rich(f"&bull;&nbsp; <b>{escape(label)}:</b> {escape(text)}", st["bullet"])
 
 
-def header(styles):
-    header = Table(
-        [[
-            Paragraph("PERSEUS COMPUTING LLC", styles["brand"]),
-            Paragraph("A small-business partner for local-first AI systems", styles["tagline"]),
-        ]],
-        colWidths=[3.35 * inch, 4.25 * inch],
+def header(profile: dict, st: dict[str, ParagraphStyle]) -> Table:
+    table = Table(
+        [[rich("PERSEUS COMPUTING LLC", st["brand"]), rich("LIVE CONTEXT + GOVERNED MEMORY FOR AI AGENTS", st["tagline"])]],
+        colWidths=[3.48 * inch, 4.12 * inch],
     )
-    header.setStyle(TableStyle([
+    table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), NAVY),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (0, 0), 11),
+        ("LEFTPADDING", (0, 0), (0, 0), 10),
         ("RIGHTPADDING", (0, 0), (0, 0), 4),
         ("LEFTPADDING", (1, 0), (1, 0), 4),
-        ("RIGHTPADDING", (1, 0), (1, 0), 11),
-        ("TOPPADDING", (0, 0), (-1, -1), 9),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+        ("RIGHTPADDING", (1, 0), (1, 0), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
     ]))
-    return header
+    return table
 
 
-def metric(value, label, styles):
-    return [Paragraph(value, styles["metric"]), Paragraph(label, styles["metric_label"])]
+def metric(value: str, label: str, st: dict[str, ParagraphStyle]) -> list[Paragraph]:
+    return [rich(escape(value), st["metric"]), rich(escape(label).replace("\\n", "<br/>"), st["metric_label"])]
 
 
-def build():
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    registry = json.loads((ROOT / "claims.json").read_text())
-    claims = registry["claims"]
-    updated = registry["_meta"]["updated"]
-    styles = make_styles()
+def mission_table(rows: list[list[str]], st: dict[str, ParagraphStyle]) -> Table:
+    data = [[rich(f"<b>{escape(label)}</b>", st["label"]), P(text, st["body_small"])] for label, text in rows]
+    table = Table(data, colWidths=[1.33 * inch, 5.94 * inch])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), PALE_GREEN),
+        ("GRID", (0, 0), (-1, -1), 0.35, RULE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 3.2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.2),
+    ]))
+    return table
+
+
+def build(profile_name: str, profile: dict, claims: dict) -> Path:
+    st = styles()
+    output = OUTPUT_DIR / profile["filename"]
+    output.parent.mkdir(parents=True, exist_ok=True)
     doc = BaseDocTemplate(
-        str(OUTPUT),
+        str(output),
         pagesize=letter,
-        leftMargin=0.46 * inch,
-        rightMargin=0.46 * inch,
-        topMargin=0.39 * inch,
-        bottomMargin=0.36 * inch,
-        title="Perseus Computing LLC — Capability Statement",
+        leftMargin=0.44 * inch,
+        rightMargin=0.44 * inch,
+        topMargin=0.34 * inch,
+        bottomMargin=0.30 * inch,
+        title=f"Perseus Computing LLC — {profile['audience_label']}",
         author="Perseus Computing LLC",
-        subject="Federal capability statement",
+        subject="Capability statement",
     )
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="one_sheet")
     doc.addPageTemplates([PageTemplate(id="one_sheet", frames=[frame])])
 
-    story = [header(styles), Spacer(1, 4)]
-    story.append(Paragraph(
-        "<b>Context, memory, and evidence infrastructure for AI agents.</b> Perseus Computing LLC builds the local-first layer that helps agents operate on current state, retain governed memory, and leave an inspectable record of consequential work. The system is designed for on-premises, disconnected, private-VPC, and regulated environments where the data boundary is part of the mission.",
-        styles["intro"],
-    ))
-    story.append(Spacer(1, 3))
-    story.append(Paragraph(
-        "<b>UEI:</b> PJS2LW7HAK35&nbsp;&nbsp;&nbsp; <b>CAGE:</b> 22JC5&nbsp;&nbsp;&nbsp; <b>SAM.gov:</b> Active&nbsp;&nbsp;&nbsp; <b>HQ:</b> Austin, Texas",
-        styles["identity"],
-    ))
-    story.append(Spacer(1, 5))
-
-    left = [Paragraph("CORE CAPABILITIES", styles["section"]), HRFlowable(width="100%", thickness=0.65, color=BLUE, spaceAfter=4)]
-    left.extend([
-        bullet("<b>Live context (Perseus):</b> resolves repository, ticket, deployment, and decision state into bounded, verifiable context before an agent acts.", styles),
-        bullet("<b>Governed memory (Perseus Vault):</b> provides encrypted, bitemporal memory with durable journaling and explicit authority boundaries.", styles),
-        bullet("<b>Evidence and provenance (Ledger):</b> links actions and decisions to evidence, authority, and time so reviews do not depend on an opaque dashboard.", styles),
-        bullet("<b>Disconnected deployment:</b> local-first operation with no required cloud service, no required API key, and no mandatory vendor runtime.", styles),
+    story: list = [header(profile, st), Spacer(1, 3)]
+    story.extend([
+        rich(escape(profile["audience_label"]), st["label"]),
+        rich(escape(profile["headline"]), st["title"]),
+        P(profile["lead"], st["lead"]),
+        Spacer(1, 2),
+        rich("<b>UEI:</b> PJS2LW7HAK35&nbsp;&nbsp;&nbsp; <b>CAGE:</b> 22JC5&nbsp;&nbsp;&nbsp; <b>SAM.gov:</b> Active&nbsp;&nbsp;&nbsp; <b>HQ:</b> Austin, Texas", st["identity"]),
+        Spacer(1, 4),
     ])
-    right = [Paragraph("MISSION FIT", styles["section"]), HRFlowable(width="100%", thickness=0.65, color=BLUE, spaceAfter=4)]
-    mission_rows = [
-        [Paragraph("PRIMARY · CYBER &amp; NETWORKS", styles["mission_label"]), Paragraph("Secure AI/ML, DevSecOps, and local context/memory infrastructure for controlled enterprise and cyber workflows.", styles["body_small"])],
-        [Paragraph("C3BM · ENABLING FIT", styles["mission_label"]), Paragraph("Evidence and context infrastructure for software factories, ABMS, and decision-advantage workflows; not a claim to own the mission platform.", styles["body_small"])],
-        [Paragraph("ES · CONDITIONAL FIT", styles["mission_label"]), Paragraph("Partner-led integration path for sensing, EW, PNT, or mission-system programs where trusted local AI support is relevant.", styles["body_small"])],
-    ]
-    mission = Table(mission_rows, colWidths=[1.28 * inch, 2.0 * inch])
-    mission.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("BACKGROUND", (0, 0), (-1, -1), PALE_GREEN),
-        ("BOX", (0, 0), (-1, -1), 0.5, RULE),
-        ("INNERGRID", (0, 0), (-1, -1), 0.35, RULE),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+
+    left: list = []
+    left.extend(section_heading("What we build", st))
+    left.extend([
+        bullet("Live context", "resolves repository, ticket, deployment, and decision state into bounded context before an agent acts.", st),
+        bullet("Governed memory", "persists encrypted, bitemporal memory with durable journaling and explicit authority boundaries.", st),
+        bullet("Evidence and provenance", "links actions and decisions to evidence, authority, and time so a review does not depend on an opaque dashboard.", st),
+        bullet("Deployment boundary", "runs on-premises, air-gapped, in a private VPC, or on a controlled network with no required cloud service, API key, or vendor runtime.", st),
+    ])
+    right: list = []
+    right.extend(section_heading(profile["why_heading"], st))
+    right.append(P(profile["why_body"], st["body"]))
+    right.append(Spacer(1, 4))
+    discussion = Table([[rich(f"<b>DISCUSS</b><br/>{escape(profile['discussion'])}", st["body_small"])]], colWidths=[3.15 * inch])
+    discussion.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), PALE_BLUE),
+        ("BOX", (0, 0), (-1, -1), 0.45, RULE),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
-    right.append(mission)
-    two_col = Table([[left, right]], colWidths=[4.0 * inch, 3.35 * inch])
+    right.append(discussion)
+    two_col = Table([[left, right]], colWidths=[4.08 * inch, 3.15 * inch])
     two_col.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (0, 0), 10),
+        ("RIGHTPADDING", (0, 0), (0, 0), 9),
         ("RIGHTPADDING", (1, 0), (1, 0), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
-    story.append(two_col)
-    story.append(Spacer(1, 6))
+    story.extend([two_col, Spacer(1, 9)])
 
-    story.extend(section_heading("Measured evidence", styles))
-    metrics = Table([
-        [metric(claims["longmemeval_cot"]["value"], "LongMemEval QA\nofficial-CoT mean; 3 signed runs", styles),
-         metric(claims["longmemeval_retrieval_recall10"]["value"], "retrieval recall@10\nretrieval-only", styles),
-         metric(claims["beam_correctness"]["value"], "bi-temporal correctness\ngates through 10M tokens", styles),
-         metric(claims["vault_durable_write_100k"]["value"], "durable sustained write\n@100K entities", styles)],
-    ], colWidths=[1.835 * inch] * 4)
-    metrics.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), PALE_BLUE),
-        ("BOX", (0, 0), (-1, -1), 0.5, RULE),
-        ("INNERGRID", (0, 0), (-1, -1), 0.35, RULE),
+    story.extend(section_heading("Measured evidence", st))
+    evidence = Table([[
+        metric(claims["longmemeval_cot"]["value"], "LongMemEval QA / official-CoT mean / 3 signed runs", st),
+        metric(claims["longmemeval_retrieval_recall10"]["value"], "session-level retrieval recall@10 / retrieval-only", st),
+        metric(claims["beam_correctness"]["value"], "BEAM correctness / every 128K-10M token tier", st),
+        metric(claims["vault_durable_write_100k"]["value"], "durable sustained write / 100K entities", st),
+    ]], colWidths=[1.81 * inch] * 4)
+    evidence.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), PALE_GREEN),
+        ("GRID", (0, 0), (-1, -1), 0.35, RULE),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("LEFTPADDING", (0, 0), (-1, -1), 4),
         ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-    ]))
-    story.append(metrics)
-    story.append(Paragraph(
-        "Measured on named hardware with signed or committed reports and rerunnable methods. Methodology variants remain separately labeled; no customer ROI or compliance certification is implied.",
-        ParagraphStyle("evidence_note", parent=styles["identity"], fontSize=6.7, leading=8, spaceBefore=2),
-    ))
-    story.append(Spacer(1, 5))
-
-    story.extend(section_heading("Procurement and security posture", styles))
-    posture_rows = [
-        [Paragraph("Business", styles["label"]), Paragraph("U.S. small business · NAICS 541715, 541511, 541512 · founder-led technical access", styles["body_small"]),
-         Paragraph("Deployment", styles["label"]), Paragraph("On-premises, air-gapped, private VPC, or controlled network; zero required cloud dependencies", styles["body_small"])],
-        [Paragraph("Assessment", styles["label"]), Paragraph("SPRS 110/110 · CMMC Level 2 final self-assessment, enclave scope", styles["body_small"]),
-         Paragraph("Supply chain", styles["label"]), Paragraph("MIT-licensed · published SBOM · NIST AI RMF-aligned architecture", styles["body_small"])],
-    ]
-    posture = Table(posture_rows, colWidths=[0.8 * inch, 2.85 * inch, 0.8 * inch, 2.9 * inch])
-    posture.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (0, -1), PALE_BLUE),
-        ("BACKGROUND", (2, 0), (2, -1), PALE_BLUE),
-        ("GRID", (0, 0), (-1, -1), 0.4, RULE),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    story.append(posture)
-    story.append(Spacer(1, 5))
-
-    close = Table([[Paragraph(
-        "<b>Best starting point:</b> a bounded technical briefing with Cyber &amp; Networks, followed by a scoped pilot or prime/partner discussion. Bring the mission workflow, data boundary, and integration surface; Perseus will bring the smallest credible path.",
-        styles["body"],
-    )]], colWidths=[7.35 * inch])
-    close.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), PALE_GREEN),
-        ("BOX", (0, 0), (-1, -1), 0.5, RULE),
-        ("LEFTPADDING", (0, 0), (-1, -1), 7),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
         ("TOPPADDING", (0, 0), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
-    story.append(close)
-    story.append(Spacer(1, 5))
-    story.append(HRFlowable(width="100%", thickness=0.55, color=RULE, spaceAfter=3))
-    story.append(Paragraph(
-        "Thomas Connally, Founder &nbsp;&middot;&nbsp; perseus@perseus.observer &nbsp;&middot;&nbsp; perseus.observer &nbsp;&middot;&nbsp; github.com/Perseus-Computing-LLC/perseus",
-        styles["footer"],
-    ))
-    story.append(Paragraph(
-        f"Master capability statement &nbsp;&middot;&nbsp; updated {updated} &nbsp;&middot;&nbsp; public claims are scoped and source-linked",
-        styles["footer"],
-    ))
+    story.extend([
+        evidence,
+        rich("Measured on named hardware with signed or committed reports and rerunnable methods. Methodology variants remain separately labeled; no customer ROI or compliance certification is implied.", st["identity"]),
+        Spacer(1, 9),
+    ])
+
+    story.extend(section_heading("Where it fits", st))
+    story.extend([mission_table(profile["fit_rows"], st), Spacer(1, 8)])
+
+    story.extend(section_heading("Procurement and security posture", st))
+    posture = Table([
+        [rich("<b>Business</b>", st["label"]), P("U.S. small business · NAICS 541715, 541511, 541512 · founder-led technical access", st["body_small"]), rich("<b>Deployment</b>", st["label"]), P("On-premises, air-gapped, private VPC, or controlled network", st["body_small"])],
+        [rich("<b>Readiness</b>", st["label"]), P("SPRS 110/110 · CMMC Level 2 final self-assessment, enclave scope", st["body_small"]), rich("<b>Supply chain</b>", st["label"]), P("MIT-licensed · published SBOM · NIST AI RMF-aligned architecture", st["body_small"])],
+    ], colWidths=[0.72 * inch, 2.92 * inch, 0.82 * inch, 2.77 * inch])
+    posture.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), PALE_BLUE),
+        ("BACKGROUND", (2, 0), (2, -1), PALE_BLUE),
+        ("GRID", (0, 0), (-1, -1), 0.35, RULE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 3.2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.2),
+    ]))
+    story.extend([posture, Spacer(1, 8)])
+    next_step = Table([[rich(f"<b>THE FIRST CONVERSATION</b><br/>{escape(profile['discussion'])}", st["body"])]], colWidths=[7.23 * inch])
+    next_step.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), PALE_GREEN),
+        ("BOX", (0, 0), (-1, -1), 0.45, RULE),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    story.extend([next_step, Spacer(1, 8), HRFlowable(width="100%", thickness=0.5, color=RULE, spaceAfter=3)])
+    display_label = {
+        "MASTER CAPABILITY STATEMENT": "Master",
+        "CYBER & NETWORKS": "Cyber & Networks",
+        "C3BM": "C3BM",
+        "ELECTRONIC SYSTEMS": "Electronic Systems",
+    }[profile["audience_label"]]
+    story.extend([
+        rich("Thomas Connally, Founder &nbsp;&middot;&nbsp; perseus@perseus.observer &nbsp;&middot;&nbsp; perseus.observer &nbsp;&middot;&nbsp; github.com/Perseus-Computing-LLC/perseus", st["footer"]),
+        rich(f"{escape(display_label)} capability statement &nbsp;&middot;&nbsp; updated {escape(str(claims['_meta']['updated']))} &nbsp;&middot;&nbsp; source-linked public claims", st["footer"]),
+    ])
 
     doc.build(story)
-    print(f"wrote {OUTPUT}")
+    print(f"wrote {output}")
+    return output
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--profile", choices=["master", "cyber-networks", "c3bm", "electronic-systems"], default="master")
+    parser.add_argument("--all", action="store_true", help="build the master and all tailored variants")
+    args = parser.parse_args()
+    registry = json.loads((ROOT / "claims.json").read_text(encoding="utf-8"))
+    profiles = json.loads(PROFILES.read_text(encoding="utf-8"))
+    selected = list(profiles) if args.all else [args.profile]
+    for name in selected:
+        build(name, profiles[name], registry["claims"] | {"_meta": registry["_meta"]})
 
 
 if __name__ == "__main__":
-    build()
+    main()
