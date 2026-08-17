@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "18996ed"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "8cca87b"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -35864,7 +35864,7 @@ def _ep_text(value: Any, field: str, *, max_length: int = 160) -> str:
 
 def _ep_id(value: Any, field: str, *, default: str = "") -> str:
     text = _ep_text(value if value is not None else default, field)
-    if any(marker in text for marker in ("://", "@", "?", "&", "=")):
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", text) or any(marker in text for marker in ("://", "@", "?", "&", "=")):
         raise ExecutionProfileError(f"{field} must not contain URI/userinfo/query syntax")
     if not _EP_ID_RE.fullmatch(text):
         raise ExecutionProfileError(f"{field} must be a bounded identifier")
@@ -35953,8 +35953,8 @@ class ExecutionProfile:
             raise ExecutionProfileError("runtime_capabilities must contain at most 32 identifiers")
         capability_values = tuple(sorted({_ep_id(item, "runtime_capability") for item in capabilities}))
         auth_mode = _ep_text(value.get("auth_mode", "none"), "auth_mode", max_length=64)
-        runtime_ref = _ep_id(value.get("runtime_ref", "ref:none"), "runtime_ref")
-        model_ref = _ep_id(value.get("model_ref", "ref:none"), "model_ref")
+        runtime_ref = _ep_id(value.get("runtime_ref", "ref-none"), "runtime_ref")
+        model_ref = _ep_id(value.get("model_ref", "ref-none"), "model_ref")
         return cls(
             schema_version=schema_version,
             profile_id=profile_id,
@@ -36305,9 +36305,25 @@ def _ra_text(value: Any, field: str, *, max_length: int = 160, allow_empty: bool
     return text
 
 
+_RA_SECRET_ASSIGNMENT_RE = re.compile(
+    r"(?i)(\b(?:api[_-]?key|password|passwd|secret|token|authorization|bearer|credential)\s*[:=]\s*)([^\s,;]+)"
+)
+_RA_URI_USERINFO_RE = re.compile(r"(?i)([A-Za-z][A-Za-z0-9+.-]*://)([^/@\s:]+)(?::[^/@\s]*)?@")
+_RA_RAW_FIELD_RE = re.compile(r'(?i)(?:\b(?:prompt|body|content|credentials?|private[_-]?body|raw[_-]?payload)\s*[:=]|[\"\'](?:prompt|body|content|credentials?|private[_-]?body|raw[_-]?payload)[\"\']\s*:)' )
+
+
+def _ra_public_text(value: Any, field: str, *, max_length: int = 160, allow_empty: bool = False) -> str:
+    text = _ra_text(value, field, max_length=max_length, allow_empty=allow_empty)
+    text = _RA_URI_USERINFO_RE.sub(r"\1[REDACTED]@", text)
+    text = _RA_SECRET_ASSIGNMENT_RE.sub(r"\1[REDACTED]", text)
+    if _RA_RAW_FIELD_RE.search(text):
+        return "[REDACTED]"
+    return text
+
+
 def _ra_id(value: Any, field: str, *, allow_empty: bool = False) -> str:
     text = _ra_text(value, field, allow_empty=allow_empty)
-    if any(marker in text for marker in ("://", "@", "?", "&", "=")):
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", text) or any(marker in text for marker in ("://", "@", "?", "&", "=")):
         raise RuntimeAdapterError(f"{field} must not contain URI/userinfo/query syntax")
     if text and not _RA_ID_RE.fullmatch(text):
         raise RuntimeAdapterError(f"{field} must be a bounded identifier")
@@ -36536,6 +36552,12 @@ class AdapterResult:
     error_message: str | None
     external_fallback_allowed: bool = False
 
+    def __post_init__(self) -> None:
+        if self.output is not None:
+            object.__setattr__(self, "output", _ra_public_text(self.output, "output", max_length=1_000_000, allow_empty=True))
+        if self.error_message is not None:
+            object.__setattr__(self, "error_message", _ra_public_text(self.error_message, "error_message", max_length=256))
+
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "AdapterResult") -> "AdapterResult":
         if isinstance(value, cls):
@@ -36556,7 +36578,7 @@ class AdapterResult:
             raise RuntimeAdapterError("unsupported runtime result status")
         output = value["output"]
         if output is not None:
-            output = _ra_text(output, "output", max_length=1_000_000, allow_empty=True)
+            output = _ra_public_text(output, "output", max_length=1_000_000, allow_empty=True)
         usage_raw = value["usage"]
         if not isinstance(usage_raw, Mapping) or set(usage_raw) - _RA_USAGE_FIELDS:
             raise RuntimeAdapterError("usage contains unsupported fields")
@@ -36574,7 +36596,7 @@ class AdapterResult:
             error_code = _ra_id(error_code, "error_code")
         error_message = value["error_message"]
         if error_message is not None:
-            error_message = _ra_text(error_message, "error_message", max_length=256)
+            error_message = _ra_public_text(error_message, "error_message", max_length=256)
         fallback = value["external_fallback_allowed"]
         if fallback is not False:
             raise RuntimeAdapterError("external fallback is permanently disabled by the core contract")
@@ -36690,7 +36712,7 @@ class ReferenceRuntimeAdapter:
         if behavior not in _RA_RESULT_STATUSES:
             raise RuntimeAdapterError("unsupported reference adapter behavior")
         self.behavior = behavior
-        self.output = _ra_text(output, "output", max_length=1_000_000, allow_empty=True)
+        self.output = _ra_public_text(output, "output", max_length=1_000_000, allow_empty=True)
 
     def invoke(self, request: Mapping[str, Any] | AdapterRequest) -> AdapterResult:
         try:
@@ -37231,12 +37253,49 @@ def _ce_validate_projection_shape(projection: Mapping[str, Any]) -> None:
         raise ContextEvidenceError("projection digest is invalid")
 
 
-def verify_context_evidence(projection: Mapping[str, Any]) -> dict[str, Any]:
+def _ce_material_map(source_records: Any) -> dict[str, Mapping[str, Any]]:
+    if isinstance(source_records, Mapping):
+        values = list(source_records.values())
+    elif isinstance(source_records, Sequence) and not isinstance(source_records, (str, bytes, bytearray)):
+        values = list(source_records)
+    else:
+        raise ContextEvidenceError("source_records must be a sequence or mapping")
+    result: dict[str, Mapping[str, Any]] = {}
+    for record in values:
+        if not isinstance(record, Mapping):
+            raise ContextEvidenceError("source_records must contain objects")
+        candidate = record.get("candidate_id", record.get("id", record.get("key")))
+        candidate_id = _ce_id(candidate, "source_records.candidate_id")
+        if candidate_id in result:
+            raise ContextEvidenceError("source_records contain duplicate candidate IDs")
+        result[candidate_id] = record
+    return result
+
+
+def _ce_verify_source_material(projection: Mapping[str, Any], source_records: Any) -> None:
+    material = _ce_material_map(source_records)
+    for item in projection["selected"]:
+        candidate_id = item["candidate_id"]
+        record = material.get(candidate_id)
+        if record is None:
+            raise ContextEvidenceError("source material is missing a selected candidate")
+        digest = _ce_evidence_digest(record, candidate_id)
+        if digest is None or digest != item["evidence_digest"]:
+            raise ContextEvidenceError("selected evidence digest is not recomputed from source material")
+        if _ce_sources(record, candidate_id) != item["source_refs"]:
+            raise ContextEvidenceError("selected source references do not match source material")
+
+
+def verify_context_evidence(projection: Mapping[str, Any], source_records: Any = None) -> dict[str, Any]:
     if not isinstance(projection, Mapping) or projection.get("schema_version") != _CE_SCHEMA_VERSION:
         return {"valid": False, "error": "unsupported evidence projection"}
     try:
         _ce_forbidden_keys(projection)
         _ce_validate_projection_shape(projection)
+        if projection.get("selected") and source_records is None:
+            return {"valid": False, "error": "source material is required to verify selected evidence"}
+        if projection.get("selected"):
+            _ce_verify_source_material(projection, source_records)
         supplied = projection.get("projection_digest")
         if not isinstance(supplied, str):
             return {"valid": False, "error": "missing projection digest"}
@@ -37248,8 +37307,8 @@ def verify_context_evidence(projection: Mapping[str, Any]) -> dict[str, Any]:
     return {"valid": expected == supplied, "projection_digest": supplied, "expected_digest": expected}
 
 
-def render_context_evidence(projection: Mapping[str, Any]) -> str:
-    check = verify_context_evidence(projection)
+def render_context_evidence(projection: Mapping[str, Any], source_records: Any = None) -> str:
+    check = verify_context_evidence(projection, source_records)
     if not check["valid"]:
         raise ContextEvidenceError("refusing to render invalid evidence projection")
     coverage = projection["coverage"]
@@ -37970,6 +38029,9 @@ def _cc_content_commitment(record: Mapping[str, Any]) -> str | None:
     return None
 
 
+_CC_PUBLIC_SOURCE_RE = re.compile(r"^(?:file|vault|ledger|artifact):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
+
+
 def _cc_source_ids(record: Mapping[str, Any], candidate_id: str) -> list[str]:
     values: list[Any] = []
     for key in ("source_id", "source_ref", "provenance_id"):
@@ -37993,11 +38055,20 @@ def _cc_source_ids(record: Mapping[str, Any], candidate_id: str) -> list[str]:
     if len(values) > CONTEXT_MAX_SOURCE_REFS:
         raise ValueError(f"{candidate_id} contains too many source references")
     if not values:
-        values = [f"candidate:{candidate_id}"]
-    result = sorted({_cc_safe_id(item) for item in values if _cc_safe_id(item)})
-    if len(result) > CONTEXT_MAX_SOURCE_REFS:
+        safe_candidate = _cc_safe_id(candidate_id, fallback="unknown")
+        values = [f"artifact:candidate:{safe_candidate}"]
+    result: set[str] = set()
+    for item in values:
+        if not isinstance(item, str):
+            raise ValueError(f"{candidate_id} source references must be text")
+        source = item.strip()
+        if not _CC_PUBLIC_SOURCE_RE.fullmatch(source):
+            raise ValueError(f"{candidate_id} contains a non-public source reference")
+        result.add(source)
+    ordered = sorted(result)
+    if len(ordered) > CONTEXT_MAX_SOURCE_REFS:
         raise ValueError(f"{candidate_id} contains too many source references")
-    return result
+    return ordered
 
 
 def _cc_validate_commitments(records: Any) -> None:
@@ -38072,9 +38143,10 @@ def _cc_policy_controls(policy: Mapping[str, Any]) -> tuple[float, bool]:
     return min_score, False
 
 
-def _cc_integrations(integrations: Any) -> dict[str, str]:
+def _cc_integrations(integrations: Any, *, require_attestation: bool = False) -> dict[str, str]:
     if integrations is None:
-        return {"vault": "active", "ledger": "active"}
+        state = "not_configured" if require_attestation else "active"
+        return {"vault": state, "ledger": state}
     if not isinstance(integrations, Mapping):
         raise ValueError("integrations must be an object")
     required = {"vault", "ledger"}
@@ -38117,6 +38189,10 @@ def _cc_failure_for_integrations(integrations: Mapping[str, str]) -> str | None:
     if integrations.get("ledger") in {"unavailable", "not_configured"}:
         return "ledger_unavailable"
     return None
+
+
+def _cc_missing_attestation(integrations: Mapping[str, str]) -> bool:
+    return integrations.get("vault") == "not_configured" or integrations.get("ledger") == "not_configured"
 
 
 def _cc_coverage_state(record: Mapping[str, Any]) -> str:
@@ -38310,7 +38386,9 @@ def context_rank(
         raw_max_candidates = policy_map.get("max_candidates", CONTEXT_RANK_MAX_CANDIDATES)
         if isinstance(raw_max_candidates, bool) or not isinstance(raw_max_candidates, int):
             raise ValueError("max_candidates must be an integer")
-        max_candidates = min(CONTEXT_RANK_MAX_CANDIDATES, max(1, raw_max_candidates))
+        if raw_max_candidates < 1:
+            raise ValueError("max_candidates must be positive")
+        max_candidates = min(CONTEXT_RANK_MAX_CANDIDATES, raw_max_candidates)
         max_items, max_chars = _cc_budget(budget, default_items=max_candidates, default_chars=PROJECTION_MAX_CHARS)
         requested_scope = _cc_validate_scope_contract(scope)
         _cc_validate_commitments(candidates)
@@ -38323,7 +38401,7 @@ def context_rank(
                 "failure_state": preparation_failure,
                 "candidates": [],
             }
-        states = _cc_integrations(integrations)
+        states = _cc_integrations(integrations, require_attestation=evidence_required)
         route = _cc_route(request_class, states)
         scored = []
         for index, record in enumerate(prepared):
@@ -38456,7 +38534,7 @@ def context_ask(
         if preparation_failure:
             failure = "context_limit_exceeded" if preparation_failure == "candidate_limit_exceeded" else preparation_failure
             return {"schema_version": CONTEXT_ASK_SCHEMA_VERSION, "operation": "context_ask", "status": "invalid_input", "failure_state": failure, "answer": None, "source_refs": []}
-        states = _cc_integrations(integrations)
+        states = _cc_integrations(integrations, require_attestation=evidence_required)
         route = _cc_route(request_class, states)
         requested_scope = _cc_validate_scope_contract(scope)
         scored = []
@@ -38483,7 +38561,7 @@ def context_ask(
         if not scored:
             integration_failure = _cc_failure_for_integrations(states)
             failure = integration_failure or ("scope_mismatch" if excluded else "insufficient_evidence")
-            status = "unavailable" if integration_failure else "abstain"
+            status = "abstain" if _cc_missing_attestation(states) else ("unavailable" if integration_failure else "abstain")
             return {
                 "schema_version": CONTEXT_ASK_SCHEMA_VERSION,
                 "operation": "context_ask",
@@ -38542,7 +38620,7 @@ def context_ask(
             return {
                 "schema_version": CONTEXT_ASK_SCHEMA_VERSION,
                 "operation": "context_ask",
-                "status": "unavailable" if integration_failure else "abstain",
+                "status": "abstain" if _cc_missing_attestation(states) else ("unavailable" if integration_failure else "abstain"),
                 "failure_state": failure,
                 "outcome": "unavailable" if integration_failure else "insufficient_evidence",
                 "answer": None,
@@ -38666,11 +38744,16 @@ def _cc_projection_items(rank_result: Mapping[str, Any], records: Mapping[str, M
         topic = _cc_topic(record)
         if topic:
             item["topic"] = topic
-        reason = _cc_redact(record.get("selection_reason") or "; ".join(ranked.get("rank_reasons", [])), cfg)
-        if any(marker in reason.casefold() for marker in ('"prompt"', '"context"', '"content"', '"body"', '"credentials"', 'raw_payload', 'body_json')):
-            reason = ""
-        if reason:
-            item["selection_reason"] = _cc_clean_text(reason, 256)
+        allowed_reasons = {
+            "scope_match", "policy_allowed", "task_term_match", "source_validity",
+            "verified_source", "stale_source_requires_review",
+        }
+        reasons = [
+            value for value in ranked.get("rank_reasons", [])
+            if isinstance(value, str) and (value in allowed_reasons or re.fullmatch(r"(?:observed|unknown|partial|conflicted|stale|unavailable)_source", value))
+        ]
+        if reasons:
+            item["selection_reason"] = "; ".join(reasons)
         items.append(item)
         spent += len(safe_text)
         selection.append({
@@ -40227,10 +40310,10 @@ def _dag_validate_budget_report(artifact: Mapping[str, Any], graph: ContextDAG,
     if profile_manifest:
         profile_budget = profile_manifest.get("compilation_budget")
         if isinstance(profile_budget, Mapping):
-            for field in ("max_nodes", "max_depth", "max_fanout", "max_tokens", "max_bytes"):
+            for field in ("max_nodes", "max_depth", "max_fanout", "max_tokens", "max_bytes", "deadline_s"):
                 actual = limits.get(field)
                 ceiling = profile_budget.get(field)
-                if isinstance(actual, int) and isinstance(ceiling, int) and actual > ceiling:
+                if isinstance(actual, (int, float)) and not isinstance(actual, bool) and isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool) and actual > ceiling:
                     errors.append(f"budget limit {field} widens execution profile")
     return errors
 
@@ -40289,24 +40372,32 @@ def verify_compiled_dag(artifact: dict) -> dict:
         errors.append("verdict does not recompute from graph state")
     profile_raw = artifact.get("execution_profile")
     profile_manifest: Mapping[str, Any] = {}
-    profile_diagnostics = artifact.get("profile_diagnostics") or {}
-    if not isinstance(profile_diagnostics, Mapping):
-        errors.append("profile diagnostics are not an object")
-        profile_diagnostics = {}
+    profile_related = any(key in artifact for key in ("execution_profile", "execution_profile_digest", "profile_diagnostics", "status"))
+    profile_diagnostics = artifact.get("profile_diagnostics")
     profile_status = None
-    if profile_raw:
-        if not isinstance(profile_raw, Mapping):
-            errors.append("execution profile is not an object")
+    if profile_related:
+        if not isinstance(profile_raw, Mapping) or not profile_raw:
+            errors.append("execution profile envelope is missing or empty")
         else:
             profile_manifest = profile_raw
-        profile_check = verify_execution_profile(profile_manifest)
-        if not profile_check.get("valid"):
-            errors.append("execution profile digest mismatch")
-        if artifact.get("execution_profile_digest") != profile_manifest.get("profile_digest"):
-            errors.append("execution_profile_digest does not match profile manifest")
-        profile_status = "degraded" if profile_diagnostics.get("degraded") else profile_manifest.get("status")
-        if artifact.get("status") != profile_status:
-            errors.append("profile status does not match profile manifest")
+        if not isinstance(profile_diagnostics, Mapping):
+            errors.append("profile diagnostics are missing or not an object")
+            profile_diagnostics = {}
+        if not isinstance(artifact.get("execution_profile_digest"), str):
+            errors.append("execution_profile_digest is missing or invalid")
+        if "status" not in artifact or not isinstance(artifact.get("status"), str):
+            errors.append("profile status is missing or invalid")
+        if profile_manifest:
+            profile_check = verify_execution_profile(profile_manifest)
+            if not profile_check.get("valid"):
+                errors.append("execution profile digest mismatch")
+            if artifact.get("execution_profile_digest") != profile_manifest.get("profile_digest"):
+                errors.append("execution_profile_digest does not match profile manifest")
+            profile_status = "degraded" if profile_diagnostics.get("degraded") else profile_manifest.get("status")
+            if artifact.get("status") != profile_status:
+                errors.append("profile status does not match profile manifest")
+    if artifact.get("token_accounting") != TOKEN_ACCOUNTING_NOTE:
+        errors.append("top-level token accounting note is invalid")
     errors.extend(_dag_validate_budget_report(artifact, graph, profile_manifest or None))
     budget_sealed = dict(artifact.get("budget") or {})
     budget_sealed.pop("wall_clock_s", None)
