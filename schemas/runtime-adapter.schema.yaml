@@ -1,0 +1,80 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "https://perseus.observer/schemas/runtime-adapter/v1"
+title: Perseus runtime adapter envelopes
+version: "perseus-runtime-adapter/v1"
+$defs:
+  digest: {type: string, pattern: "^[0-9a-f]{64}$"}
+  capabilities:
+    type: object
+    additionalProperties: false
+    required: [schema_version, backend_id, backend_version, model_id, model_version, tokenizer_id, context_capacity_tokens, execution_modes, streaming, tools, hardware_class, resource_metrics, auth_mode, provider_ref]
+    properties:
+      schema_version: {type: string, const: perseus-runtime-capabilities/v1}
+      backend_id: {type: string, minLength: 1, maxLength: 160}
+      backend_version: {type: string, minLength: 1, maxLength: 160}
+      model_id: {type: string, minLength: 1, maxLength: 160}
+      model_version: {type: string, minLength: 1, maxLength: 160}
+      tokenizer_id: {type: string, minLength: 1, maxLength: 160}
+      context_capacity_tokens: {type: integer, minimum: 1}
+      execution_modes:
+        type: array
+        maxItems: 32
+        items: {type: string, enum: [offline, local, approved_network]}
+      streaming: {type: boolean}
+      tools: {type: boolean}
+      hardware_class: {type: string, minLength: 1, maxLength: 160}
+      resource_metrics:
+        type: array
+        maxItems: 32
+        items: {type: string, minLength: 1, maxLength: 160}
+      auth_mode: {type: string, minLength: 1, maxLength: 64}
+      provider_ref: {type: string, minLength: 1, maxLength: 160}
+  request:
+    type: object
+    additionalProperties: false
+    required: [schema_version, request_id, execution_profile, execution_profile_digest, context_digest, evidence_digest, input_digest, execution_mode, required_capabilities, max_output_chars]
+    properties:
+      schema_version: {type: string, const: perseus-runtime-request/v1}
+      request_id: {type: string, minLength: 1, maxLength: 160}
+      execution_profile: {type: object}
+      execution_profile_digest: {$ref: "#/$defs/digest"}
+      context_digest: {$ref: "#/$defs/digest"}
+      evidence_digest: {$ref: "#/$defs/digest"}
+      input_digest: {$ref: "#/$defs/digest"}
+      execution_mode: {type: string, enum: [offline, local, approved_network]}
+      required_capabilities: {type: object, additionalProperties: true}
+      max_output_chars: {type: integer, minimum: 1, maximum: 1000000}
+  result:
+    type: object
+    additionalProperties: false
+    required: [schema_version, request_id, status, output, usage, runtime, error_code, error_message, external_fallback_allowed]
+    properties:
+      schema_version: {type: string, const: perseus-runtime-result/v1}
+      request_id: {type: string, minLength: 1, maxLength: 160}
+      status: {type: string, enum: [success, partial, unavailable, timeout, cancelled, malformed]}
+      output: {type: [string, 'null'], maxLength: 1000000}
+      usage:
+        type: object
+        additionalProperties: false
+        properties:
+          input_tokens: {type: integer, minimum: 0}
+          output_tokens: {type: integer, minimum: 0}
+          latency_ms: {type: integer, minimum: 0}
+      runtime:
+        type: object
+        additionalProperties: false
+        properties:
+          backend_id: {type: string, minLength: 1, maxLength: 160}
+          backend_version: {type: string, minLength: 1, maxLength: 160}
+          model_id: {type: string, minLength: 1, maxLength: 160}
+          model_version: {type: string, minLength: 1, maxLength: 160}
+          auth_mode: {type: string, minLength: 1, maxLength: 64}
+          provider_ref: {type: string, minLength: 1, maxLength: 160}
+          execution_mode: {type: string, enum: [offline, local, approved_network]}
+      error_code: {type: [string, 'null'], maxLength: 160}
+      error_message: {type: [string, 'null'], maxLength: 256}
+      external_fallback_allowed: {type: boolean, const: false}
+oneOf:
+  - {$ref: "#/$defs/capabilities"}
+  - {$ref: "#/$defs/request"}
+  - {$ref: "#/$defs/result"}

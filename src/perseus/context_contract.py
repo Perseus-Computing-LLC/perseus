@@ -17,6 +17,7 @@ from typing import Any
 from perseus.composite_ranking import composite_score
 from perseus.context_decision import decide_context_route
 from perseus.frontdoor import route_front_door
+from perseus.context_evidence import project_context_evidence
 
 
 CONTEXT_RANK_SCHEMA_VERSION = "perseus-context-rank/v1"
@@ -683,6 +684,14 @@ def context_rank(
             "context_decision": decision,
             "budget": {"max_items": max_items, "max_chars": max_chars, "returned_items": len(output)},
         }
+        selected_ids = {item["candidate_id"] for item in output}
+        selected_records = [record for record in prepared if record.get("_contract_id") in selected_ids]
+        result["evidence_projection"] = project_context_evidence(
+            selected_records,
+            provider_states=states,
+            excluded=[{"candidate_id": item, "reason": "excluded_by_contract"} for item in excluded],
+            evidence_required=bool(policy_map.get("evidence_required", False)),
+        )
         return result
     except (TypeError, ValueError) as exc:
         message = str(exc)
