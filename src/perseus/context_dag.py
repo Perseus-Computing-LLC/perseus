@@ -41,9 +41,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Mapping, Optional
 from perseus.execution_profiles import (
     ExecutionProfileError,
     resolve_execution_profile,
@@ -913,6 +914,73 @@ def compile_context_dag(*, task_id: str,
     return artifact
 
 
+def _dag_observed_budget(graph: ContextDAG) -> dict[str, int]:
+    """Recompute budget consumption from the sealed graph, not its report."""
+    order = graph.topo_order()
+    depths = {node_id: 0 for node_id in order}
+    for node_id in order:
+        for child_id in graph._adj.get(node_id, []):
+            depths[child_id] = max(depths.get(child_id, 0), depths[node_id] + 1)
+    return {
+        "nodes": len(graph.nodes),
+        "depth": max(depths.values(), default=0),
+        "max_fanout_used": max((len(children) for children in graph._adj.values()), default=0),
+        "tokens": sum(dag_tokens(node.content) for node in graph.nodes),
+        "bytes": sum(len(node.content.encode("utf-8")) for node in graph.nodes),
+    }
+
+
+def _dag_validate_budget_report(artifact: Mapping[str, Any], graph: ContextDAG,
+                                profile_manifest: Mapping[str, Any] | None = None) -> list[str]:
+    errors: list[str] = []
+    budget = artifact.get("budget")
+    if not isinstance(budget, Mapping):
+        return ["budget report is invalid"]
+    observed = _dag_observed_budget(graph)
+    for field, expected in observed.items():
+        value = budget.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value != expected:
+            errors.append(f"budget {field} does not recompute from graph")
+    if budget.get("token_accounting") != TOKEN_ACCOUNTING_NOTE:
+        errors.append("budget token accounting note is invalid")
+    limits = budget.get("limits")
+    limit_fields = {"max_nodes", "max_depth", "max_fanout", "max_tokens", "max_bytes", "deadline_s"}
+    if not isinstance(limits, Mapping) or set(limits) != limit_fields:
+        return errors + ["budget limits are invalid"]
+    for field in ("max_nodes", "max_depth", "max_fanout", "max_tokens"):
+        value = limits[field]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            errors.append(f"budget limit {field} is invalid")
+    max_bytes = limits["max_bytes"]
+    if max_bytes is not None and (isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1):
+        errors.append("budget limit max_bytes is invalid")
+    deadline = limits["deadline_s"]
+    if isinstance(deadline, bool) or not isinstance(deadline, (int, float)) or not math.isfinite(float(deadline)) or deadline <= 0:
+        errors.append("budget limit deadline_s is invalid")
+    wall_clock = budget.get("wall_clock_s")
+    if wall_clock is not None and (isinstance(wall_clock, bool) or not isinstance(wall_clock, (int, float)) or not math.isfinite(float(wall_clock)) or wall_clock < 0):
+        errors.append("budget wall_clock_s is invalid")
+    if isinstance(limits.get("max_nodes"), int) and observed["nodes"] > limits["max_nodes"]:
+        errors.append("budget nodes exceed max_nodes")
+    if isinstance(limits.get("max_depth"), int) and observed["depth"] > limits["max_depth"]:
+        errors.append("budget depth exceeds max_depth")
+    if isinstance(limits.get("max_fanout"), int) and observed["max_fanout_used"] > limits["max_fanout"]:
+        errors.append("budget fanout exceeds max_fanout")
+    if isinstance(limits.get("max_tokens"), int) and observed["tokens"] > limits["max_tokens"]:
+        errors.append("budget tokens exceed max_tokens")
+    if isinstance(max_bytes, int) and observed["bytes"] > max_bytes:
+        errors.append("budget bytes exceed max_bytes")
+    if profile_manifest:
+        profile_budget = profile_manifest.get("compilation_budget")
+        if isinstance(profile_budget, Mapping):
+            for field in ("max_nodes", "max_depth", "max_fanout", "max_tokens", "max_bytes"):
+                actual = limits.get(field)
+                ceiling = profile_budget.get(field)
+                if isinstance(actual, int) and isinstance(ceiling, int) and actual > ceiling:
+                    errors.append(f"budget limit {field} widens execution profile")
+    return errors
+
+
 def verify_compiled_dag(artifact: dict) -> dict:
     """Recompute every commitment in a compiled DAG artifact."""
     errors: list[str] = []
@@ -922,13 +990,17 @@ def verify_compiled_dag(artifact: dict) -> dict:
         return {"valid": False, "errors": ["unsupported schema version"]}
     try:
         graph = ContextDAG.from_dict(artifact["graph"])
-    except ContextDagError as exc:
+    except (ContextDagError, TypeError, KeyError, ValueError) as exc:
         return {"valid": False, "errors": [f"graph invalid: {exc}"]}
-    selected = artifact.get("selected_node_ids") or []
+    selected = artifact.get("selected_node_ids")
+    if not isinstance(selected, list) or any(not isinstance(nid, str) for nid in selected):
+        return {"valid": False, "errors": ["selected_node_ids must be a list of strings"]}
     for nid in selected:
         if graph.node(nid) is None:
             errors.append(f"selected node {nid!r} missing from graph")
-    packet = artifact.get("packet") or []
+    packet = artifact.get("packet")
+    if not isinstance(packet, list) or any(not isinstance(item, Mapping) for item in packet):
+        return {"valid": False, "errors": ["packet must be a list of objects"]}
     packet_ids = [p.get("node_id") for p in packet]
     if packet_ids != selected:
         errors.append("packet does not match selected_node_ids")
@@ -937,33 +1009,42 @@ def verify_compiled_dag(artifact: dict) -> dict:
         if nd is None or nd.to_dict() != raw:
             errors.append(
                 f"packet node {raw.get('node_id')!r} drifted from graph")
-    policy_raw = artifact.get("policy") or {}
-    try:
-        policy = CompilationPolicy(
-            expand_uncertain=bool(policy_raw.get("expand_uncertain", True)),
-            expand_contradictions=bool(policy_raw.get("expand_contradictions",
-                                                      True)),
-            expand_high_impact=bool(policy_raw.get("expand_high_impact", True)),
-            requires_verified=bool(policy_raw.get("requires_verified", False)),
-        )
-    except Exception as exc:
-        return {"valid": False, "errors": [f"policy invalid: {exc}"]}
+    policy_raw = artifact.get("policy")
+    policy_fields = {"expand_uncertain", "expand_contradictions", "expand_high_impact", "requires_verified"}
+    if not isinstance(policy_raw, Mapping) or set(policy_raw) != policy_fields or any(not isinstance(policy_raw[field], bool) for field in policy_fields):
+        return {"valid": False, "errors": ["policy invalid"]}
+    policy = CompilationPolicy(
+        expand_uncertain=policy_raw["expand_uncertain"],
+        expand_contradictions=policy_raw["expand_contradictions"],
+        expand_high_impact=policy_raw["expand_high_impact"],
+        requires_verified=policy_raw["requires_verified"],
+    )
     policy_gaps, provenance_gaps, contradictions = _effective_gaps(
         graph, selected, policy)
+    advisory = artifact.get("advisory")
+    if not isinstance(advisory, Mapping):
+        return {"valid": False, "errors": ["advisory must be an object"]}
     verdict = evaluate_compilation(
-        verdict_hint=artifact.get("advisory", {}).get("verdict_hint",
-                                                      "abstain"),
+        verdict_hint=advisory.get("verdict_hint", "abstain"),
         policy_gaps=policy_gaps,
         provenance_gaps=provenance_gaps,
         unresolved_contradictions=contradictions,
-        confidence=artifact.get("advisory", {}).get("confidence"),
+        confidence=advisory.get("confidence"),
     )
     if verdict != artifact.get("verdict"):
         errors.append("verdict does not recompute from graph state")
-    profile_manifest = artifact.get("execution_profile") or {}
+    profile_raw = artifact.get("execution_profile")
+    profile_manifest: Mapping[str, Any] = {}
     profile_diagnostics = artifact.get("profile_diagnostics") or {}
+    if not isinstance(profile_diagnostics, Mapping):
+        errors.append("profile diagnostics are not an object")
+        profile_diagnostics = {}
     profile_status = None
-    if profile_manifest:
+    if profile_raw:
+        if not isinstance(profile_raw, Mapping):
+            errors.append("execution profile is not an object")
+        else:
+            profile_manifest = profile_raw
         profile_check = verify_execution_profile(profile_manifest)
         if not profile_check.get("valid"):
             errors.append("execution profile digest mismatch")
@@ -972,6 +1053,7 @@ def verify_compiled_dag(artifact: dict) -> dict:
         profile_status = "degraded" if profile_diagnostics.get("degraded") else profile_manifest.get("status")
         if artifact.get("status") != profile_status:
             errors.append("profile status does not match profile manifest")
+    errors.extend(_dag_validate_budget_report(artifact, graph, profile_manifest or None))
     budget_sealed = dict(artifact.get("budget") or {})
     budget_sealed.pop("wall_clock_s", None)
     digest_parts = [
@@ -985,9 +1067,13 @@ def verify_compiled_dag(artifact: dict) -> dict:
     ]
     if profile_manifest:
         digest_parts.extend(["profile_status", profile_status, "profile_diagnostics", _dag_json(profile_diagnostics)])
-    expected = _dag_sha(*digest_parts)
-    if expected != artifact.get("compiled_digest"):
-        errors.append("compiled_digest mismatch")
+    try:
+        expected = _dag_sha(*digest_parts)
+    except (TypeError, ValueError, OverflowError):
+        errors.append("compiled_digest inputs are not canonical JSON")
+    else:
+        if expected != artifact.get("compiled_digest"):
+            errors.append("compiled_digest mismatch")
     return {"valid": not errors, "errors": errors,
             "graph_digest": graph.digest(),
             "verdict": verdict}
