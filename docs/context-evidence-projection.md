@@ -77,4 +77,3 @@ The projection is a view over caller-owned normalized records. Vault remains the
 durable memory/retrieval authority; Ledger remains the evidence/provenance
 surface; the adapter seam in #981 consumes commitments rather than copying
 private context.
-
