@@ -435,9 +435,9 @@ def _cc_route(request_class: str, integrations: Any) -> dict[str, Any]:
 def _cc_failure_for_integrations(integrations: Mapping[str, str]) -> str | None:
     if integrations.get("vault") == "timeout" or integrations.get("ledger") == "timeout":
         return "timeout"
-    if integrations.get("vault") == "unavailable":
+    if integrations.get("vault") in {"unavailable", "not_configured"}:
         return "vault_unavailable"
-    if integrations.get("ledger") == "unavailable":
+    if integrations.get("ledger") in {"unavailable", "not_configured"}:
         return "ledger_unavailable"
     return None
 
@@ -692,6 +692,9 @@ def context_rank(
             excluded=[{"candidate_id": item, "reason": "excluded_by_contract"} for item in excluded],
             evidence_required=bool(policy_map.get("evidence_required", False)),
         )
+        if result["status"] == "complete" and result["evidence_projection"]["coverage"]["abstention_required"]:
+            result["status"] = "abstain"
+            result["failure_state"] = "insufficient_evidence"
         return result
     except (TypeError, ValueError) as exc:
         message = str(exc)

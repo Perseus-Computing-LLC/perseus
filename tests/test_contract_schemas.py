@@ -47,6 +47,7 @@ def test_new_contract_schemas_are_valid_and_accept_reference_envelopes():
         "schema_version": "perseus-runtime-request/v1",
         "request_id": "schema-request",
         "execution_profile": profile,
+        "execution_profile_digest": profile["profile_digest"],
         "context_digest": "a" * 64,
         "evidence_digest": "b" * 64,
         "input_digest": "c" * 64,
