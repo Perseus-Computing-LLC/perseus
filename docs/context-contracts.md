@@ -42,6 +42,18 @@ metadata-only release receipt.
    provenance class, and valid/recorded times. It does not contain source
    bodies, private fields, prompts, credentials, or tool arguments.
 
+## Evidence coverage projection
+
+`context_rank` adds an `evidence_projection` field from
+`perseus-context-evidence/v1`. It keeps provider status separate from item
+coverage (`evidence_backed`, `partial`, `conflicted`, `stale`, `empty`,
+`unavailable`, or `timeout`) and turns non-backed states into
+`abstention_required` when the caller sets `policy.evidence_required=true`.
+Relevance scores remain ordering diagnostics and never upgrade uncertain
+evidence. The projection contains only sanitized source references, evidence
+digests, valid/transaction timestamps, uncertainty, and bounded inclusion or
+exclusion reasons.
+
 ## Projection and consent
 
 A projection is bound to `agent_id`, tenant/workspace/topic scope, request class,
