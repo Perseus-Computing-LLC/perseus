@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Build the master and audience-specific capability statement PDFs.
+"""Build a readable master and three audience-specific capability statements.
 
-The PDFs share a single evidence and procurement layer, but the opening page is
-written for the reader's mission rather than for Perseus's internal submission
-workflow. All measured figures come from the root claims.json registry.
+The layout intentionally uses two Letter pages instead of compressing every
+claim into a single dense sheet:
 
-Usage:
-    uv run --with reportlab python3 scripts/build_capability_statement.py
-    uv run --with reportlab python3 scripts/build_capability_statement.py --profile cyber-networks
-    uv run --with reportlab python3 scripts/build_capability_statement.py --all
+  page 1: mission problem, Perseus system, fit, first conversation
+  page 2: measured evidence, procurement facts, deployment boundary, contact
+
+All public figures are read from the canonical claims.json registry. Profiles
+change the audience framing and fit language, not the evidence layer.
 """
 from __future__ import annotations
 
@@ -23,223 +23,399 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
-from reportlab.platypus import BaseDocTemplate, Frame, HRFlowable, PageTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import (
+    BaseDocTemplate,
+    Frame,
+    HRFlowable,
+    PageBreak,
+    PageTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 PROFILES = ROOT / "scripts" / "capability_profiles.json"
 OUTPUT_DIR = ROOT / "government" / "assets"
 
-NAVY = HexColor("#13283D")
-BLUE = HexColor("#1D6597")
-GREEN = HexColor("#236B4D")
-INK = HexColor("#17212B")
-MUTED = HexColor("#465968")
-FAINT = HexColor("#607381")
-PALE_BLUE = HexColor("#EAF2F8")
-PALE_GREEN = HexColor("#EAF5EF")
-RULE = HexColor("#C4D2DA")
+NAVY = HexColor("#10283D")
+NAVY_2 = HexColor("#1A3C57")
+BLUE = HexColor("#2E789F")
+GREEN = HexColor("#25704D")
+GOLD = HexColor("#B57925")
+INK = HexColor("#17242D")
+MUTED = HexColor("#4E626D")
+FAINT = HexColor("#6D8089")
+PALE_BLUE = HexColor("#EDF4F8")
+PALE_GREEN = HexColor("#EDF7F1")
+PALE_GOLD = HexColor("#FBF4E8")
+RULE = HexColor("#C8D5DB")
 WHITE = colors.white
 
+PAGE_W, PAGE_H = letter
 
-def styles() -> dict[str, ParagraphStyle]:
-    base = ParagraphStyle("base", fontName="Helvetica", fontSize=7.7, leading=9.2, textColor=INK)
+
+def make_styles() -> dict[str, ParagraphStyle]:
+    base = ParagraphStyle(
+        "base",
+        fontName="Helvetica",
+        fontSize=9.1,
+        leading=12.2,
+        textColor=INK,
+        spaceAfter=0,
+    )
     return {
-        "brand": ParagraphStyle("brand", fontName="Helvetica-Bold", fontSize=15.6, leading=17, textColor=WHITE),
-        "tagline": ParagraphStyle("tagline", fontName="Helvetica", fontSize=7.4, leading=8.8, textColor=HexColor("#D5E8F7"), alignment=TA_LEFT),
-        "label": ParagraphStyle("label", fontName="Helvetica-Bold", fontSize=6.8, leading=8.2, textColor=GREEN),
-        "title": ParagraphStyle("title", fontName="Helvetica-Bold", fontSize=15.2, leading=17.2, textColor=NAVY, spaceAfter=4),
-        "lead": ParagraphStyle("lead", fontName="Helvetica", fontSize=9.1, leading=11.3, textColor=INK),
-        "identity": ParagraphStyle("identity", fontName="Helvetica", fontSize=7.2, leading=8.7, textColor=FAINT),
-        "section": ParagraphStyle("section", fontName="Helvetica-Bold", fontSize=8.7, leading=10.2, textColor=NAVY, spaceAfter=2),
-        "body": ParagraphStyle("body", parent=base, fontSize=8.2, leading=9.8),
-        "body_small": ParagraphStyle("body_small", parent=base, fontSize=7.8, leading=9.2),
-        "bullet": ParagraphStyle("bullet", parent=base, fontSize=8.0, leading=9.5, leftIndent=7, firstLineIndent=-6, spaceAfter=1.8),
-        "metric": ParagraphStyle("metric", fontName="Helvetica-Bold", fontSize=13.2, leading=14, textColor=GREEN, alignment=TA_CENTER),
-        "metric_label": ParagraphStyle("metric_label", fontName="Helvetica", fontSize=6.1, leading=7.2, textColor=MUTED, alignment=TA_CENTER),
-        "footer": ParagraphStyle("footer", fontName="Helvetica", fontSize=6.1, leading=7.2, textColor=FAINT, alignment=TA_CENTER),
-        "footer_bold": ParagraphStyle("footer_bold", fontName="Helvetica-Bold", fontSize=6.1, leading=7.2, textColor=NAVY),
+        "brand": ParagraphStyle("brand", fontName="Helvetica-Bold", fontSize=15.5, leading=17, textColor=WHITE),
+        "brand_sub": ParagraphStyle("brand_sub", fontName="Helvetica", fontSize=7.3, leading=9, textColor=HexColor("#D6E7F1")),
+        "eyebrow": ParagraphStyle("eyebrow", fontName="Helvetica-Bold", fontSize=7.4, leading=9, textColor=GREEN, tracking=0.8),
+        "eyebrow_white": ParagraphStyle("eyebrow_white", fontName="Helvetica-Bold", fontSize=7.2, leading=9, textColor=HexColor("#D5E8F7"), tracking=0.7),
+        "hero_title": ParagraphStyle("hero_title", fontName="Helvetica-Bold", fontSize=25.5, leading=28.2, textColor=NAVY, spaceAfter=6),
+        "hero_title_compact": ParagraphStyle("hero_title_compact", fontName="Helvetica-Bold", fontSize=21.5, leading=24.2, textColor=NAVY, spaceAfter=6),
+        "lead": ParagraphStyle("lead", parent=base, fontSize=11.1, leading=14.4, textColor=INK),
+        "body": ParagraphStyle("body", parent=base, fontSize=9.2, leading=12.0),
+        "body_small": ParagraphStyle("body_small", parent=base, fontSize=8.25, leading=10.6),
+        "body_tiny": ParagraphStyle("body_tiny", parent=base, fontSize=7.4, leading=9.2, textColor=MUTED),
+        "section": ParagraphStyle("section", fontName="Helvetica-Bold", fontSize=10.2, leading=12, textColor=NAVY),
+        "card_title": ParagraphStyle("card_title", fontName="Helvetica-Bold", fontSize=11.3, leading=13.1, textColor=NAVY),
+        "card_text": ParagraphStyle("card_text", parent=base, fontSize=8.25, leading=10.5, textColor=MUTED),
+        "label": ParagraphStyle("label", fontName="Helvetica-Bold", fontSize=7.2, leading=8.6, textColor=GREEN),
+        "label_blue": ParagraphStyle("label_blue", fontName="Helvetica-Bold", fontSize=7.2, leading=8.6, textColor=BLUE),
+        "label_gold": ParagraphStyle("label_gold", fontName="Helvetica-Bold", fontSize=7.2, leading=8.6, textColor=GOLD),
+        "metric_value": ParagraphStyle("metric_value", fontName="Helvetica-Bold", fontSize=20, leading=21, textColor=GREEN, alignment=TA_LEFT),
+        "metric_label": ParagraphStyle("metric_label", fontName="Helvetica-Bold", fontSize=8.2, leading=9.8, textColor=NAVY),
+        "metric_detail": ParagraphStyle("metric_detail", parent=base, fontSize=7.4, leading=9.2, textColor=MUTED),
+        "identity": ParagraphStyle("identity", fontName="Helvetica", fontSize=7.5, leading=9.4, textColor=FAINT),
+        "footer": ParagraphStyle("footer", fontName="Helvetica", fontSize=6.7, leading=8.1, textColor=FAINT, alignment=TA_CENTER),
+        "callout": ParagraphStyle("callout", parent=base, fontSize=9.1, leading=12.0, textColor=NAVY),
+        "at_glance_value": ParagraphStyle("at_glance_value", fontName="Helvetica-Bold", fontSize=9.2, leading=11, textColor=NAVY),
+        "at_glance_label": ParagraphStyle("at_glance_label", fontName="Helvetica-Bold", fontSize=6.8, leading=8.2, textColor=FAINT),
     }
 
 
-def P(text: str, style: ParagraphStyle) -> Paragraph:
-    return Paragraph(escape(text).replace("\n", "<br/>").replace("&lt;b&gt;", "<b>").replace("&lt;/b&gt;", "</b>"), style)
+def p(text: str, style: ParagraphStyle) -> Paragraph:
+    return Paragraph(escape(text).replace("\n", "<br/>"), style)
 
 
 def rich(text: str, style: ParagraphStyle) -> Paragraph:
-    """Render trusted local copy with simple ReportLab markup."""
     return Paragraph(text, style)
 
 
-def section_heading(title: str, st: dict[str, ParagraphStyle]) -> list:
+def section_heading(title: str, st: dict[str, ParagraphStyle], color=BLUE) -> list:
     return [
         rich(escape(title.upper()), st["section"]),
-        HRFlowable(width="100%", thickness=0.55, color=BLUE, spaceBefore=0, spaceAfter=3),
+        HRFlowable(width="100%", thickness=0.7, color=color, spaceBefore=1, spaceAfter=7),
     ]
 
 
 def bullet(label: str, text: str, st: dict[str, ParagraphStyle]) -> Paragraph:
-    return rich(f"&bull;&nbsp; <b>{escape(label)}:</b> {escape(text)}", st["bullet"])
+    return rich(f"<font color='{GREEN.hexval()}'>&bull;</font>&nbsp; <b>{escape(label)}</b> {escape(text)}", st["body_small"])
 
 
-def header(profile: dict, st: dict[str, ParagraphStyle]) -> Table:
-    table = Table(
-        [[rich("PERSEUS COMPUTING LLC", st["brand"]), rich("LIVE CONTEXT + GOVERNED MEMORY FOR AI AGENTS", st["tagline"])]],
-        colWidths=[3.48 * inch, 4.12 * inch],
-    )
+def header(st: dict[str, ParagraphStyle], page_label: str) -> Table:
+    left = [rich("PERSEUS COMPUTING LLC", st["brand"]), rich("CONTEXT  ·  MEMORY  ·  EVIDENCE", st["brand_sub"])]
+    right = [rich(escape(page_label.upper()), st["eyebrow_white"]), rich("CAPABILITY STATEMENT  ·  2026", st["brand_sub"])]
+    table = Table([[left, right]], colWidths=[4.65 * inch, 2.75 * inch])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), NAVY),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (0, 0), 10),
-        ("RIGHTPADDING", (0, 0), (0, 0), 4),
-        ("LEFTPADDING", (1, 0), (1, 0), 4),
-        ("RIGHTPADDING", (1, 0), (1, 0), 10),
-        ("TOPPADDING", (0, 0), (-1, -1), 8),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+        ("LEFTPADDING", (0, 0), (0, 0), 13),
+        ("RIGHTPADDING", (0, 0), (0, 0), 5),
+        ("LEFTPADDING", (1, 0), (1, 0), 5),
+        ("RIGHTPADDING", (1, 0), (1, 0), 13),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
     ]))
     return table
 
 
-def metric(value: str, label: str, st: dict[str, ParagraphStyle]) -> list[Paragraph]:
-    return [rich(escape(value), st["metric"]), rich(escape(label).replace("\\n", "<br/>"), st["metric_label"])]
+def at_a_glance(profile: dict, st: dict[str, ParagraphStyle]) -> Table:
+    rows = [
+        [p("PRIMARY FIT", st["at_glance_label"]), p(profile["fit_tag"], st["at_glance_value"])],
+        [p("DEPLOYMENT", st["at_glance_label"]), p("Local / air-gapped / private VPC", st["at_glance_value"])],
+        [p("PROCUREMENT", st["at_glance_label"]), p("SAM active · CAGE 22JC5", st["at_glance_value"])],
+        [p("CONTACT", st["at_glance_label"]), p("perseus@perseus.observer", st["at_glance_value"])],
+    ]
+    table = Table(rows, colWidths=[0.88 * inch, 2.13 * inch])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), PALE_BLUE),
+        ("BOX", (0, 0), (-1, -1), 0.6, RULE),
+        ("INNERGRID", (0, 0), (-1, -1), 0.35, RULE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]))
+    return table
 
 
-def mission_table(rows: list[list[str]], st: dict[str, ParagraphStyle]) -> Table:
-    data = [[rich(f"<b>{escape(label)}</b>", st["label"]), P(text, st["body_small"])] for label, text in rows]
-    table = Table(data, colWidths=[1.33 * inch, 5.94 * inch])
+def module_card(number: str, title: str, text: str, background, st: dict[str, ParagraphStyle]) -> Table:
+    cell = [
+        rich(escape(number), st["label"]),
+        Spacer(1, 9),
+        rich(escape(title), st["card_title"]),
+        Spacer(1, 5),
+        p(text, st["card_text"]),
+    ]
+    table = Table([[cell]], colWidths=[2.36 * inch])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), background),
+        ("BOX", (0, 0), (-1, -1), 0.45, RULE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 11),
+    ]))
+    return table
+
+
+def fit_table(profile: dict, st: dict[str, ParagraphStyle]) -> Table:
+    data = []
+    for label, text, tag in profile["fit_rows"]:
+        tag_style = st["label_gold"] if tag == "PRIMARY FIT" else st["label_blue"] if tag == "ENABLING FIT" else st["label"]
+        data.append([rich(f"<b>{escape(label)}</b><br/><font size='6.7'>{escape(tag)}</font>", tag_style), p(text, st["body_small"])])
+    table = Table(data, colWidths=[1.62 * inch, 5.58 * inch])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (0, -1), PALE_GREEN),
-        ("GRID", (0, 0), (-1, -1), 0.35, RULE),
+        ("GRID", (0, 0), (-1, -1), 0.4, RULE),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 3.2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.2),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
     ]))
     return table
+
+
+def metric_card(value: str, label: str, detail: str, st: dict[str, ParagraphStyle]) -> Table:
+    cell = [rich(escape(value), st["metric_value"]), Spacer(1, 5), rich(escape(label), st["metric_label"]), Spacer(1, 4), p(detail, st["metric_detail"])]
+    table = Table([[cell]], colWidths=[3.54 * inch])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), PALE_GREEN),
+        ("BOX", (0, 0), (-1, -1), 0.5, RULE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 11),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 11),
+        ("TOPPADDING", (0, 0), (-1, -1), 11),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 11),
+    ]))
+    return table
+
+
+def fact_block(title: str, rows: list[tuple[str, str]], background, st: dict[str, ParagraphStyle]) -> Table:
+    body = [rich(escape(title.upper()), st["eyebrow"])]
+    for label, value in rows:
+        body.extend([rich(f"<b>{escape(label)}</b><br/>{escape(value)}", st["body_small"]), Spacer(1, 5)])
+    table = Table([[body]], colWidths=[3.54 * inch])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), background),
+        ("BOX", (0, 0), (-1, -1), 0.5, RULE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 11),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 11),
+        ("TOPPADDING", (0, 0), (-1, -1), 11),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]))
+    return table
+
+
+def page_chrome(canvas, doc) -> None:
+    canvas.saveState()
+    canvas.setStrokeColor(RULE)
+    canvas.setLineWidth(0.45)
+    canvas.line(doc.leftMargin, 0.34 * inch, PAGE_W - doc.rightMargin, 0.34 * inch)
+    canvas.setFillColor(FAINT)
+    canvas.setFont("Helvetica", 6.7)
+    canvas.drawString(doc.leftMargin, 0.20 * inch, "Perseus Computing LLC  ·  perseus.observer  ·  perseus@perseus.observer")
+    canvas.drawRightString(PAGE_W - doc.rightMargin, 0.20 * inch, f"{doc.page} / 2")
+    canvas.restoreState()
 
 
 def build(profile_name: str, profile: dict, claims: dict) -> Path:
-    st = styles()
+    st = make_styles()
     output = OUTPUT_DIR / profile["filename"]
     output.parent.mkdir(parents=True, exist_ok=True)
     doc = BaseDocTemplate(
         str(output),
         pagesize=letter,
-        leftMargin=0.44 * inch,
-        rightMargin=0.44 * inch,
-        topMargin=0.34 * inch,
-        bottomMargin=0.30 * inch,
+        leftMargin=0.56 * inch,
+        rightMargin=0.56 * inch,
+        topMargin=0.42 * inch,
+        bottomMargin=0.52 * inch,
         title=f"Perseus Computing LLC — {profile['audience_label']}",
         author="Perseus Computing LLC",
         subject="Capability statement",
     )
-    frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="one_sheet")
-    doc.addPageTemplates([PageTemplate(id="one_sheet", frames=[frame])])
+    frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="capability")
+    doc.addPageTemplates([PageTemplate(id="capability", frames=[frame], onPage=page_chrome)])
 
-    story: list = [header(profile, st), Spacer(1, 3)]
-    story.extend([
-        rich(escape(profile["audience_label"]), st["label"]),
-        rich(escape(profile["headline"]), st["title"]),
-        P(profile["lead"], st["lead"]),
-        Spacer(1, 2),
-        rich("<b>UEI:</b> PJS2LW7HAK35&nbsp;&nbsp;&nbsp; <b>CAGE:</b> 22JC5&nbsp;&nbsp;&nbsp; <b>SAM.gov:</b> Active&nbsp;&nbsp;&nbsp; <b>HQ:</b> Austin, Texas", st["identity"]),
-        Spacer(1, 4),
-    ])
+    c = claims
+    story: list = []
 
-    left: list = []
-    left.extend(section_heading("What we build", st))
-    left.extend([
-        bullet("Live context", "resolves repository, ticket, deployment, and decision state into bounded context before an agent acts.", st),
-        bullet("Governed memory", "persists encrypted, bitemporal memory with durable journaling and explicit authority boundaries.", st),
-        bullet("Evidence and provenance", "links actions and decisions to evidence, authority, and time so a review does not depend on an opaque dashboard.", st),
-        bullet("Deployment boundary", "runs on-premises, air-gapped, in a private VPC, or on a controlled network with no required cloud service, API key, or vendor runtime.", st),
-    ])
-    right: list = []
-    right.extend(section_heading(profile["why_heading"], st))
-    right.append(P(profile["why_body"], st["body"]))
-    right.append(Spacer(1, 4))
-    discussion = Table([[rich(f"<b>DISCUSS</b><br/>{escape(profile['discussion'])}", st["body_small"])]], colWidths=[3.15 * inch])
-    discussion.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), PALE_BLUE),
-        ("BOX", (0, 0), (-1, -1), 0.45, RULE),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-    ]))
-    right.append(discussion)
-    two_col = Table([[left, right]], colWidths=[4.08 * inch, 3.15 * inch])
-    two_col.setStyle(TableStyle([
+    # PAGE 1: orient the reader before listing proof.
+    story.append(header(st, profile["audience_label"]))
+    story.append(Spacer(1, 13))
+    story.append(rich("CAPABILITY STATEMENT", st["eyebrow"]))
+    hero_title_style = st["hero_title_compact"] if len(profile["headline"]) > 62 else st["hero_title"]
+    hero = [
+        rich(escape(profile["headline"]), hero_title_style),
+        p(profile["lead"], st["lead"]),
+        Spacer(1, 8),
+        rich("<b>UEI</b>  PJS2LW7HAK35 &nbsp;&nbsp; <b>CAGE</b>  22JC5 &nbsp;&nbsp; <b>SAM</b>  Active &nbsp;&nbsp; <b>HQ</b>  Austin, Texas", st["identity"]),
+    ]
+    hero_table = Table([[hero, at_a_glance(profile, st)]], colWidths=[4.25 * inch, 3.10 * inch])
+    hero_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (0, 0), 9),
+        ("RIGHTPADDING", (0, 0), (0, 0), 13),
         ("RIGHTPADDING", (1, 0), (1, 0), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
-    story.extend([two_col, Spacer(1, 9)])
+    story.append(hero_table)
+    story.append(Spacer(1, 16))
+
+    story.extend(section_heading("The problem we solve", st))
+    problem = Table([[
+        p(profile["problem"], st["body"]),
+        rich(f"<b>WHAT CHANGES</b><br/><br/>{escape(profile['change'])}", st["callout"]),
+    ]], colWidths=[4.25 * inch, 3.10 * inch])
+    problem.setStyle(TableStyle([
+        ("BACKGROUND", (1, 0), (1, 0), PALE_GOLD),
+        ("BOX", (1, 0), (1, 0), 0.5, HexColor("#E5C58C")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (0, 0), 0),
+        ("RIGHTPADDING", (0, 0), (0, 0), 13),
+        ("LEFTPADDING", (1, 0), (1, 0), 11),
+        ("RIGHTPADDING", (1, 0), (1, 0), 11),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    story.append(problem)
+    story.append(Spacer(1, 16))
+
+    story.extend(section_heading("The Perseus system", st))
+    modules = Table([[
+        module_card("01  /  CONTEXT", "Before the agent acts", "Resolves repository, ticket, deployment, and decision state into bounded context before a model uses it.", PALE_BLUE, st),
+        module_card("02  /  MEMORY", "After the session ends", "Vault retains encrypted, bitemporal memory with durable journaling and explicit authority boundaries.", PALE_GREEN, st),
+        module_card("03  /  EVIDENCE", "When the work is reviewed", "Ledger links actions and decisions to evidence, authority, and time instead of leaving the record in an opaque dashboard.", PALE_GOLD, st),
+    ]], colWidths=[2.36 * inch, 2.36 * inch, 2.36 * inch])
+    modules.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (0, 0), 7),
+        ("RIGHTPADDING", (1, 0), (1, 0), 7),
+        ("RIGHTPADDING", (2, 0), (2, 0), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    story.append(modules)
+    story.append(Spacer(1, 16))
+
+    story.extend(section_heading("Where this fits", st))
+    story.append(fit_table(profile, st))
+    story.append(Spacer(1, 15))
+    first = Table([[rich(f"<b>FIRST CONVERSATION</b>&nbsp;&nbsp; {escape(profile['discussion'])}", st["callout"])]], colWidths=[7.35 * inch])
+    first.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), NAVY),
+        ("TEXTCOLOR", (0, 0), (-1, -1), WHITE),
+        ("BOX", (0, 0), (-1, -1), 0.5, NAVY),
+        ("LEFTPADDING", (0, 0), (-1, -1), 11),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 11),
+        ("TOPPADDING", (0, 0), (-1, -1), 9),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+    ]))
+    story.append(first)
+
+    # PAGE 2: evidence and procurement details with more room to breathe.
+    story.append(PageBreak())
+    story.append(header(st, "Evidence and procurement"))
+    story.append(Spacer(1, 14))
+    story.append(rich("EVIDENCE AND PROCUREMENT", st["eyebrow"]))
+    story.append(rich("Proof first. Claims stay attached to their method.", st["hero_title_compact"]))
+    story.append(p("The figures below are drawn from the public claims registry. They are presented with the measurement family and condition that give each number meaning.", st["lead"]))
+    story.append(Spacer(1, 16))
 
     story.extend(section_heading("Measured evidence", st))
-    evidence = Table([[
-        metric(claims["longmemeval_cot"]["value"], "LongMemEval QA / official-CoT mean / 3 signed runs", st),
-        metric(claims["longmemeval_retrieval_recall10"]["value"], "session-level retrieval recall@10 / retrieval-only", st),
-        metric(claims["beam_correctness"]["value"], "BEAM correctness / every 128K-10M token tier", st),
-        metric(claims["vault_durable_write_100k"]["value"], "durable sustained write / 100K entities", st),
-    ]], colWidths=[1.81 * inch] * 4)
-    evidence.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), PALE_GREEN),
-        ("GRID", (0, 0), (-1, -1), 0.35, RULE),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-    ]))
-    story.extend([
-        evidence,
-        rich("Measured on named hardware with signed or committed reports and rerunnable methods. Methodology variants remain separately labeled; no customer ROI or compliance certification is implied.", st["identity"]),
-        Spacer(1, 9),
-    ])
-
-    story.extend(section_heading("Where it fits", st))
-    story.extend([mission_table(profile["fit_rows"], st), Spacer(1, 8)])
-
-    story.extend(section_heading("Procurement and security posture", st))
-    posture = Table([
-        [rich("<b>Business</b>", st["label"]), P("U.S. small business · NAICS 541715, 541511, 541512 · founder-led technical access", st["body_small"]), rich("<b>Deployment</b>", st["label"]), P("On-premises, air-gapped, private VPC, or controlled network", st["body_small"])],
-        [rich("<b>Readiness</b>", st["label"]), P("SPRS 110/110 · CMMC Level 2 final self-assessment, enclave scope", st["body_small"]), rich("<b>Supply chain</b>", st["label"]), P("MIT-licensed · published SBOM · NIST AI RMF-aligned architecture", st["body_small"])],
-    ], colWidths=[0.72 * inch, 2.92 * inch, 0.82 * inch, 2.77 * inch])
-    posture.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (0, -1), PALE_BLUE),
-        ("BACKGROUND", (2, 0), (2, -1), PALE_BLUE),
-        ("GRID", (0, 0), (-1, -1), 0.35, RULE),
+    metrics = [
+        metric_card(c["longmemeval_cot"]["value"], "LongMemEval QA", "Official-CoT mean of three signed runs.", st),
+        metric_card(c["longmemeval_retrieval_recall10"]["value"], "Session retrieval recall@10", "Retrieval-only session-level result.", st),
+        metric_card(c["beam_correctness"]["value"], "BEAM correctness", "Every 128K–10M token tier; deterministic gauntlet.", st),
+        metric_card(c["vault_durable_write_100k"]["value"], "Durable sustained write", "Signed scale report at 100K entities; not an in-memory insert rate.", st),
+    ]
+    metric_grid = Table([[metrics[0], metrics[1]], [metrics[2], metrics[3]]], colWidths=[3.68 * inch, 3.68 * inch])
+    metric_grid.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 3.2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.2),
+        ("LEFTPADDING", (0, 0), (0, -1), 0),
+        ("RIGHTPADDING", (0, 0), (0, -1), 7),
+        ("LEFTPADDING", (1, 0), (1, -1), 0),
+        ("RIGHTPADDING", (1, 0), (1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+        ("BOTTOMPADDING", (0, 1), (-1, 1), 0),
     ]))
-    story.extend([posture, Spacer(1, 8)])
-    next_step = Table([[rich(f"<b>THE FIRST CONVERSATION</b><br/>{escape(profile['discussion'])}", st["body"])]], colWidths=[7.23 * inch])
-    next_step.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), PALE_GREEN),
-        ("BOX", (0, 0), (-1, -1), 0.45, RULE),
-        ("LEFTPADDING", (0, 0), (-1, -1), 7),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    story.append(metric_grid)
+    story.append(Spacer(1, 7))
+    story.append(p("Measured on named hardware with signed or committed reports and rerunnable methods. Methodology variants remain separately labeled. No customer ROI, customer cost savings, or compliance certification is implied by these figures.", st["body_tiny"]))
+    story.append(Spacer(1, 17))
+
+    story.extend(section_heading("Procurement facts", st))
+    facts = Table([[
+        fact_block("Company", [
+            ("Legal name", "Perseus Computing LLC"),
+            ("Business", "U.S. small business · founder-led technical access"),
+            ("UEI / CAGE", "PJS2LW7HAK35 / 22JC5"),
+            ("NAICS", "541715 · 541511 · 541512"),
+            ("SAM.gov", "Active — All Awards"),
+        ], PALE_BLUE, st),
+        fact_block("Security and deployment", [
+            ("Boundary", "On-premises, air-gapped, private VPC, or controlled network"),
+            ("Readiness", "SPRS 110/110 · CMMC Level 2 final self-assessment, enclave scope"),
+            ("Software", "MIT license · published SBOM · NIST AI RMF-aligned architecture"),
+            ("Data posture", "No required cloud service, API key, or vendor runtime"),
+            ("Integration", "Partner-led where mission hardware or sensors are involved"),
+        ], PALE_GREEN, st),
+    ]], colWidths=[3.68 * inch, 3.68 * inch])
+    facts.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (0, 0), 0),
+        ("RIGHTPADDING", (0, 0), (0, 0), 7),
+        ("LEFTPADDING", (1, 0), (1, 0), 0),
+        ("RIGHTPADDING", (1, 0), (1, 0), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
-    story.extend([next_step, Spacer(1, 8), HRFlowable(width="100%", thickness=0.5, color=RULE, spaceAfter=3)])
+    story.append(facts)
+    story.append(Spacer(1, 17))
+
     display_label = {
         "MASTER CAPABILITY STATEMENT": "Master",
         "CYBER & NETWORKS": "Cyber & Networks",
         "C3BM": "C3BM",
         "ELECTRONIC SYSTEMS": "Electronic Systems",
     }[profile["audience_label"]]
-    story.extend([
-        rich("Thomas Connally, Founder &nbsp;&middot;&nbsp; perseus@perseus.observer &nbsp;&middot;&nbsp; perseus.observer &nbsp;&middot;&nbsp; github.com/Perseus-Computing-LLC/perseus", st["footer"]),
-        rich(f"{escape(display_label)} capability statement &nbsp;&middot;&nbsp; updated {escape(str(claims['_meta']['updated']))} &nbsp;&middot;&nbsp; source-linked public claims", st["footer"]),
-    ])
+    story.append(Spacer(1, 12))
+    boundary = Table([[
+        rich("<b>DEPLOYMENT BOUNDARY</b><br/>Run the context, memory, and evidence layers where the program keeps its working data. Air-gapped, on-premises, private VPC, and controlled-network deployment are supported postures.", st["body_tiny"]),
+        rich("<b>CONTACT</b><br/>Thomas Connally, Founder<br/>perseus@perseus.observer", st["body_tiny"]),
+    ]], colWidths=[4.72 * inch, 2.63 * inch])
+    boundary.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, 0), PALE_BLUE),
+        ("BACKGROUND", (1, 0), (1, 0), PALE_GREEN),
+        ("BOX", (0, 0), (-1, -1), 0.5, RULE),
+        ("INNERGRID", (0, 0), (-1, -1), 0.35, RULE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]))
+    story.append(boundary)
+    story.append(Spacer(1, 5))
+    story.append(rich(f"Updated {escape(str(c['_meta']['updated']))} · {escape(display_label)} version · Source-linked public claims", st["footer"]))
 
     doc.build(story)
     print(f"wrote {output}")
