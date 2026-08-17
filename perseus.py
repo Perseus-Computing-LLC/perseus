@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "8cca87b"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "3363acd"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -38196,7 +38196,7 @@ def _cc_missing_attestation(integrations: Mapping[str, str]) -> bool:
 
 
 def _cc_coverage_state(record: Mapping[str, Any]) -> str:
-    raw = str(record.get("coverage_state", record.get("evidence_status", ""))).strip().lower().replace(" ", "_").replace("-", "_")
+    raw = str(record.get("coverage_state", record.get("evidence_status", record.get("status", "")))).strip().lower().replace(" ", "_").replace("-", "_")
     aliases = {
         "supported": "evidence_backed",
         "complete": "evidence_backed",
