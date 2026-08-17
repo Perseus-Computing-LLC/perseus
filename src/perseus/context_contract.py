@@ -54,12 +54,12 @@ _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 _ISO_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$")
 _TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_+./:#-]*")
 _RAW_MATERIAL_KEY_RE = re.compile(
-    r'(?i)(?:"(?:prompt|body|content|credentials?|tool[_-]?(?:args?|arguments?)|private[_-]?body|raw[_-]?payload)"\s*:|\b(?:prompt|body|content|credentials?|tool[_-]?(?:args?|arguments?)|private[_-]?body|raw[_-]?payload)\s*[:=])'
+    r'(?i)(?:"(?:prompt|body|content|credentials?|api[_-]?key|authorization|bearer|tool[_-]?(?:args?|arguments?)|private[_-]?body|raw[_-]?payload)"\s*:|\b(?:prompt|body|content|credentials?|api[_-]?key|authorization|bearer|tool[_-]?(?:args?|arguments?)|private[_-]?body|raw[_-]?payload)\s*[:=])'
 )
 # Userinfo is never public projection text, including `scheme://:pw@host`.
 _CC_URI_USERINFO_RE = re.compile(r"(?i)([A-Za-z][A-Za-z0-9+.-]*://)([^/@\s:]*)(?::[^/@\s]*)?@")
 _RAW_MATERIAL_KEYS = frozenset({
-    "prompt", "body", "content", "credential", "credentials", "tool_arg",
+    "prompt", "body", "content", "credential", "credentials", "api_key", "authorization", "bearer", "tool_arg",
     "tool_args", "tool_argument", "tool_arguments", "private_body", "raw",
     "raw_payload",
 })
@@ -289,7 +289,7 @@ def _cc_private(record: Mapping[str, Any], policy: Mapping[str, Any]) -> bool:
     # it cannot disable this unconditional privacy boundary.
     if bool(record.get("private") or record.get("contains_sensitive_data")):
         return True
-    sensitivity = str(record.get("sensitivity", record.get("visibility", "")) or "").lower()
+    sensitivity = str(record.get("sensitivity", record.get("visibility", "")) or "").strip().casefold()
     return sensitivity in {"private", "secret", "sensitive", "credential"}
 
 
@@ -380,6 +380,8 @@ def _cc_source_ids(record: Mapping[str, Any], candidate_id: str, *, require_expl
         source = item.strip()
         if not _CC_PUBLIC_SOURCE_RE.fullmatch(source):
             raise ValueError(f"{candidate_id} contains a non-public source reference")
+        if require_explicit and source.startswith("artifact:candidate:"):
+            raise ValueError(f"{candidate_id} contains an unverified synthetic source reference")
         if _CC_SENSITIVE_SOURCE_RE.search(source.split(":", 1)[1]):
             namespace = source.split(":", 1)[0]
             source = f"{namespace}:sha256:{_cc_text_sha(source)}"
@@ -598,6 +600,20 @@ def _cc_prepare_records(records: Any, scope: Any, policy: Mapping[str, Any], lim
     return prepared, excluded, contradictory, None
 
 
+def _cc_finite_number(value: Any, field: str, default: float) -> float:
+    if value in (None, ""):
+        return default
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be a finite number")
+    try:
+        number = float(value)
+    except (OverflowError, ValueError) as exc:
+        raise ValueError(f"{field} must be a finite number") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"{field} must be a finite number")
+    return number
+
+
 def _cc_rank_score(record: Mapping[str, Any], task: str, scope: Mapping[str, str]) -> tuple[float, dict[str, float]]:
     """Use the existing composite-ranking policy with an adapter, not a second ranker."""
     class _Candidate:
@@ -608,8 +624,8 @@ def _cc_rank_score(record: Mapping[str, Any], task: str, scope: Mapping[str, str
     candidate.key = str(record.get("_contract_id", ""))
     candidate.category = str(record.get("category", record.get("topic", "")) or "")
     candidate.workspace_hash = str(scope.get("workspace", ""))
-    candidate.relevance = float(record.get("relevance", record.get("semantic_score", 0.0)) or 0.0)
-    candidate.decay_score = float(record.get("decay_score", 1.0) or 1.0)
+    candidate.relevance = _cc_finite_number(record.get("relevance", record.get("semantic_score", 0.0)), "relevance", 0.0)
+    candidate.decay_score = _cc_finite_number(record.get("decay_score", 1.0), "decay_score", 1.0)
     candidate.verified = bool(record.get("verified", False))
     candidate.links = []
     candidate.last_accessed_unix_ms = None
@@ -802,7 +818,7 @@ def context_rank(
                 "contradictory_evidence" if coverage["state"] == "conflicted" else "insufficient_evidence"
             )
         return result
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         message = str(exc)
         failure = "invalid_input"
         for candidate_failure in _FAILURE_STATES:

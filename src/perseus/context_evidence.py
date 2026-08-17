@@ -151,7 +151,7 @@ def _ce_timestamp(value: Any) -> str | None:
     return text if _CE_ISO_RE.fullmatch(text) else None
 
 
-def _ce_sources(record: Mapping[str, Any], candidate_id: str) -> list[str]:
+def _ce_sources(record: Mapping[str, Any], candidate_id: str, *, evidence_required: bool = False) -> list[str]:
     values: list[Any] = []
     for key in ("source_id", "source_ref", "provenance_id"):
         if record.get(key):
@@ -174,7 +174,10 @@ def _ce_sources(record: Mapping[str, Any], candidate_id: str) -> list[str]:
     for value in values:
         if not isinstance(value, str) or not _CE_PUBLIC_SOURCE_RE.fullmatch(value.strip()):
             raise ContextEvidenceError(f"{candidate_id} contains an untrusted source namespace")
-        refs.append(_ce_id(value, "source_ref"))
+        source = value.strip()
+        if evidence_required and source.startswith("artifact:candidate:"):
+            raise ContextEvidenceError(f"{candidate_id} contains an unverified synthetic source reference")
+        refs.append(_ce_id(source, "source_ref"))
     refs = sorted(set(refs))
     if len(refs) > _CE_MAX_SOURCE_REFS:
         raise ContextEvidenceError(f"{candidate_id} contains too many source references")
@@ -269,12 +272,12 @@ def _ce_provider_states(value: Mapping[str, Any] | None, *, evidence_required: b
     return dict(sorted(result.items()))
 
 
-def _ce_selected_item(record: Mapping[str, Any], index: int) -> tuple[dict[str, Any] | None, dict[str, str]]:
+def _ce_selected_item(record: Mapping[str, Any], index: int, *, evidence_required: bool = False) -> tuple[dict[str, Any] | None, dict[str, str]]:
     if not isinstance(record, Mapping):
         return None, {"candidate_id": f"item-{index + 1}", "reason": "invalid_record"}
     candidate_id = _ce_id(record.get("candidate_id") or record.get("id") or record.get("key") or f"item-{index + 1}", "candidate_id")
     digest = _ce_evidence_digest(record, candidate_id)
-    refs = _ce_sources(record, candidate_id)
+    refs = _ce_sources(record, candidate_id, evidence_required=evidence_required)
     state = _ce_item_state(record, has_digest=bool(digest))
     if not refs:
         return None, {"candidate_id": candidate_id, "reason": "source_reference_missing"}
@@ -363,7 +366,7 @@ def project_context_evidence(
         raise ContextEvidenceError(f"excluded must contain at most {_CE_MAX_EXCLUDED} items")
     seen: set[str] = set()
     for index, raw in enumerate(entries):
-        item, omission = _ce_selected_item(raw, index)
+        item, omission = _ce_selected_item(raw, index, evidence_required=evidence_required)
         if item is None:
             exclusions.append(omission)
             continue
