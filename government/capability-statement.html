@@ -1,159 +1,306 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Perseus Computing LLC — Capability Statement</title>
-<meta name="description" content="Perseus Computing LLC capability statement: on-premise context & trust infrastructure for AI agents. Air-gap ready, MIT-licensed, SBOM-published. UEI PJS2LW7HAK35.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<title>Perseus Computing · Master capability statement</title>
+<meta name="description" content="Master capability statement for Perseus Computing LLC: local-first context, memory, and evidence infrastructure for AI agents in on-premises, disconnected, and regulated environments.">
+<link rel="canonical" href="https://perseus.observer/government/capability-statement.html">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Perseus Computing · Master capability statement">
+<meta property="og:description" content="Local-first context, memory, and evidence infrastructure for AI agents. UEI PJS2LW7HAK35 · CAGE 22JC5.">
+<meta property="og:url" content="https://perseus.observer/government/capability-statement.html">
+<meta property="og:image" content="https://perseus.observer/assets/og/perseus-computing-hero.png">
+<script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="/assets/fonts.css">
+<link rel="stylesheet" href="/assets/site-shell.css">
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { background:#525659; }
-  body { display:flex; justify-content:center; padding:24px 0; }
-  a { color: #6E4FE0; text-decoration: none; }
-  a:hover { color: #7C5CE6; }
-  .sheet { box-shadow:0 8px 40px rgba(0,0,0,0.35); }
-  @page { size: letter; margin: 0; }
+  /* This route is an Inspect / Decide surface: orient first, proof second, action third. */
+  .capability-hero { padding-bottom: clamp(54px, 7vw, 90px); }
+  .capability-hero .shell-title { max-width: 12ch; }
+  .capability-kicker { display:flex; flex-wrap:wrap; gap:8px; margin: 0 0 24px; }
+  .capability-kicker span, .route-status, .posture-tag { display:inline-flex; align-items:center; min-height:28px; padding:0 10px; border:1px solid var(--shell-line-strong); border-radius:999px; color:var(--shell-muted); background:color-mix(in srgb, var(--shell-surface) 80%, transparent); font:10px 'IBM Plex Mono', monospace; letter-spacing:.04em; }
+  .capability-kicker span:first-child { color:var(--shell-accent-strong); border-color:color-mix(in srgb, var(--shell-accent) 60%, var(--shell-line-strong)); }
+  .briefing-panel { padding:24px; border:1px solid var(--shell-line-strong); border-radius:14px; background:linear-gradient(145deg, color-mix(in srgb, var(--shell-surface) 92%, var(--shell-blue)), var(--shell-surface)); box-shadow:var(--shell-shadow); }
+  .briefing-panel h2 { margin:0 0 10px; font:600 25px/1.1 'Space Grotesk',sans-serif; letter-spacing:-.035em; }
+  .briefing-panel p { margin:0; color:var(--shell-muted); font-size:14px; line-height:1.6; }
+  .briefing-panel dl { display:grid; grid-template-columns:1fr 1fr; gap:1px; margin:22px 0 0; background:var(--shell-line); border:1px solid var(--shell-line); border-radius:9px; overflow:hidden; }
+  .briefing-panel dl div { padding:13px 14px; background:var(--shell-surface); }
+  .briefing-panel dt { color:var(--shell-faint); font:10px 'IBM Plex Mono',monospace; letter-spacing:.08em; text-transform:uppercase; }
+  .briefing-panel dd { margin:5px 0 0; color:var(--shell-ink); font-size:13px; }
+  .briefing-panel .panel-note { margin-top:17px; color:var(--shell-faint); font-size:11px; line-height:1.5; }
+  .section-intro { display:flex; align-items:end; justify-content:space-between; gap:32px; margin-bottom:34px; }
+  .section-intro > div:first-child { max-width:650px; }
+  .section-intro .shell-copy { margin:0; }
+  .product-cell { min-height:270px; }
+  .product-cell h3 { margin-top:38px; }
+  .product-cell p { max-width:31ch; }
+  .proof-rail { margin-top:0; }
+  .proof-cell { min-height:132px; }
+  .metric-condition { display:block; margin-top:6px; color:var(--shell-faint); font:10px/1.4 'IBM Plex Mono',monospace; }
+  .fit-table-wrap { overflow-x:auto; border:1px solid var(--shell-line); border-radius:12px; }
+  .fit-table { width:100%; min-width:730px; border-collapse:collapse; font-size:13px; }
+  .fit-table th, .fit-table td { padding:15px 16px; border-bottom:1px solid var(--shell-line); text-align:left; vertical-align:top; }
+  .fit-table thead th { color:var(--shell-faint); background:var(--shell-surface); font:10px 'IBM Plex Mono',monospace; letter-spacing:.1em; text-transform:uppercase; }
+  .fit-table tbody th { width:22%; color:var(--shell-ink); font-family:'Space Grotesk',sans-serif; font-size:16px; font-weight:600; letter-spacing:-.02em; }
+  .fit-table tbody td { color:var(--shell-muted); line-height:1.55; }
+  .fit-table tbody tr:last-child th, .fit-table tbody tr:last-child td { border-bottom:0; }
+  .route-primary { color:var(--shell-green); }
+  .route-secondary { color:var(--shell-accent-strong); }
+  .route-conditional { color:var(--shell-blue); }
+  .fit-table .route-status { margin-bottom:8px; border-color:currentColor; background:transparent; }
+  .posture-grid .posture-main { min-height:300px; }
+  .posture-main .posture-tag { margin-bottom:18px; color:var(--shell-green); border-color:color-mix(in srgb, var(--shell-green) 50%, var(--shell-line-strong)); }
+  .posture-main h3 { max-width:19ch; }
+  .posture-item a, .source a { color:var(--shell-blue); text-decoration:underline; text-underline-offset:3px; }
+  .claims-table-wrap { overflow-x:auto; border:1px solid var(--shell-line); border-radius:12px; }
+  .claims-table { width:100%; min-width:700px; border-collapse:collapse; font-size:13px; }
+  .claims-table th, .claims-table td { padding:13px 15px; border-bottom:1px solid var(--shell-line); text-align:left; vertical-align:top; }
+  .claims-table thead th { color:var(--shell-faint); background:var(--shell-surface); font:10px 'IBM Plex Mono',monospace; letter-spacing:.1em; text-transform:uppercase; }
+  .claims-table tbody th { color:var(--shell-ink); font-weight:500; }
+  .claims-table tbody td { color:var(--shell-muted); }
+  .claims-table tbody tr:last-child th, .claims-table tbody tr:last-child td { border-bottom:0; }
+  .claims-table .result { color:var(--shell-green); font:600 14px 'IBM Plex Mono',monospace; white-space:nowrap; }
+  .source { margin-top:13px; }
+  .company-grid { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--shell-line); border:1px solid var(--shell-line); border-radius:12px; overflow:hidden; }
+  .company-row { display:grid; grid-template-columns:minmax(125px,.56fr) minmax(0,1.44fr); min-height:52px; background:var(--shell-surface); }
+  .company-row dt, .company-row dd { padding:14px 15px; }
+  .company-row dt { color:var(--shell-faint); background:color-mix(in srgb, var(--shell-surface) 86%, var(--shell-blue)); font:10px 'IBM Plex Mono',monospace; letter-spacing:.08em; text-transform:uppercase; }
+  .company-row dd { margin:0; color:var(--shell-muted); font-size:13px; line-height:1.45; }
+  .company-row dd strong { color:var(--shell-ink); font-weight:600; }
+  .company-row dd a { color:var(--shell-blue); text-decoration:underline; text-underline-offset:3px; }
+  .next-panel { display:flex; align-items:end; justify-content:space-between; gap:30px; padding:30px; border:1px solid color-mix(in srgb, var(--shell-accent) 55%, var(--shell-line-strong)); border-radius:14px; background:color-mix(in srgb, var(--shell-surface) 90%, var(--shell-accent)); }
+  .next-panel .shell-heading { margin-bottom:10px; }
+  .next-panel .shell-copy { margin:0; }
+  .next-panel .shell-actions { margin-top:0; justify-content:flex-end; }
+  .print-only { display:none; }
+  @media (max-width:900px) {
+    .briefing-panel { max-width:650px; }
+    .company-grid { grid-template-columns:1fr; }
+    .next-panel { display:block; }
+    .next-panel .shell-actions { justify-content:flex-start; margin-top:22px; }
+  }
+  @media (max-width:560px) {
+    .briefing-panel dl { grid-template-columns:1fr; }
+    .section-intro { display:block; }
+    .section-intro .shell-actions { margin-top:20px; }
+    .fit-table, .claims-table { min-width:640px; }
+  }
   @media print {
-    html, body { background:#FFFFFF; padding:0; }
-    .sheet { box-shadow:none; }
+    @page { size:letter; margin:.48in; }
+    html, body { background:#fff !important; color:#111 !important; }
+    body::before, .site-nav, .mobile-menu, .mobile-menu-backdrop, .shell-footer, .no-print, .nav-actions { display:none !important; }
+    .shell-main { overflow:visible; }
+    .shell-wrap { width:100%; }
+    .capability-hero { padding:0 0 24px; }
+    .capability-hero::after { display:none; }
+    .hero-grid-shell, .split-shell, .posture-grid { grid-template-columns:1fr 1fr; gap:24px; }
+    .shell-title { max-width:14ch; font-size:38px; color:#111 !important; }
+    .shell-lead, .shell-copy, .briefing-panel p, .fit-table tbody td, .claims-table tbody td, .company-row dd { color:#333 !important; }
+    .briefing-panel, .product-cell, .proof-cell, .posture-main, .posture-item, .company-row, .next-panel { background:#fff !important; box-shadow:none; }
+    .shell-section, .shell-section-tight { padding:26px 0; border-color:#ccd4d2; }
+    .product-system, .proof-rail, .fit-table-wrap, .claims-table-wrap, .company-grid, .posture-grid { break-inside:avoid; border-color:#b9c4c2; }
+    .proof-rail { grid-template-columns:repeat(4,1fr); }
+    .proof-cell { min-height:95px; padding:12px; }
+    .metric-value, .claims-table .result { color:#1b6547 !important; }
+    .fit-table, .claims-table { min-width:0; font-size:10px; }
+    .fit-table th, .fit-table td, .claims-table th, .claims-table td { padding:8px 9px; }
+    .company-grid { grid-template-columns:1fr 1fr; }
+    .company-row { grid-template-columns:.7fr 1.3fr; min-height:38px; }
+    .company-row dt, .company-row dd { padding:8px 9px; font-size:9px; }
+    .source { color:#555 !important; font-size:9px; }
+    a { color:inherit !important; text-decoration:none !important; }
+    .print-only { display:block; color:#555; font:9px 'IBM Plex Mono',monospace; }
   }
 </style>
+<script src="/assets/error-beacon.js" defer></script>
 </head>
 <body>
-<div class="sheet" style="width:816px;height:1056px;background:#FFFFFF;color:#1A1D24;font-family:'IBM Plex Sans',system-ui,sans-serif;display:flex;flex-direction:column;overflow:hidden;position:relative;">
-
-  <!-- HEADER BAND -->
-  <div style="background:#0B0C0F;color:#E7E9EE;padding:26px 46px 22px;display:flex;align-items:flex-start;justify-content:space-between;border-top:5px solid #A78BFA;">
-    <div style="display:flex;align-items:center;gap:18px;">
-      <svg width="46" height="54" viewBox="0 0 22 26" fill="none" style="flex-shrink:0;">
-        <path d="M11 1L21 5.5V13c0 6.2-4.1 10.2-10 11.9C5.1 23.2 1 19.2 1 13V5.5L11 1z" stroke="#A78BFA" stroke-width="1.3" fill="rgba(167,139,250,0.10)"/>
-        <path d="M11 6.4v13" stroke="#3FB37F" stroke-width="1.2"/>
-        <path d="M6.5 11l4.5 3 4.5-3" stroke="#A78BFA" stroke-width="1.2" fill="none"/>
-      </svg>
-      <div style="display:flex;flex-direction:column;gap:5px;">
-        <div style="font-size:24px;font-weight:700;letter-spacing:-0.01em;line-height:1;">PERSEUS COMPUTING LLC</div>
-        <div style="font-size:12.5px;font-weight:500;color:#A78BFA;letter-spacing:0.005em;">On-Premise Context &amp; Trust Infrastructure for AI Agents</div>
-        <div style="font-size:10.5px;color:#9AA2AD;font-family:'IBM Plex Mono',monospace;letter-spacing:0.01em;margin-top:2px;">perseus.observer &nbsp;·&nbsp; perseus@perseus.observer</div>
-      </div>
-    </div>
-    <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:8px;padding-top:3px;">
-      <div style="border:1px solid #A78BFA;color:#C4B5FD;font-size:9.5px;font-weight:600;letter-spacing:0.16em;padding:5px 10px;font-family:'IBM Plex Mono',monospace;">CAPABILITY STATEMENT</div>
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#9AA2AD;line-height:1.6;text-align:right;">
-        UEI&nbsp; <span style="color:#E7E9EE;">PJS2LW7HAK35</span><br>
-        CAGE&nbsp; <span style="color:#E7E9EE;">22JC5</span><br>
-        SAM&nbsp; <span style="color:#3FB37F;">●</span> Active — All Awards
-      </div>
+<header class="site-nav" data-site-nav>
+  <div class="shell-wrap nav-inner">
+    <a class="brand" href="/" aria-label="Perseus home">
+      <svg class="brand-mark" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="4" y="14" width="16" height="4" rx="2" fill="var(--shell-blue)"/><rect x="4" y="22" width="16" height="4" rx="2" fill="var(--shell-blue)" fill-opacity=".72"/><rect x="4" y="30" width="16" height="4" rx="2" fill="var(--shell-blue)" fill-opacity=".46"/><rect x="4" y="38" width="16" height="4" rx="2" fill="var(--shell-blue)" fill-opacity=".28"/><g stroke="var(--shell-green)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="43" y2="28"/><line x1="22" y1="24" x2="43" y2="28"/><line x1="22" y1="32" x2="43" y2="28"/><line x1="22" y1="40" x2="43" y2="28"/></g><circle cx="44" cy="28" r="4" fill="var(--shell-green)"/></svg>
+      <span class="brand-name">Perseus<span class="brand-context">/ Capability statement</span></span>
+    </a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="/context-engine/">Context</a><a href="/vault/">Vault</a><a href="/ledger/">Ledger</a><a href="/benchmarks/">Proof</a><a href="/government/" aria-current="page">Sovereignty</a>
+    </nav>
+    <div class="nav-actions">
+      <button class="btn-shell theme-toggle" type="button" data-theme-toggle aria-label="Toggle dark and light theme">◐</button>
+      <a class="btn-shell btn-shell-quiet" href="/government/">Sovereignty</a>
+      <button class="btn-shell btn-shell-primary no-print" type="button" onclick="window.print()">Print / save PDF</button>
+      <button class="nav-menu-button" type="button" data-menu-button aria-expanded="false" aria-label="Open navigation menu">☰</button>
     </div>
   </div>
+</header>
+<div class="mobile-menu-backdrop" data-menu-backdrop hidden></div>
+<nav class="mobile-menu" data-mobile-menu hidden>
+  <a href="/context-engine/">Context engine</a><a href="/vault/">Vault</a><a href="/ledger/">Ledger</a><a href="/benchmarks/">Benchmarks</a><a href="/government/">Sovereignty</a>
+</nav>
 
-  <!-- BODY -->
-  <div style="flex:1;padding:22px 46px 0;display:flex;flex-direction:column;min-height:0;">
-
-    <!-- WHO WE ARE -->
-    <div style="margin-bottom:16px;">
-      <div style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#6E4FE0;text-transform:uppercase;font-family:'IBM Plex Mono',monospace;margin-bottom:6px;display:flex;align-items:center;gap:8px;">
-        <span style="width:16px;height:2px;background:#6E4FE0;display:inline-block;"></span>Who We Are
+<main class="shell-main">
+  <section class="shell-hero capability-hero">
+    <div class="shell-wrap hero-grid-shell">
+      <div class="hero-copy-shell">
+        <div class="eyebrow">Master capability statement · 17 Aug 2026</div>
+        <div class="capability-kicker"><span>LOCAL-FIRST</span><span>OPEN SOURCE</span><span>DEFENSIBLE EVIDENCE</span></div>
+        <h1 class="shell-title">AI infrastructure that stays inside <span class="accent">your boundary.</span></h1>
+        <p class="shell-lead">Perseus is the system around the model: live context for the present, durable memory for the past, and verifiable evidence for consequential work.</p>
+        <div class="shell-actions">
+          <a class="btn-shell btn-shell-primary" href="mailto:perseus@perseus.observer?subject=Perseus%20technical%20briefing">Request a technical briefing</a>
+          <a class="btn-shell btn-shell-quiet" href="/benchmarks/">Inspect the proof →</a>
+        </div>
+        <p class="shell-note" style="margin-top:16px;">Built for on-premises, disconnected, private-VPC, and regulated environments where the data boundary is part of the product requirement.</p>
       </div>
-      <p style="font-size:11.5px;line-height:1.5;color:#2C3038;text-wrap:pretty;">Perseus Computing is a U.S. small business building the infrastructure layer that makes AI agents reliable, auditable, and deployable inside disconnected and classified environments. Our software runs fully on-premise with zero cloud dependencies and ships under an MIT license with a published SBOM — procurement-ready, no vendor lock-in.</p>
+      <aside class="briefing-panel" aria-label="Company and procurement snapshot">
+        <div class="eyebrow" style="margin-bottom:13px;">Perseus Computing LLC</div>
+        <h2>Ready for a scoped review.</h2>
+        <p>Founder-led U.S. small business with direct technical access, local deployment, published software supply-chain materials, and a current federal procurement posture.</p>
+        <dl>
+          <div><dt>UEI</dt><dd class="mono">PJS2LW7HAK35</dd></div>
+          <div><dt>CAGE</dt><dd class="mono">22JC5</dd></div>
+          <div><dt>SAM</dt><dd><span class="status">ACTIVE · ALL AWARDS</span></dd></div>
+          <div><dt>HQ</dt><dd>Austin, Texas</dd></div>
+        </dl>
+        <p class="panel-note">Primary route: Cyber &amp; Networks. C3BM is a focused enabling route; Electronic Systems is conditional on a sensing, EW, PNT, or edge-AI use case.</p>
+      </aside>
     </div>
+  </section>
 
-    <!-- TWO COLUMN -->
-    <div style="display:grid;grid-template-columns:1.06fr 0.94fr;gap:30px;">
-
-      <!-- LEFT -->
-      <div style="display:flex;flex-direction:column;">
-        <div style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#6E4FE0;text-transform:uppercase;font-family:'IBM Plex Mono',monospace;margin-bottom:9px;display:flex;align-items:center;gap:8px;">
-          <span style="width:16px;height:2px;background:#6E4FE0;display:inline-block;"></span>Core Competencies
-        </div>
-        <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:16px;">
-          <p style="font-size:10.5px;line-height:1.45;color:#2C3038;text-wrap:pretty;"><span style="font-weight:700;color:#0B0C0F;">Live Context Engine (Perseus).</span> Renders live system state — repository, tickets, deployment status, prior decisions — into verifiable, cryptographically signed Markdown facts and injects them into an AI agent's context <em>before</em> it reads. Eliminates the multi-turn context drift, hallucination, and repeated work that degrade AI-assisted software development.</p>
-          <p style="font-size:10.5px;line-height:1.45;color:#2C3038;text-wrap:pretty;"><span style="font-weight:700;color:#0B0C0F;">Auditable Memory Layer (Perseus Vault).</span> Bitemporal, on-premise memory and retrieval engine for AI agents — every stored fact is signed, versioned, and traceable, giving regulated and classified programs a defensible record of what an agent knew and when.</p>
-          <p style="font-size:10.5px;line-height:1.45;color:#2C3038;text-wrap:pretty;"><span style="font-weight:700;color:#0B0C0F;">Event Provenance (Perseus Ledger).</span> Records hash-chained events with evidence links and authority references, making consequential system activity reviewable without turning a dashboard aggregate into the system of record. Legacy <span style="font-family:'IBM Plex Mono',monospace;">plutus</span> identifiers remain compatibility contracts during the transition.</p>
-        </div>
-
-        <div style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#6E4FE0;text-transform:uppercase;font-family:'IBM Plex Mono',monospace;margin-bottom:9px;display:flex;align-items:center;gap:8px;">
-          <span style="width:16px;height:2px;background:#6E4FE0;display:inline-block;"></span>Differentiators
-        </div>
-        <div style="display:flex;flex-direction:column;gap:7px;">
-          <div style="display:flex;gap:9px;align-items:flex-start;"><span style="color:#7C5CE6;font-weight:700;font-size:11px;line-height:1.4;flex-shrink:0;font-family:'IBM Plex Mono',monospace;">▸</span><p style="font-size:10.5px;line-height:1.4;color:#2C3038;text-wrap:pretty;"><span style="font-weight:700;color:#0B0C0F;">Air-gap capable</span> — full functionality with zero cloud dependency; runs on disconnected and classified networks.</p></div>
-          <div style="display:flex;gap:9px;align-items:flex-start;"><span style="color:#7C5CE6;font-weight:700;font-size:11px;line-height:1.4;flex-shrink:0;font-family:'IBM Plex Mono',monospace;">▸</span><p style="font-size:10.5px;line-height:1.4;color:#2C3038;text-wrap:pretty;"><span style="font-weight:700;color:#0B0C0F;">Auditable by design</span> — signed, traceable facts meet the output-provenance requirements of a DoD software factory.</p></div>
-          <div style="display:flex;gap:9px;align-items:flex-start;"><span style="color:#7C5CE6;font-weight:700;font-size:11px;line-height:1.4;flex-shrink:0;font-family:'IBM Plex Mono',monospace;">▸</span><p style="font-size:10.5px;line-height:1.4;color:#2C3038;text-wrap:pretty;"><span style="font-weight:700;color:#0B0C0F;">Open and procurement-ready</span> — MIT license, published SBOM, NIST AI RMF–aligned architecture; no proprietary lock-in.</p></div>
-          <div style="display:flex;gap:9px;align-items:flex-start;"><span style="color:#7C5CE6;font-weight:700;font-size:11px;line-height:1.4;flex-shrink:0;font-family:'IBM Plex Mono',monospace;">▸</span><p style="font-size:10.5px;line-height:1.4;color:#2C3038;text-wrap:pretty;"><span style="font-weight:700;color:#0B0C0F;">Measured, not asserted</span> — <span style="font-weight:600;color:#1C7F55;font-family:'IBM Plex Mono',monospace;">79.0%</span> on LongMemEval QA (official CoT, mean of 3 signed runs) and 73.8% plain-prompt vs Zep 63.8% / Mem0 49.0% (same harness); <span style="font-weight:600;color:#1C7F55;font-family:'IBM Plex Mono',monospace;">13/13</span> bi-temporal correctness gates at every BEAM tier through 10M tokens; <span style="font-weight:600;color:#1C7F55;font-family:'IBM Plex Mono',monospace;">611×</span> warm-cache renders on the Perseus repo itself, and we independently re-ran Microsoft Memora&#39;s LoCoMo baseline on our hardware (0.859 S / 0.874 P LLM-judge, cats 1–4). Every published figure traces to a committed artifact.</p></div>
-          <div style="display:flex;gap:9px;align-items:flex-start;"><span style="color:#7C5CE6;font-weight:700;font-size:11px;line-height:1.4;flex-shrink:0;font-family:'IBM Plex Mono',monospace;">▸</span><p style="font-size:10.5px;line-height:1.4;color:#2C3038;text-wrap:pretty;"><span style="font-weight:700;color:#0B0C0F;">Agile small business</span> — founder-led, fast to pilot, direct technical access.</p></div>
-        </div>
+  <section class="shell-section-tight">
+    <div class="shell-wrap">
+      <div class="section-intro">
+        <div><div class="eyebrow">The system</div><h2 class="shell-heading">Three responsibilities. One inspectable boundary.</h2><p class="shell-copy">Perseus keeps the model from being the only place where context, memory, and accountability live.</p></div>
+        <div class="shell-actions no-print"><a class="btn-shell btn-shell-quiet" href="/government/">Review deployment posture →</a></div>
       </div>
-
-      <!-- RIGHT -->
-      <div style="display:flex;flex-direction:column;">
-        <!-- C3BM CALLOUT -->
-        <div style="background:#0B0C0F;color:#E7E9EE;border-left:4px solid #A78BFA;border-radius:0 6px 6px 0;padding:14px 16px 15px;margin-bottom:16px;">
-          <div style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#A78BFA;text-transform:uppercase;font-family:'IBM Plex Mono',monospace;margin-bottom:8px;">C3BM Applicability</div>
-          <p style="font-size:10.5px;line-height:1.5;color:#C7CDD6;text-wrap:pretty;">As C3BM software factories (<span style="color:#FFFFFF;font-weight:600;">Kessel Run</span>; <span style="color:#FFFFFF;font-weight:600;">ABMS Software &amp; Applications</span>) adopt AI-assisted development, they face three gaps Perseus closes at the infrastructure layer: tools losing context between sessions, no support for disconnected/classified environments, and unauditable agent output. Perseus makes AI-assisted delivery faster <em>and</em> auditable inside air-gapped networks — a fit from rapid experimentation (e.g., Operational Response Team) through production software delivery.</p>
-        </div>
-
-        <!-- COMPANY DATA -->
-        <div style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#6E4FE0;text-transform:uppercase;font-family:'IBM Plex Mono',monospace;margin-bottom:9px;display:flex;align-items:center;gap:8px;">
-          <span style="width:16px;height:2px;background:#6E4FE0;display:inline-block;"></span>Company Data
-        </div>
-        <div style="border:1px solid #E2DCF4;border-radius:4px;overflow:hidden;">
-          <div style="display:grid;grid-template-columns:0.42fr 0.58fr;border-bottom:1px solid #EDEAF6;"><div style="font-size:8.5px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#5F5A72;background:#F5F3FB;padding:6px 9px;display:flex;align-items:center;font-family:'IBM Plex Mono',monospace;">Legal Name</div><div style="font-size:9.5px;line-height:1.35;color:#1A1D24;padding:6px 10px;display:flex;align-items:center;font-family:'IBM Plex Sans',sans-serif;">Perseus Computing LLC</div></div>
-          <div style="display:grid;grid-template-columns:0.42fr 0.58fr;border-bottom:1px solid #EDEAF6;"><div style="font-size:8.5px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#5F5A72;background:#F5F3FB;padding:6px 9px;display:flex;align-items:center;font-family:'IBM Plex Mono',monospace;">UEI (SAM)</div><div style="font-size:9.5px;line-height:1.35;color:#1A1D24;padding:6px 10px;display:flex;align-items:center;font-family:'IBM Plex Mono',monospace;">PJS2LW7HAK35</div></div>
-          <div style="display:grid;grid-template-columns:0.42fr 0.58fr;border-bottom:1px solid #EDEAF6;"><div style="font-size:8.5px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#5F5A72;background:#F5F3FB;padding:6px 9px;display:flex;align-items:center;font-family:'IBM Plex Mono',monospace;">CAGE Code</div><div style="font-size:9.5px;line-height:1.35;color:#1A1D24;padding:6px 10px;display:flex;align-items:center;font-family:'IBM Plex Mono',monospace;">22JC5</div></div>
-          <div style="display:grid;grid-template-columns:0.42fr 0.58fr;border-bottom:1px solid #EDEAF6;"><div style="font-size:8.5px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#5F5A72;background:#F5F3FB;padding:6px 9px;display:flex;align-items:center;font-family:'IBM Plex Mono',monospace;">Business Structure</div><div style="font-size:9.5px;line-height:1.35;color:#1A1D24;padding:6px 10px;display:flex;align-items:center;font-family:'IBM Plex Sans',sans-serif;">Limited Liability Company (Wyoming) · For-Profit Small Business</div></div>
-          <div style="display:grid;grid-template-columns:0.42fr 0.58fr;border-bottom:1px solid #EDEAF6;"><div style="font-size:8.5px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#5F5A72;background:#F5F3FB;padding:6px 9px;display:flex;align-items:center;font-family:'IBM Plex Mono',monospace;">SAM Registration</div><div style="font-size:9.5px;line-height:1.35;color:#1A1D24;padding:6px 10px;display:flex;align-items:center;font-family:'IBM Plex Sans',sans-serif;">Active — “All Awards” (initial reg. 2 Jul 2026)</div></div>
-          <div style="display:grid;grid-template-columns:0.42fr 0.58fr;border-bottom:1px solid #EDEAF6;"><div style="font-size:8.5px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#5F5A72;background:#F5F3FB;padding:6px 9px;display:flex;align-items:center;font-family:'IBM Plex Mono',monospace;">NAICS</div><div style="font-size:9.5px;line-height:1.35;color:#1A1D24;padding:6px 10px;display:flex;align-items:center;font-family:'IBM Plex Sans',sans-serif;">541715 R&amp;D in the Physical, Engineering &amp; Life Sciences · 541511 Custom Computer Programming Services · 541512 Computer Systems Design Services</div></div>
-          <div style="display:grid;grid-template-columns:0.42fr 0.58fr;border-bottom:1px solid #EDEAF6;"><div style="font-size:8.5px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#5F5A72;background:#F5F3FB;padding:6px 9px;display:flex;align-items:center;font-family:'IBM Plex Mono',monospace;">Website</div><div style="font-size:9.5px;line-height:1.35;color:#1A1D24;padding:6px 10px;display:flex;align-items:center;font-family:'IBM Plex Mono',monospace;">perseus.observer</div></div>
-          <div style="display:grid;grid-template-columns:0.42fr 0.58fr;border-bottom:1px solid #EDEAF6;"><div style="font-size:8.5px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#5F5A72;background:#F5F3FB;padding:6px 9px;display:flex;align-items:center;font-family:'IBM Plex Mono',monospace;">Point of Contact</div><div style="font-size:9.5px;line-height:1.35;color:#1A1D24;padding:6px 10px;display:flex;align-items:center;font-family:'IBM Plex Sans',sans-serif;">Thomas Connally, Founder — perseus@perseus.observer</div></div>
-        </div>
+      <div class="product-system">
+        <a class="product-cell" href="/context-engine/">
+          <span class="product-index mono">01 / PRESENT</span><h3>Perseus</h3><p>Resolves repository, services, tests, decisions, and operating state into bounded context before an agent starts.</p><span class="product-link">Live context engine ↗</span>
+        </a>
+        <a class="product-cell" href="/vault/">
+          <span class="product-index mono">02 / MEMORY</span><h3>Perseus Vault</h3><p>Stores durable facts with time validity, signatures, and local retrieval so regulated teams can inspect what an agent knew and when.</p><span class="product-link">Auditable memory layer ↗</span>
+        </a>
+        <a class="product-cell" href="/ledger/">
+          <span class="product-index mono">03 / EVIDENCE</span><h3>Perseus Ledger</h3><p>Records consequential events, evidence links, and authority references in a hash-chained trail that can be reviewed after the action.</p><span class="product-link">Event provenance ↗</span>
+        </a>
       </div>
     </div>
+  </section>
 
-    <!-- MEASURED PERFORMANCE -->
-    <div style="margin-top:18px;">
-      <div style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#6E4FE0;text-transform:uppercase;font-family:'IBM Plex Mono',monospace;margin-bottom:9px;display:flex;align-items:center;gap:8px;">
-        <span style="width:16px;height:2px;background:#6E4FE0;display:inline-block;"></span>Measured Performance <span style="color:#6E6976;font-weight:400;letter-spacing:0.04em;">· reproducible, source-linked</span>
+  <section class="shell-section-tight">
+    <div class="shell-wrap">
+      <div class="section-intro">
+        <div><div class="eyebrow">Measured performance</div><h2 class="shell-heading">Numbers with their conditions attached.</h2><p class="shell-copy">Published figures are separated by measurement family and trace to committed, rerunnable artifacts. They are not universal customer outcomes.</p></div>
+        <div class="shell-actions no-print"><a class="btn-shell btn-shell-quiet" href="/benchmarks/">Read methods and source reports ↗</a></div>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:9px;">
-        <div style="border:1px solid #E2DCF4;border-radius:5px;padding:10px 11px;background:#FBFAFE;"><div style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:#6E4FE0;letter-spacing:-0.01em;line-height:1;">611×</div><div style="font-size:8.5px;color:#1A1D24;margin-top:5px;line-height:1.3;font-weight:600;">Warm-cache renders</div><div style="font-size:8px;color:#6E6976;margin-top:2px;line-height:1.3;font-family:'IBM Plex Mono',monospace;">22,528 directives · real repo</div></div>
-        <div style="border:1px solid #E2DCF4;border-radius:5px;padding:10px 11px;background:#FBFAFE;"><div style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:#6E4FE0;letter-spacing:-0.01em;line-height:1;">79.0%</div><div style="font-size:8.5px;color:#1A1D24;margin-top:5px;line-height:1.3;font-weight:600;">LongMemEval QA</div><div style="font-size:8px;color:#6E6976;margin-top:2px;line-height:1.3;font-family:'IBM Plex Mono',monospace;">official CoT · mean of 3 signed runs</div></div>
-        <div style="border:1px solid #E2DCF4;border-radius:5px;padding:10px 11px;background:#FBFAFE;"><div style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:#6E4FE0;letter-spacing:-0.01em;line-height:1;">52.63%</div><div style="font-size:8.5px;color:#1A1D24;margin-top:5px;line-height:1.3;font-weight:600;">Prompt-token reduction</div><div style="font-size:8px;color:#6E6976;margin-top:2px;line-height:1.3;font-family:'IBM Plex Mono',monospace;">token A/B · content-hashed</div></div>
-        <div style="border:1px solid #E2DCF4;border-radius:5px;padding:10px 11px;background:#FBFAFE;"><div style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:#6E4FE0;letter-spacing:-0.01em;line-height:1;">441→147</div><div style="font-size:8.5px;color:#1A1D24;margin-top:5px;line-height:1.3;font-weight:600;">MCP tool schema</div><div style="font-size:8px;color:#6E6976;margin-top:2px;line-height:1.3;font-family:'IBM Plex Mono',monospace;">67% smaller · canonical names</div></div>
-        <div style="border:1px solid #E2DCF4;border-radius:5px;padding:10px 11px;background:#FBFAFE;"><div style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:#6E4FE0;letter-spacing:-0.01em;line-height:1;">3.7×</div><div style="font-size:8.5px;color:#1A1D24;margin-top:5px;line-height:1.3;font-weight:600;">Hybrid recall</div><div style="font-size:8px;color:#6E6976;margin-top:2px;line-height:1.3;font-family:'IBM Plex Mono',monospace;">296→81ms p50 @100K</div></div>
-        <div style="border:1px solid #E2DCF4;border-radius:5px;padding:10px 11px;background:#FBFAFE;"><div style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:#6E4FE0;letter-spacing:-0.01em;line-height:1;">40/s</div><div style="font-size:8.5px;color:#1A1D24;margin-top:5px;line-height:1.3;font-weight:600;">Durable write @100K</div><div style="font-size:8px;color:#6E6976;margin-top:2px;line-height:1.3;font-family:'IBM Plex Mono',monospace;">signed scale report</div></div>
+      <div class="proof-rail">
+        <div class="proof-cell"><span class="metric-value">79.0%</span><span class="metric-label">LongMemEval end-to-end QA</span><span class="metric-condition">official CoT · mean of 3 signed runs</span></div>
+        <div class="proof-cell"><span class="metric-value">99.2%</span><span class="metric-label">Session-level retrieval recall@10</span><span class="metric-condition">retrieval-only · 500-instance split</span></div>
+        <div class="proof-cell"><span class="metric-value">13/13</span><span class="metric-label">Bi-temporal BEAM correctness</span><span class="metric-condition">each tier through 10M tokens</span></div>
+        <div class="proof-cell"><span class="metric-value">40/s</span><span class="metric-label">Durable write at 100K entities</span><span class="metric-condition">signed scale report · sustained write</span></div>
       </div>
-      <div style="font-size:8px;color:#6E6976;margin-top:7px;line-height:1.4;">Benchmarks measured on named hardware with rerunnable scripts — not estimates. Any dollar-based figure is an illustrative economic model, not a measured result for a specific workload. Perseus Vault also ships a 48-tool agent-tier advertisement scope (PERSEUS_VAULT_TOOL_SCOPE) — 67% smaller than the canonical 147-tool surface.</div>
+      <p class="source">Additional measured results: <strong>611×</strong> cold-to-warm rendering across 22,528 directives on the real Perseus repository; <strong>52.63%</strong> fewer full-request prompt tokens in a content-hashed A/B; <strong>79.73 ms</strong> hybrid p50 at 100K entities. <a href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/claims.json" target="_blank" rel="noopener">Canonical claims registry ↗</a></p>
     </div>
+  </section>
 
-    <!-- POSTURE -->
-    <div style="margin-top:16px;">
-      <div style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#6E4FE0;text-transform:uppercase;font-family:'IBM Plex Mono',monospace;margin-bottom:9px;display:flex;align-items:center;gap:8px;">
-        <span style="width:16px;height:2px;background:#6E4FE0;display:inline-block;"></span>Security &amp; Compliance Posture
-      </div>
-      <div style="display:flex;flex-wrap:wrap;gap:7px;">
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#3D3752;background:#F3F1FB;border:1px solid #E2DCF4;border-radius:999px;padding:5px 11px;">MIT license</span>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#3D3752;background:#F3F1FB;border:1px solid #E2DCF4;border-radius:999px;padding:5px 11px;">Published SBOM (EO 14028)</span>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#3D3752;background:#F3F1FB;border:1px solid #E2DCF4;border-radius:999px;padding:5px 11px;">NIST AI RMF–aligned</span>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#3D3752;background:#F3F1FB;border:1px solid #E2DCF4;border-radius:999px;padding:5px 11px;">EAR99</span>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#3D3752;background:#F3F1FB;border:1px solid #E2DCF4;border-radius:999px;padding:5px 11px;">AES-256-GCM at rest</span>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#3D3752;background:#F3F1FB;border:1px solid #E2DCF4;border-radius:999px;padding:5px 11px;">Zero telemetry</span>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#3D3752;background:#F3F1FB;border:1px solid #E2DCF4;border-radius:999px;padding:5px 11px;">Immutable audit journal</span>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#3D3752;background:#F3F1FB;border:1px solid #E2DCF4;border-radius:999px;padding:5px 11px;">Air-gap ready</span>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#3D3752;background:#F3F1FB;border:1px solid #E2DCF4;border-radius:999px;padding:5px 11px;">perseus-ctx v1.0.26</span>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#3D3752;background:#F3F1FB;border:1px solid #E2DCF4;border-radius:999px;padding:5px 11px;">Perseus Vault v2.23.0</span>
+  <section class="shell-section-tight">
+    <div class="shell-wrap">
+      <div class="section-intro"><div><div class="eyebrow">Mission fit</div><h2 class="shell-heading">A master statement with a clear first audience.</h2><p class="shell-copy">The system is product-led; the route changes with the mission. These are the honest entry points for a program office or prime partner.</p></div></div>
+      <div class="fit-table-wrap">
+        <table class="fit-table">
+          <thead><tr><th>Route</th><th>What Perseus contributes</th><th>Evidence to lead with</th></tr></thead>
+          <tbody>
+            <tr><th><span class="route-status route-primary">PRIMARY</span><br>Cyber &amp; Networks</th><td>Secure, local-first context and evidence infrastructure for enterprise AI, DevSecOps, data/ML workflows, and software delivery inside the program boundary.</td><td>Zero required cloud dependencies; provenance and audit trail; local deployment; token/context reduction; latency, throughput, and reproducibility.</td></tr>
+            <tr><th><span class="route-status route-secondary">ENABLING</span><br>C3BM</th><td>A bounded context and evidence layer for AI-assisted software factories, decision-support workflows, and human-machine teaming—not a claim to be a complete C2 or ABMS system.</td><td>Decision-cycle or workflow evidence; traceable context; degraded-data behavior; human review; integration into existing data flows and microservices.</td></tr>
+            <tr><th><span class="route-status route-conditional">CONDITIONAL</span><br>Electronic Systems</th><td>Potential partner contribution for sensing, EW, PNT, force-protection, or edge-processing programs when a concrete integration and data path is identified.</td><td>Only use this route with real sensor/EW/edge evidence, measured latency/resource behavior, or a named qualified partner.</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
+  </section>
 
-    <div style="flex:1;"></div>
+  <section class="shell-section-tight">
+    <div class="shell-wrap">
+      <div class="eyebrow">Security &amp; procurement posture</div>
+      <div class="posture-grid">
+        <div class="posture-main">
+          <span class="posture-tag">POSTURE, NOT A CERTIFICATION</span>
+          <h3>Inspect the data path before you inspect the marketing.</h3>
+          <p class="shell-copy">Perseus is designed so the context engine, memory layer, and evidence surface can remain inside infrastructure the customer controls. The deployment posture is explicit; each product documents its own boundary.</p>
+          <p class="shell-note" style="margin-top:19px;">CMMC Level 2 status below is a final self-assessment, not a third-party certification. Security, export-control, and deployment claims should be reviewed against the program's actual data and facility requirements.</p>
+        </div>
+        <div class="posture-side">
+          <div class="posture-item"><strong>Deployment</strong><span>On-premises, air-gapped, private VPC, or controlled network; zero required cloud dependencies.</span></div>
+          <div class="posture-item"><strong>Data at rest</strong><span>Perseus Vault supports AES-256-GCM for entity bodies; index and key handling remain explicit deployment boundaries.</span></div>
+          <div class="posture-item"><strong>Ownership</strong><span>MIT license, published SBOM materials, plain exports, and no mandatory vendor service.</span></div>
+          <div class="posture-item"><strong>Supply chain</strong><span><a href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/SBOM.md" target="_blank" rel="noopener">SBOM.md ↗</a> · <a href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/sbom.cdx.json" target="_blank" rel="noopener">CycloneDX JSON ↗</a> · EAR99 self-classified.</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="shell-section-tight">
+    <div class="shell-wrap">
+      <div class="section-intro"><div><div class="eyebrow">Evidence ledger</div><h2 class="shell-heading">Reproducible results, not a metric wall.</h2><p class="shell-copy">The same number means different things under different methods. The table keeps the method, scope, and source adjacent to the result.</p></div></div>
+      <div class="claims-table-wrap">
+        <table class="claims-table">
+          <thead><tr><th>Measurement</th><th>Result</th><th>Scope and condition</th></tr></thead>
+          <tbody>
+            <tr><th>LongMemEval QA</th><td class="result">79.0%</td><td>End-to-end answer quality using the official CoT answer prompt; mean of three signed full runs. The separate plain-prompt mean is 73.8% and is not blended into this headline.</td></tr>
+            <tr><th>Retrieval recall</th><td class="result">99.2% @10</td><td>Session-level, retrieval-only measurement on the 500-instance LongMemEval split; not end-to-end answer accuracy.</td></tr>
+            <tr><th>Temporal correctness</th><td class="result">13/13</td><td>Bi-temporal correctness gauntlet at each BEAM tier from 128K through approximately 10M tokens, with identical signatures across independent runs.</td></tr>
+            <tr><th>Render and context efficiency</th><td class="result">611× · −52.63%</td><td>611× cold-to-warm render speedup across 22,528 directives on the real repository; 52.63% fewer full-request prompt tokens in a content-hashed A/B.</td></tr>
+            <tr><th>Vault operations</th><td class="result">79.73 ms · 40/s</td><td>Hybrid retrieval p50 at 100K entities and sustained durable-write rate at 100K; signed scale report, not an in-memory bulk-insert rate.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="source">Reproduce the measurement families from the <a href="/benchmarks/">benchmark methods page</a> and inspect the source repository. No dollar-based figure is presented here as a measured customer savings claim.</p>
+    </div>
+  </section>
+
+  <section class="shell-section-tight">
+    <div class="shell-wrap">
+      <div class="eyebrow">Company data</div>
+      <dl class="company-grid">
+        <div class="company-row"><dt>Legal name</dt><dd><strong>Perseus Computing LLC</strong></dd></div>
+        <div class="company-row"><dt>Business structure</dt><dd>Wyoming LLC · for-profit U.S. small business</dd></div>
+        <div class="company-row"><dt>UEI (SAM)</dt><dd class="mono"><strong>PJS2LW7HAK35</strong></dd></div>
+        <div class="company-row"><dt>CAGE</dt><dd class="mono"><strong>22JC5</strong></dd></div>
+        <div class="company-row"><dt>SAM</dt><dd><strong>Active — All Awards</strong></dd></div>
+        <div class="company-row"><dt>Headquarters</dt><dd>Austin, Texas</dd></div>
+        <div class="company-row"><dt>NAICS</dt><dd>541715 · 541511 · 541512</dd></div>
+        <div class="company-row"><dt>License</dt><dd><a href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/LICENSE" target="_blank" rel="noopener">MIT ↗</a></dd></div>
+        <div class="company-row"><dt>CMMC posture</dt><dd>CMMC Level 2 final self-assessment · enclave scope</dd></div>
+        <div class="company-row"><dt>SPRS / NIST</dt><dd><strong>110 / 110</strong> · NIST SP 800-171 enclave assessment</dd></div>
+        <div class="company-row"><dt>Current releases</dt><dd class="mono">perseus-ctx v1.0.26 · Perseus Vault v2.23.0</dd></div>
+        <div class="company-row"><dt>Point of contact</dt><dd><strong>Thomas Connally, Founder</strong><br><a href="mailto:perseus@perseus.observer">perseus@perseus.observer</a></dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="shell-section-tight no-print">
+    <div class="shell-wrap">
+      <div class="next-panel">
+        <div><div class="eyebrow">Next step</div><h2 class="shell-heading">Start with a bounded technical review.</h2><p class="shell-copy">Tell us the mission workflow, data boundary, and integration surface. We will bring the smallest credible Perseus path—not a product catalog.</p></div>
+        <div class="shell-actions"><a class="btn-shell btn-shell-primary" href="mailto:perseus@perseus.observer?subject=Perseus%20technical%20briefing">Request a technical briefing</a><a class="btn-shell btn-shell-quiet" href="https://github.com/Perseus-Computing-LLC/perseus" target="_blank" rel="noopener">Review the source ↗</a></div>
+      </div>
+    </div>
+  </section>
+  <p class="print-only">Perseus Computing LLC · Master capability statement · perseus.observer · perseus@perseus.observer</p>
+</main>
+
+<footer class="shell-footer no-print">
+  <div class="shell-wrap">
+    <div class="footer-grid">
+      <div><a class="brand" href="/"><span class="brand-name">Perseus</span></a><p class="footer-blurb">Context, memory, and proof for autonomous systems that need a defensible boundary.</p></div>
+      <div><div class="footer-heading">Products</div><div class="footer-links"><a href="/context-engine/">Context</a><a href="/vault/">Vault</a><a href="/ledger/">Ledger</a></div></div>
+      <div><div class="footer-heading">Materials</div><div class="footer-links"><a href="/government/">Sovereignty</a><a href="/benchmarks/">Benchmarks</a><a href="/government/capability-statement.html">Capability statement</a></div></div>
+      <div><div class="footer-heading">Contact</div><div class="footer-links"><a href="mailto:perseus@perseus.observer">perseus@perseus.observer</a><a href="https://github.com/Perseus-Computing-LLC/perseus" target="_blank" rel="noopener">GitHub ↗</a></div></div>
+    </div>
+    <div class="footer-legal"><span>© 2026 Perseus Computing LLC</span><span>Security claims are scoped, sourced, and reviewable</span></div>
   </div>
-
-  <!-- FOOTER -->
-  <div style="padding:11px 46px 14px;border-top:1px solid #E2DCF4;margin-top:16px;display:flex;justify-content:space-between;align-items:center;">
-    <div style="font-size:8.5px;color:#6E6976;letter-spacing:0.01em;">Provisional patent pending. All product names are trademarks of Perseus Computing LLC.</div>
-    <div style="font-size:8.5px;color:#6E4FE0;font-family:'IBM Plex Mono',monospace;font-weight:500;">perseus.observer</div>
-  </div>
-</div>
+</footer>
+<script src="/assets/site-shell.js"></script>
 </body>
 </html>
