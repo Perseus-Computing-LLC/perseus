@@ -315,20 +315,22 @@ def _cc_content_commitment(record: Mapping[str, Any]) -> str | None:
     supplied = record.get("content_sha256") or record.get("content_hash")
     if supplied is not None and (not isinstance(supplied, str) or not _SHA256_RE.fullmatch(supplied)):
         raise ValueError("content_sha256 must be a 64-hex digest")
+    content_values: list[str] = []
+    for key in ("content", "body", "raw", "private_body"):
+        value = record.get(key)
+        if value in (None, ""):
+            continue
+        if not isinstance(value, str):
+            raise ValueError(f"{key} must be text")
+        content_values.append(value)
+    if content_values and any(value != content_values[0] for value in content_values[1:]):
+        raise ValueError("conflicting raw evidence bodies")
     if isinstance(supplied, str) and _SHA256_RE.fullmatch(supplied):
-        content_values: list[str] = [
-            value
-            for key in ("content", "body", "raw", "private_body")
-            for value in [record.get(key)]
-            if isinstance(value, str) and value
-        ]
         if content_values and any(_cc_text_sha(value) != supplied.lower() for value in content_values):
             raise ValueError("content_sha256 does not match supplied content")
         return supplied.lower()
-    for key in ("content", "body", "raw", "private_body"):
-        value = record.get(key)
-        if isinstance(value, str) and value:
-            return _cc_text_sha(value)
+    if content_values:
+        return _cc_text_sha(content_values[0])
     return None
 
 
@@ -400,11 +402,10 @@ def _cc_budget(budget: Any, *, default_items: int, default_chars: int) -> tuple[
         raise ValueError("budget must be an integer or object")
     raw_items = budget.get("max_items", budget.get("max_candidates", default_items))
     raw_chars = budget.get("max_chars", default_chars)
-    try:
-        items = max(1, min(default_items, int(raw_items)))
-        chars = max(1, min(PROJECTION_MAX_CHARS, int(raw_chars)))
-    except (TypeError, ValueError):
-        raise ValueError("budget limits must be integers") from None
+    if isinstance(raw_items, bool) or not isinstance(raw_items, int) or isinstance(raw_chars, bool) or not isinstance(raw_chars, int):
+        raise ValueError("budget limits must be integers")
+    items = max(1, min(default_items, raw_items))
+    chars = max(1, min(PROJECTION_MAX_CHARS, raw_chars))
     return items, chars
 
 
@@ -413,7 +414,16 @@ def _cc_integrations(integrations: Any) -> dict[str, str]:
         return {"vault": "active", "ledger": "active"}
     if not isinstance(integrations, Mapping):
         raise ValueError("integrations must be an object")
-    result = {"vault": str(integrations.get("vault", "active")), "ledger": str(integrations.get("ledger", "active"))}
+    required = {"vault", "ledger"}
+    unknown = set(integrations) - required
+    if unknown:
+        raise ValueError("unsupported integration names")
+    # An explicitly supplied map is an attestation of both dependencies. Missing
+    # entries are not evidence of availability; represent them as unconfigured.
+    result = {
+        "vault": str(integrations["vault"]) if "vault" in integrations else "not_configured",
+        "ledger": str(integrations["ledger"]) if "ledger" in integrations else "not_configured",
+    }
     allowed = {"active", "unavailable", "not_configured", "timeout"}
     if result["vault"] not in allowed or result["ledger"] not in allowed:
         raise ValueError("integration state must be active, unavailable, not_configured, or timeout")
@@ -476,6 +486,7 @@ def _cc_prepare_records(records: Any, scope: Any, policy: Mapping[str, Any], lim
     for raw in records:
         if not isinstance(raw, Mapping):
             return [], [], [], "invalid_input"
+        _cc_content_commitment(raw)
         candidate_id = _cc_record_id(raw)
         if not candidate_id:
             return [], [], [], "invalid_input"
@@ -610,7 +621,13 @@ def context_rank(
         if not task:
             return {"schema_version": CONTEXT_RANK_SCHEMA_VERSION, "operation": "context_rank", "status": "invalid_input", "failure_state": "invalid_input", "candidates": []}
         policy_map = _cc_policy(policy)
-        max_candidates = min(CONTEXT_RANK_MAX_CANDIDATES, max(1, int(policy_map.get("max_candidates", CONTEXT_RANK_MAX_CANDIDATES))))
+        evidence_required = policy_map.get("evidence_required", False)
+        if not isinstance(evidence_required, bool):
+            raise ValueError("evidence_required must be boolean")
+        raw_max_candidates = policy_map.get("max_candidates", CONTEXT_RANK_MAX_CANDIDATES)
+        if isinstance(raw_max_candidates, bool) or not isinstance(raw_max_candidates, int):
+            raise ValueError("max_candidates must be an integer")
+        max_candidates = min(CONTEXT_RANK_MAX_CANDIDATES, max(1, raw_max_candidates))
         max_items, max_chars = _cc_budget(budget, default_items=max_candidates, default_chars=PROJECTION_MAX_CHARS)
         requested_scope = _cc_validate_scope_contract(scope)
         _cc_validate_commitments(candidates)
@@ -694,11 +711,16 @@ def context_rank(
             selected_records,
             provider_states=states,
             excluded=[{"candidate_id": item, "reason": "excluded_by_contract"} for item in excluded],
-            evidence_required=bool(policy_map.get("evidence_required", False)),
+            evidence_required=evidence_required,
         )
-        if result["status"] == "complete" and result["evidence_projection"]["coverage"]["abstention_required"]:
+        coverage = result["evidence_projection"]["coverage"]
+        if coverage["abstention_required"]:
+            # The projection is the authoritative coverage decision. Never let
+            # a degraded/complete ranking status imply that an answer is safe.
             result["status"] = "abstain"
-            result["failure_state"] = "insufficient_evidence"
+            result["failure_state"] = integration_failure or (
+                "contradictory_evidence" if coverage["state"] == "conflicted" else "insufficient_evidence"
+            )
         return result
     except (TypeError, ValueError) as exc:
         message = str(exc)
