@@ -1040,3 +1040,89 @@ def test_verify_compiled_dag_rejects_non_mapping_budget_without_raising():
         candidate = copy.deepcopy(artifact)
         candidate["budget"] = malformed
         assert perseus.verify_compiled_dag(candidate)["valid"] is False
+
+
+
+def test_private_sensitivity_is_trimmed_before_public_projection():
+    body = "PRIVATE_SCALAR_SENTINEL"
+    record = _entry(
+        candidate_id="private-whitespace",
+        agent_text=body,
+        summary="The private item exists.",
+        relevance=1.0,
+        source_id="vault:private-ws",
+        sensitivity="private ",
+        content=body,
+        evidence_digest=hashlib.sha256(body.encode()).hexdigest(),
+    )
+    result = perseus.context_ask(
+        "private item",
+        context=[record],
+        policy={"min_score": 0},
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    assert "PRIVATE_SCALAR_SENTINEL" not in json.dumps(result)
+    assert result["status"] != "complete"
+
+
+def test_context_and_runtime_redact_json_api_credentials_and_bearer_tails():
+    body = 'answer {"api_key":"CRED_SENTINEL"}'
+    context_result = perseus.context_ask(
+        "answer",
+        context=[_entry(candidate_id="json-credential", agent_text=body, source_id="vault:cred-json")],
+        cfg={"redaction": {"enabled": False}},
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    assert "CRED_SENTINEL" not in json.dumps(context_result)
+    for output in ('{"api_key":"CRED_SENTINEL"}', "Authorization: Bearer CRED_SENTINEL"):
+        runtime_result = perseus.AdapterResult(
+            schema_version="perseus-runtime-result/v1",
+            request_id="credential-redaction",
+            status="success",
+            output=output,
+            usage={},
+            runtime={},
+            error_code=None,
+            error_message=None,
+            external_fallback_allowed=False,
+        )
+        assert "CRED_SENTINEL" not in json.dumps(runtime_result.to_dict())
+
+
+def test_evidence_required_rejects_explicit_synthetic_artifact_reference():
+    body = "observed evidence"
+    record = _entry(
+        candidate_id="synthetic-source-item",
+        agent_text=body,
+        content=body,
+        source_id="artifact:candidate:synthetic-source-item",
+        evidence_digest=hashlib.sha256(body.encode()).hexdigest(),
+    )
+    result = perseus.context_ask(
+        "observed",
+        context=[record],
+        policy={"evidence_required": True},
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    assert result["status"] != "complete"
+    assert "artifact:candidate:synthetic-source-item" not in json.dumps(result)
+
+
+def test_dag_rejects_non_boolean_verified_evidence():
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextNode(
+            kind="retrieved_record",
+            content="strict evidence",
+            evidence={"validity": "inferred", "verified": "false", "source_ids": ["file:x"]},
+        )
+
+
+def test_context_rank_rejects_overflow_and_non_finite_relevance():
+    for relevance in (10 ** 10000, float("nan"), float("inf")):
+        result = perseus.context_rank(
+            [{"candidate_id": "numeric", "agent_text": "numeric", "relevance": relevance}],
+            task="numeric",
+            policy={"min_score": 0},
+            integrations={"vault": "active", "ledger": "active"},
+        )
+        assert result["status"] == "invalid_input"

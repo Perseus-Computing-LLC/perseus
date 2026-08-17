@@ -123,6 +123,8 @@ def _norm_evidence(evidence: Optional[dict]) -> dict:
     ev = dict(evidence or {})
     ev.setdefault("validity", "inferred")
     ev.setdefault("verified", False)
+    if not isinstance(ev["verified"], bool):
+        raise ContextDagError("node evidence.verified must be boolean")
     ev.setdefault("source_ids", [])
     if isinstance(ev.get("source_ids"), str):
         ev["source_ids"] = [ev["source_ids"]]
