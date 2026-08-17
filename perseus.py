@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "a33591e-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "c94ac0b"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -35797,6 +35797,7 @@ _EP_RESOURCE_FIELDS = frozenset({
     "available_memory_mb", "available_compute_units", "resource_metrics",
 })
 _EP_NETWORK_MODES = frozenset({"offline", "local", "approved_network"})
+_EP_NETWORK_RANK = {"offline": 0, "local": 1, "approved_network": 2}
 _EP_DEGRADATION_POLICIES = frozenset({"fail_closed", "partial", "omit_low_priority"})
 _EP_RETRIEVAL_STATES = frozenset({"complete", "partial", "degraded", "unavailable", "timeout"})
 _EP_MODE_DEFAULTS = {
@@ -35869,12 +35870,9 @@ def _ep_id(value: Any, field: str, *, default: str = "") -> str:
 
 
 def _ep_limit(value: Any, field: str, *, maximum: int = 10_000_000) -> int:
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, int):
         raise ExecutionProfileError(f"{field} must be a positive integer")
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        raise ExecutionProfileError(f"{field} must be a positive integer") from None
+    number = value
     if number < 1 or number > maximum:
         raise ExecutionProfileError(f"{field} must be between 1 and {maximum}")
     return number
@@ -35921,7 +35919,7 @@ class ExecutionProfile:
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "ExecutionProfile" | None) -> "ExecutionProfile":
         if isinstance(value, cls):
-            return value
+            value = value.to_dict()
         if value is None:
             value = {"mode": "standard-local", "profile_id": "default-local"}
         if not isinstance(value, Mapping):
@@ -36058,13 +36056,13 @@ def execution_profile_compilation_budget(resolved: Mapping[str, Any]) -> dict[st
     if not isinstance(resolved, Mapping) or not isinstance(resolved.get("effective"), Mapping):
         raise ExecutionProfileError("resolved execution profile is malformed")
     effective = resolved["effective"]
-    max_tokens = min(int(effective["max_context_tokens"]), max(1, int(effective["max_context_bytes"]) // 4))
     latency = effective.get("latency_target_ms")
     return {
         "max_nodes": max(1, int(effective["max_items"])),
         "max_depth": max(1, int(effective["max_depth"])),
         "max_fanout": max(1, int(effective["max_items"])),
-        "max_tokens": max_tokens,
+        "max_tokens": int(effective["max_context_tokens"]),
+        "max_bytes": int(effective["max_context_bytes"]),
         "deadline_s": max(0.001, float(latency) / 1000.0) if latency is not None else 30.0,
     }
 
@@ -36081,17 +36079,22 @@ def _ep_resolve_execution_profile_impl(
     req = _ep_requirements(requirements)
     if retrieval_status not in _EP_RETRIEVAL_STATES:
         raise ExecutionProfileError("retrieval_status is unsupported")
-    if req.get("network_mode") and base.network_mode == "offline" and req["network_mode"] != "offline":
-        raise ExecutionProfileError("offline profile cannot satisfy a network requirement")
-    if req.get("require_offline") and base.network_mode != "offline":
+    requested_network = req.get("network_mode")
+    if requested_network and _EP_NETWORK_RANK[requested_network] > _EP_NETWORK_RANK[base.network_mode]:
+        raise ExecutionProfileError(f"profile network policy {base.network_mode} cannot satisfy requested {requested_network} requirement")
+    if req.get("require_offline") and _EP_NETWORK_RANK[base.network_mode] < _EP_NETWORK_RANK["offline"]:
         raise ExecutionProfileError("profile does not satisfy required offline mode")
     missing = sorted(set(req.get("required_capabilities", ())) - set(base.runtime_capabilities))
     if missing:
         raise ExecutionProfileError(f"required capabilities are unsupported: {', '.join(missing)}")
     safe_resources, resource_state = _ep_resources(resources)
     effective = base.to_dict()
+    if req.get("require_offline") or requested_network is not None:
+        effective["network_mode"] = "offline" if req.get("require_offline") else requested_network
     for field in ("max_context_tokens", "max_context_bytes", "max_items", "max_depth", "latency_target_ms"):
         if field in req and req[field] is not None:
+            if field == "latency_target_ms" and effective[field] is None:
+                raise ExecutionProfileError("latency target cannot be resolved without a profile latency bound")
             effective[field] = min(int(effective[field]), int(req[field]))
     if effective["max_context_tokens"] < 1 or effective["max_context_bytes"] < 1 or effective["max_items"] < 1 or effective["max_depth"] < 1:
         raise ExecutionProfileError("requirements leave no usable context budget")
@@ -36198,6 +36201,7 @@ _RA_NEGOTIATION_SCHEMA = "perseus-runtime-negotiation/v1"
 _RA_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$")
 _RA_DIGEST_RE = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
 _RA_EXECUTION_MODES = frozenset({"offline", "local", "approved_network"})
+_RA_NETWORK_RANK = {"offline": 0, "local": 1, "approved_network": 2}
 _RA_RESULT_STATUSES = frozenset({"success", "partial", "unavailable", "timeout", "cancelled", "malformed"})
 _RA_CAPABILITY_FIELDS = frozenset({
     "schema_version", "backend_id", "backend_version", "model_id", "model_version",
@@ -36263,12 +36267,9 @@ def _ra_digest(value: Any, field: str) -> str:
 
 
 def _ra_limit(value: Any, field: str, *, maximum: int = 10_000_000) -> int:
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, int):
         raise RuntimeAdapterError(f"{field} must be a positive integer")
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        raise RuntimeAdapterError(f"{field} must be a positive integer") from None
+    number = value
     if number < 1 or number > maximum:
         raise RuntimeAdapterError(f"{field} must be between 1 and {maximum}")
     return number
@@ -36316,24 +36317,27 @@ class RuntimeCapabilities:
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "RuntimeCapabilities") -> "RuntimeCapabilities":
         if isinstance(value, cls):
-            return value
+            value = value.to_dict()
         if not isinstance(value, Mapping):
             raise RuntimeAdapterError("runtime capabilities must be an object")
         _ra_forbidden_keys(value, "capabilities")
+        missing = _RA_CAPABILITY_FIELDS - set(value)
+        if missing:
+            raise RuntimeAdapterError(f"capabilities missing required fields: {sorted(map(str, missing))}")
         unknown = set(value) - _RA_CAPABILITY_FIELDS
         if unknown:
             raise RuntimeAdapterError(f"unsupported capability fields: {sorted(map(str, unknown))}")
-        if value.get("schema_version", _RA_CAPABILITIES_SCHEMA) != _RA_CAPABILITIES_SCHEMA:
+        if value["schema_version"] != _RA_CAPABILITIES_SCHEMA:
             raise RuntimeAdapterError("unsupported runtime capabilities schema version")
-        modes = _ra_string_list(value.get("execution_modes", ()), "execution_modes")
+        modes = _ra_string_list(value["execution_modes"], "execution_modes")
         if not modes or not set(modes).issubset(_RA_EXECUTION_MODES):
             raise RuntimeAdapterError("execution_modes must contain offline, local, or approved_network")
-        metrics = _ra_string_list(value.get("resource_metrics", ()), "resource_metrics")
+        metrics = _ra_string_list(value["resource_metrics"], "resource_metrics")
         for field in ("backend_id", "backend_version", "model_id", "tokenizer_id", "auth_mode", "provider_ref"):
-            _ra_id(value.get(field, ""), field)
-        model_version = _ra_id(value.get("model_version", "unknown"), "model_version")
-        hardware_class = _ra_id(value.get("hardware_class", "unknown"), "hardware_class")
-        if not isinstance(value.get("streaming", False), bool) or not isinstance(value.get("tools", False), bool):
+            _ra_id(value[field], field)
+        model_version = _ra_id(value["model_version"], "model_version")
+        hardware_class = _ra_id(value["hardware_class"], "hardware_class")
+        if not isinstance(value["streaming"], bool) or not isinstance(value["tools"], bool):
             raise RuntimeAdapterError("streaming and tools must be booleans")
         return cls(
             schema_version=_RA_CAPABILITIES_SCHEMA,
@@ -36344,8 +36348,8 @@ class RuntimeCapabilities:
             tokenizer_id=_ra_id(value["tokenizer_id"], "tokenizer_id"),
             context_capacity_tokens=_ra_limit(value["context_capacity_tokens"], "context_capacity_tokens"),
             execution_modes=modes,
-            streaming=value.get("streaming", False),
-            tools=value.get("tools", False),
+            streaming=value["streaming"],
+            tools=value["tools"],
             hardware_class=hardware_class,
             resource_metrics=metrics,
             auth_mode=_ra_id(value["auth_mode"], "auth_mode"),
@@ -36389,14 +36393,17 @@ class AdapterRequest:
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "AdapterRequest") -> "AdapterRequest":
         if isinstance(value, cls):
-            return value
+            value = value.to_dict()
         if not isinstance(value, Mapping):
             raise RuntimeAdapterError("adapter request must be an object")
         _ra_forbidden_keys(value, "request")
+        missing = _RA_REQUEST_FIELDS - set(value)
+        if missing:
+            raise RuntimeAdapterError(f"request missing required fields: {sorted(map(str, missing))}")
         unknown = set(value) - _RA_REQUEST_FIELDS
         if unknown:
             raise RuntimeAdapterError(f"unsupported request fields: {sorted(map(str, unknown))}")
-        if value.get("schema_version", _RA_REQUEST_SCHEMA) != _RA_REQUEST_SCHEMA:
+        if value["schema_version"] != _RA_REQUEST_SCHEMA:
             raise RuntimeAdapterError("unsupported runtime request schema version")
         profile = value.get("execution_profile")
         if not isinstance(profile, Mapping):
@@ -36420,10 +36427,15 @@ class AdapterRequest:
             normalized_required["resource_metrics"] = list(_ra_string_list(requested["resource_metrics"], "resource_metrics"))
         if "min_context_tokens" in requested:
             normalized_required["min_context_tokens"] = _ra_limit(requested["min_context_tokens"], "min_context_tokens")
-        mode = _ra_text(value.get("execution_mode", "local"), "execution_mode", max_length=32)
+        mode = _ra_text(value["execution_mode"], "execution_mode", max_length=32)
         if mode not in _RA_EXECUTION_MODES:
             raise RuntimeAdapterError("execution_mode is unsupported")
-        profile_digest = _ra_digest(value.get("execution_profile_digest", profile["profile_digest"]), "execution_profile_digest")
+        effective_profile = profile.get("effective")
+        if not isinstance(effective_profile, Mapping) or effective_profile.get("network_mode") not in _RA_NETWORK_RANK:
+            raise RuntimeAdapterError("execution_profile effective network policy is missing")
+        if _RA_NETWORK_RANK[mode] > _RA_NETWORK_RANK[effective_profile["network_mode"]]:
+            raise RuntimeAdapterError("execution_mode exceeds execution_profile network policy")
+        profile_digest = _ra_digest(value["execution_profile_digest"], "execution_profile_digest")
         if profile_digest != str(profile["profile_digest"]).lower().removeprefix("sha256:"):
             raise RuntimeAdapterError("execution_profile_digest does not match execution_profile")
         return cls(
@@ -36471,22 +36483,25 @@ class AdapterResult:
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "AdapterResult") -> "AdapterResult":
         if isinstance(value, cls):
-            return value
+            value = value.to_dict()
         if not isinstance(value, Mapping):
             raise RuntimeAdapterError("adapter result must be an object")
         _ra_forbidden_keys(value, "result")
         unknown = set(value) - _RA_RESULT_FIELDS
         if unknown:
             raise RuntimeAdapterError(f"unsupported result fields: {sorted(map(str, unknown))}")
-        if value.get("schema_version", _RA_RESULT_SCHEMA) != _RA_RESULT_SCHEMA:
+        missing = _RA_RESULT_FIELDS - set(value)
+        if missing:
+            raise RuntimeAdapterError(f"result missing required fields: {sorted(map(str, missing))}")
+        if value["schema_version"] != _RA_RESULT_SCHEMA:
             raise RuntimeAdapterError("unsupported runtime result schema version")
-        status = _ra_text(value.get("status", ""), "status", max_length=32)
+        status = _ra_text(value["status"], "status", max_length=32)
         if status not in _RA_RESULT_STATUSES:
             raise RuntimeAdapterError("unsupported runtime result status")
-        output = value.get("output")
+        output = value["output"]
         if output is not None:
             output = _ra_text(output, "output", max_length=1_000_000, allow_empty=True)
-        usage_raw = value.get("usage", {})
+        usage_raw = value["usage"]
         if not isinstance(usage_raw, Mapping) or set(usage_raw) - _RA_USAGE_FIELDS:
             raise RuntimeAdapterError("usage contains unsupported fields")
         usage: dict[str, int] = {}
@@ -36494,17 +36509,17 @@ class AdapterResult:
             if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
                 raise RuntimeAdapterError(f"usage.{key} must be a non-negative integer")
             usage[key] = raw
-        runtime_raw = value.get("runtime", {})
+        runtime_raw = value["runtime"]
         if not isinstance(runtime_raw, Mapping) or set(runtime_raw) - _RA_RUNTIME_FIELDS:
             raise RuntimeAdapterError("runtime provenance contains unsupported fields")
         runtime = {str(key): _ra_id(raw, f"runtime.{key}") for key, raw in runtime_raw.items()}
-        error_code = value.get("error_code")
+        error_code = value["error_code"]
         if error_code is not None:
             error_code = _ra_id(error_code, "error_code")
-        error_message = value.get("error_message")
+        error_message = value["error_message"]
         if error_message is not None:
             error_message = _ra_text(error_message, "error_message", max_length=256)
-        fallback = value.get("external_fallback_allowed", False)
+        fallback = value["external_fallback_allowed"]
         if fallback is not False:
             raise RuntimeAdapterError("external fallback is permanently disabled by the core contract")
         if status in {"success", "partial"} and output is None:
@@ -36694,6 +36709,31 @@ _CE_UNCERTAINTY_CLASSES = frozenset({"high", "medium", "low", "stale", "inferred
 _CE_DIGEST_RE = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
 _CE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$")
 _CE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$")
+_CE_MAX_ENTRIES = 64
+_CE_MAX_SELECTED = 64
+_CE_MAX_EXCLUDED = 128
+_CE_SAFE_REASONS = {
+    "source matched the task": "source matched the task",
+    "selected_by_caller": "selected_by_caller",
+    "selected by caller": "selected_by_caller",
+    "scope mismatch": "scope mismatch",
+    "excluded_by_policy": "excluded_by_policy",
+    "excluded by policy": "excluded_by_policy",
+    "not_selected": "not_selected",
+    "duplicate_candidate_id": "duplicate_candidate_id",
+    "source_reference_missing": "source_reference_missing",
+    "evidence_digest_missing": "evidence_digest_missing",
+    "invalid_record": "invalid_record",
+}
+_CE_COVERAGE_REASONS = {
+    "evidence_backed": "evidence is linked to sanitized source references and a digest",
+    "partial": "provider or selected evidence is partial",
+    "conflicted": "evidence contains unresolved conflict",
+    "stale": "selected evidence is stale",
+    "empty": "no evidence-backed item was selected",
+    "unavailable": "provider evidence is unavailable",
+    "timeout": "provider evidence timed out",
+}
 _CE_FORBIDDEN_KEYS = frozenset({
     "api_key", "authorization", "body", "content", "credential", "credentials",
     "password", "private_body", "prompt", "raw", "raw_payload", "secret", "token",
@@ -36753,7 +36793,11 @@ def _ce_id(value: Any, field: str) -> str:
     text = str(value or "").strip()
     if not text:
         raise ContextEvidenceError(f"{field} must not be empty")
-    if _CE_ID_RE.fullmatch(text):
+    # URI/userinfo/query-like values are not safe to preserve in an
+    # allow-listed scalar: source references can carry credentials or private
+    # data even when their field name looks harmless.
+    unsafe_scalar = any(marker in text for marker in ("@", "?", "&", "=")) or "://" in text
+    if not unsafe_scalar and _CE_ID_RE.fullmatch(text):
         return text[:160]
     return "sha256:" + hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
 
@@ -36794,16 +36838,29 @@ def _ce_sources(record: Mapping[str, Any], candidate_id: str) -> list[str]:
 
 
 def _ce_evidence_digest(record: Mapping[str, Any], candidate_id: str) -> str | None:
+    claimed: list[str] = []
     for key in ("evidence_digest", "content_sha256", "content_hash", "sha256"):
         if record.get(key):
-            return _ce_digest(record[key], f"{candidate_id}.{key}")
+            digest = _ce_digest(record[key], f"{candidate_id}.{key}")
+            if digest is not None:
+                claimed.append(digest)
+    if claimed and any(digest != claimed[0] for digest in claimed[1:]):
+        raise ContextEvidenceError(f"{candidate_id} contains conflicting evidence digests")
     # The body is never emitted; when a caller supplies it, only its commitment
-    # can cross this boundary.
+    # can cross this boundary. A caller-supplied digest must agree with it.
+    raw_values: list[str] = []
     for key in ("content", "body", "raw", "private_body"):
         value = record.get(key)
+        if value not in (None, "") and not isinstance(value, str):
+            raise ContextEvidenceError(f"{candidate_id}.{key} must be text")
         if isinstance(value, str) and value:
-            return hashlib.sha256(value.encode("utf-8", errors="replace")).hexdigest()
-    return None
+            raw_values.append(value)
+    if raw_values and any(value != raw_values[0] for value in raw_values[1:]):
+        raise ContextEvidenceError(f"{candidate_id} contains conflicting raw evidence bodies")
+    computed = hashlib.sha256(raw_values[0].encode("utf-8", errors="replace")).hexdigest() if raw_values else None
+    if computed is not None and claimed and claimed[0] != computed:
+        raise ContextEvidenceError(f"{candidate_id} evidence digest does not match supplied body")
+    return computed or (claimed[0] if claimed else None)
 
 
 def _ce_item_state(record: Mapping[str, Any], *, has_digest: bool) -> str:
@@ -36832,7 +36889,9 @@ def _ce_uncertainty(record: Mapping[str, Any], state: str) -> dict[str, Any]:
 
 def _ce_reason(record: Mapping[str, Any], default: str) -> str:
     reason = _ce_text(record.get("selection_reason", ""), "selection_reason")
-    return reason or default
+    if not reason:
+        return default if default in _CE_SAFE_REASONS.values() else "selection_reason_suppressed"
+    return _CE_SAFE_REASONS.get(reason.casefold(), "selection_reason_suppressed")
 
 
 def _ce_provider_states(value: Mapping[str, Any] | None) -> dict[str, str]:
@@ -36885,12 +36944,32 @@ def _ce_normalized_exclusions(value: Any) -> list[dict[str, str]]:
     for index, raw in enumerate(value):
         if isinstance(raw, Mapping):
             candidate_id = _ce_id(raw.get("candidate_id") or raw.get("id") or f"excluded-{index + 1}", "excluded.candidate_id")
-            reason = _ce_text(raw.get("reason") or raw.get("selection_reason") or "", "excluded.reason") or "excluded_by_policy"
+            raw_reason = _ce_text(raw.get("reason") or raw.get("selection_reason") or "", "excluded.reason")
+            reason = _CE_SAFE_REASONS.get(raw_reason.casefold(), "excluded_by_policy")
         else:
             candidate_id = _ce_id(raw, "excluded.candidate_id")
             reason = "excluded_by_policy"
         result.append({"candidate_id": candidate_id, "reason": reason})
     return result
+
+
+def _ce_aggregate_state(item_states: list[str], providers: Mapping[str, str]) -> str:
+    provider_state_values = set(providers.values())
+    if "timeout" in provider_state_values or "timeout" in item_states:
+        return "timeout"
+    if bool(provider_state_values & {"unavailable", "not_configured"}) or "unavailable" in item_states:
+        return "unavailable"
+    if "conflicted" in item_states:
+        return "conflicted"
+    if "stale" in item_states:
+        return "stale"
+    if bool(provider_state_values & {"partial", "degraded"}) or "partial" in item_states:
+        return "partial"
+    if item_states and all(item_state == "empty" for item_state in item_states):
+        return "empty"
+    if "empty" in item_states:
+        return "partial"
+    return "empty" if not item_states else "evidence_backed"
 
 
 def project_context_evidence(
@@ -36904,12 +36983,18 @@ def project_context_evidence(
     """Compile a sanitized evidence coverage projection without retrieval."""
     if not isinstance(entries, (list, tuple)):
         raise ContextEvidenceError("entries must be a list")
+    if len(entries) > _CE_MAX_ENTRIES:
+        raise ContextEvidenceError(f"entries must contain at most {_CE_MAX_ENTRIES} items")
     if not isinstance(evidence_required, bool):
         raise ContextEvidenceError("evidence_required must be boolean")
     providers = _ce_provider_states(provider_states)
+    if selected_ids is not None and len(selected_ids) > _CE_MAX_SELECTED:
+        raise ContextEvidenceError(f"selected_ids must contain at most {_CE_MAX_SELECTED} items")
     wanted = {_ce_id(item, "selected_id") for item in selected_ids} if selected_ids is not None else None
     selected: list[dict[str, Any]] = []
     exclusions = _ce_normalized_exclusions(excluded)
+    if len(exclusions) > _CE_MAX_EXCLUDED:
+        raise ContextEvidenceError(f"excluded must contain at most {_CE_MAX_EXCLUDED} items")
     seen: set[str] = set()
     for index, raw in enumerate(entries):
         item, omission = _ce_selected_item(raw, index)
@@ -36926,21 +37011,10 @@ def project_context_evidence(
         selected.append(item)
     selected.sort(key=lambda item: item["candidate_id"])
     exclusions = sorted(exclusions, key=lambda item: (item["candidate_id"], item["reason"]))
+    if len(selected) > _CE_MAX_SELECTED or len(exclusions) > _CE_MAX_EXCLUDED:
+        raise ContextEvidenceError("evidence projection output exceeds its collection limits")
     item_states = [item["coverage_state"] for item in selected]
-    if any(state == "timeout" for state in providers.values()):
-        state = "timeout"
-    elif any(state == "unavailable" for state in providers.values()):
-        state = "unavailable"
-    elif "conflicted" in item_states:
-        state = "conflicted"
-    elif "stale" in item_states:
-        state = "stale"
-    elif any(state in {"partial", "degraded"} for state in providers.values()) or "partial" in item_states:
-        state = "partial"
-    elif not selected:
-        state = "empty"
-    else:
-        state = "evidence_backed"
+    state = _ce_aggregate_state(item_states, providers)
     abstention = bool(evidence_required and state != "evidence_backed")
     status = "abstention_required" if abstention else {
         "evidence_backed": "complete",
@@ -36951,15 +37025,7 @@ def project_context_evidence(
         "unavailable": "unavailable",
         "timeout": "unavailable",
     }[state]
-    reason = {
-        "evidence_backed": "evidence is linked to sanitized source references and a digest",
-        "partial": "provider or selected evidence is partial",
-        "conflicted": "evidence contains unresolved conflict",
-        "stale": "selected evidence is stale",
-        "empty": "no evidence-backed item was selected",
-        "unavailable": "provider evidence is unavailable",
-        "timeout": "provider evidence timed out",
-    }[state]
+    reason = _CE_COVERAGE_REASONS[state]
     coverage = {
         "state": state,
         "reason": reason,
@@ -36983,11 +37049,82 @@ def project_context_evidence(
     return unsigned
 
 
+def _ce_validate_projection_shape(projection: Mapping[str, Any]) -> None:
+    """Validate the complete public projection contract before its digest."""
+    top = {"schema_version", "status", "coverage", "selected", "excluded", "diagnostics", "projection_digest"}
+    if set(projection) != top or projection.get("schema_version") != _CE_SCHEMA_VERSION:
+        raise ContextEvidenceError("projection shape is invalid")
+    if projection.get("status") not in {"complete", "degraded", "review", "empty", "unavailable", "abstention_required"}:
+        raise ContextEvidenceError("projection status is invalid")
+    coverage = projection.get("coverage")
+    if not isinstance(coverage, Mapping):
+        raise ContextEvidenceError("coverage must be an object")
+    if set(coverage) != {"state", "reason", "provider_states", "evidence_required", "abstention_required"}:
+        raise ContextEvidenceError("coverage shape is invalid")
+    if coverage["state"] not in _CE_STATES or not isinstance(coverage["reason"], str) or not 0 < len(coverage["reason"]) <= 256 or coverage["reason"] != _CE_COVERAGE_REASONS[coverage["state"]]:
+        raise ContextEvidenceError("coverage state or reason is invalid")
+    if not isinstance(coverage["provider_states"], Mapping):
+        raise ContextEvidenceError("provider_states must be an object")
+    for provider, provider_state in coverage["provider_states"].items():
+        if not isinstance(provider, str) or not provider or len(provider) > 160 or _ce_id(provider, "provider") != provider or provider_state not in _CE_PROVIDER_STATES:
+            raise ContextEvidenceError("provider state is invalid")
+    if not isinstance(coverage["evidence_required"], bool) or not isinstance(coverage["abstention_required"], bool):
+        raise ContextEvidenceError("coverage flags are invalid")
+    selected = projection.get("selected")
+    if not isinstance(selected, list) or len(selected) > _CE_MAX_SELECTED:
+        raise ContextEvidenceError("selected collection is invalid")
+    selected_keys = {"candidate_id", "source_refs", "evidence_digest", "coverage_state", "uncertainty", "inclusion_reason", "valid_at", "transaction_time", "recorded_at", "observed_at"}
+    selected_ids: list[str] = []
+    for item in selected:
+        if not isinstance(item, Mapping) or not {"candidate_id", "source_refs", "evidence_digest", "coverage_state", "uncertainty", "inclusion_reason"}.issubset(item) or set(item) - selected_keys:
+            raise ContextEvidenceError("selected item shape is invalid")
+        if not isinstance(item["candidate_id"], str) or not 0 < len(item["candidate_id"]) <= 160 or _ce_id(item["candidate_id"], "candidate_id") != item["candidate_id"]:
+            raise ContextEvidenceError("selected candidate_id is invalid")
+        selected_ids.append(item["candidate_id"])
+        refs = item["source_refs"]
+        if not isinstance(refs, list) or len(refs) > 64 or any(not isinstance(ref, str) or not 0 < len(ref) <= 160 or _ce_id(ref, "source_ref") != ref for ref in refs):
+            raise ContextEvidenceError("selected source_refs are invalid")
+        if not isinstance(item["evidence_digest"], str) or not re.fullmatch(r"[0-9a-f]{64}", item["evidence_digest"]):
+            raise ContextEvidenceError("selected evidence_digest is invalid")
+        if item["coverage_state"] not in _CE_STATES or not isinstance(item["inclusion_reason"], str) or not 0 < len(item["inclusion_reason"]) <= 256 or item["inclusion_reason"] not in set(_CE_SAFE_REASONS.values()) | {"selection_reason_suppressed"}:
+            raise ContextEvidenceError("selected state or reason is invalid")
+        uncertainty = item["uncertainty"]
+        if not isinstance(uncertainty, Mapping) or set(uncertainty) != {"class", "score"} or uncertainty["class"] not in _CE_UNCERTAINTY_CLASSES or isinstance(uncertainty["score"], bool) or not isinstance(uncertainty["score"], (int, float)) or not 0 <= uncertainty["score"] <= 1:
+            raise ContextEvidenceError("selected uncertainty is invalid")
+        for timestamp in ("valid_at", "transaction_time", "recorded_at", "observed_at"):
+            if timestamp in item and (not isinstance(item[timestamp], str) or len(item[timestamp]) > 40):
+                raise ContextEvidenceError("selected timestamp is invalid")
+    if len(selected_ids) != len(set(selected_ids)):
+        raise ContextEvidenceError("selected candidate IDs are duplicated")
+    expected_state = _ce_aggregate_state([item["coverage_state"] for item in selected], coverage["provider_states"])
+    if coverage["state"] != expected_state:
+        raise ContextEvidenceError("coverage state does not recompute from selected evidence")
+    expected_abstention = bool(coverage["evidence_required"] and expected_state != "evidence_backed")
+    if coverage["abstention_required"] != expected_abstention:
+        raise ContextEvidenceError("abstention flag does not recompute from coverage")
+    expected_status = "abstention_required" if expected_abstention else {"evidence_backed": "complete", "partial": "degraded", "conflicted": "review", "stale": "degraded", "empty": "empty", "unavailable": "unavailable", "timeout": "unavailable"}[expected_state]
+    if projection["status"] != expected_status:
+        raise ContextEvidenceError("projection status does not recompute from coverage")
+    excluded = projection.get("excluded")
+    if not isinstance(excluded, list) or len(excluded) > _CE_MAX_EXCLUDED:
+        raise ContextEvidenceError("excluded collection is invalid")
+    for item in excluded:
+        if not isinstance(item, Mapping) or set(item) != {"candidate_id", "reason"} or not isinstance(item["candidate_id"], str) or not 0 < len(item["candidate_id"]) <= 160 or _ce_id(item["candidate_id"], "excluded.candidate_id") != item["candidate_id"] or not isinstance(item["reason"], str) or not 0 < len(item["reason"]) <= 256 or item["reason"] not in set(_CE_SAFE_REASONS.values()) | {"selection_reason_suppressed"}:
+            raise ContextEvidenceError("excluded item shape is invalid")
+    diagnostics = projection.get("diagnostics")
+    if not isinstance(diagnostics, Mapping) or set(diagnostics) != {"relevance_is_not_truth_gate", "selected_count", "excluded_count"} or diagnostics["relevance_is_not_truth_gate"] is not True or isinstance(diagnostics["selected_count"], bool) or isinstance(diagnostics["excluded_count"], bool) or not isinstance(diagnostics["selected_count"], int) or not isinstance(diagnostics["excluded_count"], int) or diagnostics["selected_count"] != len(selected) or diagnostics["excluded_count"] != len(excluded):
+        raise ContextEvidenceError("diagnostics are invalid")
+    digest = projection.get("projection_digest")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ContextEvidenceError("projection digest is invalid")
+
+
 def verify_context_evidence(projection: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(projection, Mapping) or projection.get("schema_version") != _CE_SCHEMA_VERSION:
         return {"valid": False, "error": "unsupported evidence projection"}
     try:
         _ce_forbidden_keys(projection)
+        _ce_validate_projection_shape(projection)
         supplied = projection.get("projection_digest")
         if not isinstance(supplied, str):
             return {"valid": False, "error": "missing projection digest"}
@@ -37820,9 +37957,9 @@ def _cc_route(request_class: str, integrations: Any) -> dict[str, Any]:
 def _cc_failure_for_integrations(integrations: Mapping[str, str]) -> str | None:
     if integrations.get("vault") == "timeout" or integrations.get("ledger") == "timeout":
         return "timeout"
-    if integrations.get("vault") == "unavailable":
+    if integrations.get("vault") in {"unavailable", "not_configured"}:
         return "vault_unavailable"
-    if integrations.get("ledger") == "unavailable":
+    if integrations.get("ledger") in {"unavailable", "not_configured"}:
         return "ledger_unavailable"
     return None
 
@@ -38077,6 +38214,9 @@ def context_rank(
             excluded=[{"candidate_id": item, "reason": "excluded_by_contract"} for item in excluded],
             evidence_required=bool(policy_map.get("evidence_required", False)),
         )
+        if result["status"] == "complete" and result["evidence_projection"]["coverage"]["abstention_required"]:
+            result["status"] = "abstain"
+            result["failure_state"] = "insufficient_evidence"
         return result
     except (TypeError, ValueError) as exc:
         message = str(exc)
@@ -39084,6 +39224,7 @@ class CompilationBudget:
     max_depth: int = 4
     max_fanout: int = 6
     max_tokens: int = 4000
+    max_bytes: int | None = None
     deadline_s: float = 30.0
 
     def ledger(self) -> "BudgetLedger":
@@ -39098,6 +39239,7 @@ class BudgetLedger:
         self.nodes: list[str] = []
         self.depth: dict[str, int] = {}
         self.tokens: dict[str, int] = {}
+        self.bytes: dict[str, int] = {}
         self.children: dict[str, list[str]] = {}
         self.started_at = time.monotonic()
 
@@ -39119,9 +39261,13 @@ class BudgetLedger:
         self.nodes.append(node.node_id)
         self.depth[node.node_id] = depth
         self.tokens[node.node_id] = dag_tokens(node.content)
+        self.bytes[node.node_id] = len(node.content.encode("utf-8"))
         total = sum(self.tokens.values())
         if total > self.budget.max_tokens:
             raise BudgetExceeded("max_tokens", self.budget.max_tokens, total)
+        total_bytes = sum(self.bytes.values())
+        if self.budget.max_bytes is not None and total_bytes > self.budget.max_bytes:
+            raise BudgetExceeded("max_bytes", self.budget.max_bytes, total_bytes)
 
     def register_edge(self, parent_id: str, child_id: str) -> None:
         self._tick()
@@ -39149,12 +39295,14 @@ class BudgetLedger:
             "max_fanout_used": max((len(v) for v in self.children.values()),
                                    default=0),
             "tokens": self.total_tokens,
+            "bytes": sum(self.bytes.values()),
             "wall_clock_s": round(time.monotonic() - self.started_at, 3),
             "limits": {
                 "max_nodes": self.budget.max_nodes,
                 "max_depth": self.budget.max_depth,
                 "max_fanout": self.budget.max_fanout,
                 "max_tokens": self.budget.max_tokens,
+                "max_bytes": self.budget.max_bytes,
                 "deadline_s": self.budget.deadline_s,
             },
             "token_accounting": TOKEN_ACCOUNTING_NOTE,
@@ -39645,6 +39793,7 @@ def compile_context_dag(*, task_id: str,
                 max_depth=min(int(budget.max_depth), int(profile_budget["max_depth"])),
                 max_fanout=min(int(budget.max_fanout), int(profile_budget["max_fanout"])),
                 max_tokens=min(int(budget.max_tokens), int(profile_budget["max_tokens"])),
+                max_bytes=(int(profile_budget["max_bytes"]) if budget.max_bytes is None else min(int(budget.max_bytes), int(profile_budget["max_bytes"]))),
                 deadline_s=min(float(budget.deadline_s), float(profile_budget["deadline_s"])),
             )
     else:

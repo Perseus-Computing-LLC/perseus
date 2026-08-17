@@ -21,6 +21,31 @@ _CE_UNCERTAINTY_CLASSES = frozenset({"high", "medium", "low", "stale", "inferred
 _CE_DIGEST_RE = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
 _CE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$")
 _CE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$")
+_CE_MAX_ENTRIES = 64
+_CE_MAX_SELECTED = 64
+_CE_MAX_EXCLUDED = 128
+_CE_SAFE_REASONS = {
+    "source matched the task": "source matched the task",
+    "selected_by_caller": "selected_by_caller",
+    "selected by caller": "selected_by_caller",
+    "scope mismatch": "scope mismatch",
+    "excluded_by_policy": "excluded_by_policy",
+    "excluded by policy": "excluded_by_policy",
+    "not_selected": "not_selected",
+    "duplicate_candidate_id": "duplicate_candidate_id",
+    "source_reference_missing": "source_reference_missing",
+    "evidence_digest_missing": "evidence_digest_missing",
+    "invalid_record": "invalid_record",
+}
+_CE_COVERAGE_REASONS = {
+    "evidence_backed": "evidence is linked to sanitized source references and a digest",
+    "partial": "provider or selected evidence is partial",
+    "conflicted": "evidence contains unresolved conflict",
+    "stale": "selected evidence is stale",
+    "empty": "no evidence-backed item was selected",
+    "unavailable": "provider evidence is unavailable",
+    "timeout": "provider evidence timed out",
+}
 _CE_FORBIDDEN_KEYS = frozenset({
     "api_key", "authorization", "body", "content", "credential", "credentials",
     "password", "private_body", "prompt", "raw", "raw_payload", "secret", "token",
@@ -80,7 +105,11 @@ def _ce_id(value: Any, field: str) -> str:
     text = str(value or "").strip()
     if not text:
         raise ContextEvidenceError(f"{field} must not be empty")
-    if _CE_ID_RE.fullmatch(text):
+    # URI/userinfo/query-like values are not safe to preserve in an
+    # allow-listed scalar: source references can carry credentials or private
+    # data even when their field name looks harmless.
+    unsafe_scalar = any(marker in text for marker in ("@", "?", "&", "=")) or "://" in text
+    if not unsafe_scalar and _CE_ID_RE.fullmatch(text):
         return text[:160]
     return "sha256:" + hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
 
@@ -121,16 +150,29 @@ def _ce_sources(record: Mapping[str, Any], candidate_id: str) -> list[str]:
 
 
 def _ce_evidence_digest(record: Mapping[str, Any], candidate_id: str) -> str | None:
+    claimed: list[str] = []
     for key in ("evidence_digest", "content_sha256", "content_hash", "sha256"):
         if record.get(key):
-            return _ce_digest(record[key], f"{candidate_id}.{key}")
+            digest = _ce_digest(record[key], f"{candidate_id}.{key}")
+            if digest is not None:
+                claimed.append(digest)
+    if claimed and any(digest != claimed[0] for digest in claimed[1:]):
+        raise ContextEvidenceError(f"{candidate_id} contains conflicting evidence digests")
     # The body is never emitted; when a caller supplies it, only its commitment
-    # can cross this boundary.
+    # can cross this boundary. A caller-supplied digest must agree with it.
+    raw_values: list[str] = []
     for key in ("content", "body", "raw", "private_body"):
         value = record.get(key)
+        if value not in (None, "") and not isinstance(value, str):
+            raise ContextEvidenceError(f"{candidate_id}.{key} must be text")
         if isinstance(value, str) and value:
-            return hashlib.sha256(value.encode("utf-8", errors="replace")).hexdigest()
-    return None
+            raw_values.append(value)
+    if raw_values and any(value != raw_values[0] for value in raw_values[1:]):
+        raise ContextEvidenceError(f"{candidate_id} contains conflicting raw evidence bodies")
+    computed = hashlib.sha256(raw_values[0].encode("utf-8", errors="replace")).hexdigest() if raw_values else None
+    if computed is not None and claimed and claimed[0] != computed:
+        raise ContextEvidenceError(f"{candidate_id} evidence digest does not match supplied body")
+    return computed or (claimed[0] if claimed else None)
 
 
 def _ce_item_state(record: Mapping[str, Any], *, has_digest: bool) -> str:
@@ -159,7 +201,9 @@ def _ce_uncertainty(record: Mapping[str, Any], state: str) -> dict[str, Any]:
 
 def _ce_reason(record: Mapping[str, Any], default: str) -> str:
     reason = _ce_text(record.get("selection_reason", ""), "selection_reason")
-    return reason or default
+    if not reason:
+        return default if default in _CE_SAFE_REASONS.values() else "selection_reason_suppressed"
+    return _CE_SAFE_REASONS.get(reason.casefold(), "selection_reason_suppressed")
 
 
 def _ce_provider_states(value: Mapping[str, Any] | None) -> dict[str, str]:
@@ -212,12 +256,32 @@ def _ce_normalized_exclusions(value: Any) -> list[dict[str, str]]:
     for index, raw in enumerate(value):
         if isinstance(raw, Mapping):
             candidate_id = _ce_id(raw.get("candidate_id") or raw.get("id") or f"excluded-{index + 1}", "excluded.candidate_id")
-            reason = _ce_text(raw.get("reason") or raw.get("selection_reason") or "", "excluded.reason") or "excluded_by_policy"
+            raw_reason = _ce_text(raw.get("reason") or raw.get("selection_reason") or "", "excluded.reason")
+            reason = _CE_SAFE_REASONS.get(raw_reason.casefold(), "excluded_by_policy")
         else:
             candidate_id = _ce_id(raw, "excluded.candidate_id")
             reason = "excluded_by_policy"
         result.append({"candidate_id": candidate_id, "reason": reason})
     return result
+
+
+def _ce_aggregate_state(item_states: list[str], providers: Mapping[str, str]) -> str:
+    provider_state_values = set(providers.values())
+    if "timeout" in provider_state_values or "timeout" in item_states:
+        return "timeout"
+    if bool(provider_state_values & {"unavailable", "not_configured"}) or "unavailable" in item_states:
+        return "unavailable"
+    if "conflicted" in item_states:
+        return "conflicted"
+    if "stale" in item_states:
+        return "stale"
+    if bool(provider_state_values & {"partial", "degraded"}) or "partial" in item_states:
+        return "partial"
+    if item_states and all(item_state == "empty" for item_state in item_states):
+        return "empty"
+    if "empty" in item_states:
+        return "partial"
+    return "empty" if not item_states else "evidence_backed"
 
 
 def project_context_evidence(
@@ -231,12 +295,18 @@ def project_context_evidence(
     """Compile a sanitized evidence coverage projection without retrieval."""
     if not isinstance(entries, (list, tuple)):
         raise ContextEvidenceError("entries must be a list")
+    if len(entries) > _CE_MAX_ENTRIES:
+        raise ContextEvidenceError(f"entries must contain at most {_CE_MAX_ENTRIES} items")
     if not isinstance(evidence_required, bool):
         raise ContextEvidenceError("evidence_required must be boolean")
     providers = _ce_provider_states(provider_states)
+    if selected_ids is not None and len(selected_ids) > _CE_MAX_SELECTED:
+        raise ContextEvidenceError(f"selected_ids must contain at most {_CE_MAX_SELECTED} items")
     wanted = {_ce_id(item, "selected_id") for item in selected_ids} if selected_ids is not None else None
     selected: list[dict[str, Any]] = []
     exclusions = _ce_normalized_exclusions(excluded)
+    if len(exclusions) > _CE_MAX_EXCLUDED:
+        raise ContextEvidenceError(f"excluded must contain at most {_CE_MAX_EXCLUDED} items")
     seen: set[str] = set()
     for index, raw in enumerate(entries):
         item, omission = _ce_selected_item(raw, index)
@@ -253,21 +323,10 @@ def project_context_evidence(
         selected.append(item)
     selected.sort(key=lambda item: item["candidate_id"])
     exclusions = sorted(exclusions, key=lambda item: (item["candidate_id"], item["reason"]))
+    if len(selected) > _CE_MAX_SELECTED or len(exclusions) > _CE_MAX_EXCLUDED:
+        raise ContextEvidenceError("evidence projection output exceeds its collection limits")
     item_states = [item["coverage_state"] for item in selected]
-    if any(state == "timeout" for state in providers.values()):
-        state = "timeout"
-    elif any(state == "unavailable" for state in providers.values()):
-        state = "unavailable"
-    elif "conflicted" in item_states:
-        state = "conflicted"
-    elif "stale" in item_states:
-        state = "stale"
-    elif any(state in {"partial", "degraded"} for state in providers.values()) or "partial" in item_states:
-        state = "partial"
-    elif not selected:
-        state = "empty"
-    else:
-        state = "evidence_backed"
+    state = _ce_aggregate_state(item_states, providers)
     abstention = bool(evidence_required and state != "evidence_backed")
     status = "abstention_required" if abstention else {
         "evidence_backed": "complete",
@@ -278,15 +337,7 @@ def project_context_evidence(
         "unavailable": "unavailable",
         "timeout": "unavailable",
     }[state]
-    reason = {
-        "evidence_backed": "evidence is linked to sanitized source references and a digest",
-        "partial": "provider or selected evidence is partial",
-        "conflicted": "evidence contains unresolved conflict",
-        "stale": "selected evidence is stale",
-        "empty": "no evidence-backed item was selected",
-        "unavailable": "provider evidence is unavailable",
-        "timeout": "provider evidence timed out",
-    }[state]
+    reason = _CE_COVERAGE_REASONS[state]
     coverage = {
         "state": state,
         "reason": reason,
@@ -310,11 +361,82 @@ def project_context_evidence(
     return unsigned
 
 
+def _ce_validate_projection_shape(projection: Mapping[str, Any]) -> None:
+    """Validate the complete public projection contract before its digest."""
+    top = {"schema_version", "status", "coverage", "selected", "excluded", "diagnostics", "projection_digest"}
+    if set(projection) != top or projection.get("schema_version") != _CE_SCHEMA_VERSION:
+        raise ContextEvidenceError("projection shape is invalid")
+    if projection.get("status") not in {"complete", "degraded", "review", "empty", "unavailable", "abstention_required"}:
+        raise ContextEvidenceError("projection status is invalid")
+    coverage = projection.get("coverage")
+    if not isinstance(coverage, Mapping):
+        raise ContextEvidenceError("coverage must be an object")
+    if set(coverage) != {"state", "reason", "provider_states", "evidence_required", "abstention_required"}:
+        raise ContextEvidenceError("coverage shape is invalid")
+    if coverage["state"] not in _CE_STATES or not isinstance(coverage["reason"], str) or not 0 < len(coverage["reason"]) <= 256 or coverage["reason"] != _CE_COVERAGE_REASONS[coverage["state"]]:
+        raise ContextEvidenceError("coverage state or reason is invalid")
+    if not isinstance(coverage["provider_states"], Mapping):
+        raise ContextEvidenceError("provider_states must be an object")
+    for provider, provider_state in coverage["provider_states"].items():
+        if not isinstance(provider, str) or not provider or len(provider) > 160 or _ce_id(provider, "provider") != provider or provider_state not in _CE_PROVIDER_STATES:
+            raise ContextEvidenceError("provider state is invalid")
+    if not isinstance(coverage["evidence_required"], bool) or not isinstance(coverage["abstention_required"], bool):
+        raise ContextEvidenceError("coverage flags are invalid")
+    selected = projection.get("selected")
+    if not isinstance(selected, list) or len(selected) > _CE_MAX_SELECTED:
+        raise ContextEvidenceError("selected collection is invalid")
+    selected_keys = {"candidate_id", "source_refs", "evidence_digest", "coverage_state", "uncertainty", "inclusion_reason", "valid_at", "transaction_time", "recorded_at", "observed_at"}
+    selected_ids: list[str] = []
+    for item in selected:
+        if not isinstance(item, Mapping) or not {"candidate_id", "source_refs", "evidence_digest", "coverage_state", "uncertainty", "inclusion_reason"}.issubset(item) or set(item) - selected_keys:
+            raise ContextEvidenceError("selected item shape is invalid")
+        if not isinstance(item["candidate_id"], str) or not 0 < len(item["candidate_id"]) <= 160 or _ce_id(item["candidate_id"], "candidate_id") != item["candidate_id"]:
+            raise ContextEvidenceError("selected candidate_id is invalid")
+        selected_ids.append(item["candidate_id"])
+        refs = item["source_refs"]
+        if not isinstance(refs, list) or len(refs) > 64 or any(not isinstance(ref, str) or not 0 < len(ref) <= 160 or _ce_id(ref, "source_ref") != ref for ref in refs):
+            raise ContextEvidenceError("selected source_refs are invalid")
+        if not isinstance(item["evidence_digest"], str) or not re.fullmatch(r"[0-9a-f]{64}", item["evidence_digest"]):
+            raise ContextEvidenceError("selected evidence_digest is invalid")
+        if item["coverage_state"] not in _CE_STATES or not isinstance(item["inclusion_reason"], str) or not 0 < len(item["inclusion_reason"]) <= 256 or item["inclusion_reason"] not in set(_CE_SAFE_REASONS.values()) | {"selection_reason_suppressed"}:
+            raise ContextEvidenceError("selected state or reason is invalid")
+        uncertainty = item["uncertainty"]
+        if not isinstance(uncertainty, Mapping) or set(uncertainty) != {"class", "score"} or uncertainty["class"] not in _CE_UNCERTAINTY_CLASSES or isinstance(uncertainty["score"], bool) or not isinstance(uncertainty["score"], (int, float)) or not 0 <= uncertainty["score"] <= 1:
+            raise ContextEvidenceError("selected uncertainty is invalid")
+        for timestamp in ("valid_at", "transaction_time", "recorded_at", "observed_at"):
+            if timestamp in item and (not isinstance(item[timestamp], str) or len(item[timestamp]) > 40):
+                raise ContextEvidenceError("selected timestamp is invalid")
+    if len(selected_ids) != len(set(selected_ids)):
+        raise ContextEvidenceError("selected candidate IDs are duplicated")
+    expected_state = _ce_aggregate_state([item["coverage_state"] for item in selected], coverage["provider_states"])
+    if coverage["state"] != expected_state:
+        raise ContextEvidenceError("coverage state does not recompute from selected evidence")
+    expected_abstention = bool(coverage["evidence_required"] and expected_state != "evidence_backed")
+    if coverage["abstention_required"] != expected_abstention:
+        raise ContextEvidenceError("abstention flag does not recompute from coverage")
+    expected_status = "abstention_required" if expected_abstention else {"evidence_backed": "complete", "partial": "degraded", "conflicted": "review", "stale": "degraded", "empty": "empty", "unavailable": "unavailable", "timeout": "unavailable"}[expected_state]
+    if projection["status"] != expected_status:
+        raise ContextEvidenceError("projection status does not recompute from coverage")
+    excluded = projection.get("excluded")
+    if not isinstance(excluded, list) or len(excluded) > _CE_MAX_EXCLUDED:
+        raise ContextEvidenceError("excluded collection is invalid")
+    for item in excluded:
+        if not isinstance(item, Mapping) or set(item) != {"candidate_id", "reason"} or not isinstance(item["candidate_id"], str) or not 0 < len(item["candidate_id"]) <= 160 or _ce_id(item["candidate_id"], "excluded.candidate_id") != item["candidate_id"] or not isinstance(item["reason"], str) or not 0 < len(item["reason"]) <= 256 or item["reason"] not in set(_CE_SAFE_REASONS.values()) | {"selection_reason_suppressed"}:
+            raise ContextEvidenceError("excluded item shape is invalid")
+    diagnostics = projection.get("diagnostics")
+    if not isinstance(diagnostics, Mapping) or set(diagnostics) != {"relevance_is_not_truth_gate", "selected_count", "excluded_count"} or diagnostics["relevance_is_not_truth_gate"] is not True or isinstance(diagnostics["selected_count"], bool) or isinstance(diagnostics["excluded_count"], bool) or not isinstance(diagnostics["selected_count"], int) or not isinstance(diagnostics["excluded_count"], int) or diagnostics["selected_count"] != len(selected) or diagnostics["excluded_count"] != len(excluded):
+        raise ContextEvidenceError("diagnostics are invalid")
+    digest = projection.get("projection_digest")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ContextEvidenceError("projection digest is invalid")
+
+
 def verify_context_evidence(projection: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(projection, Mapping) or projection.get("schema_version") != _CE_SCHEMA_VERSION:
         return {"valid": False, "error": "unsupported evidence projection"}
     try:
         _ce_forbidden_keys(projection)
+        _ce_validate_projection_shape(projection)
         supplied = projection.get("projection_digest")
         if not isinstance(supplied, str):
             return {"valid": False, "error": "missing projection digest"}
