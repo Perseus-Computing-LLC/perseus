@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "f5b62e1"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "18996ed"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -38119,6 +38119,23 @@ def _cc_failure_for_integrations(integrations: Mapping[str, str]) -> str | None:
     return None
 
 
+def _cc_coverage_state(record: Mapping[str, Any]) -> str:
+    raw = str(record.get("coverage_state", record.get("evidence_status", ""))).strip().lower().replace(" ", "_").replace("-", "_")
+    aliases = {
+        "supported": "evidence_backed",
+        "complete": "evidence_backed",
+        "evidence_backed": "evidence_backed",
+        "degraded": "partial",
+        "contradictory": "conflicted",
+        "conflict": "conflicted",
+        "no_evidence": "empty",
+    }
+    if raw:
+        return aliases.get(raw, raw)
+    validity = _cc_validity(record)
+    return {"stale": "stale", "contradictory": "conflicted", "unavailable": "unavailable"}.get(validity, "evidence_backed")
+
+
 def _cc_uncertainty(validity: str, verified: bool, tie: bool = False) -> dict[str, Any]:
     if validity == "observed" and verified:
         cls, value = "high", 0.9
@@ -38479,6 +38496,29 @@ def context_ask(
                 "route": route,
             }
         best, score, components, overlap, _index = scored[0]
+        coverage_state = _cc_coverage_state(best)
+        if evidence_required and coverage_state != "evidence_backed":
+            if coverage_state == "conflicted":
+                status, failure, outcome = "review", "contradictory_evidence", "review"
+            elif coverage_state == "unavailable":
+                status, failure, outcome = "unavailable", "source_unavailable", "unavailable"
+            elif coverage_state == "timeout":
+                status, failure, outcome = "unavailable", "timeout", "unavailable"
+            elif coverage_state == "stale":
+                status, failure, outcome = "abstain", "source_stale", "insufficient_evidence"
+            else:
+                status, failure, outcome = "abstain", "insufficient_evidence", "insufficient_evidence"
+            return {
+                "schema_version": CONTEXT_ASK_SCHEMA_VERSION,
+                "operation": "context_ask",
+                "status": status,
+                "failure_state": failure,
+                "outcome": outcome,
+                "answer": None,
+                "source_refs": [],
+                "excluded_candidate_ids": sorted(set(excluded)),
+                "route": route,
+            }
         if overlap <= 0 or score < min_score:
             return {
                 "schema_version": CONTEXT_ASK_SCHEMA_VERSION,
