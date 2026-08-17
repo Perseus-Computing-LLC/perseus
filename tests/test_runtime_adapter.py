@@ -52,6 +52,7 @@ def _request(**extra):
         "schema_version": "perseus-runtime-request/v1",
         "request_id": "request-1",
         "execution_profile": _profile(),
+        "execution_profile_digest": _profile()["profile_digest"],
         "context_digest": "a" * 64,
         "evidence_digest": "b" * 64,
         "input_digest": "c" * 64,
