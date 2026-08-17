@@ -223,6 +223,23 @@ class CompilationBudget:
     max_bytes: int | None = None
     deadline_s: float = 30.0
 
+    def __post_init__(self) -> None:
+        for field_name in ("max_nodes", "max_depth", "max_fanout", "max_tokens"):
+            value = getattr(self, field_name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ContextDagError(f"{field_name} must be a positive integer")
+        if self.max_bytes is not None and (
+            isinstance(self.max_bytes, bool) or not isinstance(self.max_bytes, int) or self.max_bytes < 1
+        ):
+            raise ContextDagError("max_bytes must be a positive integer or None")
+        if (
+            isinstance(self.deadline_s, bool)
+            or not isinstance(self.deadline_s, (int, float))
+            or not math.isfinite(float(self.deadline_s))
+            or self.deadline_s <= 0
+        ):
+            raise ContextDagError("deadline_s must be a finite positive number")
+
     def ledger(self) -> "BudgetLedger":
         return BudgetLedger(self)
 

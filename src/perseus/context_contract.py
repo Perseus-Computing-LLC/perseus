@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import math
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -33,6 +34,7 @@ CONTEXT_MAX_QUESTION_CHARS = 512
 CONTEXT_MAX_TASK_CHARS = 512
 PROJECTION_MAX_RECORDS = 64
 PROJECTION_MAX_CHARS = 8192
+CONTEXT_MAX_SOURCE_REFS = 64
 
 _VALIDITY_STATES = frozenset({
     "observed", "derived", "inferred", "stale", "contradictory", "unavailable", "unknown",
@@ -341,6 +343,8 @@ def _cc_source_ids(record: Mapping[str, Any], candidate_id: str) -> list[str]:
             values.append(record[key])
     refs = record.get("source_refs")
     if isinstance(refs, (list, tuple)):
+        if len(refs) > CONTEXT_MAX_SOURCE_REFS:
+            raise ValueError(f"{candidate_id} contains too many source references")
         values.extend(refs)
     provenance = record.get("provenance")
     if isinstance(provenance, Mapping):
@@ -352,9 +356,13 @@ def _cc_source_ids(record: Mapping[str, Any], candidate_id: str) -> list[str]:
         for key in ("source_id", "source_ref", "id"):
             if evidence.get(key):
                 values.append(evidence[key])
+    if len(values) > CONTEXT_MAX_SOURCE_REFS:
+        raise ValueError(f"{candidate_id} contains too many source references")
     if not values:
         values = [f"candidate:{candidate_id}"]
     result = sorted({_cc_safe_id(item) for item in values if _cc_safe_id(item)})
+    if len(result) > CONTEXT_MAX_SOURCE_REFS:
+        raise ValueError(f"{candidate_id} contains too many source references")
     return result
 
 
@@ -396,17 +404,36 @@ def _cc_policy(policy: Any) -> dict[str, Any]:
 def _cc_budget(budget: Any, *, default_items: int, default_chars: int) -> tuple[int, int]:
     if budget is None:
         return default_items, default_chars
+    if isinstance(budget, bool):
+        raise ValueError("budget must be an integer or object")
     if isinstance(budget, int):
-        return max(1, min(default_items, int(budget))), default_chars
+        if budget < 1:
+            raise ValueError("budget item limit must be positive")
+        return min(default_items, budget), default_chars
     if not isinstance(budget, Mapping):
         raise ValueError("budget must be an integer or object")
     raw_items = budget.get("max_items", budget.get("max_candidates", default_items))
     raw_chars = budget.get("max_chars", default_chars)
     if isinstance(raw_items, bool) or not isinstance(raw_items, int) or isinstance(raw_chars, bool) or not isinstance(raw_chars, int):
         raise ValueError("budget limits must be integers")
-    items = max(1, min(default_items, raw_items))
-    chars = max(1, min(PROJECTION_MAX_CHARS, raw_chars))
+    if raw_items < 1 or raw_chars < 1:
+        raise ValueError("budget limits must be positive")
+    items = min(default_items, raw_items)
+    chars = min(PROJECTION_MAX_CHARS, raw_chars)
     return items, chars
+
+
+def _cc_policy_controls(policy: Mapping[str, Any]) -> tuple[float, bool]:
+    raw_min_score = policy.get("min_score", 0.2)
+    if isinstance(raw_min_score, bool) or not isinstance(raw_min_score, (int, float)):
+        raise ValueError("min_score must be a finite number")
+    min_score = float(raw_min_score)
+    if not math.isfinite(min_score) or not 0.0 <= min_score <= 1.0:
+        raise ValueError("min_score must be a finite number between 0 and 1")
+    allow_content = policy.get("allow_content", False)
+    if not isinstance(allow_content, bool):
+        raise ValueError("allow_content must be boolean")
+    return min_score, allow_content
 
 
 def _cc_integrations(integrations: Any) -> dict[str, str]:
@@ -610,17 +637,20 @@ def context_rank(
     if isinstance(candidates, Mapping) and ("candidates" in candidates or "items" in candidates):
         request = dict(candidates)
         candidates = request.get("candidates", request.get("items"))
-        task = str(request.get("task", task) or "")
+        task = request.get("task", task) or ""
         scope = request.get("scope", scope)
         policy = request.get("policy", policy)
         budget = request.get("budget", budget)
         integrations = request.get("integrations", integrations)
         request_class = str(request.get("request_class", request_class) or request_class)
     try:
+        if not isinstance(task, str) or len(task) > CONTEXT_MAX_TASK_CHARS:
+            raise ValueError("task must be text within the maximum length")
         task = _cc_clean_text(task, CONTEXT_MAX_TASK_CHARS)
         if not task:
             return {"schema_version": CONTEXT_RANK_SCHEMA_VERSION, "operation": "context_rank", "status": "invalid_input", "failure_state": "invalid_input", "candidates": []}
         policy_map = _cc_policy(policy)
+        min_score, allow_content = _cc_policy_controls(policy_map)
         evidence_required = policy_map.get("evidence_required", False)
         if not isinstance(evidence_required, bool):
             raise ValueError("evidence_required must be boolean")
@@ -755,10 +785,13 @@ def context_ask(
         integrations = request.get("integrations", integrations)
         request_class = str(request.get("request_class", request_class) or request_class)
     try:
+        if not isinstance(question, str) or len(question) > CONTEXT_MAX_QUESTION_CHARS:
+            raise ValueError("question must be text within the maximum length")
         question_text = _cc_clean_text(question, CONTEXT_MAX_QUESTION_CHARS)
         if not question_text:
             return {"schema_version": CONTEXT_ASK_SCHEMA_VERSION, "operation": "context_ask", "status": "invalid_input", "failure_state": "invalid_input", "answer": None, "source_refs": []}
         policy_map = _cc_policy(policy)
+        min_score, allow_content = _cc_policy_controls(policy_map)
         evidence_required = policy_map.get("evidence_required", False)
         if not isinstance(evidence_required, bool):
             raise ValueError("evidence_required must be boolean")
@@ -776,7 +809,7 @@ def context_ask(
         scored = []
         question_terms = set(_cc_tokens(question_text))
         for index, record in enumerate(prepared):
-            text = _cc_record_text(record, allow_content=bool(policy_map.get("allow_content", False)))
+            text = _cc_record_text(record, allow_content=allow_content)
             overlap = len(question_terms.intersection(set(_cc_tokens(text + " " + _cc_scoring_text(record)))))
             score, components = _cc_rank_score(record, question_text, requested_scope)
             score += min(0.4, overlap * 0.08)
@@ -810,7 +843,7 @@ def context_ask(
                 "route": route,
             }
         best, score, components, overlap, _index = scored[0]
-        if overlap <= 0 or score < float(policy_map.get("min_score", 0.2)):
+        if overlap <= 0 or score < min_score:
             return {
                 "schema_version": CONTEXT_ASK_SCHEMA_VERSION,
                 "operation": "context_ask",
@@ -825,8 +858,10 @@ def context_ask(
         validity = str(best["_contract_validity"])
         source_refs = _cc_source_ids(best, str(best["_contract_id"]))
         integration_failure = _cc_failure_for_integrations(states)
-        has_authoritative_source = any(not ref.startswith("candidate:") for ref in source_refs)
-        if evidence_required and (validity != "observed" or not has_authoritative_source or integration_failure):
+        has_authoritative_source = any(ref.startswith(("file:", "vault:", "ledger:", "artifact:")) for ref in source_refs)
+        has_raw_body = any(isinstance(best.get(key), str) and bool(best.get(key)) for key in ("content", "body", "raw", "private_body"))
+        computed_commitment = _cc_content_commitment(best)
+        if evidence_required and (validity != "observed" or not has_authoritative_source or not has_raw_body or not computed_commitment or integration_failure):
             failure = integration_failure or "insufficient_evidence"
             return {
                 "schema_version": CONTEXT_ASK_SCHEMA_VERSION,
@@ -839,7 +874,7 @@ def context_ask(
                 "excluded_candidate_ids": sorted(set(excluded)),
                 "route": route,
             }
-        raw_answer = _cc_record_text(best, allow_content=bool(policy_map.get("allow_content", False)))
+        raw_answer = _cc_record_text(best, allow_content=allow_content)
         answer = _cc_redact(raw_answer, cfg)
         status = "complete"
         failure_state = None
