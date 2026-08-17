@@ -314,7 +314,7 @@ def test_subgraph_contains_descendants_and_fork_bumps_version():
     sub = g.subgraph([b], task_id="t-sub")
     ids = {n.node_id for n in sub.nodes}
     assert b in ids and c in ids and a not in ids
-    assert sub.meta["parent_task_id"] == "t"
+    assert sub.meta["parent_task_id"] == "sha256:" + perseus._dag_sha("t")
     forked = g.fork_version(reason="re-run")
     assert forked.version == g.version + 1
     assert forked.digest() != g.digest()
