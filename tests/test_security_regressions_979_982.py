@@ -984,3 +984,59 @@ def test_dag_verifier_rejects_wall_clock_over_deadline():
     artifact = perseus.compile_context_dag(task_id="deadline-sentinel", root=node)
     artifact["budget"]["wall_clock_s"] = artifact["budget"]["limits"]["deadline_s"] + 1000
     assert perseus.verify_compiled_dag(artifact)["valid"] is False
+
+
+
+def test_sensitive_source_reference_suffixes_are_committed_not_emitted():
+    body = "credential source body"
+    entry = _entry(
+        candidate_id="source-leak",
+        source_id="vault:api_key:SECRET_SENTINEL",
+        content=body,
+        evidence_digest=hashlib.sha256(body.encode()).hexdigest(),
+        validity_state="observed",
+        validity="observed",
+        verified=True,
+    )
+    evidence = perseus.project_context_evidence(
+        [entry],
+        provider_states={"vault": "active", "ledger": "active"},
+        evidence_required=True,
+    )
+    ranked = perseus.context_rank(
+        [entry],
+        task="credential source",
+        policy={"evidence_required": True},
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    asked = perseus.context_ask(
+        "credential source",
+        context=[entry],
+        policy={"evidence_required": True},
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    serialized = json.dumps({"evidence": evidence, "rank": ranked, "ask": asked}, sort_keys=True)
+    assert "SECRET_SENTINEL" not in serialized
+    assert "api_key" not in serialized.lower()
+    assert any(ref.startswith("vault:sha256:") for ref in evidence["selected"][0]["source_refs"])
+
+
+def test_verify_compiled_dag_rejects_malformed_uncertainty_and_graph_container():
+    node = perseus.ContextNode(kind="requirement", content="malformed sentinel")
+    artifact = perseus.compile_context_dag(task_id="malformed-sentinel", root=node)
+    malformed_uncertainty = copy.deepcopy(artifact)
+    malformed_uncertainty["graph"]["nodes"][0]["uncertainty"] = 123
+    malformed_graph = copy.deepcopy(artifact)
+    malformed_graph["graph"] = None
+    assert perseus.verify_compiled_dag(malformed_uncertainty)["valid"] is False
+    assert perseus.verify_compiled_dag(malformed_graph)["valid"] is False
+
+
+
+def test_verify_compiled_dag_rejects_non_mapping_budget_without_raising():
+    node = perseus.ContextNode(kind="requirement", content="budget container sentinel")
+    artifact = perseus.compile_context_dag(task_id="budget-container-sentinel", root=node)
+    for malformed in (123, None, [], ["not-a-pair"]):
+        candidate = copy.deepcopy(artifact)
+        candidate["budget"] = malformed
+        assert perseus.verify_compiled_dag(candidate)["valid"] is False
