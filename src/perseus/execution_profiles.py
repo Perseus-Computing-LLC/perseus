@@ -115,7 +115,7 @@ def _ep_limit(value: Any, field: str, *, maximum: int = 10_000_000) -> int:
 
 
 def _ep_optional_limit(value: Any, field: str, *, maximum: int = 10_000_000) -> int | None:
-    if value is None or value == "":
+    if value is None:
         return None
     return _ep_limit(value, field, maximum=maximum)
 
@@ -405,13 +405,62 @@ def negotiate_context_budget(
 
 
 def verify_execution_profile(resolved: Mapping[str, Any]) -> dict[str, Any]:
-    """Verify the commitment over a resolved, sanitized profile manifest."""
-    if not isinstance(resolved, Mapping) or not isinstance(resolved.get("profile_digest"), str):
-        return {"valid": False, "error": "missing profile digest"}
-    unsigned = dict(resolved)
-    supplied = unsigned.pop("profile_digest")
+    """Verify the digest and recompute every resolved profile relationship."""
+    required = {
+        "schema_version", "profile", "effective", "requirements", "resources",
+        "resource_state", "status", "diagnostics", "compilation_budget",
+        "profile_digest",
+    }
+    if not isinstance(resolved, Mapping) or set(resolved) != required:
+        return {"valid": False, "error": "resolved profile shape is invalid"}
+    supplied = resolved.get("profile_digest")
+    if not isinstance(supplied, str) or not re.fullmatch(r"[0-9a-f]{64}", supplied):
+        return {"valid": False, "error": "profile digest must be a SHA-256 string"}
     try:
-        expected = _ep_sha(unsigned)
-    except (TypeError, ValueError):
-        return {"valid": False, "error": "profile manifest is not canonical JSON"}
-    return {"valid": expected == supplied, "profile_digest": supplied, "expected_digest": expected}
+        diagnostics = resolved["diagnostics"]
+        if not isinstance(diagnostics, Mapping) or set(diagnostics) != {
+            "schema_version", "degraded", "reasons", "resource_state",
+            "abstention_required", "degradation_policy",
+        }:
+            return {"valid": False, "error": "profile diagnostics shape is invalid"}
+        reasons = diagnostics["reasons"]
+        if not isinstance(reasons, list) or any(not isinstance(reason, str) for reason in reasons):
+            return {"valid": False, "error": "profile diagnostic reasons are invalid"}
+        retrieval_reasons = {
+            "retrieval_partial": "partial",
+            "retrieval_degraded": "degraded",
+            "retrieval_unavailable": "unavailable",
+            "retrieval_timeout": "timeout",
+        }
+        retrieval_states = {retrieval_reasons[reason] for reason in reasons if reason in retrieval_reasons}
+        if len(retrieval_states) > 1 or any(
+            reason not in retrieval_reasons and reason not in {"max_depth", "max_items", "max_context_tokens", "max_context_bytes"}
+            for reason in reasons
+        ):
+            return {"valid": False, "error": "profile diagnostic reasons are invalid"}
+        retrieval_status = next(iter(retrieval_states), "complete")
+        expected = _ep_resolve_execution_profile_impl(
+            resolved["profile"],
+            requirements=resolved["requirements"] or None,
+            resources=resolved["resources"],
+            retrieval_status=retrieval_status,
+        )
+        candidate = dict(resolved)
+        candidate["profile_digest"] = expected["profile_digest"]
+        if _ep_json(candidate) != _ep_json(expected):
+            return {
+                "valid": False,
+                "profile_digest": supplied,
+                "expected_digest": expected["profile_digest"],
+                "error": "resolved profile does not recompute from its inputs",
+            }
+        unsigned = dict(resolved)
+        unsigned.pop("profile_digest")
+        expected_digest = _ep_sha(unsigned)
+    except (ExecutionProfileError, TypeError, ValueError, KeyError):
+        return {"valid": False, "error": "profile manifest is not valid"}
+    return {
+        "valid": expected_digest == supplied,
+        "profile_digest": supplied,
+        "expected_digest": expected_digest,
+    }

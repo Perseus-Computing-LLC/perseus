@@ -1,6 +1,7 @@
 """Independent regression probes for the #979-#982 security review."""
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 
@@ -210,3 +211,95 @@ def test_runtime_result_requires_the_complete_schema_envelope():
             "status": "success",
             "output": "bounded",
         })
+
+
+def _canonical_sha(value):
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
+    ).hexdigest()
+
+
+def test_forged_profile_manifest_is_rejected_at_adapter_boundary():
+    profile = perseus.resolve_execution_profile(_profile())
+    forged = copy.deepcopy(profile)
+    forged["effective"]["network_mode"] = "approved_network"
+    unsigned = dict(forged)
+    unsigned.pop("profile_digest")
+    forged["profile_digest"] = _canonical_sha(unsigned)
+    with pytest.raises(perseus.RuntimeAdapterError):
+        perseus.AdapterRequest.from_mapping(
+            _request(forged, execution_mode="approved_network")
+        )
+
+
+def test_arbitrary_source_sentinels_are_not_preserved():
+    projection = perseus.project_context_evidence([
+        _entry(source_id="safe-private-sentinel-9f2c")
+    ])
+    serialized = json.dumps(projection, sort_keys=True)
+    assert "safe-private-sentinel-9f2c" not in serialized
+    assert any(ref.startswith("sha256:") for ref in projection["selected"][0]["source_refs"])
+
+
+def test_nested_evidence_collections_are_bounded_at_production():
+    with pytest.raises(perseus.ContextEvidenceError, match="source"):
+        perseus.project_context_evidence([
+            _entry(source_refs=[f"vault:ref-{index}" for index in range(65)])
+        ])
+    with pytest.raises(perseus.ContextEvidenceError, match="provider"):
+        perseus.project_context_evidence(
+            [_entry()],
+            provider_states={f"provider-{index}": "active" for index in range(129)},
+        )
+
+
+def test_digest_fields_reject_non_string_values():
+    with pytest.raises(perseus.ContextEvidenceError, match="digest"):
+        perseus.project_context_evidence([_entry(evidence_digest=int("9" * 64))])
+    profile = _profile()
+    with pytest.raises(perseus.RuntimeAdapterError, match="context_digest"):
+        perseus.AdapterRequest.from_mapping(
+            _request(perseus.resolve_execution_profile(profile), context_digest=int("9" * 64))
+        )
+
+
+def test_dag_verifier_recomputes_budget_accounting_before_accepting_digest():
+    root = perseus.ContextNode(
+        kind="requirement",
+        content="abcd",
+        evidence={"validity": "observed", "verified": True, "source_ids": ["task"]},
+    )
+    artifact = perseus.compile_context_dag(task_id="budget-forge", root=root)
+    artifact["budget"]["bytes"] = 0
+    artifact["budget"]["limits"]["max_bytes"] = 1
+    sealed = dict(artifact["budget"])
+    sealed.pop("wall_clock_s", None)
+    artifact["compiled_digest"] = perseus._dag_sha(
+        "packet", perseus._dag_json(artifact["packet"]),
+        "verdict", perseus._dag_json(artifact["verdict"]),
+        "advisory", perseus._dag_json(artifact["advisory"]),
+        "policy", perseus._dag_json(artifact["policy"]),
+        "budget", perseus._dag_json(sealed),
+        "graph", artifact["graph"]["digest"],
+        "execution_profile", perseus._dag_json({}),
+    )
+    assert perseus.verify_compiled_dag(artifact)["valid"] is False
+
+
+def test_verifier_rejects_non_iso_timestamps():
+    projection = perseus.project_context_evidence([_entry()])
+    projection["selected"][0]["valid_at"] = "PRIVATE_RAW"
+    unsigned = dict(projection)
+    unsigned.pop("projection_digest")
+    projection["projection_digest"] = _canonical_sha(unsigned)
+    assert perseus.verify_context_evidence(projection)["valid"] is False
+
+
+def test_selected_ids_must_be_a_sequence():
+    with pytest.raises(perseus.ContextEvidenceError, match="selected_ids"):
+        perseus.project_context_evidence([_entry()], selected_ids="item-1")
+
+
+def test_malformed_empty_optional_latency_limit_is_rejected():
+    with pytest.raises(perseus.ExecutionProfileError, match="latency_target_ms"):
+        perseus.ExecutionProfile.from_mapping(_profile(latency_target_ms=""))
