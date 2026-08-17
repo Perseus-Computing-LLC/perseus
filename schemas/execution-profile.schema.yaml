@@ -1,0 +1,26 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "https://perseus.observer/schemas/execution-profile/v1"
+title: Perseus execution profile
+version: "perseus-execution-profile/v1"
+type: object
+additionalProperties: false
+required: [schema_version, profile_id, mode, max_context_tokens, max_context_bytes, max_items, max_depth, resource_class, network_mode, runtime_capabilities, degradation_policy, auth_mode]
+properties:
+  schema_version: {type: string, const: perseus-execution-profile/v1}
+  profile_id: {type: string, minLength: 1, maxLength: 160}
+  mode: {type: string, enum: [standard-local, constrained-edge, air-gapped]}
+  max_context_tokens: {type: integer, minimum: 1, maximum: 10000000}
+  max_context_bytes: {type: integer, minimum: 1, maximum: 10000000}
+  max_items: {type: integer, minimum: 1, maximum: 4096}
+  max_depth: {type: integer, minimum: 1, maximum: 128}
+  latency_target_ms: {type: [integer, 'null'], minimum: 1, maximum: 86400000}
+  resource_class: {type: string, minLength: 1, maxLength: 64}
+  network_mode: {type: string, enum: [offline, local, approved_network]}
+  runtime_capabilities:
+    type: array
+    maxItems: 32
+    items: {type: string, minLength: 1, maxLength: 160}
+  degradation_policy: {type: string, enum: [fail_closed, partial, omit_low_priority]}
+  auth_mode: {type: string, minLength: 1, maxLength: 64}
+  runtime_ref: {type: string, minLength: 1, maxLength: 160}
+  model_ref: {type: string, minLength: 1, maxLength: 160}

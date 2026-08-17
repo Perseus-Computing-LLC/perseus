@@ -90,6 +90,9 @@ MODULE_ORDER = [
     "src/perseus/speculate.py",         # ← #607: @speculate next-intent speculative prefetch (called at runtime from renderer/query/cli)
     "src/perseus/serve.py",             # ← still contains PRODUCT_PROFILES + trust CLI (not yet decomposed)
     "src/perseus/context_decision.py",  # ← #890: deterministic explainable context routing
+    "src/perseus/execution_profiles.py", # ← #980: resource-aware execution profiles and budget negotiation
+    "src/perseus/runtime_adapter.py",    # ← #981: portable local/edge runtime adapter contract
+    "src/perseus/context_evidence.py",   # ← #982: deterministic evidence/uncertainty/abstention projection
     "src/perseus/claims.py",            # ← #895: runtime-owned evidence claim verification
     "src/perseus/frontdoor.py",         # ← #896: single front-door routing and degraded modes
     "src/perseus/context_contract.py",  # ← #916/#917: bounded Rank/Ask and sanitized agent projection/release

@@ -95,6 +95,18 @@ properties:
     items: {$ref: "#/$defs/evidence"}
   projection: {$ref: "#/$defs/projection"}
   projection_digest: {type: string, pattern: "^[0-9a-f]{64}$"}
+  evidence_projection:
+    type: object
+    additionalProperties: false
+    required: [schema_version, status, coverage, selected, excluded, diagnostics, projection_digest]
+    properties:
+      schema_version: {type: string, const: perseus-context-evidence/v1}
+      status: {type: string, enum: [complete, degraded, review, empty, unavailable, abstention_required]}
+      coverage: {type: object}
+      selected: {type: array, maxItems: 64}
+      excluded: {type: array, maxItems: 128}
+      diagnostics: {type: object}
+      projection_digest: {type: string, pattern: "^[0-9a-f]{64}$"}
   selection:
     type: array
     maxItems: 64
