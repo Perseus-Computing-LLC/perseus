@@ -47,8 +47,8 @@ def test_success_projection_is_deterministic_sanitized_and_traceable():
     serialized = json.dumps(projection, sort_keys=True).lower()
     for forbidden in ("prompt", "private_body", "api_key", "authorization", "password"):
         assert forbidden not in serialized
-    assert perseus.verify_context_evidence(projection)["valid"] is True
-    assert perseus.render_context_evidence(projection) == perseus.render_context_evidence(projection)
+    assert perseus.verify_context_evidence(projection, [_entry()])["valid"] is True
+    assert perseus.render_context_evidence(projection, [_entry()]) == perseus.render_context_evidence(projection, [_entry()])
 
 
 def test_states_remain_distinct_and_evidence_required_abstains():

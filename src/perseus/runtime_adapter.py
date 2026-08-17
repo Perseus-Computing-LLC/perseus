@@ -73,9 +73,25 @@ def _ra_text(value: Any, field: str, *, max_length: int = 160, allow_empty: bool
     return text
 
 
+_RA_SECRET_ASSIGNMENT_RE = re.compile(
+    r"(?i)(\b(?:api[_-]?key|password|passwd|secret|token|authorization|bearer|credential)\s*[:=]\s*)([^\s,;]+)"
+)
+_RA_URI_USERINFO_RE = re.compile(r"(?i)([A-Za-z][A-Za-z0-9+.-]*://)([^/@\s:]+)(?::[^/@\s]*)?@")
+_RA_RAW_FIELD_RE = re.compile(r'(?i)(?:\b(?:prompt|body|content|credentials?|private[_-]?body|raw[_-]?payload)\s*[:=]|[\"\'](?:prompt|body|content|credentials?|private[_-]?body|raw[_-]?payload)[\"\']\s*:)' )
+
+
+def _ra_public_text(value: Any, field: str, *, max_length: int = 160, allow_empty: bool = False) -> str:
+    text = _ra_text(value, field, max_length=max_length, allow_empty=allow_empty)
+    text = _RA_URI_USERINFO_RE.sub(r"\1[REDACTED]@", text)
+    text = _RA_SECRET_ASSIGNMENT_RE.sub(r"\1[REDACTED]", text)
+    if _RA_RAW_FIELD_RE.search(text):
+        return "[REDACTED]"
+    return text
+
+
 def _ra_id(value: Any, field: str, *, allow_empty: bool = False) -> str:
     text = _ra_text(value, field, allow_empty=allow_empty)
-    if any(marker in text for marker in ("://", "@", "?", "&", "=")):
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", text) or any(marker in text for marker in ("://", "@", "?", "&", "=")):
         raise RuntimeAdapterError(f"{field} must not contain URI/userinfo/query syntax")
     if text and not _RA_ID_RE.fullmatch(text):
         raise RuntimeAdapterError(f"{field} must be a bounded identifier")
@@ -304,6 +320,12 @@ class AdapterResult:
     error_message: str | None
     external_fallback_allowed: bool = False
 
+    def __post_init__(self) -> None:
+        if self.output is not None:
+            object.__setattr__(self, "output", _ra_public_text(self.output, "output", max_length=1_000_000, allow_empty=True))
+        if self.error_message is not None:
+            object.__setattr__(self, "error_message", _ra_public_text(self.error_message, "error_message", max_length=256))
+
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "AdapterResult") -> "AdapterResult":
         if isinstance(value, cls):
@@ -324,7 +346,7 @@ class AdapterResult:
             raise RuntimeAdapterError("unsupported runtime result status")
         output = value["output"]
         if output is not None:
-            output = _ra_text(output, "output", max_length=1_000_000, allow_empty=True)
+            output = _ra_public_text(output, "output", max_length=1_000_000, allow_empty=True)
         usage_raw = value["usage"]
         if not isinstance(usage_raw, Mapping) or set(usage_raw) - _RA_USAGE_FIELDS:
             raise RuntimeAdapterError("usage contains unsupported fields")
@@ -342,7 +364,7 @@ class AdapterResult:
             error_code = _ra_id(error_code, "error_code")
         error_message = value["error_message"]
         if error_message is not None:
-            error_message = _ra_text(error_message, "error_message", max_length=256)
+            error_message = _ra_public_text(error_message, "error_message", max_length=256)
         fallback = value["external_fallback_allowed"]
         if fallback is not False:
             raise RuntimeAdapterError("external fallback is permanently disabled by the core contract")
@@ -458,7 +480,7 @@ class ReferenceRuntimeAdapter:
         if behavior not in _RA_RESULT_STATUSES:
             raise RuntimeAdapterError("unsupported reference adapter behavior")
         self.behavior = behavior
-        self.output = _ra_text(output, "output", max_length=1_000_000, allow_empty=True)
+        self.output = _ra_public_text(output, "output", max_length=1_000_000, allow_empty=True)
 
     def invoke(self, request: Mapping[str, Any] | AdapterRequest) -> AdapterResult:
         try:
