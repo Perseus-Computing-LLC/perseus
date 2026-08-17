@@ -132,7 +132,7 @@ def test_budget_max_fanout_and_tokens():
 
 def test_budget_wall_clock_fails_closed():
     g = DAG(task_id="t")
-    ledger = Budget(deadline_s=-1.0).ledger()  # already past deadline
+    ledger = Budget(deadline_s=1e-12).ledger()  # expires before the next operation
     with pytest.raises(perseus.BudgetExceeded) as e:
         g.add_node(rec("x"), ledger, depth=0)
     assert e.value.kind == "wall_clock"

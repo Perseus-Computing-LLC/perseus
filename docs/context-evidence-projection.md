@@ -46,12 +46,18 @@ if projection["coverage"]["abstention_required"]:
 Each selected item contains only a bounded candidate ID, sanitized source
 references, an evidence digest, valid/transaction/recorded timestamps when they
 match the contract, an uncertainty descriptor, and a bounded inclusion reason.
+Source references are restricted to the public `file:`, `vault:`, `ledger:`, and
+`artifact:` namespaces; arbitrary namespaces and URI-like values are rejected.
 The projection never emits source bodies, prompts, credentials, or raw tool
-arguments. If a caller supplies a body solely to establish a commitment, only
-its SHA-256 crosses the boundary.
+arguments. A caller must supply a text body when it claims evidence-backed
+coverage: the digest is recomputed from those UTF-8 bytes, and digest-only
+caller claims are excluded rather than trusted.
 
-`verify_context_evidence()` recomputes the digest. `render_context_evidence()`
-produces deterministic Markdown after verification. The digest excludes no
+For `evidence_required=True`, the provider map must explicitly attest active
+Vault and Ledger states; missing providers become `not_configured` and force
+abstention. `verify_context_evidence()` recomputes the projection digest and
+validates the provider/source/coverage relationships. `render_context_evidence()`
+produces deterministic Markdown only after verification. The digest excludes no
 meaningful evidence field; it simply omits volatile execution timestamps because
 this projection does not generate any.
 
@@ -67,3 +73,4 @@ The projection is a view over caller-owned normalized records. Vault remains the
 durable memory/retrieval authority; Ledger remains the evidence/provenance
 surface; the adapter seam in #981 consumes commitments rather than copying
 private context.
+
