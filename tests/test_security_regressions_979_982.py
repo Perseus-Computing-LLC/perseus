@@ -627,3 +627,24 @@ def test_agent_projection_selection_reason_uses_only_allowlisted_rank_reasons():
     rendered = json.dumps(result, sort_keys=True)
     assert "PRIVATE_SCALAR_SENTINEL_birth_date_2010" not in rendered
     assert result["projection"]["items"][0]["selection_reason"] == "scope_match; policy_allowed; task_term_match; source_validity"
+
+
+@pytest.mark.parametrize("status", ["empty", "partial", "stale", "conflicted", "unavailable", "timeout"])
+def test_context_ask_propagates_status_alias_when_evidence_is_required(status):
+    body = "The signed release path is used."
+    result = perseus.context_ask(
+        "Which signed release path is used?",
+        context=[{
+            "candidate_id": "status-alias-" + status,
+            "summary": body,
+            "source_id": "vault:status-alias-" + status,
+            "validity": "observed",
+            "status": status,
+            "content": body,
+            "evidence_digest": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+        }],
+        policy={"evidence_required": True},
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    assert result["answer"] is None
+    assert result["status"] in {"abstain", "review", "unavailable"}
