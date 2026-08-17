@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "3363acd"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "aeaf12c"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -36308,15 +36308,39 @@ def _ra_text(value: Any, field: str, *, max_length: int = 160, allow_empty: bool
 _RA_SECRET_ASSIGNMENT_RE = re.compile(
     r"(?i)(\b(?:api[_-]?key|password|passwd|secret|token|authorization|bearer|credential)\s*[:=]\s*)([^\s,;]+)"
 )
-_RA_URI_USERINFO_RE = re.compile(r"(?i)([A-Za-z][A-Za-z0-9+.-]*://)([^/@\s:]+)(?::[^/@\s]*)?@")
+# Permit an empty username: `scheme://:password@host` is still credential-bearing.
+_RA_URI_USERINFO_RE = re.compile(r"(?i)([A-Za-z][A-Za-z0-9+.-]*://)([^/@\s:]*)(?::[^/@\s]*)?@")
 _RA_RAW_FIELD_RE = re.compile(r'(?i)(?:\b(?:prompt|body|content|credentials?|private[_-]?body|raw[_-]?payload)\s*[:=]|[\"\'](?:prompt|body|content|credentials?|private[_-]?body|raw[_-]?payload)[\"\']\s*:)' )
+_RA_RAW_FIELD_NAMES = frozenset({"prompt", "body", "content", "credential", "credentials", "private_body", "raw_payload"})
+
+
+def _ra_decoded_raw_field(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            if isinstance(key, str) and key.casefold().replace("-", "_") in _RA_RAW_FIELD_NAMES:
+                return True
+            if _ra_decoded_raw_field(child):
+                return True
+    elif isinstance(value, list):
+        return any(_ra_decoded_raw_field(child) for child in value)
+    return False
+
+
+def _ra_contains_raw_field(text: str) -> bool:
+    if _RA_RAW_FIELD_RE.search(text):
+        return True
+    try:
+        decoded = json.loads(text)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return False
+    return _ra_decoded_raw_field(decoded)
 
 
 def _ra_public_text(value: Any, field: str, *, max_length: int = 160, allow_empty: bool = False) -> str:
     text = _ra_text(value, field, max_length=max_length, allow_empty=allow_empty)
     text = _RA_URI_USERINFO_RE.sub(r"\1[REDACTED]@", text)
     text = _RA_SECRET_ASSIGNMENT_RE.sub(r"\1[REDACTED]", text)
-    if _RA_RAW_FIELD_RE.search(text):
+    if _ra_contains_raw_field(text):
         return "[REDACTED]"
     return text
 
@@ -36553,10 +36577,42 @@ class AdapterResult:
     external_fallback_allowed: bool = False
 
     def __post_init__(self) -> None:
-        if self.output is not None:
-            object.__setattr__(self, "output", _ra_public_text(self.output, "output", max_length=1_000_000, allow_empty=True))
-        if self.error_message is not None:
-            object.__setattr__(self, "error_message", _ra_public_text(self.error_message, "error_message", max_length=256))
+        # Dataclasses are public construction paths too.  Reapply the complete
+        # envelope contract here; callers must not bypass from_mapping by
+        # instantiating a frozen result directly.
+        if self.schema_version != _RA_RESULT_SCHEMA:
+            raise RuntimeAdapterError("unsupported runtime result schema version")
+        request_id = _ra_id(self.request_id, "request_id")
+        status = _ra_text(self.status, "status", max_length=32)
+        if status not in _RA_RESULT_STATUSES:
+            raise RuntimeAdapterError("unsupported runtime result status")
+        output = None if self.output is None else _ra_public_text(self.output, "output", max_length=1_000_000, allow_empty=True)
+        if not isinstance(self.usage, Mapping) or set(self.usage) - _RA_USAGE_FIELDS:
+            raise RuntimeAdapterError("usage contains unsupported fields")
+        usage: dict[str, int] = {}
+        for key, raw in self.usage.items():
+            if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+                raise RuntimeAdapterError(f"usage.{key} must be a non-negative integer")
+            usage[key] = raw
+        if not isinstance(self.runtime, Mapping) or set(self.runtime) - _RA_RUNTIME_FIELDS:
+            raise RuntimeAdapterError("runtime provenance contains unsupported fields")
+        _ra_forbidden_keys(self.runtime, "runtime")
+        runtime = {str(key): _ra_id(raw, f"runtime.{key}") for key, raw in self.runtime.items()}
+        error_code = None if self.error_code is None else _ra_id(self.error_code, "error_code")
+        error_message = None if self.error_message is None else _ra_public_text(self.error_message, "error_message", max_length=256)
+        if self.external_fallback_allowed is not False:
+            raise RuntimeAdapterError("external fallback is permanently disabled by the core contract")
+        if status in {"success", "partial"} and output is None:
+            raise RuntimeAdapterError("successful result requires bounded output")
+        if status not in {"success", "partial"} and output is not None:
+            raise RuntimeAdapterError("non-success result cannot carry output")
+        object.__setattr__(self, "request_id", request_id)
+        object.__setattr__(self, "status", status)
+        object.__setattr__(self, "output", output)
+        object.__setattr__(self, "usage", usage)
+        object.__setattr__(self, "runtime", runtime)
+        object.__setattr__(self, "error_code", error_code)
+        object.__setattr__(self, "error_message", error_message)
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "AdapterResult") -> "AdapterResult":
@@ -37895,7 +37951,7 @@ def _cc_scope(value: Any, *, strict: bool = False) -> dict[str, str]:
         return {}
     if isinstance(value, str):
         text = value.strip()
-        return {"workspace": text[:160]} if text else {}
+        return {"workspace": _cc_safe_id(text)} if text else {}
     if not isinstance(value, Mapping):
         raise ValueError("scope must be a string or object")
     allowed = ("tenant", "workspace", "topic", "agent", "request_class")
@@ -40332,6 +40388,10 @@ def verify_compiled_dag(artifact: dict) -> dict:
     selected = artifact.get("selected_node_ids")
     if not isinstance(selected, list) or any(not isinstance(nid, str) for nid in selected):
         return {"valid": False, "errors": ["selected_node_ids must be a list of strings"]}
+    if len(selected) != len(set(selected)):
+        errors.append("selected_node_ids must be unique")
+    if graph.nodes and not selected:
+        errors.append("a non-empty graph requires a non-empty selected-node set")
     for nid in selected:
         if graph.node(nid) is None:
             errors.append(f"selected node {nid!r} missing from graph")
