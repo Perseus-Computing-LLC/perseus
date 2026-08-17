@@ -503,7 +503,7 @@ def _cc_missing_attestation(integrations: Mapping[str, str]) -> bool:
 
 
 def _cc_coverage_state(record: Mapping[str, Any]) -> str:
-    raw = str(record.get("coverage_state", record.get("evidence_status", ""))).strip().lower().replace(" ", "_").replace("-", "_")
+    raw = str(record.get("coverage_state", record.get("evidence_status", record.get("status", "")))).strip().lower().replace(" ", "_").replace("-", "_")
     aliases = {
         "supported": "evidence_backed",
         "complete": "evidence_backed",
