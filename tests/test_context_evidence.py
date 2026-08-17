@@ -81,15 +81,12 @@ def test_score_does_not_become_a_truth_gate_and_exclusions_are_bounded():
     assert projection["excluded"] == [{"candidate_id": "missing", "reason": "scope mismatch"}]
 
 
-def test_raw_material_is_never_emitted_even_when_used_for_digest():
-    projection = perseus.project_context_evidence(
-        [_entry(content="password=top-secret", body="private body")],
-        evidence_required=True,
-    )
-    serialized = json.dumps(projection, sort_keys=True).lower()
-    assert "top-secret" not in serialized
-    assert "private body" not in serialized
-    assert projection["selected"][0]["evidence_digest"]
+def test_raw_material_digest_mismatch_is_rejected_before_projection():
+    with pytest.raises(perseus.ContextEvidenceError, match="evidence"):
+        perseus.project_context_evidence(
+            [_entry(content="password=top-secret", body="private body")],
+            evidence_required=True,
+        )
 
 
 def test_item_without_source_reference_is_excluded_even_with_a_digest():
