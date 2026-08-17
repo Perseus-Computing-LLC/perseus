@@ -79,8 +79,8 @@ _RA_SECRET_ASSIGNMENT_RE = re.compile(
 )
 # Permit an empty username: `scheme://:password@host` is still credential-bearing.
 _RA_URI_USERINFO_RE = re.compile(r"(?i)([A-Za-z][A-Za-z0-9+.-]*://)([^/@\s:]*)(?::[^/@\s]*)?@")
-_RA_RAW_FIELD_RE = re.compile(r'(?i)(?:\b(?:prompt|body|content|credentials?|private[_-]?body|raw[_-]?payload)\s*[:=]|[\"\'](?:prompt|body|content|credentials?|private[_-]?body|raw[_-]?payload)[\"\']\s*:)' )
-_RA_RAW_FIELD_NAMES = frozenset({"prompt", "body", "content", "credential", "credentials", "private_body", "raw_payload"})
+_RA_RAW_FIELD_RE = re.compile(r'(?i)(?:\b(?:prompt|body|content|credentials?|api[_-]?key|authorization|bearer|private[_-]?body|raw[_-]?payload)\s*[:=]|[\"\'](?:prompt|body|content|credentials?|api[_-]?key|authorization|bearer|private[_-]?body|raw[_-]?payload)[\"\']\s*:)' )
+_RA_RAW_FIELD_NAMES = frozenset({"prompt", "body", "content", "credential", "credentials", "api_key", "authorization", "bearer", "private_body", "raw_payload"})
 
 
 def _ra_decoded_raw_field(value: Any) -> bool:
@@ -108,6 +108,8 @@ def _ra_contains_raw_field(text: str) -> bool:
 def _ra_public_text(value: Any, field: str, *, max_length: int = 160, allow_empty: bool = False) -> str:
     text = _ra_text(value, field, max_length=max_length, allow_empty=allow_empty)
     text = _RA_URI_USERINFO_RE.sub(r"\1[REDACTED]@", text)
+    text = re.sub(r"(?i)(\bauthorization\s*[:=]\s*(?:bearer\s+)?)[^\s,;]+", r"\1[REDACTED]", text)
+    text = re.sub(r"(?i)(\bbearer\s+)[^\s,;]+", r"\1[REDACTED]", text)
     text = _RA_SECRET_ASSIGNMENT_RE.sub(r"\1[REDACTED]", text)
     if _ra_contains_raw_field(text):
         return "[REDACTED]"
