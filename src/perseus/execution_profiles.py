@@ -240,7 +240,9 @@ def _ep_requirements(value: Mapping[str, Any] | None) -> dict[str, Any]:
         raise ExecutionProfileError(f"unsupported profile requirements: {sorted(map(str, unknown))}")
     result: dict[str, Any] = {}
     for field in ("max_context_tokens", "max_context_bytes", "max_items", "max_depth", "latency_target_ms"):
-        if field in value and value[field] is not None:
+        if field in value:
+            if value[field] is None:
+                raise ExecutionProfileError(f"requirements.{field} must be a positive integer")
             result[field] = _ep_limit(value[field], f"requirements.{field}", maximum=86_400_000 if field == "latency_target_ms" else 10_000_000)
     required = value.get("required_capabilities", ())
     if isinstance(required, str):

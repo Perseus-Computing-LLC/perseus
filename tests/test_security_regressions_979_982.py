@@ -346,3 +346,65 @@ def test_context_ask_abstains_when_evidence_is_required_but_not_observed():
     )
     assert result["status"] == "abstain"
     assert result["answer"] is None
+
+
+def test_context_rank_propagates_required_evidence_abstention_to_top_level():
+    for integration_state in ("not_configured", "timeout"):
+        result = perseus.context_rank(
+            [_entry(validity_state="partial")],
+            task="bounded evidence summary",
+            policy={"evidence_required": True},
+            integrations={"vault": integration_state, "ledger": "active"},
+        )
+        assert result["status"] == "abstain"
+        assert result["evidence_projection"]["coverage"]["abstention_required"] is True
+
+
+def test_incomplete_integration_maps_do_not_default_missing_providers_to_active():
+    result = perseus.context_rank(
+        [_entry()],
+        task="bounded evidence summary",
+        integrations={"vault": "active"},
+    )
+    assert result["status"] != "complete"
+    assert result["failure_state"] == "ledger_unavailable"
+
+
+def test_explicit_none_hard_profile_requirements_are_rejected():
+    with pytest.raises(perseus.ExecutionProfileError, match="max_context_tokens"):
+        perseus.resolve_execution_profile(
+            _profile(), requirements={"max_context_tokens": None}
+        )
+
+
+def test_evidence_writer_rejects_oversized_source_reference_collections():
+    with pytest.raises(perseus.ContextEvidenceError):
+        perseus.project_context_evidence([_entry(source_refs=[f"vault:item-{i}" for i in range(65)])])
+
+
+def test_context_ask_rejects_conflicting_raw_body_aliases():
+    result = perseus.context_ask(
+        "Which signed release path is used?",
+        context=[{
+            "candidate_id": "conflicting-body",
+            "summary": "The signed release path is used.",
+            "source_id": "vault:conflicting-body",
+            "validity": "observed",
+            "content": "private-A",
+            "body": "private-B",
+        }],
+    )
+    assert result["status"] == "invalid_input"
+
+
+def test_context_operations_reject_non_text_raw_body_aliases():
+    result = perseus.context_ask(
+        "Which signed release path is used?",
+        context=[{
+            "candidate_id": "binary-body",
+            "summary": "The signed release path is used.",
+            "source_id": "vault:binary-body",
+            "content": b"private-body",
+        }],
+    )
+    assert result["status"] == "invalid_input"
