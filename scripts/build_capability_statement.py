@@ -366,7 +366,7 @@ def build(profile_name: str, profile: dict, claims: dict) -> Path:
     facts = Table([[
         fact_block("Company", [
             ("Legal name", "Perseus Computing LLC"),
-            ("Business", "U.S. small business · founder-led technical access"),
+            ("Business", "U.S. small business · technical access"),
             ("UEI / CAGE", "PJS2LW7HAK35 / 22JC5"),
             ("NAICS", "541715 · 541511 · 541512"),
             ("SAM.gov", "Active — All Awards"),
@@ -400,7 +400,7 @@ def build(profile_name: str, profile: dict, claims: dict) -> Path:
     story.append(Spacer(1, 12))
     boundary = Table([[
         rich("<b>DEPLOYMENT BOUNDARY</b><br/>Run the context, memory, and evidence layers where the program keeps its working data. Air-gapped, on-premises, private VPC, and controlled-network deployment are supported postures.", st["body_tiny"]),
-        rich("<b>CONTACT</b><br/>Thomas Connally, Founder<br/>perseus@perseus.observer", st["body_tiny"]),
+        rich("<b>CONTACT</b><br/>perseus@perseus.observer", st["body_tiny"]),
     ]], colWidths=[4.72 * inch, 2.63 * inch])
     boundary.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (0, 0), PALE_BLUE),

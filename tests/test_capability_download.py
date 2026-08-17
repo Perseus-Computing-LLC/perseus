@@ -47,7 +47,9 @@ def test_tailored_capability_artifacts_exist_and_public_copy_is_not_internal_wor
 
 def test_government_landing_is_single_purpose_and_exposes_all_three_custom_routes():
     landing = (ROOT / "government" / "index.html").read_text(encoding="utf-8")
-    assert "Capability" in landing and "statement." in landing
+    assert "Mission fit for" in landing and "controlled AI" in landing
+    assert "Email Thomas" not in landing
+    assert "Thomas Connally" not in landing
     assert "Choose the version for the conversation." in landing
     assert "Cyber-Networks.pdf" in landing
     assert "C3BM.pdf" in landing
