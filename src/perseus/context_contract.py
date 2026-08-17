@@ -202,7 +202,7 @@ def _cc_scope(value: Any, *, strict: bool = False) -> dict[str, str]:
         return {}
     if isinstance(value, str):
         text = value.strip()
-        return {"workspace": text[:160]} if text else {}
+        return {"workspace": _cc_safe_id(text)} if text else {}
     if not isinstance(value, Mapping):
         raise ValueError("scope must be a string or object")
     allowed = ("tenant", "workspace", "topic", "agent", "request_class")
