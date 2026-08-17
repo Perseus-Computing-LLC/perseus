@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Mapping
 
 from perseus.execution_profiles import ExecutionProfileError, verify_execution_profile
@@ -338,8 +339,8 @@ class AdapterResult:
     request_id: str
     status: str
     output: str | None
-    usage: dict[str, int]
-    runtime: dict[str, str]
+    usage: Mapping[str, int]
+    runtime: Mapping[str, str]
     error_code: str | None
     error_message: str | None
     external_fallback_allowed: bool = False
@@ -377,8 +378,8 @@ class AdapterResult:
         object.__setattr__(self, "request_id", request_id)
         object.__setattr__(self, "status", status)
         object.__setattr__(self, "output", output)
-        object.__setattr__(self, "usage", usage)
-        object.__setattr__(self, "runtime", runtime)
+        object.__setattr__(self, "usage", MappingProxyType(usage))
+        object.__setattr__(self, "runtime", MappingProxyType(runtime))
         object.__setattr__(self, "error_code", error_code)
         object.__setattr__(self, "error_message", error_message)
 

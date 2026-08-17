@@ -762,3 +762,180 @@ def test_compiled_dag_rejects_resigned_duplicate_or_empty_selection(mutation):
         artifact["packet"] = []
     checked = perseus.verify_compiled_dag(_resign_dag_for_test(artifact))
     assert checked["valid"] is False
+
+
+
+def test_agent_projection_propagates_evidence_required_abstention():
+    scope = {"workspace": "agent-evidence-gate"}
+    body = "signed release"
+    record = {
+        "candidate_id": "agent-evidence-item",
+        "agent_text": body,
+        "content": body,
+        "source_id": "vault:agent-evidence",
+        "scope": scope,
+        "validity_state": "observed",
+        "validity": "observed",
+        "verified": True,
+        "evidence_digest": hashlib.sha256(body.encode()).hexdigest(),
+    }
+    perseus.agent_projection_consent(
+        agent_id="agent-evidence-gate-agent",
+        scope=scope,
+        permissions={"release": True},
+        _authority_verified=True,
+        _grantor_id="agent-evidence-gate-grantor",
+    )
+    result = perseus.agent_projection_preview(
+        [record],
+        agent_id="agent-evidence-gate-agent",
+        scope=scope,
+        task="signed release",
+        policy={"evidence_required": True},
+    )
+    assert result["status"] != "complete"
+    assert result["release_decision"] != "ready"
+
+
+def test_context_ask_evidence_required_rejects_synthetic_source_reference():
+    result = perseus.context_ask(
+        "answer body",
+        context=[{
+            "candidate_id": "missing-source-item",
+            "agent_text": "answer body",
+            "content": "answer body",
+            "validity_state": "observed",
+            "validity": "observed",
+            "verified": True,
+        }],
+        policy={"evidence_required": True},
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    assert result["status"] != "complete"
+    assert result.get("answer") is None
+    assert result.get("source_refs") == []
+
+
+def test_allow_private_never_releases_private_scalars():
+    scope = {"workspace": "private-boundary"}
+    body = "PRIVATE_SCALAR_SENTINEL"
+    record = {
+        "candidate_id": "private-boundary-item",
+        "agent_text": body,
+        "content": body,
+        "source_id": "vault:private-boundary",
+        "scope": scope,
+        "private": True,
+        "validity_state": "observed",
+        "validity": "observed",
+        "verified": True,
+        "evidence_digest": hashlib.sha256(body.encode()).hexdigest(),
+    }
+    perseus.agent_projection_consent(
+        agent_id="private-boundary-agent",
+        scope=scope,
+        permissions={"release": True},
+        _authority_verified=True,
+        _grantor_id="private-boundary-grantor",
+    )
+    result = perseus.agent_projection_preview(
+        [record],
+        agent_id="private-boundary-agent",
+        scope=scope,
+        task="private release",
+        policy={"allow_private": True},
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    assert "PRIVATE_SCALAR_SENTINEL" not in json.dumps(result, sort_keys=True)
+
+
+def test_adapter_result_mappings_are_immutable_after_validation():
+    result = perseus.AdapterResult(
+        schema_version="perseus-runtime-result/v1",
+        request_id="immutable-result",
+        status="success",
+        output="ok",
+        usage={},
+        runtime={},
+        error_code=None,
+        error_message=None,
+        external_fallback_allowed=False,
+    )
+    with pytest.raises(TypeError):
+        result.usage["input_tokens"] = -1
+    with pytest.raises(TypeError):
+        result.runtime["api_key"] = "SECRET"
+
+
+def _resign_dag_with_profile_presence(artifact, profile_present):
+    graph = perseus.ContextDAG.from_dict(artifact["graph"])
+    budget = dict(artifact["budget"])
+    budget.pop("wall_clock_s", None)
+    profile = artifact.get("execution_profile", {}) if profile_present else {}
+    parts = [
+        "packet", perseus._dag_json(artifact["packet"]),
+        "verdict", perseus._dag_json(artifact["verdict"]),
+        "advisory", perseus._dag_json(artifact["advisory"]),
+        "policy", perseus._dag_json(artifact["policy"]),
+        "budget", perseus._dag_json(budget),
+        "graph", graph.digest(),
+        "execution_profile_present", profile_present,
+        "execution_profile", perseus._dag_json(profile),
+    ]
+    if profile_present:
+        parts.extend([
+            "profile_status", artifact.get("status"),
+            "profile_diagnostics", perseus._dag_json(artifact.get("profile_diagnostics", {})),
+        ])
+    artifact["compiled_digest"] = perseus._dag_sha(*parts)
+    return artifact
+
+
+def test_profile_backed_dag_cannot_drop_profile_envelope_after_resigning():
+    profile = {
+        "schema_version": "perseus-execution-profile/v1",
+        "profile_id": "profile-envelope-sentinel",
+        "mode": "constrained-edge",
+        "max_context_tokens": 2048,
+        "max_context_bytes": 8192,
+        "max_items": 4,
+        "max_depth": 2,
+        "latency_target_ms": 1000,
+        "resource_class": "edge",
+        "network_mode": "offline",
+        "runtime_capabilities": [],
+        "degradation_policy": "partial",
+        "auth_mode": "none",
+    }
+    node = perseus.ContextNode(kind="requirement", content="compile", evidence={"validity": "observed", "verified": True, "source_ids": ["file:root"]})
+    artifact = perseus.compile_context_dag(task_id="profile-envelope-sentinel", root=node, execution_profile=profile)
+    tampered = copy.deepcopy(artifact)
+    for key in ("execution_profile", "execution_profile_digest", "profile_diagnostics", "status"):
+        tampered.pop(key, None)
+    tampered["execution_profile_present"] = False
+    assert perseus.verify_compiled_dag(_resign_dag_with_profile_presence(tampered, False))["valid"] is False
+
+
+def test_malformed_dag_node_content_fails_closed_without_crashing():
+    node = perseus.ContextNode(kind="requirement", content="compile", evidence={"validity": "observed", "verified": True, "source_ids": ["file:root"]})
+    artifact = perseus.compile_context_dag(task_id="malformed-node-sentinel", root=node)
+    graph = copy.deepcopy(artifact["graph"])
+    raw = graph["nodes"][0]
+    raw["content"] = 123
+    raw["summary"] = "safe summary"
+    raw["content_ref"] = perseus._dag_sha(123)
+    raw["node_id"] = perseus._dag_sha(raw["kind"], raw["content_ref"], perseus._dag_json(raw["evidence"]), raw["version"], perseus._dag_json(raw["meta"]))
+    graph["digest"] = perseus._dag_sha(
+        graph["task_id"],
+        ",".join(sorted(item["node_id"] for item in graph["nodes"])),
+        ",".join(sorted(item["edge_id"] for item in graph["edges"])),
+        graph["version"],
+        perseus._dag_json(graph["meta"]),
+    )
+    tampered = copy.deepcopy(artifact)
+    tampered["graph"] = graph
+    try:
+        result = perseus.verify_compiled_dag(tampered)
+    except Exception as exc:  # pragma: no cover - assertion gives a useful failure
+        pytest.fail(f"malformed DAG crashed verifier: {type(exc).__name__}: {exc}")
+    assert result["valid"] is False
