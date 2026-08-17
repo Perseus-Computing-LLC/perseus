@@ -55,11 +55,15 @@ caller claims are excluded rather than trusted.
 
 For `evidence_required=True`, the provider map must explicitly attest active
 Vault and Ledger states; missing providers become `not_configured` and force
-abstention. `verify_context_evidence()` recomputes the projection digest and
-validates the provider/source/coverage relationships. `render_context_evidence()`
-produces deterministic Markdown only after verification. The digest excludes no
-meaningful evidence field; it simply omits volatile execution timestamps because
-this projection does not generate any.
+abstention. `verify_context_evidence(projection, source_records)` recomputes each selected
+body digest and source-reference set from the supplied source records before
+checking the projection digest and provider/source/coverage relationships. A
+selected projection without source records is not considered verified;
+`render_context_evidence(projection, source_records)` likewise renders only
+after this body-bound verification. Abstention projections with no selected
+items remain structurally verifiable without source records. The digest excludes
+no meaningful evidence field; it simply omits volatile execution timestamps
+because this projection does not generate any.
 
 ## Context-contract composition
 

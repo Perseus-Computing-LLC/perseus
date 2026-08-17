@@ -418,7 +418,7 @@ def test_evidence_required_context_ask_requires_computed_body_commitment_and_tru
         policy={"evidence_required": True},
         integrations={"vault": "active", "ledger": "active"},
     )
-    assert result["status"] == "abstain"
+    assert result["status"] == "invalid_input"
     assert result["answer"] is None
 
 
@@ -544,3 +544,86 @@ def test_context_ask_propagates_explicit_coverage_state_when_evidence_is_require
     )
     assert result["answer"] is None
     assert result["status"] in {"abstain", "review", "unavailable"}
+
+
+
+def test_required_context_rank_does_not_invent_provider_attestation():
+    result = perseus.context_rank(
+        [_entry(agent_text="signed release path", summary="The signed release path is used.")],
+        task="signed release path",
+        policy={"evidence_required": True},
+    )
+    assert result["status"] == "abstain"
+    assert result["evidence_projection"]["coverage"]["provider_states"] == {
+        "vault": "not_configured", "ledger": "not_configured"
+    }
+
+
+def test_context_ask_rejects_non_public_source_namespace():
+    result = perseus.context_ask(
+        "Which signed release path is used?",
+        context=[_entry(source_id="attacker:forged", content="The signed release path is used.")],
+    )
+    assert result["status"] == "invalid_input"
+
+
+@pytest.mark.parametrize("identifier", ["file:/tmp/private", "scheme:path"])
+def test_profile_and_runtime_identifiers_reject_scheme_prefixes(identifier):
+    with pytest.raises(perseus.ExecutionProfileError):
+        perseus.ExecutionProfile.from_mapping(_profile(profile_id=identifier))
+    with pytest.raises(perseus.RuntimeAdapterError):
+        perseus.RuntimeCapabilities.from_mapping({
+            "schema_version": "perseus-runtime-capabilities/v1",
+            "backend_id": identifier,
+            "backend_version": "1",
+            "model_id": "model",
+            "model_version": "1",
+            "tokenizer_id": "tokenizer",
+            "context_capacity_tokens": 4096,
+            "execution_modes": ["offline"],
+            "streaming": False,
+            "tools": False,
+            "hardware_class": "unknown",
+            "resource_metrics": [],
+            "auth_mode": "none",
+            "provider_ref": "local",
+        })
+
+
+@pytest.mark.parametrize("max_candidates", [0, -1])
+def test_context_rank_rejects_nonpositive_max_candidates(max_candidates):
+    result = perseus.context_rank([_entry()], task="bounded evidence", policy={"max_candidates": max_candidates})
+    assert result["status"] == "invalid_input"
+
+
+
+def test_agent_projection_selection_reason_uses_only_allowlisted_rank_reasons():
+    agent_id = "reason-sentinel-agent"
+    scope = {"workspace": "reason-sentinel-workspace"}
+    perseus.agent_projection_consent(
+        agent_id=agent_id,
+        scope=scope,
+        permissions={"release": True},
+        _authority_verified=True,
+        _grantor_id="reason-sentinel-grantor",
+    )
+    body = "signed release"
+    result = perseus.agent_projection_preview(
+        [{
+            "candidate_id": "reason-sentinel-item",
+            "agent_text": body,
+            "source_id": "vault:reason-sentinel",
+            "content": body,
+            "evidence_digest": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+            "validity": "observed",
+            "selection_reason": "PRIVATE_SCALAR_SENTINEL_birth_date_2010",
+            "scope": scope,
+        }],
+        agent_id=agent_id,
+        scope=scope,
+        task="signed release",
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    rendered = json.dumps(result, sort_keys=True)
+    assert "PRIVATE_SCALAR_SENTINEL_birth_date_2010" not in rendered
+    assert result["projection"]["items"][0]["selection_reason"] == "scope_match; policy_allowed; task_term_match; source_validity"

@@ -487,12 +487,49 @@ def _ce_validate_projection_shape(projection: Mapping[str, Any]) -> None:
         raise ContextEvidenceError("projection digest is invalid")
 
 
-def verify_context_evidence(projection: Mapping[str, Any]) -> dict[str, Any]:
+def _ce_material_map(source_records: Any) -> dict[str, Mapping[str, Any]]:
+    if isinstance(source_records, Mapping):
+        values = list(source_records.values())
+    elif isinstance(source_records, Sequence) and not isinstance(source_records, (str, bytes, bytearray)):
+        values = list(source_records)
+    else:
+        raise ContextEvidenceError("source_records must be a sequence or mapping")
+    result: dict[str, Mapping[str, Any]] = {}
+    for record in values:
+        if not isinstance(record, Mapping):
+            raise ContextEvidenceError("source_records must contain objects")
+        candidate = record.get("candidate_id", record.get("id", record.get("key")))
+        candidate_id = _ce_id(candidate, "source_records.candidate_id")
+        if candidate_id in result:
+            raise ContextEvidenceError("source_records contain duplicate candidate IDs")
+        result[candidate_id] = record
+    return result
+
+
+def _ce_verify_source_material(projection: Mapping[str, Any], source_records: Any) -> None:
+    material = _ce_material_map(source_records)
+    for item in projection["selected"]:
+        candidate_id = item["candidate_id"]
+        record = material.get(candidate_id)
+        if record is None:
+            raise ContextEvidenceError("source material is missing a selected candidate")
+        digest = _ce_evidence_digest(record, candidate_id)
+        if digest is None or digest != item["evidence_digest"]:
+            raise ContextEvidenceError("selected evidence digest is not recomputed from source material")
+        if _ce_sources(record, candidate_id) != item["source_refs"]:
+            raise ContextEvidenceError("selected source references do not match source material")
+
+
+def verify_context_evidence(projection: Mapping[str, Any], source_records: Any = None) -> dict[str, Any]:
     if not isinstance(projection, Mapping) or projection.get("schema_version") != _CE_SCHEMA_VERSION:
         return {"valid": False, "error": "unsupported evidence projection"}
     try:
         _ce_forbidden_keys(projection)
         _ce_validate_projection_shape(projection)
+        if projection.get("selected") and source_records is None:
+            return {"valid": False, "error": "source material is required to verify selected evidence"}
+        if projection.get("selected"):
+            _ce_verify_source_material(projection, source_records)
         supplied = projection.get("projection_digest")
         if not isinstance(supplied, str):
             return {"valid": False, "error": "missing projection digest"}
@@ -504,8 +541,8 @@ def verify_context_evidence(projection: Mapping[str, Any]) -> dict[str, Any]:
     return {"valid": expected == supplied, "projection_digest": supplied, "expected_digest": expected}
 
 
-def render_context_evidence(projection: Mapping[str, Any]) -> str:
-    check = verify_context_evidence(projection)
+def render_context_evidence(projection: Mapping[str, Any], source_records: Any = None) -> str:
+    check = verify_context_evidence(projection, source_records)
     if not check["valid"]:
         raise ContextEvidenceError("refusing to render invalid evidence projection")
     coverage = projection["coverage"]
