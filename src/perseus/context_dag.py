@@ -994,6 +994,8 @@ def _dag_validate_budget_report(artifact: Mapping[str, Any], graph: ContextDAG,
     wall_clock = budget.get("wall_clock_s")
     if wall_clock is not None and (isinstance(wall_clock, bool) or not isinstance(wall_clock, (int, float)) or not math.isfinite(float(wall_clock)) or wall_clock < 0):
         errors.append("budget wall_clock_s is invalid")
+    elif wall_clock is not None and isinstance(deadline, (int, float)) and not isinstance(deadline, bool) and math.isfinite(float(deadline)) and wall_clock > deadline:
+        errors.append("budget wall_clock_s exceeds deadline_s")
     if isinstance(limits.get("max_nodes"), int) and observed["nodes"] > limits["max_nodes"]:
         errors.append("budget nodes exceed max_nodes")
     if isinstance(limits.get("max_depth"), int) and observed["depth"] > limits["max_depth"]:
