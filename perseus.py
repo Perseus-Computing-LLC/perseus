@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "c4988d9"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "f5b62e1"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -38067,7 +38067,9 @@ def _cc_policy_controls(policy: Mapping[str, Any]) -> tuple[float, bool]:
     allow_content = policy.get("allow_content", False)
     if not isinstance(allow_content, bool):
         raise ValueError("allow_content must be boolean")
-    return min_score, allow_content
+    if allow_content:
+        raise ValueError("raw content projection is disabled")
+    return min_score, False
 
 
 def _cc_integrations(integrations: Any) -> dict[str, str]:
