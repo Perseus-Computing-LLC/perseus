@@ -272,6 +272,46 @@ def _context_contract_output_schema() -> dict:
         "revocation_epoch": {"type": "integer", "minimum": 0},
     }, required=("schema_version", "receipt_id", "projection_digest", "release_decision", "status"))
 
+    evidence_coverage = obj({
+        "state": {"type": "string", "enum": ["evidence_backed", "partial", "conflicted", "stale", "empty", "unavailable", "timeout"]},
+        "reason": {"type": "string", "maxLength": 256},
+        "provider_states": obj({
+            "vault": {"type": "string", "enum": ["active", "partial", "degraded", "unavailable", "timeout", "not_configured"]},
+            "ledger": {"type": "string", "enum": ["active", "partial", "degraded", "unavailable", "timeout", "not_configured"]},
+        }),
+        "evidence_required": {"type": "boolean"},
+        "abstention_required": {"type": "boolean"},
+    }, required=("state", "reason", "provider_states", "evidence_required", "abstention_required"))
+    evidence_item = obj({
+        "candidate_id": string_id,
+        "source_refs": {"type": "array", "maxItems": 64, "items": string_id},
+        "evidence_digest": sha256,
+        "coverage_state": {"type": "string", "enum": ["evidence_backed", "partial", "conflicted", "stale", "empty", "unavailable", "timeout"]},
+        "uncertainty": uncertainty,
+        "inclusion_reason": {"type": "string", "maxLength": 256},
+        "valid_at": {"type": "string", "maxLength": 64},
+        "transaction_time": {"type": "string", "maxLength": 64},
+        "recorded_at": {"type": "string", "maxLength": 64},
+        "observed_at": {"type": "string", "maxLength": 64},
+    }, required=("candidate_id", "source_refs", "evidence_digest", "coverage_state", "uncertainty", "inclusion_reason"))
+    evidence_excluded = obj({
+        "candidate_id": string_id,
+        "reason": {"type": "string", "maxLength": 256},
+    }, required=("candidate_id", "reason"))
+    evidence_projection = obj({
+        "schema_version": {"type": "string", "const": "perseus-context-evidence/v1"},
+        "status": {"type": "string", "enum": ["complete", "degraded", "review", "empty", "unavailable", "abstention_required"]},
+        "coverage": evidence_coverage,
+        "selected": {"type": "array", "maxItems": 64, "items": evidence_item},
+        "excluded": {"type": "array", "maxItems": 128, "items": evidence_excluded},
+        "diagnostics": obj({
+            "relevance_is_not_truth_gate": {"type": "boolean", "const": True},
+            "selected_count": {"type": "integer", "minimum": 0},
+            "excluded_count": {"type": "integer", "minimum": 0},
+        }, required=("relevance_is_not_truth_gate", "selected_count", "excluded_count")),
+        "projection_digest": sha256,
+    }, required=("schema_version", "status", "coverage", "selected", "excluded", "diagnostics", "projection_digest"))
+
     return obj({
         "schema_version": {"type": "string", "enum": [
             "perseus-context-rank/v1", "perseus-context-ask/v1",
@@ -321,6 +361,7 @@ def _context_contract_output_schema() -> dict:
         "evidence": {"type": "array", "maxItems": 64, "items": evidence},
         "projection": projection,
         "projection_digest": sha256,
+        "evidence_projection": evidence_projection,
         "selection": {"type": "array", "maxItems": 64, "items": selection},
         "provenance": {"type": "array", "maxItems": 64, "items": {"type": "array", "maxItems": 64, "items": evidence}},
         "release_decision": {"type": "string", "enum": [

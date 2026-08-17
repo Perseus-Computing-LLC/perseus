@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "Canonical claim registry for Perseus Computing public surfaces. Every public figure derives from here. When a benchmark re-runs, update THIS file only; scripts/render_claims.py regenerates manifest strings and tests/test_claims_sync.py fails CI if any surface drifts.",
-    "updated": "2026-08-15",
+    "updated": "2026-08-17",
     "public_headline": "longmemeval_cot",
     "public_headline_policy": "The validated official-CoT result is the current public QA headline. The plain-prompt result remains separately labeled methodology context.",
     "public_site_positioning": "Perseus is the system around the model: Perseus resolves live context, Vault persists memory, and Ledger records evidence."
@@ -272,5 +272,219 @@
       "label": "measured-baseline",
       "publishable": true
     }
-  }
+  },
+  "capabilities": [
+    {
+      "id": "context-rendering",
+      "capability": "Deterministic live context rendering",
+      "owner": "Perseus renderer",
+      "lifecycle": "operational",
+      "evidence_class": "code_and_tests",
+      "evidence_refs": [
+        "src/perseus/renderer.py",
+        "tests/test_renderer.py"
+      ],
+      "last_verified": {
+        "commit": "a33591e",
+        "build": "perseus v1.0.26",
+        "date": "2026-08-17"
+      },
+      "freshness_rule": "Re-verify when renderer, resolver, or generated artifact changes.",
+      "claim_ceiling": "The shipped local renderer resolves supported directives deterministically for the tested contract.",
+      "non_claims": [
+        "This does not certify arbitrary third-party directives or downstream model behavior."
+      ],
+      "dependencies": [
+        "Python standard library",
+        "PyYAML"
+      ],
+      "activation": "perseus render <source>",
+      "proof_surface": "docs/PRODUCT_CONTRACT.md"
+    },
+    {
+      "id": "portable-context-artifacts",
+      "capability": "Hash-bound portable context artifacts",
+      "owner": "Context artifact compiler",
+      "lifecycle": "implemented",
+      "evidence_class": "code_and_tests",
+      "evidence_refs": [
+        "src/perseus/context_artifacts.py",
+        "tests/test_context_artifacts.py"
+      ],
+      "last_verified": {
+        "commit": "a33591e",
+        "build": "perseus v1.0.26",
+        "date": "2026-08-17"
+      },
+      "freshness_rule": "Re-verify when artifact schemas or budget accounting changes.",
+      "claim_ceiling": "Artifacts carry deterministic schema, source commitments, and bounded sections.",
+      "non_claims": [
+        "A commitment proves integrity of supplied inputs, not their truth."
+      ],
+      "dependencies": [
+        "Python standard library"
+      ],
+      "activation": "build_agent_context_artifact(...) or build_memento_artifact(...)",
+      "proof_surface": "docs/context-artifact-contract.md"
+    },
+    {
+      "id": "versioned-context-contracts",
+      "capability": "Versioned evidence-aware context contracts",
+      "owner": "Context contract boundary",
+      "lifecycle": "tested",
+      "evidence_class": "contract_tests",
+      "evidence_refs": [
+        "src/perseus/context_contract.py",
+        "tests/test_context_contracts_916_917.py"
+      ],
+      "last_verified": {
+        "commit": "a33591e",
+        "build": "perseus v1.0.26",
+        "date": "2026-08-17"
+      },
+      "freshness_rule": "Re-verify when context-contract schema or projection fields change.",
+      "claim_ceiling": "The bounded rank, ask, and projection paths expose sanitized evidence metadata and explicit non-success states.",
+      "non_claims": [
+        "Ranking is not a truth oracle and does not replace Vault or Ledger authority."
+      ],
+      "dependencies": [
+        "Caller-supplied records",
+        "Context contract schema"
+      ],
+      "activation": "context_rank(...) or context_ask(...)",
+      "proof_surface": "docs/context-contracts.md"
+    },
+    {
+      "id": "context-dag-compilation",
+      "capability": "Auditable budgeted context-DAG compilation",
+      "owner": "Context DAG compiler",
+      "lifecycle": "tested",
+      "evidence_class": "offline_tests",
+      "evidence_refs": [
+        "src/perseus/context_dag.py",
+        "tests/test_context_dag.py"
+      ],
+      "last_verified": {
+        "commit": "a33591e",
+        "build": "perseus v1.0.26",
+        "date": "2026-08-17"
+      },
+      "freshness_rule": "Re-verify when graph, expansion, verdict, or budget logic changes.",
+      "claim_ceiling": "The compiler emits digest-sealed graph and packet decisions under explicit hard limits.",
+      "non_claims": [
+        "Rendered accounting is not provider billing or a hardware benchmark."
+      ],
+      "dependencies": [
+        "Caller fetch function",
+        "Explicit compilation policy"
+      ],
+      "activation": "compile_context_dag(...)",
+      "proof_surface": "docs/context-dag.md"
+    },
+    {
+      "id": "vault-context-fallback",
+      "capability": "Vault-backed context with explicit degraded fallback",
+      "owner": "Vault connector",
+      "lifecycle": "degraded",
+      "evidence_class": "integration_contract",
+      "evidence_refs": [
+        "src/perseus/vault_connector.py",
+        "tests/test_vault_served_contract.py"
+      ],
+      "last_verified": {
+        "commit": "a33591e",
+        "build": "perseus v1.0.26",
+        "date": "2026-08-17"
+      },
+      "freshness_rule": "Re-verify when connector transport, fallback, or serving policy changes.",
+      "claim_ceiling": "Unavailable Vault integration is surfaced as a bounded degraded path rather than an equivalent complete result.",
+      "non_claims": [
+        "The fallback is not a replacement for Vault durability, provenance, or retrieval authority."
+      ],
+      "dependencies": [
+        "Optional Perseus Vault service",
+        "Workspace configuration"
+      ],
+      "activation": "perseus_vault configuration with context rendering",
+      "proof_surface": "docs/DEPLOYMENT.md"
+    },
+    {
+      "id": "optional-context-extensions",
+      "capability": "Optional extension and plugin adapters",
+      "owner": "Registry and adapter boundary",
+      "lifecycle": "omitted",
+      "evidence_class": "boundary_documentation",
+      "evidence_refs": [
+        "src/perseus/registry.py",
+        "docs/context-cartridges.md"
+      ],
+      "last_verified": {
+        "commit": "a33591e",
+        "build": "perseus v1.0.26",
+        "date": "2026-08-17"
+      },
+      "freshness_rule": "Re-verify when extension loading or adapter registration changes.",
+      "claim_ceiling": "Optional extensions are isolated from the dependency-free core and require their declared boundary.",
+      "non_claims": [
+        "No unreviewed extension is part of the default runtime guarantee."
+      ],
+      "dependencies": [
+        "Explicit extension configuration"
+      ],
+      "activation": "Opt-in registry or adapter configuration",
+      "proof_surface": "docs/CONTEXT-ADAPTER-SDK.md"
+    },
+    {
+      "id": "retired-synthetic-headline",
+      "capability": "Retired asymmetric benchmark headline",
+      "owner": "Claims registry",
+      "lifecycle": "historical",
+      "evidence_class": "historical_artifact",
+      "evidence_refs": [
+        "benchmark/ultimate_suite_results.json",
+        "docs/claims-pipeline.md"
+      ],
+      "last_verified": {
+        "commit": "a33591e",
+        "build": "perseus v1.0.26",
+        "date": "2026-08-17"
+      },
+      "freshness_rule": "Retain only while the historical audit record is useful; never promote to current state.",
+      "claim_ceiling": "This row records why the former headline was retired and is not a current capability claim.",
+      "non_claims": [
+        "The historical figure is not a current performance result."
+      ],
+      "dependencies": [
+        "Claims audit history"
+      ],
+      "activation": "Historical documentation only",
+      "proof_surface": "docs/claims-pipeline.md"
+    },
+    {
+      "id": "external-model-inference",
+      "capability": "External model inference owned by Perseus",
+      "owner": "Runtime integration boundary",
+      "lifecycle": "not_demonstrated",
+      "evidence_class": "non_claim",
+      "evidence_refs": [
+        "docs/RESOLVER_VS_GENERATOR.md",
+        "docs/context-contracts.md"
+      ],
+      "last_verified": {
+        "commit": "a33591e",
+        "build": "perseus v1.0.26",
+        "date": "2026-08-17"
+      },
+      "freshness_rule": "Re-evaluate only when a separately verified runtime adapter is published.",
+      "claim_ceiling": "Perseus supplies bounded context and evidence contracts; no owned inference capability is asserted.",
+      "non_claims": [
+        "No vendor, accelerator, model quality, or embedded execution result is demonstrated here."
+      ],
+      "dependencies": [
+        "A separately qualified runtime adapter"
+      ],
+      "activation": "Not available in the current core contract",
+      "proof_surface": "docs/RESOLVER_VS_GENERATOR.md"
+    }
+  ]
 }

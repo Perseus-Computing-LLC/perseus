@@ -44,6 +44,11 @@ import json
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
+from perseus.execution_profiles import (
+    ExecutionProfileError,
+    resolve_execution_profile,
+    verify_execution_profile,
+)
 
 NODE_KINDS = frozenset({
     "requirement", "retrieved_record", "summary", "contradiction",
@@ -742,7 +747,10 @@ def compile_context_dag(*, task_id: str,
                         verdict_hint: str = "sufficient",
                         confidence: Optional[float] = None,
                         created_by: str = "",
-                        meta: Optional[dict] = None) -> dict:
+                        meta: Optional[dict] = None,
+                        execution_profile: Optional[dict] = None,
+                        profile_requirements: Optional[dict] = None,
+                        profile_retrieval_status: str = "complete") -> dict:
     """Build, expand, and seal an auditable context-compilation DAG.
 
     Expansion is layer-wise and selective: only uncertain, contradictory, or
@@ -752,8 +760,32 @@ def compile_context_dag(*, task_id: str,
     the advisory inputs + policy so verification is a faithful replay.
     """
     policy = policy or CompilationPolicy()
-    budget = budget or CompilationBudget()
+    resolved_profile = None
+    if execution_profile is not None:
+        try:
+            resolved_profile = resolve_execution_profile(
+                execution_profile,
+                requirements=profile_requirements,
+                retrieval_status=profile_retrieval_status,
+            )
+        except ExecutionProfileError as exc:
+            raise ContextDagError(f"execution profile rejected: {exc}") from exc
+        profile_budget = resolved_profile["compilation_budget"]
+        if budget is None:
+            budget = CompilationBudget(**profile_budget)
+        else:
+            # A caller-supplied DAG budget may tighten a profile, never widen it.
+            budget = CompilationBudget(
+                max_nodes=min(int(budget.max_nodes), int(profile_budget["max_nodes"])),
+                max_depth=min(int(budget.max_depth), int(profile_budget["max_depth"])),
+                max_fanout=min(int(budget.max_fanout), int(profile_budget["max_fanout"])),
+                max_tokens=min(int(budget.max_tokens), int(profile_budget["max_tokens"])),
+                deadline_s=min(float(budget.deadline_s), float(profile_budget["deadline_s"])),
+            )
+    else:
+        budget = budget or CompilationBudget()
     ledger = budget.ledger()
+    profile_degradation_reasons: set[str] = set()
     graph = ContextDAG(task_id=task_id, created_by=created_by, meta=meta or {})
     graph.add_node(root, ledger, depth=0)
 
@@ -777,7 +809,30 @@ def compile_context_dag(*, task_id: str,
         if not expand:
             continue
         expanded.add(nid)
-        for child in list(fetch(node) or []):
+        children = list(fetch(node) or [])
+        if resolved_profile is not None:
+            children.sort(key=lambda child: child.node_id)
+            if depth >= budget.max_depth and children:
+                profile_degradation_reasons.add("max_depth")
+                children = []
+            if len(children) > budget.max_fanout:
+                profile_degradation_reasons.add("max_items")
+                children = children[: budget.max_fanout]
+            remaining_nodes = max(0, budget.max_nodes - len(ledger.nodes))
+            if len(children) > remaining_nodes:
+                profile_degradation_reasons.add("max_items")
+                children = children[:remaining_nodes]
+            remaining_tokens = max(0, budget.max_tokens - ledger.total_tokens)
+            kept_children: list[ContextNode] = []
+            for child in children:
+                needed = dag_tokens(child.content)
+                if needed > remaining_tokens:
+                    profile_degradation_reasons.add("max_context_tokens")
+                    continue
+                kept_children.append(child)
+                remaining_tokens -= needed
+            children = kept_children
+        for child in children:
             cid = graph.add_node(child, ledger, depth=depth + 1)
             kind = "supports" if child.kind != "contradiction" else "contradicts"
             edge_meta: dict = {}
@@ -808,15 +863,29 @@ def compile_context_dag(*, task_id: str,
         if nd is not None:
             packet.append(nd.to_dict())
     advisory = {"verdict_hint": verdict_hint, "confidence": confidence}
+    profile_manifest = resolved_profile or {}
+    profile_diagnostics = dict(resolved_profile["diagnostics"]) if resolved_profile else {}
+    if profile_degradation_reasons:
+        profile_diagnostics["degraded"] = True
+        profile_diagnostics["reasons"] = sorted(set(profile_diagnostics.get("reasons", [])) | profile_degradation_reasons)
+    profile_status = ("degraded" if profile_degradation_reasons else resolved_profile["status"]) if resolved_profile else None
+    digest_parts = [
+        "packet", _dag_json(packet),
+        "verdict", _dag_json(verdict),
+        "advisory", _dag_json(advisory),
+        "policy", _dag_json(policy.to_dict()),
+        "budget", _dag_json(ledger.digest_input()),
+        "graph", graph.digest(),
+        "execution_profile", _dag_json(profile_manifest),
+    ]
+    if resolved_profile is not None:
+        digest_parts.extend([
+            "profile_status", profile_status,
+            "profile_diagnostics", _dag_json(profile_diagnostics),
+        ])
     artifact = {
         "schema_version": "perseus-context-dag/v1",
-        "compiled_digest": _dag_sha(
-            "packet", _dag_json(packet),
-            "verdict", _dag_json(verdict),
-            "advisory", _dag_json(advisory),
-            "policy", _dag_json(policy.to_dict()),
-            "budget", _dag_json(ledger.digest_input()),
-            "graph", graph.digest()),
+        "compiled_digest": _dag_sha(*digest_parts),
         "graph": graph.to_dict(),
         "selected_node_ids": selected,
         "packet": packet,
@@ -827,6 +896,11 @@ def compile_context_dag(*, task_id: str,
         "token_accounting": TOKEN_ACCOUNTING_NOTE,
         "compiled_at_unix_s": round(time.time(), 3),
     }
+    if resolved_profile is not None:
+        artifact["status"] = profile_status
+        artifact["execution_profile"] = resolved_profile
+        artifact["execution_profile_digest"] = resolved_profile["profile_digest"]
+        artifact["profile_diagnostics"] = profile_diagnostics
     return artifact
 
 
@@ -877,15 +951,32 @@ def verify_compiled_dag(artifact: dict) -> dict:
     )
     if verdict != artifact.get("verdict"):
         errors.append("verdict does not recompute from graph state")
+    profile_manifest = artifact.get("execution_profile") or {}
+    profile_diagnostics = artifact.get("profile_diagnostics") or {}
+    profile_status = None
+    if profile_manifest:
+        profile_check = verify_execution_profile(profile_manifest)
+        if not profile_check.get("valid"):
+            errors.append("execution profile digest mismatch")
+        if artifact.get("execution_profile_digest") != profile_manifest.get("profile_digest"):
+            errors.append("execution_profile_digest does not match profile manifest")
+        profile_status = "degraded" if profile_diagnostics.get("degraded") else profile_manifest.get("status")
+        if artifact.get("status") != profile_status:
+            errors.append("profile status does not match profile manifest")
     budget_sealed = dict(artifact.get("budget") or {})
     budget_sealed.pop("wall_clock_s", None)
-    expected = _dag_sha(
+    digest_parts = [
         "packet", _dag_json(packet),
         "verdict", _dag_json(artifact.get("verdict")),
         "advisory", _dag_json(artifact.get("advisory")),
         "policy", _dag_json(policy.to_dict()),
         "budget", _dag_json(budget_sealed),
-        "graph", graph.digest())
+        "graph", graph.digest(),
+        "execution_profile", _dag_json(profile_manifest),
+    ]
+    if profile_manifest:
+        digest_parts.extend(["profile_status", profile_status, "profile_diagnostics", _dag_json(profile_diagnostics)])
+    expected = _dag_sha(*digest_parts)
     if expected != artifact.get("compiled_digest"):
         errors.append("compiled_digest mismatch")
     return {"valid": not errors, "errors": errors,

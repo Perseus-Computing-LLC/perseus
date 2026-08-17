@@ -55,6 +55,29 @@ public figure derives from here. Each claim records:
    tokens are absent from public surfaces, and (c) `publishable: false` claims do
    not leak onto public marketing surfaces.
 
+## Capability evidence matrix (#979)
+
+The top-level `capabilities` array in `claims.json` is the canonical source for
+capability-level evidence. Each row records the owning component, one of the
+explicit lifecycle states (`implemented`, `tested`, `operational`, `degraded`,
+`omitted`, `historical`, or `not_demonstrated`), evidence references,
+verification commit/build/date, a freshness rule, claim ceiling, non-claims,
+dependencies/activation, and a proof-surface link.
+
+Generate the machine-readable and human-readable projections with:
+
+```bash
+python scripts/render_claims.py --write
+```
+
+The command writes `docs/capability-evidence.json` and
+`docs/CAPABILITY-EVIDENCE.md`. CI/test code should use `--check` and
+`tests/test_capability_evidence.py`; local evidence references must resolve,
+current-state rows must carry a complete evidence envelope and claim ceiling,
+and generated surfaces reject credential/raw-material fields. The matrix is a
+capability-state ledger, not independent certification and not a replacement
+for Ledger receipt evidence or Vault provenance.
+
 ## Follow-up
 
 The Perseus efficiency artifacts (`token_reduction_pct`, `semantic_equivalence`,
