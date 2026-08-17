@@ -75,6 +75,8 @@ def _ra_text(value: Any, field: str, *, max_length: int = 160, allow_empty: bool
 
 def _ra_id(value: Any, field: str, *, allow_empty: bool = False) -> str:
     text = _ra_text(value, field, allow_empty=allow_empty)
+    if any(marker in text for marker in ("://", "@", "?", "&", "=")):
+        raise RuntimeAdapterError(f"{field} must not contain URI/userinfo/query syntax")
     if text and not _RA_ID_RE.fullmatch(text):
         raise RuntimeAdapterError(f"{field} must be a bounded identifier")
     return text

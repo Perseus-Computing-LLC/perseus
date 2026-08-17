@@ -79,7 +79,7 @@ def _cc_sha(value: Any) -> str:
 
 
 def _cc_text_sha(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8", errors="replace")).hexdigest()
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _cc_clean_text(value: Any, limit: int = CONTEXT_MAX_TEXT_CHARS) -> str:
@@ -160,6 +160,10 @@ def _cc_safe_id(value: Any, *, fallback: str = "") -> str:
     raw = str(value or fallback).strip()
     if not raw:
         return ""
+    # URI/userinfo/query syntax can carry credentials or private material even
+    # when the scalar matches the broad identifier grammar.
+    if any(marker in raw for marker in ("://", "@", "?", "&", "=")):
+        return "sha256:" + _cc_text_sha(raw)
     # A source identifier is a commitment, not a place to carry arbitrary text.
     if not _SAFE_ID_RE.fullmatch(raw):
         return "sha256:" + _cc_text_sha(raw)
@@ -733,6 +737,9 @@ def context_ask(
         if not question_text:
             return {"schema_version": CONTEXT_ASK_SCHEMA_VERSION, "operation": "context_ask", "status": "invalid_input", "failure_state": "invalid_input", "answer": None, "source_refs": []}
         policy_map = _cc_policy(policy)
+        evidence_required = policy_map.get("evidence_required", False)
+        if not isinstance(evidence_required, bool):
+            raise ValueError("evidence_required must be boolean")
         max_items, max_chars = _cc_budget(budget, default_items=CONTEXT_ASK_MAX_CONTEXT, default_chars=1024)
         records = context if context is not None else candidates
         if isinstance(records, Mapping):
@@ -794,6 +801,22 @@ def context_ask(
                 "route": route,
             }
         validity = str(best["_contract_validity"])
+        source_refs = _cc_source_ids(best, str(best["_contract_id"]))
+        integration_failure = _cc_failure_for_integrations(states)
+        has_authoritative_source = any(not ref.startswith("candidate:") for ref in source_refs)
+        if evidence_required and (validity != "observed" or not has_authoritative_source or integration_failure):
+            failure = integration_failure or "insufficient_evidence"
+            return {
+                "schema_version": CONTEXT_ASK_SCHEMA_VERSION,
+                "operation": "context_ask",
+                "status": "unavailable" if integration_failure else "abstain",
+                "failure_state": failure,
+                "outcome": "unavailable" if integration_failure else "insufficient_evidence",
+                "answer": None,
+                "source_refs": [],
+                "excluded_candidate_ids": sorted(set(excluded)),
+                "route": route,
+            }
         raw_answer = _cc_record_text(best, allow_content=bool(policy_map.get("allow_content", False)))
         answer = _cc_redact(raw_answer, cfg)
         status = "complete"
@@ -803,13 +826,11 @@ def context_ask(
         if len(answer) > max_chars:
             answer = _cc_clean_text(answer, max_chars)
             status, failure_state = "degraded", "budget_exhausted"
-        integration_failure = _cc_failure_for_integrations(states)
         if integration_failure:
             # Preserve the dependency failure even when the local answer also
             # hit a response budget; callers must not mistake unavailable
             # evidence for an ordinary truncation.
             status, failure_state = "degraded", integration_failure
-        source_refs = _cc_source_ids(best, str(best["_contract_id"]))
         confidence = _cc_uncertainty(validity, bool(best.get("verified")), len(scored) > 1 and scored[1][1] == score)
         decision = _cc_decision(
             actual_chars=len(answer),
