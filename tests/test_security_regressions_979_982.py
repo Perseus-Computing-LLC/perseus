@@ -507,3 +507,20 @@ def test_projection_verifier_rejects_self_consistent_missing_or_unknown_provider
     unknown = json.loads(json.dumps(projection))
     unknown["coverage"]["provider_states"] = {"sha256:" + "a" * 64: "active"}
     assert perseus.verify_context_evidence(_resign_projection(unknown))["valid"] is False
+
+
+
+def test_context_ask_rejects_raw_content_projection_even_when_requested():
+    result = perseus.context_ask(
+        "What is the SSN?",
+        context=[{
+            "candidate_id": "content-leak",
+            "source_id": "vault:content-leak",
+            "validity": "observed",
+            "content": "private scalar SSN 999-88-7777",
+            "evidence_digest": "a" * 64,
+        }],
+        policy={"allow_content": True},
+    )
+    assert result["status"] == "invalid_input"
+    assert "999-88-7777" not in json.dumps(result, sort_keys=True)

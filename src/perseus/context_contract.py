@@ -433,7 +433,9 @@ def _cc_policy_controls(policy: Mapping[str, Any]) -> tuple[float, bool]:
     allow_content = policy.get("allow_content", False)
     if not isinstance(allow_content, bool):
         raise ValueError("allow_content must be boolean")
-    return min_score, allow_content
+    if allow_content:
+        raise ValueError("raw content projection is disabled")
+    return min_score, False
 
 
 def _cc_integrations(integrations: Any) -> dict[str, str]:
