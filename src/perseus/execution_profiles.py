@@ -33,6 +33,7 @@ _EP_RESOURCE_FIELDS = frozenset({
     "available_memory_mb", "available_compute_units", "resource_metrics",
 })
 _EP_NETWORK_MODES = frozenset({"offline", "local", "approved_network"})
+_EP_NETWORK_RANK = {"offline": 0, "local": 1, "approved_network": 2}
 _EP_DEGRADATION_POLICIES = frozenset({"fail_closed", "partial", "omit_low_priority"})
 _EP_RETRIEVAL_STATES = frozenset({"complete", "partial", "degraded", "unavailable", "timeout"})
 _EP_MODE_DEFAULTS = {
@@ -105,12 +106,9 @@ def _ep_id(value: Any, field: str, *, default: str = "") -> str:
 
 
 def _ep_limit(value: Any, field: str, *, maximum: int = 10_000_000) -> int:
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, int):
         raise ExecutionProfileError(f"{field} must be a positive integer")
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        raise ExecutionProfileError(f"{field} must be a positive integer") from None
+    number = value
     if number < 1 or number > maximum:
         raise ExecutionProfileError(f"{field} must be between 1 and {maximum}")
     return number
@@ -157,7 +155,7 @@ class ExecutionProfile:
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "ExecutionProfile" | None) -> "ExecutionProfile":
         if isinstance(value, cls):
-            return value
+            value = value.to_dict()
         if value is None:
             value = {"mode": "standard-local", "profile_id": "default-local"}
         if not isinstance(value, Mapping):
@@ -294,13 +292,13 @@ def execution_profile_compilation_budget(resolved: Mapping[str, Any]) -> dict[st
     if not isinstance(resolved, Mapping) or not isinstance(resolved.get("effective"), Mapping):
         raise ExecutionProfileError("resolved execution profile is malformed")
     effective = resolved["effective"]
-    max_tokens = min(int(effective["max_context_tokens"]), max(1, int(effective["max_context_bytes"]) // 4))
     latency = effective.get("latency_target_ms")
     return {
         "max_nodes": max(1, int(effective["max_items"])),
         "max_depth": max(1, int(effective["max_depth"])),
         "max_fanout": max(1, int(effective["max_items"])),
-        "max_tokens": max_tokens,
+        "max_tokens": int(effective["max_context_tokens"]),
+        "max_bytes": int(effective["max_context_bytes"]),
         "deadline_s": max(0.001, float(latency) / 1000.0) if latency is not None else 30.0,
     }
 
@@ -317,17 +315,22 @@ def _ep_resolve_execution_profile_impl(
     req = _ep_requirements(requirements)
     if retrieval_status not in _EP_RETRIEVAL_STATES:
         raise ExecutionProfileError("retrieval_status is unsupported")
-    if req.get("network_mode") and base.network_mode == "offline" and req["network_mode"] != "offline":
-        raise ExecutionProfileError("offline profile cannot satisfy a network requirement")
-    if req.get("require_offline") and base.network_mode != "offline":
+    requested_network = req.get("network_mode")
+    if requested_network and _EP_NETWORK_RANK[requested_network] > _EP_NETWORK_RANK[base.network_mode]:
+        raise ExecutionProfileError(f"profile network policy {base.network_mode} cannot satisfy requested {requested_network} requirement")
+    if req.get("require_offline") and _EP_NETWORK_RANK[base.network_mode] < _EP_NETWORK_RANK["offline"]:
         raise ExecutionProfileError("profile does not satisfy required offline mode")
     missing = sorted(set(req.get("required_capabilities", ())) - set(base.runtime_capabilities))
     if missing:
         raise ExecutionProfileError(f"required capabilities are unsupported: {', '.join(missing)}")
     safe_resources, resource_state = _ep_resources(resources)
     effective = base.to_dict()
+    if req.get("require_offline") or requested_network is not None:
+        effective["network_mode"] = "offline" if req.get("require_offline") else requested_network
     for field in ("max_context_tokens", "max_context_bytes", "max_items", "max_depth", "latency_target_ms"):
         if field in req and req[field] is not None:
+            if field == "latency_target_ms" and effective[field] is None:
+                raise ExecutionProfileError("latency target cannot be resolved without a profile latency bound")
             effective[field] = min(int(effective[field]), int(req[field]))
     if effective["max_context_tokens"] < 1 or effective["max_context_bytes"] < 1 or effective["max_items"] < 1 or effective["max_depth"] < 1:
         raise ExecutionProfileError("requirements leave no usable context budget")
