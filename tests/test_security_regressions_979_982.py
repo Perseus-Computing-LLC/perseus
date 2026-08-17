@@ -648,3 +648,117 @@ def test_context_ask_propagates_status_alias_when_evidence_is_required(status):
     )
     assert result["answer"] is None
     assert result["status"] in {"abstain", "review", "unavailable"}
+
+
+
+def test_agent_projection_string_scope_is_commitment_sanitized():
+    scope = "https://user:SUPERSECRET@example.com/private"
+    agent_id = "scope-uri-sentinel-agent"
+    result = perseus.agent_projection_consent(
+        agent_id=agent_id,
+        scope=scope,
+        permissions={"release": True},
+        _authority_verified=True,
+        _grantor_id="scope-uri-sentinel-grantor",
+    )
+    serialized = json.dumps(result, sort_keys=True)
+    assert "SUPERSECRET" not in serialized
+    assert result["scope"]["workspace"].startswith("sha256:")
+
+
+@pytest.mark.parametrize("text", [
+    "https://:SUPERSECRET@example.com/private",
+    '{"\\u0063ontent":"PRIVATE_SENTINEL"}',
+])
+def test_runtime_result_redacts_empty_userinfo_and_escaped_raw_fields(text):
+    result = perseus.AdapterResult.from_mapping({
+        "schema_version": "perseus-runtime-result/v1",
+        "request_id": "runtime-redaction-sentinel",
+        "status": "success",
+        "output": text,
+        "usage": {},
+        "runtime": {},
+        "error_code": None,
+        "error_message": None,
+        "external_fallback_allowed": False,
+    })
+    serialized = json.dumps(result.to_dict(), sort_keys=True)
+    assert "SUPERSECRET" not in serialized
+    assert "PRIVATE_SENTINEL" not in serialized
+
+
+def test_direct_adapter_result_construction_cannot_bypass_envelope_validation():
+    with pytest.raises(perseus.RuntimeAdapterError):
+        perseus.AdapterResult(
+            schema_version="bad",
+            request_id="direct-result-sentinel",
+            status="wat",
+            output="ok",
+            usage={"input_tokens": -1},
+            runtime={"api_key": "SECRET"},
+            error_code=None,
+            error_message=None,
+            external_fallback_allowed=True,
+        )
+    with pytest.raises(perseus.RuntimeAdapterError):
+        perseus.AdapterResult(
+            schema_version="perseus-runtime-result/v1",
+            request_id="direct-result-sentinel",
+            status="success",
+            output="ok",
+            usage={},
+            runtime={"api_key": "SECRET"},
+            error_code=None,
+            error_message=None,
+            external_fallback_allowed=False,
+        )
+
+
+def _resign_dag_for_test(artifact):
+    graph = perseus.ContextDAG.from_dict(artifact["graph"])
+    budget = dict(artifact["budget"])
+    budget.pop("wall_clock_s", None)
+    parts = [
+        "packet", perseus._dag_json(artifact["packet"]),
+        "verdict", perseus._dag_json(artifact["verdict"]),
+        "advisory", perseus._dag_json(artifact["advisory"]),
+        "policy", perseus._dag_json(artifact["policy"]),
+        "budget", perseus._dag_json(budget),
+        "graph", graph.digest(),
+        "execution_profile", perseus._dag_json(artifact.get("execution_profile", {})),
+    ]
+    if artifact.get("execution_profile"):
+        parts.extend([
+            "profile_status", artifact.get("status"),
+            "profile_diagnostics", perseus._dag_json(artifact.get("profile_diagnostics", {})),
+        ])
+    artifact["compiled_digest"] = perseus._dag_sha(*parts)
+    return artifact
+
+
+def _dag_probe_artifact():
+    node = perseus.ContextNode(
+        kind="requirement",
+        content="who owns the arcade?",
+        evidence={"validity": "observed", "verified": True, "source_ids": ["task"]},
+    )
+    def fetch(_node):
+        return [perseus.ContextNode(
+            kind="retrieved_record",
+            content="alice owns the arcade",
+            evidence={"validity": "observed", "verified": True, "source_ids": ["vault:1"]},
+        )]
+    return perseus.compile_context_dag(task_id="dag-selection-sentinel", root=node, fetch=fetch, verdict_hint="sufficient")
+
+
+@pytest.mark.parametrize("mutation", ["duplicate", "empty"])
+def test_compiled_dag_rejects_resigned_duplicate_or_empty_selection(mutation):
+    artifact = _dag_probe_artifact()
+    if mutation == "duplicate":
+        artifact["selected_node_ids"].append(artifact["selected_node_ids"][0])
+        artifact["packet"].append(copy.deepcopy(artifact["packet"][0]))
+    else:
+        artifact["selected_node_ids"] = []
+        artifact["packet"] = []
+    checked = perseus.verify_compiled_dag(_resign_dag_for_test(artifact))
+    assert checked["valid"] is False
