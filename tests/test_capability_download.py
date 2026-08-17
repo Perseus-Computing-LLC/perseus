@@ -14,6 +14,7 @@ VARIANT_PDFS = [
 def test_capability_download_artifact_exists_and_is_linked():
     payload = PDF.read_bytes()
     assert payload.startswith(b"%PDF-")
+    assert b"/Count 2" in payload
     assert len(payload) > 1000
     assert PDF_HREF in (ROOT / "government" / "index.html").read_text(encoding="utf-8")
     assert PDF_HREF in (ROOT / "government" / "capability-statement.html").read_text(encoding="utf-8")
@@ -26,12 +27,14 @@ def test_tailored_capability_artifacts_exist_and_public_copy_is_not_internal_wor
     for pdf in VARIANT_PDFS:
         payload = pdf.read_bytes()
         assert payload.startswith(b"%PDF-")
+        assert b"/Count 2" in payload
         assert len(payload) > 1000
 
     public_copy = "\n".join(
         (ROOT / rel).read_text(encoding="utf-8")
         for rel in ("government/index.html", "government/capability-statement.html")
     )
+    assert "2 pages" in public_copy
     for phrase in (
         "Use it with the right context",
         "Attach the PDF",
