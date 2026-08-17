@@ -101,7 +101,9 @@ def dag_tokens(text: str) -> int:
     Same convention as ``context_decision`` — an *estimate* for budget
     accounting, never a provider-billed reading.
     """
-    return max(1, (len(text or "") + 3) // 4)
+    if not isinstance(text, str):
+        raise ContextDagError("node content must be text")
+    return max(1, (len(text) + 3) // 4)
 
 
 def _dag_uncertainty(validity: str, verified: bool) -> dict[str, Any]:
@@ -148,8 +150,16 @@ class ContextNode:
     content_ref: str = ""
 
     def __post_init__(self) -> None:
-        if self.kind not in NODE_KINDS:
+        if not isinstance(self.kind, str) or self.kind not in NODE_KINDS:
             raise ContextDagError(f"unknown node kind: {self.kind!r}")
+        if not isinstance(self.content, str):
+            raise ContextDagError("node content must be text")
+        if not isinstance(self.summary, str):
+            raise ContextDagError("node summary must be text")
+        if isinstance(self.version, bool) or not isinstance(self.version, int) or self.version < 1:
+            raise ContextDagError("node version must be a positive integer")
+        if not isinstance(self.meta, dict):
+            raise ContextDagError("node metadata must be an object")
         ev = _norm_evidence(self.evidence)
         object.__setattr__(self, "evidence", ev)
         if not self.summary:
@@ -786,6 +796,11 @@ def compile_context_dag(*, task_id: str,
     the advisory inputs + policy so verification is a faithful replay.
     """
     policy = policy or CompilationPolicy()
+    # Every sealed artifact carries a resolved profile, including callers that
+    # omit one.  This makes profile-envelope presence an invariant rather than
+    # a caller-controlled optional field.
+    if execution_profile is None:
+        execution_profile = {"mode": "standard-local", "profile_id": "default-local"}
     resolved_profile = None
     if execution_profile is not None:
         try:
@@ -903,6 +918,7 @@ def compile_context_dag(*, task_id: str,
         "policy", _dag_json(policy.to_dict()),
         "budget", _dag_json(ledger.digest_input()),
         "graph", graph.digest(),
+        "execution_profile_present", resolved_profile is not None,
         "execution_profile", _dag_json(profile_manifest),
     ]
     if resolved_profile is not None:
@@ -921,6 +937,7 @@ def compile_context_dag(*, task_id: str,
         "policy": policy.to_dict(),
         "budget": ledger.report(),
         "token_accounting": TOKEN_ACCOUNTING_NOTE,
+        "execution_profile_present": resolved_profile is not None,
         "compiled_at_unix_s": round(time.time(), 3),
     }
     if resolved_profile is not None:
@@ -1056,7 +1073,12 @@ def verify_compiled_dag(artifact: dict) -> dict:
         errors.append("verdict does not recompute from graph state")
     profile_raw = artifact.get("execution_profile")
     profile_manifest: Mapping[str, Any] = {}
-    profile_related = any(key in artifact for key in ("execution_profile", "execution_profile_digest", "profile_diagnostics", "status"))
+    profile_present = artifact.get("execution_profile_present")
+    if profile_present is not True:
+        errors.append("execution_profile_present must be true")
+    profile_related = profile_present or any(key in artifact for key in ("execution_profile", "execution_profile_digest", "profile_diagnostics", "status"))
+    if not profile_present and any(key in artifact for key in ("execution_profile", "execution_profile_digest", "profile_diagnostics", "status")):
+        errors.append("profile fields are present without an execution profile envelope")
     profile_diagnostics = artifact.get("profile_diagnostics")
     profile_status = None
     if profile_related:
@@ -1092,6 +1114,7 @@ def verify_compiled_dag(artifact: dict) -> dict:
         "policy", _dag_json(policy.to_dict()),
         "budget", _dag_json(budget_sealed),
         "graph", graph.digest(),
+        "execution_profile_present", profile_present,
         "execution_profile", _dag_json(profile_manifest),
     ]
     if profile_manifest:
