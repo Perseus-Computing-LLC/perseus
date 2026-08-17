@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "6526d79"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "5d8d3d5"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -37101,6 +37101,8 @@ def _ce_selected_item(record: Mapping[str, Any], index: int, *, evidence_require
     if not isinstance(record, Mapping):
         return None, {"candidate_id": f"item-{index + 1}", "reason": "invalid_record"}
     candidate_id = _ce_id(record.get("candidate_id") or record.get("id") or record.get("key") or f"item-{index + 1}", "candidate_id")
+    if "verified" in record and not isinstance(record["verified"], bool):
+        raise ContextEvidenceError(f"{candidate_id}.verified must be boolean")
     digest = _ce_evidence_digest(record, candidate_id)
     refs = _ce_sources(record, candidate_id, evidence_required=evidence_required)
     state = _ce_item_state(record, has_digest=bool(digest))
@@ -38325,6 +38327,8 @@ def _cc_prepare_records(records: Any, scope: Any, policy: Mapping[str, Any], lim
         if not isinstance(raw, Mapping):
             return [], [], [], "invalid_input"
         _cc_content_commitment(raw)
+        if "verified" in raw and not isinstance(raw["verified"], bool):
+            return [], [], [], "invalid_input"
         candidate_id = _cc_record_id(raw)
         if not candidate_id:
             return [], [], [], "invalid_input"
