@@ -990,10 +990,10 @@ def _dag_validate_budget_report(artifact: Mapping[str, Any], graph: ContextDAG,
     if profile_manifest:
         profile_budget = profile_manifest.get("compilation_budget")
         if isinstance(profile_budget, Mapping):
-            for field in ("max_nodes", "max_depth", "max_fanout", "max_tokens", "max_bytes"):
+            for field in ("max_nodes", "max_depth", "max_fanout", "max_tokens", "max_bytes", "deadline_s"):
                 actual = limits.get(field)
                 ceiling = profile_budget.get(field)
-                if isinstance(actual, int) and isinstance(ceiling, int) and actual > ceiling:
+                if isinstance(actual, (int, float)) and not isinstance(actual, bool) and isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool) and actual > ceiling:
                     errors.append(f"budget limit {field} widens execution profile")
     return errors
 
@@ -1052,24 +1052,32 @@ def verify_compiled_dag(artifact: dict) -> dict:
         errors.append("verdict does not recompute from graph state")
     profile_raw = artifact.get("execution_profile")
     profile_manifest: Mapping[str, Any] = {}
-    profile_diagnostics = artifact.get("profile_diagnostics") or {}
-    if not isinstance(profile_diagnostics, Mapping):
-        errors.append("profile diagnostics are not an object")
-        profile_diagnostics = {}
+    profile_related = any(key in artifact for key in ("execution_profile", "execution_profile_digest", "profile_diagnostics", "status"))
+    profile_diagnostics = artifact.get("profile_diagnostics")
     profile_status = None
-    if profile_raw:
-        if not isinstance(profile_raw, Mapping):
-            errors.append("execution profile is not an object")
+    if profile_related:
+        if not isinstance(profile_raw, Mapping) or not profile_raw:
+            errors.append("execution profile envelope is missing or empty")
         else:
             profile_manifest = profile_raw
-        profile_check = verify_execution_profile(profile_manifest)
-        if not profile_check.get("valid"):
-            errors.append("execution profile digest mismatch")
-        if artifact.get("execution_profile_digest") != profile_manifest.get("profile_digest"):
-            errors.append("execution_profile_digest does not match profile manifest")
-        profile_status = "degraded" if profile_diagnostics.get("degraded") else profile_manifest.get("status")
-        if artifact.get("status") != profile_status:
-            errors.append("profile status does not match profile manifest")
+        if not isinstance(profile_diagnostics, Mapping):
+            errors.append("profile diagnostics are missing or not an object")
+            profile_diagnostics = {}
+        if not isinstance(artifact.get("execution_profile_digest"), str):
+            errors.append("execution_profile_digest is missing or invalid")
+        if "status" not in artifact or not isinstance(artifact.get("status"), str):
+            errors.append("profile status is missing or invalid")
+        if profile_manifest:
+            profile_check = verify_execution_profile(profile_manifest)
+            if not profile_check.get("valid"):
+                errors.append("execution profile digest mismatch")
+            if artifact.get("execution_profile_digest") != profile_manifest.get("profile_digest"):
+                errors.append("execution_profile_digest does not match profile manifest")
+            profile_status = "degraded" if profile_diagnostics.get("degraded") else profile_manifest.get("status")
+            if artifact.get("status") != profile_status:
+                errors.append("profile status does not match profile manifest")
+    if artifact.get("token_accounting") != TOKEN_ACCOUNTING_NOTE:
+        errors.append("top-level token accounting note is invalid")
     errors.extend(_dag_validate_budget_report(artifact, graph, profile_manifest or None))
     budget_sealed = dict(artifact.get("budget") or {})
     budget_sealed.pop("wall_clock_s", None)

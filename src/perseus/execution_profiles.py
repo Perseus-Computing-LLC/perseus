@@ -100,7 +100,7 @@ def _ep_text(value: Any, field: str, *, max_length: int = 160) -> str:
 
 def _ep_id(value: Any, field: str, *, default: str = "") -> str:
     text = _ep_text(value if value is not None else default, field)
-    if any(marker in text for marker in ("://", "@", "?", "&", "=")):
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", text) or any(marker in text for marker in ("://", "@", "?", "&", "=")):
         raise ExecutionProfileError(f"{field} must not contain URI/userinfo/query syntax")
     if not _EP_ID_RE.fullmatch(text):
         raise ExecutionProfileError(f"{field} must be a bounded identifier")
@@ -189,8 +189,8 @@ class ExecutionProfile:
             raise ExecutionProfileError("runtime_capabilities must contain at most 32 identifiers")
         capability_values = tuple(sorted({_ep_id(item, "runtime_capability") for item in capabilities}))
         auth_mode = _ep_text(value.get("auth_mode", "none"), "auth_mode", max_length=64)
-        runtime_ref = _ep_id(value.get("runtime_ref", "ref:none"), "runtime_ref")
-        model_ref = _ep_id(value.get("model_ref", "ref:none"), "model_ref")
+        runtime_ref = _ep_id(value.get("runtime_ref", "ref-none"), "runtime_ref")
+        model_ref = _ep_id(value.get("model_ref", "ref-none"), "model_ref")
         return cls(
             schema_version=schema_version,
             profile_id=profile_id,
