@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "7a1a11c"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "d9b8bab"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -40436,6 +40436,16 @@ def _dag_validate_budget_report(artifact: Mapping[str, Any], graph: ContextDAG,
 
 
 def verify_compiled_dag(artifact: dict) -> dict:
+    """Recompute every commitment and fail closed on malformed artifacts."""
+    try:
+        return _dag_verify_compiled_dag(artifact)
+    except Exception:
+        # Verification is a public boundary: malformed caller data must never
+        # escape as an exception or expose an internal value in an error string.
+        return {"valid": False, "errors": ["artifact verification failed"]}
+
+
+def _dag_verify_compiled_dag(artifact: dict) -> dict:
     """Recompute every commitment in a compiled DAG artifact."""
     errors: list[str] = []
     if not isinstance(artifact, dict):
