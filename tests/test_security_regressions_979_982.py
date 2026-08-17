@@ -939,3 +939,48 @@ def test_malformed_dag_node_content_fails_closed_without_crashing():
     except Exception as exc:  # pragma: no cover - assertion gives a useful failure
         pytest.fail(f"malformed DAG crashed verifier: {type(exc).__name__}: {exc}")
     assert result["valid"] is False
+
+
+
+def test_agent_projection_redacts_uri_userinfo_in_text():
+    scope = {"workspace": "uri-text-boundary"}
+    body = "safe answer scheme://:SUPERSECRET@example.test/private"
+    record = {
+        "candidate_id": "uri-text-item",
+        "agent_text": body,
+        "content": body,
+        "source_id": "vault:uri-text",
+        "scope": scope,
+        "validity_state": "observed",
+        "validity": "observed",
+        "verified": True,
+        "evidence_digest": hashlib.sha256(body.encode()).hexdigest(),
+    }
+    perseus.agent_projection_consent(
+        agent_id="uri-text-agent",
+        scope=scope,
+        permissions={"release": True},
+        _authority_verified=True,
+        _grantor_id="uri-text-grantor",
+    )
+    result = perseus.agent_projection_preview(
+        [record],
+        agent_id="uri-text-agent",
+        scope=scope,
+        task="safe answer",
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    serialized = json.dumps(result, sort_keys=True)
+    assert "SUPERSECRET" not in serialized
+    assert "scheme://:SUPERSECRET@example.test" not in serialized
+
+
+def test_dag_verifier_rejects_wall_clock_over_deadline():
+    node = perseus.ContextNode(
+        kind="requirement",
+        content="deadline sentinel",
+        evidence={"validity": "observed", "verified": True, "source_ids": ["file:deadline"]},
+    )
+    artifact = perseus.compile_context_dag(task_id="deadline-sentinel", root=node)
+    artifact["budget"]["wall_clock_s"] = artifact["budget"]["limits"]["deadline_s"] + 1000
+    assert perseus.verify_compiled_dag(artifact)["valid"] is False

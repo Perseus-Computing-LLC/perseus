@@ -56,6 +56,8 @@ _TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_+./:#-]*")
 _RAW_MATERIAL_KEY_RE = re.compile(
     r'(?i)(?:"(?:prompt|body|content|credentials?|tool[_-]?(?:args?|arguments?)|private[_-]?body|raw[_-]?payload)"\s*:|\b(?:prompt|body|content|credentials?|tool[_-]?(?:args?|arguments?)|private[_-]?body|raw[_-]?payload)\s*[:=])'
 )
+# Userinfo is never public projection text, including `scheme://:pw@host`.
+_CC_URI_USERINFO_RE = re.compile(r"(?i)([A-Za-z][A-Za-z0-9+.-]*://)([^/@\s:]*)(?::[^/@\s]*)?@")
 _RAW_MATERIAL_KEYS = frozenset({
     "prompt", "body", "content", "credential", "credentials", "tool_arg",
     "tool_args", "tool_argument", "tool_arguments", "private_body", "raw",
@@ -153,6 +155,7 @@ def _cc_redact(value: Any, cfg: Mapping[str, Any] | None = None) -> str:
         text,
     )
     text = re.sub(r"(?i)(\bbearer\s+)[^\s,;]+", r"\1[REDACTED]", text)
+    text = _CC_URI_USERINFO_RE.sub(r"\1[REDACTED]@", text)
     if _cc_contains_raw_material(text):
         return ""
     return text
