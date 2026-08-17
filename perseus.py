@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "6606595"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "26a930d"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -37806,6 +37806,8 @@ _TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_+./:#-]*")
 _RAW_MATERIAL_KEY_RE = re.compile(
     r'(?i)(?:"(?:prompt|body|content|credentials?|tool[_-]?(?:args?|arguments?)|private[_-]?body|raw[_-]?payload)"\s*:|\b(?:prompt|body|content|credentials?|tool[_-]?(?:args?|arguments?)|private[_-]?body|raw[_-]?payload)\s*[:=])'
 )
+# Userinfo is never public projection text, including `scheme://:pw@host`.
+_CC_URI_USERINFO_RE = re.compile(r"(?i)([A-Za-z][A-Za-z0-9+.-]*://)([^/@\s:]*)(?::[^/@\s]*)?@")
 _RAW_MATERIAL_KEYS = frozenset({
     "prompt", "body", "content", "credential", "credentials", "tool_arg",
     "tool_args", "tool_argument", "tool_arguments", "private_body", "raw",
@@ -37903,6 +37905,7 @@ def _cc_redact(value: Any, cfg: Mapping[str, Any] | None = None) -> str:
         text,
     )
     text = re.sub(r"(?i)(\bbearer\s+)[^\s,;]+", r"\1[REDACTED]", text)
+    text = _CC_URI_USERINFO_RE.sub(r"\1[REDACTED]@", text)
     if _cc_contains_raw_material(text):
         return ""
     return text
@@ -40389,6 +40392,8 @@ def _dag_validate_budget_report(artifact: Mapping[str, Any], graph: ContextDAG,
     wall_clock = budget.get("wall_clock_s")
     if wall_clock is not None and (isinstance(wall_clock, bool) or not isinstance(wall_clock, (int, float)) or not math.isfinite(float(wall_clock)) or wall_clock < 0):
         errors.append("budget wall_clock_s is invalid")
+    elif wall_clock is not None and isinstance(deadline, (int, float)) and not isinstance(deadline, bool) and math.isfinite(float(deadline)) and wall_clock > deadline:
+        errors.append("budget wall_clock_s exceeds deadline_s")
     if isinstance(limits.get("max_nodes"), int) and observed["nodes"] > limits["max_nodes"]:
         errors.append("budget nodes exceed max_nodes")
     if isinstance(limits.get("max_depth"), int) and observed["depth"] > limits["max_depth"]:
