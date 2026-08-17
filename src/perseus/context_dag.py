@@ -1012,6 +1012,10 @@ def verify_compiled_dag(artifact: dict) -> dict:
     selected = artifact.get("selected_node_ids")
     if not isinstance(selected, list) or any(not isinstance(nid, str) for nid in selected):
         return {"valid": False, "errors": ["selected_node_ids must be a list of strings"]}
+    if len(selected) != len(set(selected)):
+        errors.append("selected_node_ids must be unique")
+    if graph.nodes and not selected:
+        errors.append("a non-empty graph requires a non-empty selected-node set")
     for nid in selected:
         if graph.node(nid) is None:
             errors.append(f"selected node {nid!r} missing from graph")
