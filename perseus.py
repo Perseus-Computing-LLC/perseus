@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "95397c9-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "1454a6d-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -37920,7 +37920,42 @@ _RAW_MATERIAL_KEY_RE = re.compile(
     r'(?i)(?:"(?:prompt|body|content|credentials?|api[_-]?key|authorization|bearer|tool[_-]?(?:args?|arguments?)|private[_-]?body|raw[_-]?payload)"\s*:|\b(?:prompt|body|content|credentials?|api[_-]?key|authorization|bearer|tool[_-]?(?:args?|arguments?)|private[_-]?body|raw[_-]?payload)\s*[:=])'
 )
 # Userinfo is never public projection text, including `scheme://:pw@host`.
-_CC_URI_USERINFO_RE = re.compile(r"(?i)([A-Za-z][A-Za-z0-9+.-]*://)([^/@\s:]*)(?::[^/@\s]*)?@")
+def _cc_redact_uri_userinfo(text: str) -> str:
+    """Redact URI authority userinfo without a backtracking regex."""
+    if not isinstance(text, str) or "://" not in text:
+        return text
+    pieces: list[str] = []
+    cursor = 0
+    scan = 0
+    length = len(text)
+    while scan < length:
+        separator = text.find("://", scan)
+        if separator < 0:
+            break
+        start = separator - 1
+        while start >= 0 and (text[start].isalnum() or text[start] in "+.-"):
+            start -= 1
+        scheme_start = start + 1
+        if scheme_start >= separator or not text[scheme_start].isalpha():
+            scan = separator + 3
+            continue
+        authority_start = separator + 3
+        authority_end = authority_start
+        while authority_end < length and not text[authority_end].isspace() and text[authority_end] not in "/?#":
+            authority_end += 1
+        at = text.rfind("@", authority_start, authority_end)
+        if at < authority_start:
+            scan = authority_end
+            continue
+        pieces.append(text[cursor:authority_start])
+        pieces.append("[REDACTED]@")
+        pieces.append(text[at + 1:authority_end])
+        cursor = authority_end
+        scan = authority_end
+    if not pieces:
+        return text
+    pieces.append(text[cursor:])
+    return "".join(pieces)
 _RAW_MATERIAL_KEYS = frozenset({
     "prompt", "body", "content", "credential", "credentials", "api_key", "authorization", "bearer", "tool_arg",
     "tool_args", "tool_argument", "tool_arguments", "private_body", "raw",
@@ -38018,7 +38053,7 @@ def _cc_redact(value: Any, cfg: Mapping[str, Any] | None = None) -> str:
         text,
     )
     text = re.sub(r"(?i)(\bbearer\s+)[^\s,;]+", r"\1[REDACTED]", text)
-    text = _CC_URI_USERINFO_RE.sub(r"\1[REDACTED]@", text)
+    text = _cc_redact_uri_userinfo(text)
     if _cc_contains_raw_material(text):
         return ""
     return text
