@@ -280,11 +280,13 @@ class ContextNode:
         else:
             object.__setattr__(self, "uncertainty", normalized_uncertainty)
         object.__setattr__(self, "content_ref", _dag_sha(self.content))
-        if not self.node_id:
-            object.__setattr__(self, "node_id", _dag_sha(
-                self.kind, self.content_ref, self.summary,
-                _dag_json(self.uncertainty), _dag_json(ev),
-                self.version, _dag_json(self.meta)))
+        expected_node_id = _dag_sha(
+            self.kind, self.content_ref, self.summary,
+            _dag_json(self.uncertainty), _dag_json(ev),
+            self.version, _dag_json(self.meta))
+        if self.node_id and self.node_id != expected_node_id:
+            raise ContextDagError("caller-supplied node_id does not match node commitment")
+        object.__setattr__(self, "node_id", expected_node_id)
 
     def to_dict(self) -> dict:
         return {
@@ -317,10 +319,12 @@ class ContextEdge:
         if self.src == self.dst:
             raise ContextDagError("self-referential edge is not a DAG edge")
         object.__setattr__(self, "meta", _dag_meta(self.meta, "edge metadata"))
-        if not self.edge_id:
-            object.__setattr__(self, "edge_id", _dag_sha(
-                self.kind, self.src, self.dst, self.version,
-                _dag_json(self.meta)))
+        expected_edge_id = _dag_sha(
+            self.kind, self.src, self.dst, self.version,
+            _dag_json(self.meta))
+        if self.edge_id and self.edge_id != expected_edge_id:
+            raise ContextDagError("caller-supplied edge_id does not match edge commitment")
+        object.__setattr__(self, "edge_id", expected_edge_id)
 
     def to_dict(self) -> dict:
         return {

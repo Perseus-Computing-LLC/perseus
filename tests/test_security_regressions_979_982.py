@@ -1350,6 +1350,13 @@ def test_unknown_graph_fields_and_rendered_node_tampering_are_rejected():
     raw["extra"] = "GRAPH_PRIVATE_SENTINEL"
     with pytest.raises(perseus.ContextDagError):
         perseus.ContextDAG.from_dict(raw)
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextNode(
+            kind="requirement", content="forged id", node_id="FORGED_NODE_ID",
+            evidence={"validity": "observed", "verified": True, "source_ids": ["file:forged"]},
+        )
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextEdge(kind="supports", src="a", dst="b", edge_id="FORGED_EDGE_ID")
     raw = graph.to_dict()
     raw["nodes"][0]["summary"] = "TAMPERED_SUMMARY"
     with pytest.raises(perseus.ContextDagError):
