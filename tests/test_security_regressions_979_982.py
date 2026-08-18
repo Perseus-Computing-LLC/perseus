@@ -1212,6 +1212,13 @@ def test_dag_rejects_duplicate_containers_and_cisc_non_finite_inputs():
         perseus.cisc_prioritize([{"path_id": "a", "confidence": float("inf")}])
     with pytest.raises(perseus.ContextDagError):
         perseus.cisc_prioritize([{"path_id": "a", "confidence": 1.0}], temperature=float("nan"))
+    with pytest.raises(perseus.ContextDagError):
+        perseus.cisc_prioritize([
+            {"path_id": "a", "confidence": 1e308},
+            {"path_id": "b", "confidence": 1e308},
+        ])
+    with pytest.raises(perseus.ContextDagError):
+        perseus.cisc_prioritize([{"path_id": "a", "confidence": 1.0}], temperature=1e-320)
 
 
 def test_dag_deadline_is_checked_after_slow_fetch():
