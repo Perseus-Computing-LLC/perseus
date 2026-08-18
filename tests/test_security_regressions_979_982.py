@@ -925,7 +925,7 @@ def test_malformed_dag_node_content_fails_closed_without_crashing():
     raw["content"] = 123
     raw["summary"] = "safe summary"
     raw["content_ref"] = perseus._dag_sha(123)
-    raw["node_id"] = perseus._dag_sha(raw["kind"], raw["content_ref"], perseus._dag_json(raw["evidence"]), raw["version"], perseus._dag_json(raw["meta"]))
+    raw["node_id"] = perseus._dag_sha(raw["kind"], raw["content_ref"], raw["summary"], perseus._dag_json(raw["uncertainty"]), perseus._dag_json(raw["evidence"]), raw["version"], perseus._dag_json(raw["meta"]))
     graph["digest"] = perseus._dag_sha(
         graph["task_id"],
         ",".join(sorted(item["node_id"] for item in graph["nodes"])),
@@ -1269,3 +1269,81 @@ def test_multi_topic_revocation_blocks_old_projection():
     boundary.revoke(agent_id="agent-revoke", scope=scope, topic="alpha")
     released = boundary.release(preview)
     assert released["failure_state"] == "revoked"
+
+
+
+def test_empty_sensitivity_cannot_mask_private_visibility():
+    body = "PRIVATE_VISIBILITY_SENTINEL"
+    result = perseus.context_ask(
+        "private item",
+        context=[{
+            "candidate_id": "private-visibility",
+            "summary": "private item",
+            "agent_text": body,
+            "content": body,
+            "sensitivity": "",
+            "visibility": " PRIVATE ",
+            "validity": "observed",
+            "verified": True,
+            "source_id": "vault:private-visibility",
+            "content_sha256": hashlib.sha256(body.encode()).hexdigest(),
+        }],
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    assert result["status"] != "complete"
+    assert body not in json.dumps(result)
+
+
+def test_empty_coverage_aliases_do_not_override_partial_status():
+    body = "PARTIAL_COVERAGE_SENTINEL"
+    result = perseus.context_ask(
+        "partial item",
+        context=[{
+            "candidate_id": "partial-coverage",
+            "summary": "partial item",
+            "agent_text": body,
+            "content": body,
+            "coverage_state": "",
+            "evidence_status": "partial",
+            "status": "partial",
+            "validity": "observed",
+            "verified": True,
+            "source_id": "vault:partial-coverage",
+            "content_sha256": hashlib.sha256(body.encode()).hexdigest(),
+        }],
+        policy={"evidence_required": True},
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    assert result["status"] != "complete"
+    assert result["answer"] is None
+
+
+def test_consent_return_value_cannot_mutate_authorization_state():
+    boundary = perseus.AgentProjectionBoundary()
+    scope = {"tenant": "consent-isolation", "workspace": "consent-isolation"}
+    returned = boundary.grant_consent(
+        agent_id="consent-agent",
+        scope=scope,
+        permissions={"preview": True, "release": False},
+    )
+    returned["permissions"]["release"] = True
+    scope_fp = perseus._cc_sha(scope)
+    assert boundary._consents[("consent-agent", scope_fp)]["permissions"]["release"] is False
+
+
+def test_unknown_graph_fields_and_rendered_node_tampering_are_rejected():
+    node = perseus.ContextNode(
+        kind="requirement",
+        content="bound node",
+        evidence={"validity": "observed", "verified": True, "source_ids": ["file:bound"]},
+    )
+    graph = perseus.ContextDAG(task_id="bound-graph")
+    graph.add_node(node)
+    raw = graph.to_dict()
+    raw["extra"] = "GRAPH_PRIVATE_SENTINEL"
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextDAG.from_dict(raw)
+    raw = graph.to_dict()
+    raw["nodes"][0]["summary"] = "TAMPERED_SUMMARY"
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextDAG.from_dict(raw)
