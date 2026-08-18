@@ -1361,3 +1361,31 @@ def test_unknown_graph_fields_and_rendered_node_tampering_are_rejected():
     raw["nodes"][0]["summary"] = "TAMPERED_SUMMARY"
     with pytest.raises(perseus.ContextDagError):
         perseus.ContextDAG.from_dict(raw)
+
+
+
+def test_dag_does_not_coerce_falsey_malformed_types():
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextDAG(task_id="typed", meta=[])
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextDAG(task_id="typed", version="1")
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextDAG(task_id=123)
+    graph = perseus.ContextDAG(task_id="typed")
+    node = perseus.ContextNode(
+        kind="requirement", content="typed node",
+        evidence={"validity": "observed", "verified": True, "source_ids": ["file:typed"]},
+    )
+    graph.add_node(node)
+    raw = graph.to_dict()
+    raw["meta"] = None
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextDAG.from_dict(raw)
+    raw = graph.to_dict()
+    raw["nodes"][0]["uncertainty"] = None
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextDAG.from_dict(raw)
+    raw = graph.to_dict()
+    raw["nodes"][0]["meta"] = None
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextDAG.from_dict(raw)
