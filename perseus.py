@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "afc2564-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "95397c9-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -35915,8 +35915,34 @@ class ExecutionProfile:
     runtime_capabilities: tuple[str, ...]
     degradation_policy: str
     auth_mode: str
-    runtime_ref: str = ""
-    model_ref: str = ""
+    runtime_ref: str = "ref-none"
+    model_ref: str = "ref-none"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.schema_version, str) or self.schema_version != _EP_SCHEMA_VERSION:
+            raise ExecutionProfileError("unsupported execution profile schema version")
+        _ep_id(self.profile_id, "profile_id")
+        if not isinstance(self.mode, str) or self.mode not in _EP_MODE_DEFAULTS:
+            raise ExecutionProfileError("unsupported execution profile mode")
+        _ep_limit(self.max_context_tokens, "max_context_tokens")
+        _ep_limit(self.max_context_bytes, "max_context_bytes")
+        _ep_limit(self.max_items, "max_items", maximum=4096)
+        _ep_limit(self.max_depth, "max_depth", maximum=128)
+        _ep_optional_limit(self.latency_target_ms, "latency_target_ms", maximum=86_400_000)
+        _ep_id(self.resource_class, "resource_class")
+        if not isinstance(self.network_mode, str) or self.network_mode not in _EP_NETWORK_MODES:
+            raise ExecutionProfileError("network_mode must be offline, local, or approved_network")
+        if self.mode == "air-gapped" and self.network_mode != "offline":
+            raise ExecutionProfileError("air-gapped mode requires offline network_mode")
+        if not isinstance(self.degradation_policy, str) or self.degradation_policy not in _EP_DEGRADATION_POLICIES:
+            raise ExecutionProfileError("unsupported degradation_policy")
+        if not isinstance(self.runtime_capabilities, tuple) or len(self.runtime_capabilities) > 32:
+            raise ExecutionProfileError("runtime_capabilities must contain at most 32 identifiers")
+        for capability in self.runtime_capabilities:
+            _ep_id(capability, "runtime_capability")
+        _ep_id(self.auth_mode, "auth_mode")
+        _ep_id(self.runtime_ref, "runtime_ref")
+        _ep_id(self.model_ref, "model_ref")
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "ExecutionProfile" | None) -> "ExecutionProfile":
@@ -35952,7 +35978,7 @@ class ExecutionProfile:
         if not isinstance(capabilities, (list, tuple)) or len(capabilities) > 32:
             raise ExecutionProfileError("runtime_capabilities must contain at most 32 identifiers")
         capability_values = tuple(sorted({_ep_id(item, "runtime_capability") for item in capabilities}))
-        auth_mode = _ep_text(value.get("auth_mode", "none"), "auth_mode", max_length=64)
+        auth_mode = _ep_id(value.get("auth_mode", "none"), "auth_mode")
         runtime_ref = _ep_id(value.get("runtime_ref", "ref-none"), "runtime_ref")
         model_ref = _ep_id(value.get("model_ref", "ref-none"), "model_ref")
         return cls(
@@ -35964,7 +35990,7 @@ class ExecutionProfile:
             max_items=_ep_limit(value.get("max_items", defaults["max_items"]), "max_items", maximum=4096),
             max_depth=_ep_limit(value.get("max_depth", defaults["max_depth"]), "max_depth", maximum=128),
             latency_target_ms=_ep_optional_limit(value.get("latency_target_ms", defaults["latency_target_ms"]), "latency_target_ms", maximum=86_400_000),
-            resource_class=_ep_text(value.get("resource_class", defaults["resource_class"]), "resource_class", max_length=64),
+            resource_class=_ep_id(value.get("resource_class", defaults["resource_class"]), "resource_class"),
             network_mode=network_mode,
             runtime_capabilities=capability_values,
             degradation_policy=degradation_policy,
@@ -36420,6 +36446,26 @@ class RuntimeCapabilities:
     provider_ref: str
 
     def __post_init__(self) -> None:
+        if self.schema_version != _RA_CAPABILITIES_SCHEMA:
+            raise RuntimeAdapterError("unsupported runtime capabilities schema version")
+        for field in ("backend_id", "backend_version", "model_id", "model_version", "tokenizer_id", "hardware_class", "auth_mode"):
+            _ra_id(getattr(self, field), field)
+        if isinstance(self.context_capacity_tokens, bool) or not isinstance(self.context_capacity_tokens, int):
+            raise RuntimeAdapterError("context_capacity_tokens must be a positive integer")
+        _ra_limit(self.context_capacity_tokens, "context_capacity_tokens")
+        if (
+            not isinstance(self.execution_modes, tuple)
+            or not self.execution_modes
+            or any(not isinstance(mode, str) for mode in self.execution_modes)
+            or not set(self.execution_modes).issubset(_RA_EXECUTION_MODES)
+        ):
+            raise RuntimeAdapterError("execution_modes must contain offline, local, or approved_network")
+        if not isinstance(self.streaming, bool) or not isinstance(self.tools, bool):
+            raise RuntimeAdapterError("streaming and tools must be booleans")
+        if not isinstance(self.resource_metrics, tuple):
+            raise RuntimeAdapterError("resource_metrics must be a tuple of identifiers")
+        for metric in self.resource_metrics:
+            _ra_id(metric, "resource_metrics")
         object.__setattr__(self, "provider_ref", _ra_provider_commitment(self.provider_ref))
 
     @classmethod
@@ -38104,12 +38150,22 @@ def _cc_private(record: Mapping[str, Any], policy: Mapping[str, Any]) -> bool:
     # Public projections are never allowed to carry private scalars.  The
     # legacy allow_private policy bit may affect caller policy commitments, but
     # it cannot disable this unconditional privacy boundary.
-    if bool(record.get("private") or record.get("contains_sensitive_data")):
-        return True
-    private_markers = {"private", "secret", "sensitive", "credential"}
+    for field in ("private", "contains_sensitive_data"):
+        if field in record:
+            value = record[field]
+            if not isinstance(value, bool):
+                raise ValueError(f"{field} must be boolean")
+            if value:
+                return True
+    private_markers = {"private", "private_scalar", "private_body", "private_data", "secret", "sensitive", "credential"}
     for field in ("sensitivity", "visibility"):
-        value = record.get(field)
-        if isinstance(value, str) and value.strip().casefold() in private_markers:
+        if field not in record or record[field] is None:
+            continue
+        value = record[field]
+        if not isinstance(value, str):
+            raise ValueError(f"{field} must be text")
+        normalized = value.strip().casefold().replace("-", "_")
+        if normalized in private_markers:
             return True
     return False
 
@@ -38139,9 +38195,17 @@ def _cc_scoring_text(record: Mapping[str, Any]) -> str:
 
 
 def _cc_content_commitment(record: Mapping[str, Any]) -> str | None:
-    supplied = record.get("content_sha256") or record.get("content_hash")
-    if supplied is not None and (not isinstance(supplied, str) or not _SHA256_RE.fullmatch(supplied)):
-        raise ValueError("content_sha256 must be a 64-hex digest")
+    supplied_values: list[str] = []
+    for field in ("content_sha256", "content_hash"):
+        if field not in record:
+            continue
+        supplied = record[field]
+        if not isinstance(supplied, str) or not _SHA256_RE.fullmatch(supplied):
+            raise ValueError(f"{field} must be a 64-hex digest")
+        supplied_values.append(supplied.lower())
+    if len(set(supplied_values)) > 1:
+        raise ValueError("content digest aliases disagree")
+    supplied = supplied_values[0] if supplied_values else None
     content_values: list[str] = []
     for key in ("content", "body", "raw", "private_body"):
         value = record.get(key)
@@ -38271,7 +38335,10 @@ def _cc_policy_controls(policy: Mapping[str, Any]) -> tuple[float, bool]:
     raw_min_score = policy.get("min_score", 0.2)
     if isinstance(raw_min_score, bool) or not isinstance(raw_min_score, (int, float)):
         raise ValueError("min_score must be a finite number")
-    min_score = float(raw_min_score)
+    try:
+        min_score = float(raw_min_score)
+    except (OverflowError, ValueError, TypeError) as exc:
+        raise ValueError("min_score must be a finite number") from exc
     if not math.isfinite(min_score) or not 0.0 <= min_score <= 1.0:
         raise ValueError("min_score must be a finite number between 0 and 1")
     allow_content = policy.get("allow_content", False)
@@ -38344,6 +38411,8 @@ def _cc_coverage_state(record: Mapping[str, Any]) -> str:
         "conflict": "conflicted",
         "no_evidence": "empty",
     }
+    valid_states = {"evidence_backed", "partial", "empty", "stale", "conflicted", "unavailable", "timeout"}
+    normalized: list[str] = []
     saw_explicit = False
     for field in ("coverage_state", "evidence_status", "status"):
         if field not in record or record.get(field) is None:
@@ -38353,8 +38422,14 @@ def _cc_coverage_state(record: Mapping[str, Any]) -> str:
         if not isinstance(value, str):
             return "invalid"
         raw = value.strip().lower().replace(" ", "_").replace("-", "_")
-        if raw:
-            return aliases.get(raw, raw)
+        if not raw:
+            continue
+        state = aliases.get(raw, raw)
+        if state not in valid_states:
+            return "invalid"
+        normalized.append(state)
+    if normalized:
+        return normalized[0] if len(set(normalized)) == 1 else "conflicted"
     if saw_explicit:
         return "empty"
     validity = _cc_validity(record)
@@ -38740,6 +38815,18 @@ def context_ask(
             }
         best, score, components, overlap, _index = scored[0]
         coverage_state = _cc_coverage_state(best)
+        if coverage_state == "invalid":
+            return {
+                "schema_version": CONTEXT_ASK_SCHEMA_VERSION,
+                "operation": "context_ask",
+                "status": "invalid_input",
+                "failure_state": "invalid_input",
+                "outcome": "invalid_input",
+                "answer": None,
+                "source_refs": [],
+                "excluded_candidate_ids": sorted(set(excluded)),
+                "route": route,
+            }
         if evidence_required and coverage_state != "evidence_backed":
             if coverage_state == "conflicted":
                 status, failure, outcome = "review", "contradictory_evidence", "review"
@@ -39400,7 +39487,7 @@ class AgentProjectionBoundary:
         digest = str(preview.get("projection_digest", ""))
         cached = self._cache.get(digest)
         if cached is not None:
-            result = dict(cached["result"])
+            result = copy.deepcopy(cached["result"])
             result["cache"] = {"hit": True, "key": "sha256:" + digest}
             return result
         receipt = self._receipt(preview, scope_fp, topic)
@@ -39418,7 +39505,7 @@ class AgentProjectionBoundary:
             "scope": normalized_scope,
             "cache": {"hit": False, "key": "sha256:" + digest},
         }
-        self._cache[digest] = {"result": dict(result), "agent_id": safe_agent, "scope_fp": scope_fp, "topic": topic, "topics": list(revocation_topics)}
+        self._cache[digest] = {"result": copy.deepcopy(result), "agent_id": safe_agent, "scope_fp": scope_fp, "topic": topic, "topics": list(revocation_topics)}
         return result
 
     def cache_stats(self) -> dict[str, int]:
@@ -39609,15 +39696,24 @@ class BudgetExceeded(ContextDagError):
 
 def _dag_sha(*parts: Any) -> str:
     h = hashlib.sha256()
-    for p in parts:
-        h.update(str(p).encode("utf-8"))
+    for part in parts:
+        try:
+            text = str(part)
+        except (OverflowError, ValueError, TypeError):
+            raise ContextDagError("DAG commitment input is not representable") from None
+        if len(text) > 1_000_000:
+            raise ContextDagError("DAG commitment input is too large")
+        h.update(text.encode("utf-8"))
         h.update(b"\x1f")
     return h.hexdigest()
 
 
 def _dag_json(value: Any) -> str:
     """Canonical JSON for digests: sorted keys, stable separators."""
-    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+    try:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError):
+        raise ContextDagError("DAG value is not finite JSON") from None
 
 
 _dag_validity_states = frozenset({
@@ -39844,12 +39940,14 @@ class ContextEdge:
     edge_id: str = ""
 
     def __post_init__(self) -> None:
+        if not isinstance(self.kind, str) or not self.kind or len(self.kind) > 64:
+            raise ContextDagError("edge kind must be bounded text")
         if self.kind not in EDGE_KINDS:
             raise ContextDagError(f"unknown edge kind: {self.kind!r}")
-        if not isinstance(self.src, str) or not isinstance(self.dst, str) or not self.src or not self.dst:
-            raise ContextDagError("edge endpoints must be non-empty text")
-        if isinstance(self.version, bool) or not isinstance(self.version, int) or self.version < 1:
-            raise ContextDagError("edge version must be a positive integer")
+        if not isinstance(self.src, str) or not isinstance(self.dst, str) or not self.src or not self.dst or len(self.src) > 160 or len(self.dst) > 160:
+            raise ContextDagError("edge endpoints must be bounded non-empty text")
+        if isinstance(self.version, bool) or not isinstance(self.version, int) or self.version < 1 or self.version > 10**12:
+            raise ContextDagError("edge version must be a bounded positive integer")
         if self.src == self.dst:
             raise ContextDagError("self-referential edge is not a DAG edge")
         object.__setattr__(self, "meta", _dag_meta(self.meta, "edge metadata"))
@@ -40280,6 +40378,28 @@ def should_expand(node: ContextNode, graph: Optional[ContextDAG] = None) -> bool
 
 # ── Terminal evaluator ────────────────────────────────────────────────────
 
+def _dag_confidence(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ContextDagError("confidence must be numeric")
+    try:
+        numeric = float(value)
+    except (OverflowError, ValueError, TypeError):
+        raise ContextDagError("confidence must be finite") from None
+    if not math.isfinite(numeric) or not 0.0 <= numeric <= 1.0:
+        raise ContextDagError("confidence must be finite between 0 and 1")
+    return numeric
+
+
+def _dag_advisory_list(value: Any, field: str) -> list[Any]:
+    if value is None:
+        return []
+    if not isinstance(value, (list, tuple)):
+        raise ContextDagError(f"{field} must be a list")
+    return list(value)
+
+
 def evaluate_compilation(*, verdict_hint: str = "sufficient",
                          policy_gaps: Optional[list] = None,
                          provenance_gaps: Optional[list] = None,
@@ -40295,9 +40415,12 @@ def evaluate_compilation(*, verdict_hint: str = "sufficient",
     * any provenance gap forces abstention (unsupported records may not ship);
     * only then is the advisory hint honored.
     """
-    policy_gaps = list(policy_gaps or [])
-    provenance_gaps = list(provenance_gaps or [])
-    unresolved = list(unresolved_contradictions or [])
+    policy_gaps = _dag_advisory_list(policy_gaps, "policy_gaps")
+    provenance_gaps = _dag_advisory_list(provenance_gaps, "provenance_gaps")
+    unresolved = _dag_advisory_list(unresolved_contradictions, "unresolved_contradictions")
+    confidence = _dag_confidence(confidence)
+    if not isinstance(verdict_hint, str) or len(verdict_hint) > 32:
+        raise ContextDagError("verdict_hint must be bounded text")
     if verdict_hint not in VERDICTS:
         verdict_hint = "abstain"
     if unresolved:
@@ -40518,6 +40641,7 @@ def compile_context_dag(*, task_id: str,
     the compiled packet back to the exact subgraph that produced it, and seals
     the advisory inputs + policy so verification is a faithful replay.
     """
+    confidence = _dag_confidence(confidence)
     policy = policy or CompilationPolicy()
     # Every sealed artifact carries a resolved profile, including callers that
     # omit one.  This makes profile-envelope presence an invariant rather than

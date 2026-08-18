@@ -287,12 +287,22 @@ def _cc_private(record: Mapping[str, Any], policy: Mapping[str, Any]) -> bool:
     # Public projections are never allowed to carry private scalars.  The
     # legacy allow_private policy bit may affect caller policy commitments, but
     # it cannot disable this unconditional privacy boundary.
-    if bool(record.get("private") or record.get("contains_sensitive_data")):
-        return True
-    private_markers = {"private", "secret", "sensitive", "credential"}
+    for field in ("private", "contains_sensitive_data"):
+        if field in record:
+            value = record[field]
+            if not isinstance(value, bool):
+                raise ValueError(f"{field} must be boolean")
+            if value:
+                return True
+    private_markers = {"private", "private_scalar", "private_body", "private_data", "secret", "sensitive", "credential"}
     for field in ("sensitivity", "visibility"):
-        value = record.get(field)
-        if isinstance(value, str) and value.strip().casefold() in private_markers:
+        if field not in record or record[field] is None:
+            continue
+        value = record[field]
+        if not isinstance(value, str):
+            raise ValueError(f"{field} must be text")
+        normalized = value.strip().casefold().replace("-", "_")
+        if normalized in private_markers:
             return True
     return False
 
@@ -322,9 +332,17 @@ def _cc_scoring_text(record: Mapping[str, Any]) -> str:
 
 
 def _cc_content_commitment(record: Mapping[str, Any]) -> str | None:
-    supplied = record.get("content_sha256") or record.get("content_hash")
-    if supplied is not None and (not isinstance(supplied, str) or not _SHA256_RE.fullmatch(supplied)):
-        raise ValueError("content_sha256 must be a 64-hex digest")
+    supplied_values: list[str] = []
+    for field in ("content_sha256", "content_hash"):
+        if field not in record:
+            continue
+        supplied = record[field]
+        if not isinstance(supplied, str) or not _SHA256_RE.fullmatch(supplied):
+            raise ValueError(f"{field} must be a 64-hex digest")
+        supplied_values.append(supplied.lower())
+    if len(set(supplied_values)) > 1:
+        raise ValueError("content digest aliases disagree")
+    supplied = supplied_values[0] if supplied_values else None
     content_values: list[str] = []
     for key in ("content", "body", "raw", "private_body"):
         value = record.get(key)
@@ -454,7 +472,10 @@ def _cc_policy_controls(policy: Mapping[str, Any]) -> tuple[float, bool]:
     raw_min_score = policy.get("min_score", 0.2)
     if isinstance(raw_min_score, bool) or not isinstance(raw_min_score, (int, float)):
         raise ValueError("min_score must be a finite number")
-    min_score = float(raw_min_score)
+    try:
+        min_score = float(raw_min_score)
+    except (OverflowError, ValueError, TypeError) as exc:
+        raise ValueError("min_score must be a finite number") from exc
     if not math.isfinite(min_score) or not 0.0 <= min_score <= 1.0:
         raise ValueError("min_score must be a finite number between 0 and 1")
     allow_content = policy.get("allow_content", False)
@@ -527,6 +548,8 @@ def _cc_coverage_state(record: Mapping[str, Any]) -> str:
         "conflict": "conflicted",
         "no_evidence": "empty",
     }
+    valid_states = {"evidence_backed", "partial", "empty", "stale", "conflicted", "unavailable", "timeout"}
+    normalized: list[str] = []
     saw_explicit = False
     for field in ("coverage_state", "evidence_status", "status"):
         if field not in record or record.get(field) is None:
@@ -536,8 +559,14 @@ def _cc_coverage_state(record: Mapping[str, Any]) -> str:
         if not isinstance(value, str):
             return "invalid"
         raw = value.strip().lower().replace(" ", "_").replace("-", "_")
-        if raw:
-            return aliases.get(raw, raw)
+        if not raw:
+            continue
+        state = aliases.get(raw, raw)
+        if state not in valid_states:
+            return "invalid"
+        normalized.append(state)
+    if normalized:
+        return normalized[0] if len(set(normalized)) == 1 else "conflicted"
     if saw_explicit:
         return "empty"
     validity = _cc_validity(record)
@@ -923,6 +952,18 @@ def context_ask(
             }
         best, score, components, overlap, _index = scored[0]
         coverage_state = _cc_coverage_state(best)
+        if coverage_state == "invalid":
+            return {
+                "schema_version": CONTEXT_ASK_SCHEMA_VERSION,
+                "operation": "context_ask",
+                "status": "invalid_input",
+                "failure_state": "invalid_input",
+                "outcome": "invalid_input",
+                "answer": None,
+                "source_refs": [],
+                "excluded_candidate_ids": sorted(set(excluded)),
+                "route": route,
+            }
         if evidence_required and coverage_state != "evidence_backed":
             if coverage_state == "conflicted":
                 status, failure, outcome = "review", "contradictory_evidence", "review"
@@ -1583,7 +1624,7 @@ class AgentProjectionBoundary:
         digest = str(preview.get("projection_digest", ""))
         cached = self._cache.get(digest)
         if cached is not None:
-            result = dict(cached["result"])
+            result = copy.deepcopy(cached["result"])
             result["cache"] = {"hit": True, "key": "sha256:" + digest}
             return result
         receipt = self._receipt(preview, scope_fp, topic)
@@ -1601,7 +1642,7 @@ class AgentProjectionBoundary:
             "scope": normalized_scope,
             "cache": {"hit": False, "key": "sha256:" + digest},
         }
-        self._cache[digest] = {"result": dict(result), "agent_id": safe_agent, "scope_fp": scope_fp, "topic": topic, "topics": list(revocation_topics)}
+        self._cache[digest] = {"result": copy.deepcopy(result), "agent_id": safe_agent, "scope_fp": scope_fp, "topic": topic, "topics": list(revocation_topics)}
         return result
 
     def cache_stats(self) -> dict[str, int]:
