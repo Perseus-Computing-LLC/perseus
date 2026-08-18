@@ -1612,6 +1612,39 @@ def test_malformed_privacy_fields_fail_closed(field_value):
     assert result["status"] != "complete"
     assert body not in json.dumps(result)
 
+@pytest.mark.parametrize(
+    ("field", "field_value"),
+    [
+        ("sensitivity", ""),
+        ("visibility", ""),
+        ("sensitivity", "not-a-real-classification"),
+        ("visibility", "not-a-real-visibility"),
+    ],
+)
+def test_empty_or_unknown_privacy_labels_fail_closed(field, field_value):
+    body = "PRIVATE_SCALAR_LABEL_BYPASS"
+    record = {
+        "candidate_id": "privacy-label-bypass",
+        "summary": "private item",
+        "agent_text": body,
+        "content": body,
+        "source_id": "vault:privacy-label-bypass",
+        "scope": {"workspace": "privacy-label-ws"},
+        "content_sha256": hashlib.sha256(body.encode()).hexdigest(),
+        "validity": "observed",
+        "verified": True,
+        field: field_value,
+    }
+    result = perseus.context_ask(
+        "private item",
+        context=[record],
+        scope={"workspace": "privacy-label-ws"},
+        policy={"min_score": 0},
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    assert result["status"] != "complete"
+    assert body not in json.dumps(result)
+
 
 def test_release_cache_isolation_is_deep():
     boundary, preview = _cache_release_fixture()

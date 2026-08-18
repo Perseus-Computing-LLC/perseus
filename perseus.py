@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "1454a6d-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "4e37924-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -38181,10 +38181,27 @@ def _cc_topic(record: Mapping[str, Any]) -> str:
     return _cc_safe_id(record.get("topic") or record.get("scope", {}).get("topic", "")) if isinstance(record.get("scope", {}), Mapping) else _cc_safe_id(record.get("topic"))
 
 
+_CC_PUBLIC_PRIVACY_LABELS = frozenset({"public"})
+_CC_PRIVATE_PRIVACY_LABELS = frozenset({
+    "private",
+    "private_scalar",
+    "private_body",
+    "private_data",
+    "secret",
+    "sensitive",
+    "credential",
+    "internal",
+    "restricted",
+    "confidential",
+})
+
+
 def _cc_private(record: Mapping[str, Any], policy: Mapping[str, Any]) -> bool:
-    # Public projections are never allowed to carry private scalars.  The
+    # Public projections are never allowed to carry private scalars. The
     # legacy allow_private policy bit may affect caller policy commitments, but
-    # it cannot disable this unconditional privacy boundary.
+    # it cannot disable this unconditional privacy boundary. Explicit labels
+    # use a closed allowlist: only ``public`` is admitted as public; empty,
+    # unknown, and malformed labels fail closed through the caller boundary.
     for field in ("private", "contains_sensitive_data"):
         if field in record:
             value = record[field]
@@ -38192,16 +38209,18 @@ def _cc_private(record: Mapping[str, Any], policy: Mapping[str, Any]) -> bool:
                 raise ValueError(f"{field} must be boolean")
             if value:
                 return True
-    private_markers = {"private", "private_scalar", "private_body", "private_data", "secret", "sensitive", "credential"}
     for field in ("sensitivity", "visibility"):
-        if field not in record or record[field] is None:
+        if field not in record:
             continue
         value = record[field]
         if not isinstance(value, str):
             raise ValueError(f"{field} must be text")
         normalized = value.strip().casefold().replace("-", "_")
-        if normalized in private_markers:
+        if normalized in _CC_PRIVATE_PRIVACY_LABELS:
             return True
+        if normalized in _CC_PUBLIC_PRIVACY_LABELS:
+            continue
+        raise ValueError(f"{field} has an unknown privacy label")
     return False
 
 
