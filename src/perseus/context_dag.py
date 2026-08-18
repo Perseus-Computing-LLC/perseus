@@ -85,15 +85,24 @@ class BudgetExceeded(ContextDagError):
 
 def _dag_sha(*parts: Any) -> str:
     h = hashlib.sha256()
-    for p in parts:
-        h.update(str(p).encode("utf-8"))
+    for part in parts:
+        try:
+            text = str(part)
+        except (OverflowError, ValueError, TypeError):
+            raise ContextDagError("DAG commitment input is not representable") from None
+        if len(text) > 1_000_000:
+            raise ContextDagError("DAG commitment input is too large")
+        h.update(text.encode("utf-8"))
         h.update(b"\x1f")
     return h.hexdigest()
 
 
 def _dag_json(value: Any) -> str:
     """Canonical JSON for digests: sorted keys, stable separators."""
-    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+    try:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError):
+        raise ContextDagError("DAG value is not finite JSON") from None
 
 
 _dag_validity_states = frozenset({
@@ -320,12 +329,14 @@ class ContextEdge:
     edge_id: str = ""
 
     def __post_init__(self) -> None:
+        if not isinstance(self.kind, str) or not self.kind or len(self.kind) > 64:
+            raise ContextDagError("edge kind must be bounded text")
         if self.kind not in EDGE_KINDS:
             raise ContextDagError(f"unknown edge kind: {self.kind!r}")
-        if not isinstance(self.src, str) or not isinstance(self.dst, str) or not self.src or not self.dst:
-            raise ContextDagError("edge endpoints must be non-empty text")
-        if isinstance(self.version, bool) or not isinstance(self.version, int) or self.version < 1:
-            raise ContextDagError("edge version must be a positive integer")
+        if not isinstance(self.src, str) or not isinstance(self.dst, str) or not self.src or not self.dst or len(self.src) > 160 or len(self.dst) > 160:
+            raise ContextDagError("edge endpoints must be bounded non-empty text")
+        if isinstance(self.version, bool) or not isinstance(self.version, int) or self.version < 1 or self.version > 10**12:
+            raise ContextDagError("edge version must be a bounded positive integer")
         if self.src == self.dst:
             raise ContextDagError("self-referential edge is not a DAG edge")
         object.__setattr__(self, "meta", _dag_meta(self.meta, "edge metadata"))
@@ -756,6 +767,28 @@ def should_expand(node: ContextNode, graph: Optional[ContextDAG] = None) -> bool
 
 # ── Terminal evaluator ────────────────────────────────────────────────────
 
+def _dag_confidence(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ContextDagError("confidence must be numeric")
+    try:
+        numeric = float(value)
+    except (OverflowError, ValueError, TypeError):
+        raise ContextDagError("confidence must be finite") from None
+    if not math.isfinite(numeric) or not 0.0 <= numeric <= 1.0:
+        raise ContextDagError("confidence must be finite between 0 and 1")
+    return numeric
+
+
+def _dag_advisory_list(value: Any, field: str) -> list[Any]:
+    if value is None:
+        return []
+    if not isinstance(value, (list, tuple)):
+        raise ContextDagError(f"{field} must be a list")
+    return list(value)
+
+
 def evaluate_compilation(*, verdict_hint: str = "sufficient",
                          policy_gaps: Optional[list] = None,
                          provenance_gaps: Optional[list] = None,
@@ -771,9 +804,12 @@ def evaluate_compilation(*, verdict_hint: str = "sufficient",
     * any provenance gap forces abstention (unsupported records may not ship);
     * only then is the advisory hint honored.
     """
-    policy_gaps = list(policy_gaps or [])
-    provenance_gaps = list(provenance_gaps or [])
-    unresolved = list(unresolved_contradictions or [])
+    policy_gaps = _dag_advisory_list(policy_gaps, "policy_gaps")
+    provenance_gaps = _dag_advisory_list(provenance_gaps, "provenance_gaps")
+    unresolved = _dag_advisory_list(unresolved_contradictions, "unresolved_contradictions")
+    confidence = _dag_confidence(confidence)
+    if not isinstance(verdict_hint, str) or len(verdict_hint) > 32:
+        raise ContextDagError("verdict_hint must be bounded text")
     if verdict_hint not in VERDICTS:
         verdict_hint = "abstain"
     if unresolved:
@@ -994,6 +1030,7 @@ def compile_context_dag(*, task_id: str,
     the compiled packet back to the exact subgraph that produced it, and seals
     the advisory inputs + policy so verification is a faithful replay.
     """
+    confidence = _dag_confidence(confidence)
     policy = policy or CompilationPolicy()
     # Every sealed artifact carries a resolved profile, including callers that
     # omit one.  This makes profile-envelope presence an invariant rather than
