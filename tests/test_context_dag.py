@@ -31,7 +31,7 @@ def rec(text, validity="observed", verified=True, **kw):
 def req(text, **kw):
     return NODE(kind="requirement", content=text,
                 evidence={"validity": "observed", "verified": True,
-                          "source_ids": ["task"]}, **kw)
+                          "source_ids": ["artifact:task"]}, **kw)
 
 
 # ── IDs, immutability, kind validation ────────────────────────────────────
@@ -70,10 +70,9 @@ def test_collision_with_different_content_rejected():
     g = DAG(task_id="t")
     first = rec("same")
     g.add_node(first)
-    impostor = NODE(kind="retrieved_record", content="different",
-                    node_id=first.node_id)
     with pytest.raises(perseus.ContextDagError):
-        g.add_node(impostor)
+        NODE(kind="retrieved_record", content="different",
+             node_id=first.node_id)
 
 
 # ── Acyclicity and topology ───────────────────────────────────────────────
@@ -132,10 +131,19 @@ def test_budget_max_fanout_and_tokens():
 
 def test_budget_wall_clock_fails_closed():
     g = DAG(task_id="t")
-    ledger = Budget(deadline_s=-1.0).ledger()  # already past deadline
+    ledger = Budget(deadline_s=1e-12).ledger()  # expires before the next operation
     with pytest.raises(perseus.BudgetExceeded) as e:
         g.add_node(rec("x"), ledger, depth=0)
     assert e.value.kind == "wall_clock"
+
+
+def test_budget_subresolution_deadline_fails_closed(monkeypatch):
+    monkeypatch.setattr(perseus.time, "monotonic", lambda: 100.0)
+    graph = DAG(task_id="clock-resolution")
+    ledger = Budget(deadline_s=1e-12).ledger()
+    with pytest.raises(perseus.BudgetExceeded) as exc:
+        graph.add_node(req("clock sentinel"), ledger, depth=0)
+    assert exc.value.kind == "wall_clock"
 
 
 def test_budget_report_labels_token_accounting():
@@ -314,7 +322,7 @@ def test_subgraph_contains_descendants_and_fork_bumps_version():
     sub = g.subgraph([b], task_id="t-sub")
     ids = {n.node_id for n in sub.nodes}
     assert b in ids and c in ids and a not in ids
-    assert sub.meta["parent_task_id"] == "t"
+    assert sub.meta["parent_task_id"] == "sha256:" + perseus._dag_sha("t")
     forked = g.fork_version(reason="re-run")
     assert forked.version == g.version + 1
     assert forked.digest() != g.digest()
