@@ -137,6 +137,15 @@ def test_budget_wall_clock_fails_closed():
     assert e.value.kind == "wall_clock"
 
 
+def test_budget_subresolution_deadline_fails_closed(monkeypatch):
+    monkeypatch.setattr(perseus.time, "monotonic", lambda: 100.0)
+    graph = DAG(task_id="clock-resolution")
+    ledger = Budget(deadline_s=1e-12).ledger()
+    with pytest.raises(perseus.BudgetExceeded) as exc:
+        graph.add_node(req("clock sentinel"), ledger, depth=0)
+    assert exc.value.kind == "wall_clock"
+
+
 def test_budget_report_labels_token_accounting():
     g = DAG(task_id="t")
     ledger = Budget().ledger()
