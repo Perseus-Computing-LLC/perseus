@@ -274,7 +274,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 
 ### MCP Tools
 
-<!-- test-count: 2317 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
+<!-- test-count: 2442 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
 <!-- The table below documents the current default output of _get_all_mcp_tools({}). Recount before editing. -->
 MCP tools resolve live state at invocation time, including the canonical Perseus Vault tool. Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
 

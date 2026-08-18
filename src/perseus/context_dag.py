@@ -41,9 +41,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Mapping, Optional
 from perseus.execution_profiles import (
     ExecutionProfileError,
     resolve_execution_profile,
@@ -83,15 +85,115 @@ class BudgetExceeded(ContextDagError):
 
 def _dag_sha(*parts: Any) -> str:
     h = hashlib.sha256()
-    for p in parts:
-        h.update(str(p).encode("utf-8"))
+    for part in parts:
+        try:
+            text = str(part)
+        except (OverflowError, ValueError, TypeError):
+            raise ContextDagError("DAG commitment input is not representable") from None
+        if len(text) > 1_000_000:
+            raise ContextDagError("DAG commitment input is too large")
+        h.update(text.encode("utf-8"))
         h.update(b"\x1f")
     return h.hexdigest()
 
 
 def _dag_json(value: Any) -> str:
     """Canonical JSON for digests: sorted keys, stable separators."""
-    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+    try:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError):
+        raise ContextDagError("DAG value is not finite JSON") from None
+
+
+_dag_validity_states = frozenset({
+    "observed", "derived", "inferred", "stale", "contradictory", "unavailable", "unknown",
+    "low", "medium", "high", "tie",
+})
+_dag_uncertainty_classes = frozenset({"high", "medium", "low", "inferred", "stale", "tie"})
+_dag_public_source_re = re.compile(r"^(?:file|vault|ledger|artifact):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
+_dag_meta_key_re = re.compile(r"^[A-Za-z][A-Za-z0-9_.\-]{0,63}$")
+_dag_commitment_re = re.compile(r"^sha256:[0-9a-fA-F]{64}$")
+_dag_sensitive_key_re = re.compile(r"(?i)(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private|prompt|body|content|raw)")
+_dag_graph_fields = frozenset({"schema_version", "task_id", "version", "created_by", "meta", "digest", "nodes", "edges"})
+_dag_node_fields = frozenset({"node_id", "kind", "content", "content_ref", "summary", "uncertainty", "evidence", "version", "meta"})
+_dag_edge_fields = frozenset({"edge_id", "kind", "src", "dst", "version", "meta"})
+
+
+def _dag_public_ref(value: Any, field: str) -> str:
+    if not isinstance(value, str):
+        raise ContextDagError(f"{field} must be a text reference")
+    source = value.strip()
+    if not source or len(source) > 160:
+        raise ContextDagError(f"{field} must be a bounded reference")
+    if source.startswith("artifact:candidate:"):
+        raise ContextDagError(f"{field} cannot use a synthetic artifact reference")
+    if _dag_public_source_re.fullmatch(source):
+        namespace, _, suffix = source.partition(":")
+        if re.search(r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private|raw|prompt|body|content)(?:$|[:/#._-])", suffix):
+            return f"{namespace}:sha256:{_dag_sha(source)}"
+        return source
+    raise ContextDagError(f"{field} contains an untrusted source namespace")
+
+
+def _dag_meta_value(value: Any, field: str) -> Any:
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        if abs(value) > 10**12:
+            raise ContextDagError(f"{field} integer is out of bounds")
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ContextDagError(f"{field} must contain finite numbers")
+        return value
+    if isinstance(value, str):
+        if _dag_commitment_re.fullmatch(value):
+            return value.lower()
+        if len(value) > 256:
+            raise ContextDagError(f"{field} string is too long")
+        return "sha256:" + _dag_sha(value)
+    if isinstance(value, Mapping):
+        return _dag_meta(value, field)
+    if isinstance(value, (list, tuple)):
+        if len(value) > 64:
+            raise ContextDagError(f"{field} list is too long")
+        return [_dag_meta_value(item, f"{field}[{index}]") for index, item in enumerate(value)]
+    raise ContextDagError(f"{field} contains an unsupported value")
+
+
+def _dag_meta(value: Any, field: str = "meta") -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ContextDagError(f"{field} must be an object")
+    if len(value) > 32:
+        raise ContextDagError(f"{field} contains too many fields")
+    result: dict[str, Any] = {}
+    for key, child in value.items():
+        if not isinstance(key, str) or not _dag_meta_key_re.fullmatch(key):
+            raise ContextDagError(f"{field} contains an invalid key")
+        if _dag_sensitive_key_re.search(key):
+            raise ContextDagError(f"{field}.{key} is not a permitted public field")
+        result[key] = _dag_meta_value(child, f"{field}.{key}")
+    return result
+
+
+def _dag_uncertainty_value(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != {"class", "score"}:
+        raise ContextDagError("node uncertainty must contain exactly class and score")
+    cls = value.get("class")
+    score = value.get("score")
+    if not isinstance(cls, str) or cls.strip().lower() not in _dag_uncertainty_classes:
+        raise ContextDagError("node uncertainty class is invalid")
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        raise ContextDagError("node uncertainty score must be numeric")
+    try:
+        numeric = float(score)
+    except (OverflowError, ValueError, TypeError):
+        raise ContextDagError("node uncertainty score must be finite") from None
+    if not math.isfinite(numeric) or not 0 <= numeric <= 1:
+        raise ContextDagError("node uncertainty score must be finite between 0 and 1")
+    return {"class": cls.strip().lower(), "score": round(numeric, 6)}
 
 
 def dag_tokens(text: str) -> int:
@@ -100,7 +202,9 @@ def dag_tokens(text: str) -> int:
     Same convention as ``context_decision`` — an *estimate* for budget
     accounting, never a provider-billed reading.
     """
-    return max(1, (len(text or "") + 3) // 4)
+    if not isinstance(text, str):
+        raise ContextDagError("node content must be text")
+    return max(1, (len(text) + 3) // 4)
 
 
 def _dag_uncertainty(validity: str, verified: bool) -> dict[str, Any]:
@@ -115,13 +219,28 @@ def _dag_uncertainty(validity: str, verified: bool) -> dict[str, Any]:
 
 
 def _norm_evidence(evidence: Optional[dict]) -> dict:
+    if evidence is not None and not isinstance(evidence, Mapping):
+        raise ContextDagError("node evidence must be an object")
     ev = dict(evidence or {})
+    allowed = {"validity", "verified", "source_ids", "policy_ref", "resolved_by"}
+    if set(ev) - allowed:
+        raise ContextDagError("node evidence contains unsupported fields")
     ev.setdefault("validity", "inferred")
+    if not isinstance(ev["validity"], str) or ev["validity"].strip().lower() not in _dag_validity_states:
+        raise ContextDagError("node evidence.validity is invalid")
+    ev["validity"] = ev["validity"].strip().lower()
     ev.setdefault("verified", False)
+    if not isinstance(ev["verified"], bool):
+        raise ContextDagError("node evidence.verified must be boolean")
     ev.setdefault("source_ids", [])
     if isinstance(ev.get("source_ids"), str):
         ev["source_ids"] = [ev["source_ids"]]
-    ev["source_ids"] = sorted({str(s) for s in ev.get("source_ids") or []})
+    if not isinstance(ev.get("source_ids"), (list, tuple)) or len(ev["source_ids"]) > 64:
+        raise ContextDagError("node evidence.source_ids must be a bounded list")
+    ev["source_ids"] = sorted({_dag_public_ref(s, "node evidence.source_ids") for s in ev.get("source_ids")})
+    for field in ("policy_ref", "resolved_by"):
+        if field in ev and ev[field] is not None:
+            ev[field] = _dag_public_ref(ev[field], f"node evidence.{field}")
     return ev
 
 
@@ -147,21 +266,42 @@ class ContextNode:
     content_ref: str = ""
 
     def __post_init__(self) -> None:
-        if self.kind not in NODE_KINDS:
+        if not isinstance(self.kind, str) or self.kind not in NODE_KINDS:
             raise ContextDagError(f"unknown node kind: {self.kind!r}")
+        if not isinstance(self.content, str):
+            raise ContextDagError("node content must be text")
+        if not isinstance(self.summary, str):
+            raise ContextDagError("node summary must be text")
+        if isinstance(self.version, bool) or not isinstance(self.version, int) or self.version < 1:
+            raise ContextDagError("node version must be a positive integer")
+        if not isinstance(self.meta, dict):
+            raise ContextDagError("node metadata must be an object")
+        normalized_meta = _dag_meta(self.meta, "node metadata")
+        if self.uncertainty is not None and not isinstance(self.uncertainty, Mapping):
+            raise ContextDagError("node uncertainty must be an object")
+        normalized_uncertainty = None if self.uncertainty is None else _dag_uncertainty_value(self.uncertainty)
         ev = _norm_evidence(self.evidence)
         object.__setattr__(self, "evidence", ev)
+        object.__setattr__(self, "meta", normalized_meta)
         if not self.summary:
             object.__setattr__(self, "summary", (self.content or "")[:120])
-        if not self.uncertainty:
+        if normalized_uncertainty is None:
             object.__setattr__(self, "uncertainty",
                                _dag_uncertainty(ev["validity"],
-                                                bool(ev["verified"])))
-        object.__setattr__(self, "content_ref", _dag_sha(self.content))
-        if not self.node_id:
-            object.__setattr__(self, "node_id", _dag_sha(
-                self.kind, self.content_ref, _dag_json(ev),
-                self.version, _dag_json(self.meta)))
+                                                ev["verified"]))
+        else:
+            object.__setattr__(self, "uncertainty", normalized_uncertainty)
+        expected_content_ref = _dag_sha(self.content)
+        if self.content_ref and self.content_ref != expected_content_ref:
+            raise ContextDagError("caller-supplied content_ref does not match content commitment")
+        object.__setattr__(self, "content_ref", expected_content_ref)
+        expected_node_id = _dag_sha(
+            self.kind, self.content_ref, self.summary,
+            _dag_json(self.uncertainty), _dag_json(ev),
+            self.version, _dag_json(self.meta))
+        if self.node_id and self.node_id != expected_node_id:
+            raise ContextDagError("caller-supplied node_id does not match node commitment")
+        object.__setattr__(self, "node_id", expected_node_id)
 
     def to_dict(self) -> dict:
         return {
@@ -189,14 +329,23 @@ class ContextEdge:
     edge_id: str = ""
 
     def __post_init__(self) -> None:
+        if not isinstance(self.kind, str) or not self.kind or len(self.kind) > 64:
+            raise ContextDagError("edge kind must be bounded text")
         if self.kind not in EDGE_KINDS:
             raise ContextDagError(f"unknown edge kind: {self.kind!r}")
+        if not isinstance(self.src, str) or not isinstance(self.dst, str) or not self.src or not self.dst or len(self.src) > 160 or len(self.dst) > 160:
+            raise ContextDagError("edge endpoints must be bounded non-empty text")
+        if isinstance(self.version, bool) or not isinstance(self.version, int) or self.version < 1 or self.version > 10**12:
+            raise ContextDagError("edge version must be a bounded positive integer")
         if self.src == self.dst:
             raise ContextDagError("self-referential edge is not a DAG edge")
-        if not self.edge_id:
-            object.__setattr__(self, "edge_id", _dag_sha(
-                self.kind, self.src, self.dst, self.version,
-                _dag_json(self.meta)))
+        object.__setattr__(self, "meta", _dag_meta(self.meta, "edge metadata"))
+        expected_edge_id = _dag_sha(
+            self.kind, self.src, self.dst, self.version,
+            _dag_json(self.meta))
+        if self.edge_id and self.edge_id != expected_edge_id:
+            raise ContextDagError("caller-supplied edge_id does not match edge commitment")
+        object.__setattr__(self, "edge_id", expected_edge_id)
 
     def to_dict(self) -> dict:
         return {
@@ -222,6 +371,25 @@ class CompilationBudget:
     max_bytes: int | None = None
     deadline_s: float = 30.0
 
+    def __post_init__(self) -> None:
+        for field_name in ("max_nodes", "max_depth", "max_fanout", "max_tokens"):
+            value = getattr(self, field_name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ContextDagError(f"{field_name} must be a positive integer")
+        if self.max_bytes is not None and (
+            isinstance(self.max_bytes, bool) or not isinstance(self.max_bytes, int) or self.max_bytes < 1
+        ):
+            raise ContextDagError("max_bytes must be a positive integer or None")
+        if isinstance(self.deadline_s, bool) or not isinstance(self.deadline_s, (int, float)):
+            raise ContextDagError("deadline_s must be a finite positive number")
+        try:
+            deadline = float(self.deadline_s)
+        except (OverflowError, ValueError, TypeError):
+            raise ContextDagError("deadline_s must be finite") from None
+        if not math.isfinite(deadline) or deadline <= 0:
+            raise ContextDagError("deadline_s must be a finite positive number")
+        self.deadline_s = deadline
+
     def ledger(self) -> "BudgetLedger":
         return BudgetLedger(self)
 
@@ -236,11 +404,12 @@ class BudgetLedger:
         self.tokens: dict[str, int] = {}
         self.bytes: dict[str, int] = {}
         self.children: dict[str, list[str]] = {}
+        self.clock_resolution = time.get_clock_info("monotonic").resolution
         self.started_at = time.monotonic()
 
     def _tick(self) -> None:
         elapsed = time.monotonic() - self.started_at
-        if elapsed > self.budget.deadline_s:
+        if self.budget.deadline_s <= self.clock_resolution or elapsed >= self.budget.deadline_s:
             raise BudgetExceeded("wall_clock", f"{self.budget.deadline_s}s",
                                  f"{elapsed:.3f}s")
 
@@ -311,12 +480,16 @@ class ContextDAG:
 
     def __init__(self, *, task_id: str, version: int = 1,
                  created_by: str = "", meta: Optional[dict] = None):
-        if not task_id:
-            raise ContextDagError("task_id is required")
-        self.task_id = str(task_id)
-        self.version = int(version)
-        self.created_by = str(created_by)
-        self.meta = dict(meta or {})
+        if not isinstance(task_id, str) or not task_id:
+            raise ContextDagError("task_id must be non-empty text")
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            raise ContextDagError("graph version must be a positive integer")
+        if not isinstance(created_by, str):
+            raise ContextDagError("created_by must be text")
+        self.task_id = task_id
+        self.version = version
+        self.created_by = created_by
+        self.meta = _dag_meta(meta, "graph metadata")
         self._nodes: dict[str, ContextNode] = {}
         self._edges: dict[str, ContextEdge] = {}
         self._adj: dict[str, list[str]] = {}
@@ -483,35 +656,79 @@ class ContextDAG:
 
     @classmethod
     def from_dict(cls, data: dict) -> "ContextDAG":
+        if not isinstance(data, Mapping):
+            raise ContextDagError("graph must be an object")
         if data.get("schema_version") != "perseus-context-dag/v1":
             raise ContextDagError("unsupported context DAG schema version")
-        g = cls(task_id=data["task_id"], version=int(data["version"]),
-                created_by=data.get("created_by", ""),
-                meta=data.get("meta") or {})
-        for raw in data.get("nodes", []):
+        if set(data) != _dag_graph_fields:
+            raise ContextDagError("graph contains unsupported or missing fields")
+        if isinstance(data.get("version"), bool) or not isinstance(data.get("version"), int) or data["version"] < 1:
+            raise ContextDagError("graph version must be a positive integer")
+        if not isinstance(data.get("task_id"), str) or not data["task_id"]:
+            raise ContextDagError("graph task_id must be non-empty text")
+        if not isinstance(data.get("created_by"), str):
+            raise ContextDagError("graph created_by must be text")
+        if not isinstance(data.get("meta"), Mapping):
+            raise ContextDagError("graph metadata must be an object")
+        g = cls(task_id=data["task_id"], version=data["version"],
+                created_by=data["created_by"], meta=data["meta"])
+        raw_nodes = data.get("nodes", [])
+        raw_edges = data.get("edges", [])
+        if not isinstance(raw_nodes, list) or not isinstance(raw_edges, list):
+            raise ContextDagError("graph nodes and edges must be lists")
+        seen_node_ids: set[str] = set()
+        for raw in raw_nodes:
+            if not isinstance(raw, Mapping):
+                raise ContextDagError("graph node must be an object")
+            if set(raw) != _dag_node_fields:
+                raise ContextDagError("graph node contains unsupported or missing fields")
+            if isinstance(raw.get("version"), bool) or not isinstance(raw.get("version"), int) or raw["version"] < 1:
+                raise ContextDagError("graph node version must be a positive integer")
+            if not isinstance(raw.get("uncertainty"), Mapping):
+                raise ContextDagError("graph node uncertainty must be an object")
+            if not isinstance(raw.get("evidence"), Mapping):
+                raise ContextDagError("graph node evidence must be an object")
+            if not isinstance(raw.get("meta"), Mapping):
+                raise ContextDagError("graph node metadata must be an object")
             node = ContextNode(
                 kind=raw["kind"], content=raw["content"],
-                summary=raw.get("summary", ""),
-                uncertainty=raw.get("uncertainty"),
-                evidence=raw.get("evidence"),
-                version=int(raw.get("version", 1)),
-                meta=raw.get("meta") or {},
+                summary=raw["summary"], uncertainty=raw["uncertainty"],
+                evidence=raw["evidence"], version=raw["version"],
+                meta=raw["meta"],
             )
+            if raw["content_ref"] != node.content_ref:
+                raise ContextDagError("node content reference mismatch")
             if node.node_id != raw["node_id"]:
                 raise ContextDagError(
                     f"node id mismatch: {node.node_id!r} != "
                     f"{raw['node_id']!r}")
+            if node.node_id in seen_node_ids:
+                raise ContextDagError("graph contains duplicate node containers")
+            seen_node_ids.add(node.node_id)
             g._nodes[node.node_id] = node
             g._adj.setdefault(node.node_id, [])
-        for raw in data.get("edges", []):
+        seen_edge_ids: set[str] = set()
+        for raw in raw_edges:
+            if not isinstance(raw, Mapping):
+                raise ContextDagError("graph edge must be an object")
+            if set(raw) != _dag_edge_fields:
+                raise ContextDagError("graph edge contains unsupported or missing fields")
+            if isinstance(raw.get("version"), bool) or not isinstance(raw.get("version"), int) or raw["version"] < 1:
+                raise ContextDagError("graph edge version must be a positive integer")
+            if raw["src"] not in g._nodes or raw["dst"] not in g._nodes:
+                raise ContextDagError("graph edge endpoint is not present")
+            if not isinstance(raw.get("meta"), Mapping):
+                raise ContextDagError("graph edge metadata must be an object")
             edge = ContextEdge(kind=raw["kind"], src=raw["src"],
-                               dst=raw["dst"],
-                               version=int(raw.get("version", 1)),
-                               meta=raw.get("meta") or {})
+                               dst=raw["dst"], version=raw["version"],
+                               meta=raw["meta"])
             if edge.edge_id != raw["edge_id"]:
                 raise ContextDagError(
                     f"edge id mismatch: {edge.edge_id!r} != "
                     f"{raw['edge_id']!r}")
+            if edge.edge_id in seen_edge_ids:
+                raise ContextDagError("graph contains duplicate edge containers")
+            seen_edge_ids.add(edge.edge_id)
             g._edges[edge.edge_id] = edge
             g._adj[edge.src].append(edge.dst)
         if g.digest() != data.get("digest"):
@@ -551,6 +768,28 @@ def should_expand(node: ContextNode, graph: Optional[ContextDAG] = None) -> bool
 
 # ── Terminal evaluator ────────────────────────────────────────────────────
 
+def _dag_confidence(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ContextDagError("confidence must be numeric")
+    try:
+        numeric = float(value)
+    except (OverflowError, ValueError, TypeError):
+        raise ContextDagError("confidence must be finite") from None
+    if not math.isfinite(numeric) or not 0.0 <= numeric <= 1.0:
+        raise ContextDagError("confidence must be finite between 0 and 1")
+    return numeric
+
+
+def _dag_advisory_list(value: Any, field: str) -> list[Any]:
+    if value is None:
+        return []
+    if not isinstance(value, (list, tuple)):
+        raise ContextDagError(f"{field} must be a list")
+    return list(value)
+
+
 def evaluate_compilation(*, verdict_hint: str = "sufficient",
                          policy_gaps: Optional[list] = None,
                          provenance_gaps: Optional[list] = None,
@@ -566,9 +805,12 @@ def evaluate_compilation(*, verdict_hint: str = "sufficient",
     * any provenance gap forces abstention (unsupported records may not ship);
     * only then is the advisory hint honored.
     """
-    policy_gaps = list(policy_gaps or [])
-    provenance_gaps = list(provenance_gaps or [])
-    unresolved = list(unresolved_contradictions or [])
+    policy_gaps = _dag_advisory_list(policy_gaps, "policy_gaps")
+    provenance_gaps = _dag_advisory_list(provenance_gaps, "provenance_gaps")
+    unresolved = _dag_advisory_list(unresolved_contradictions, "unresolved_contradictions")
+    confidence = _dag_confidence(confidence)
+    if not isinstance(verdict_hint, str) or len(verdict_hint) > 32:
+        raise ContextDagError("verdict_hint must be bounded text")
     if verdict_hint not in VERDICTS:
         verdict_hint = "abstain"
     if unresolved:
@@ -635,31 +877,53 @@ def cisc_prioritize(candidates: list[dict], *,
     effort, never an evidence substitute. The returned winner must still pass
     :func:`apply_evidence_gate` before its path may ship.
     """
+    if not isinstance(candidates, list):
+        raise ContextDagError("CISC candidates must be a list")
     if not candidates:
         return {"winner": None, "weights": {}, "vote_share": {},
                 "confidence_is": "uncalibrated model self-confidence "
                                  "(heuristic)"}
-    if temperature <= 0:
-        raise ContextDagError("CISC temperature must be positive")
-    ids = [str(c.get("path_id", "")) for c in candidates]
-    if any(not i for i in ids) or len(set(ids)) != len(ids):
+    if isinstance(temperature, bool) or not isinstance(temperature, (int, float)):
+        raise ContextDagError("CISC temperature must be a finite positive number")
+    try:
+        temperature_value = float(temperature)
+    except (OverflowError, ValueError, TypeError):
+        raise ContextDagError("CISC temperature must be finite") from None
+    if not math.isfinite(temperature_value) or temperature_value <= 0:
+        raise ContextDagError("CISC temperature must be a finite positive number")
+    if any(not isinstance(c, Mapping) for c in candidates):
+        raise ContextDagError("CISC candidates must be objects")
+    ids = [c.get("path_id") for c in candidates]
+    if any(not isinstance(identifier, str) or not identifier.strip() or len(identifier.strip()) > 160 for identifier in ids):
+        raise ContextDagError("CISC candidates need bounded text path_ids")
+    ids = [identifier.strip() for identifier in ids]
+    if len(set(ids)) != len(ids):
         raise ContextDagError("CISC candidates need unique non-empty path_ids")
     scores: list[float] = []
     for c in candidates:
         try:
-            scores.append(max(0.0, float(c["confidence"])))
-        except (KeyError, TypeError, ValueError):
+            value = c["confidence"]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                raise ValueError
+            scores.append(max(0.0, float(value)))
+        except (KeyError, TypeError, ValueError, OverflowError):
             raise ContextDagError(
                 "CISC candidate requires numeric 'confidence'") from None
     total = sum(scores)
+    if not math.isfinite(total):
+        raise ContextDagError("CISC confidence total must be finite")
     if total <= 0:
         # All-zero confidence degrades to plain majority (frequency mode).
         weights = {i: 1.0 / len(ids) for i in ids}
     else:
         weights = {i: s / total for s, i in zip(scores, ids)}
-    # softmax-normalized weighting with temperature (CISC normalization step)
-    exp = {i: 2.718281828459045 ** (weights[i] / max(temperature, 1e-9))
-           for i in ids}
+    # Stable softmax normalization avoids overflow for very small positive
+    # temperatures while still rejecting non-finite caller inputs above.
+    logits = {i: weights[i] / temperature_value for i in ids}
+    if any(not math.isfinite(value) for value in logits.values()):
+        raise ContextDagError("CISC logits must be finite")
+    pivot = max(logits.values())
+    exp = {i: math.exp(logits[i] - pivot) for i in ids}
     z = sum(exp.values()) or 1.0
     vote = {i: exp[i] / z for i in ids}
     winner = max(vote, key=lambda k: vote[k])
@@ -767,7 +1031,13 @@ def compile_context_dag(*, task_id: str,
     the compiled packet back to the exact subgraph that produced it, and seals
     the advisory inputs + policy so verification is a faithful replay.
     """
+    confidence = _dag_confidence(confidence)
     policy = policy or CompilationPolicy()
+    # Every sealed artifact carries a resolved profile, including callers that
+    # omit one.  This makes profile-envelope presence an invariant rather than
+    # a caller-controlled optional field.
+    if execution_profile is None:
+        execution_profile = {"mode": "standard-local", "profile_id": "default-local"}
     resolved_profile = None
     if execution_profile is not None:
         try:
@@ -795,7 +1065,7 @@ def compile_context_dag(*, task_id: str,
         budget = budget or CompilationBudget()
     ledger = budget.ledger()
     profile_degradation_reasons: set[str] = set()
-    graph = ContextDAG(task_id=task_id, created_by=created_by, meta=meta or {})
+    graph = ContextDAG(task_id=task_id, created_by=created_by, meta=meta)
     graph.add_node(root, ledger, depth=0)
 
     queue: list[tuple[str, int]] = [(root.node_id, 0)]
@@ -819,6 +1089,7 @@ def compile_context_dag(*, task_id: str,
             continue
         expanded.add(nid)
         children = list(fetch(node) or [])
+        ledger._tick()
         if resolved_profile is not None:
             children.sort(key=lambda child: child.node_id)
             if depth >= budget.max_depth and children:
@@ -885,6 +1156,7 @@ def compile_context_dag(*, task_id: str,
         "policy", _dag_json(policy.to_dict()),
         "budget", _dag_json(ledger.digest_input()),
         "graph", graph.digest(),
+        "execution_profile_present", resolved_profile is not None,
         "execution_profile", _dag_json(profile_manifest),
     ]
     if resolved_profile is not None:
@@ -903,8 +1175,10 @@ def compile_context_dag(*, task_id: str,
         "policy": policy.to_dict(),
         "budget": ledger.report(),
         "token_accounting": TOKEN_ACCOUNTING_NOTE,
+        "execution_profile_present": resolved_profile is not None,
         "compiled_at_unix_s": round(time.time(), 3),
     }
+    ledger._tick()
     if resolved_profile is not None:
         artifact["status"] = profile_status
         artifact["execution_profile"] = resolved_profile
@@ -913,7 +1187,86 @@ def compile_context_dag(*, task_id: str,
     return artifact
 
 
+def _dag_observed_budget(graph: ContextDAG) -> dict[str, int]:
+    """Recompute budget consumption from the sealed graph, not its report."""
+    order = graph.topo_order()
+    depths = {node_id: 0 for node_id in order}
+    for node_id in order:
+        for child_id in graph._adj.get(node_id, []):
+            depths[child_id] = max(depths.get(child_id, 0), depths[node_id] + 1)
+    return {
+        "nodes": len(graph.nodes),
+        "depth": max(depths.values(), default=0),
+        "max_fanout_used": max((len(children) for children in graph._adj.values()), default=0),
+        "tokens": sum(dag_tokens(node.content) for node in graph.nodes),
+        "bytes": sum(len(node.content.encode("utf-8")) for node in graph.nodes),
+    }
+
+
+def _dag_validate_budget_report(artifact: Mapping[str, Any], graph: ContextDAG,
+                                profile_manifest: Mapping[str, Any] | None = None) -> list[str]:
+    errors: list[str] = []
+    budget = artifact.get("budget")
+    if not isinstance(budget, Mapping):
+        return ["budget report is invalid"]
+    observed = _dag_observed_budget(graph)
+    for field, expected in observed.items():
+        value = budget.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value != expected:
+            errors.append(f"budget {field} does not recompute from graph")
+    if budget.get("token_accounting") != TOKEN_ACCOUNTING_NOTE:
+        errors.append("budget token accounting note is invalid")
+    limits = budget.get("limits")
+    limit_fields = {"max_nodes", "max_depth", "max_fanout", "max_tokens", "max_bytes", "deadline_s"}
+    if not isinstance(limits, Mapping) or set(limits) != limit_fields:
+        return errors + ["budget limits are invalid"]
+    for field in ("max_nodes", "max_depth", "max_fanout", "max_tokens"):
+        value = limits[field]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            errors.append(f"budget limit {field} is invalid")
+    max_bytes = limits["max_bytes"]
+    if max_bytes is not None and (isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1):
+        errors.append("budget limit max_bytes is invalid")
+    deadline = limits["deadline_s"]
+    if isinstance(deadline, bool) or not isinstance(deadline, (int, float)) or not math.isfinite(float(deadline)) or deadline <= 0:
+        errors.append("budget limit deadline_s is invalid")
+    wall_clock = budget.get("wall_clock_s")
+    if wall_clock is not None and (isinstance(wall_clock, bool) or not isinstance(wall_clock, (int, float)) or not math.isfinite(float(wall_clock)) or wall_clock < 0):
+        errors.append("budget wall_clock_s is invalid")
+    elif wall_clock is not None and isinstance(deadline, (int, float)) and not isinstance(deadline, bool) and math.isfinite(float(deadline)) and wall_clock > deadline:
+        errors.append("budget wall_clock_s exceeds deadline_s")
+    if isinstance(limits.get("max_nodes"), int) and observed["nodes"] > limits["max_nodes"]:
+        errors.append("budget nodes exceed max_nodes")
+    if isinstance(limits.get("max_depth"), int) and observed["depth"] > limits["max_depth"]:
+        errors.append("budget depth exceeds max_depth")
+    if isinstance(limits.get("max_fanout"), int) and observed["max_fanout_used"] > limits["max_fanout"]:
+        errors.append("budget fanout exceeds max_fanout")
+    if isinstance(limits.get("max_tokens"), int) and observed["tokens"] > limits["max_tokens"]:
+        errors.append("budget tokens exceed max_tokens")
+    if isinstance(max_bytes, int) and observed["bytes"] > max_bytes:
+        errors.append("budget bytes exceed max_bytes")
+    if profile_manifest:
+        profile_budget = profile_manifest.get("compilation_budget")
+        if isinstance(profile_budget, Mapping):
+            for field in ("max_nodes", "max_depth", "max_fanout", "max_tokens", "max_bytes", "deadline_s"):
+                actual = limits.get(field)
+                ceiling = profile_budget.get(field)
+                if isinstance(actual, (int, float)) and not isinstance(actual, bool) and isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool) and actual > ceiling:
+                    errors.append(f"budget limit {field} widens execution profile")
+    return errors
+
+
 def verify_compiled_dag(artifact: dict) -> dict:
+    """Recompute every commitment and fail closed on malformed artifacts."""
+    try:
+        return _dag_verify_compiled_dag(artifact)
+    except Exception:
+        # Verification is a public boundary: malformed caller data must never
+        # escape as an exception or expose an internal value in an error string.
+        return {"valid": False, "errors": ["artifact verification failed"]}
+
+
+def _dag_verify_compiled_dag(artifact: dict) -> dict:
     """Recompute every commitment in a compiled DAG artifact."""
     errors: list[str] = []
     if not isinstance(artifact, dict):
@@ -922,13 +1275,21 @@ def verify_compiled_dag(artifact: dict) -> dict:
         return {"valid": False, "errors": ["unsupported schema version"]}
     try:
         graph = ContextDAG.from_dict(artifact["graph"])
-    except ContextDagError as exc:
+    except (ContextDagError, TypeError, KeyError, ValueError, AttributeError, IndexError, OverflowError) as exc:
         return {"valid": False, "errors": [f"graph invalid: {exc}"]}
-    selected = artifact.get("selected_node_ids") or []
+    selected = artifact.get("selected_node_ids")
+    if not isinstance(selected, list) or any(not isinstance(nid, str) for nid in selected):
+        return {"valid": False, "errors": ["selected_node_ids must be a list of strings"]}
+    if len(selected) != len(set(selected)):
+        errors.append("selected_node_ids must be unique")
+    if graph.nodes and not selected:
+        errors.append("a non-empty graph requires a non-empty selected-node set")
     for nid in selected:
         if graph.node(nid) is None:
             errors.append(f"selected node {nid!r} missing from graph")
-    packet = artifact.get("packet") or []
+    packet = artifact.get("packet")
+    if not isinstance(packet, list) or any(not isinstance(item, Mapping) for item in packet):
+        return {"valid": False, "errors": ["packet must be a list of objects"]}
     packet_ids = [p.get("node_id") for p in packet]
     if packet_ids != selected:
         errors.append("packet does not match selected_node_ids")
@@ -937,42 +1298,66 @@ def verify_compiled_dag(artifact: dict) -> dict:
         if nd is None or nd.to_dict() != raw:
             errors.append(
                 f"packet node {raw.get('node_id')!r} drifted from graph")
-    policy_raw = artifact.get("policy") or {}
-    try:
-        policy = CompilationPolicy(
-            expand_uncertain=bool(policy_raw.get("expand_uncertain", True)),
-            expand_contradictions=bool(policy_raw.get("expand_contradictions",
-                                                      True)),
-            expand_high_impact=bool(policy_raw.get("expand_high_impact", True)),
-            requires_verified=bool(policy_raw.get("requires_verified", False)),
-        )
-    except Exception as exc:
-        return {"valid": False, "errors": [f"policy invalid: {exc}"]}
+    policy_raw = artifact.get("policy")
+    policy_fields = {"expand_uncertain", "expand_contradictions", "expand_high_impact", "requires_verified"}
+    if not isinstance(policy_raw, Mapping) or set(policy_raw) != policy_fields or any(not isinstance(policy_raw[field], bool) for field in policy_fields):
+        return {"valid": False, "errors": ["policy invalid"]}
+    policy = CompilationPolicy(
+        expand_uncertain=policy_raw["expand_uncertain"],
+        expand_contradictions=policy_raw["expand_contradictions"],
+        expand_high_impact=policy_raw["expand_high_impact"],
+        requires_verified=policy_raw["requires_verified"],
+    )
     policy_gaps, provenance_gaps, contradictions = _effective_gaps(
         graph, selected, policy)
+    advisory = artifact.get("advisory")
+    if not isinstance(advisory, Mapping):
+        return {"valid": False, "errors": ["advisory must be an object"]}
     verdict = evaluate_compilation(
-        verdict_hint=artifact.get("advisory", {}).get("verdict_hint",
-                                                      "abstain"),
+        verdict_hint=advisory.get("verdict_hint", "abstain"),
         policy_gaps=policy_gaps,
         provenance_gaps=provenance_gaps,
         unresolved_contradictions=contradictions,
-        confidence=artifact.get("advisory", {}).get("confidence"),
+        confidence=advisory.get("confidence"),
     )
     if verdict != artifact.get("verdict"):
         errors.append("verdict does not recompute from graph state")
-    profile_manifest = artifact.get("execution_profile") or {}
-    profile_diagnostics = artifact.get("profile_diagnostics") or {}
+    profile_raw = artifact.get("execution_profile")
+    profile_manifest: Mapping[str, Any] = {}
+    profile_present = artifact.get("execution_profile_present")
+    if profile_present is not True:
+        errors.append("execution_profile_present must be true")
+    profile_related = profile_present or any(key in artifact for key in ("execution_profile", "execution_profile_digest", "profile_diagnostics", "status"))
+    if not profile_present and any(key in artifact for key in ("execution_profile", "execution_profile_digest", "profile_diagnostics", "status")):
+        errors.append("profile fields are present without an execution profile envelope")
+    profile_diagnostics = artifact.get("profile_diagnostics")
     profile_status = None
-    if profile_manifest:
-        profile_check = verify_execution_profile(profile_manifest)
-        if not profile_check.get("valid"):
-            errors.append("execution profile digest mismatch")
-        if artifact.get("execution_profile_digest") != profile_manifest.get("profile_digest"):
-            errors.append("execution_profile_digest does not match profile manifest")
-        profile_status = "degraded" if profile_diagnostics.get("degraded") else profile_manifest.get("status")
-        if artifact.get("status") != profile_status:
-            errors.append("profile status does not match profile manifest")
-    budget_sealed = dict(artifact.get("budget") or {})
+    if profile_related:
+        if not isinstance(profile_raw, Mapping) or not profile_raw:
+            errors.append("execution profile envelope is missing or empty")
+        else:
+            profile_manifest = profile_raw
+        if not isinstance(profile_diagnostics, Mapping):
+            errors.append("profile diagnostics are missing or not an object")
+            profile_diagnostics = {}
+        if not isinstance(artifact.get("execution_profile_digest"), str):
+            errors.append("execution_profile_digest is missing or invalid")
+        if "status" not in artifact or not isinstance(artifact.get("status"), str):
+            errors.append("profile status is missing or invalid")
+        if profile_manifest:
+            profile_check = verify_execution_profile(profile_manifest)
+            if not profile_check.get("valid"):
+                errors.append("execution profile digest mismatch")
+            if artifact.get("execution_profile_digest") != profile_manifest.get("profile_digest"):
+                errors.append("execution_profile_digest does not match profile manifest")
+            profile_status = "degraded" if profile_diagnostics.get("degraded") else profile_manifest.get("status")
+            if artifact.get("status") != profile_status:
+                errors.append("profile status does not match profile manifest")
+    if artifact.get("token_accounting") != TOKEN_ACCOUNTING_NOTE:
+        errors.append("top-level token accounting note is invalid")
+    errors.extend(_dag_validate_budget_report(artifact, graph, profile_manifest or None))
+    budget_raw = artifact.get("budget")
+    budget_sealed = dict(budget_raw) if isinstance(budget_raw, Mapping) else {}
     budget_sealed.pop("wall_clock_s", None)
     digest_parts = [
         "packet", _dag_json(packet),
@@ -981,13 +1366,18 @@ def verify_compiled_dag(artifact: dict) -> dict:
         "policy", _dag_json(policy.to_dict()),
         "budget", _dag_json(budget_sealed),
         "graph", graph.digest(),
+        "execution_profile_present", profile_present,
         "execution_profile", _dag_json(profile_manifest),
     ]
     if profile_manifest:
         digest_parts.extend(["profile_status", profile_status, "profile_diagnostics", _dag_json(profile_diagnostics)])
-    expected = _dag_sha(*digest_parts)
-    if expected != artifact.get("compiled_digest"):
-        errors.append("compiled_digest mismatch")
+    try:
+        expected = _dag_sha(*digest_parts)
+    except (TypeError, ValueError, OverflowError):
+        errors.append("compiled_digest inputs are not canonical JSON")
+    else:
+        if expected != artifact.get("compiled_digest"):
+            errors.append("compiled_digest mismatch")
     return {"valid": not errors, "errors": errors,
             "graph_digest": graph.digest(),
             "verdict": verdict}

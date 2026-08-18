@@ -46,14 +46,24 @@ if projection["coverage"]["abstention_required"]:
 Each selected item contains only a bounded candidate ID, sanitized source
 references, an evidence digest, valid/transaction/recorded timestamps when they
 match the contract, an uncertainty descriptor, and a bounded inclusion reason.
+Source references are restricted to the public `file:`, `vault:`, `ledger:`, and
+`artifact:` namespaces; arbitrary namespaces and URI-like values are rejected.
 The projection never emits source bodies, prompts, credentials, or raw tool
-arguments. If a caller supplies a body solely to establish a commitment, only
-its SHA-256 crosses the boundary.
+arguments. A caller must supply a text body when it claims evidence-backed
+coverage: the digest is recomputed from those UTF-8 bytes, and digest-only
+caller claims are excluded rather than trusted.
 
-`verify_context_evidence()` recomputes the digest. `render_context_evidence()`
-produces deterministic Markdown after verification. The digest excludes no
-meaningful evidence field; it simply omits volatile execution timestamps because
-this projection does not generate any.
+For `evidence_required=True`, the provider map must explicitly attest active
+Vault and Ledger states; missing providers become `not_configured` and force
+abstention. `verify_context_evidence(projection, source_records)` recomputes each selected
+body digest and source-reference set from the supplied source records before
+checking the projection digest and provider/source/coverage relationships. A
+selected projection without source records is not considered verified;
+`render_context_evidence(projection, source_records)` likewise renders only
+after this body-bound verification. Abstention projections with no selected
+items remain structurally verifiable without source records. The digest excludes
+no meaningful evidence field; it simply omits volatile execution timestamps
+because this projection does not generate any.
 
 ## Context-contract composition
 
