@@ -26,7 +26,7 @@ def test_context_dag_manifest_carries_resolved_profile_and_digest():
     root = perseus.ContextNode(
         kind="requirement",
         content="compile the bounded context",
-        evidence={"validity": "observed", "verified": True, "source_ids": ["task"]},
+        evidence={"validity": "observed", "verified": True, "source_ids": ["artifact:task"]},
     )
     artifact = perseus.compile_context_dag(
         task_id="profiled-dag",
@@ -44,7 +44,7 @@ def test_context_dag_profile_reports_partial_retrieval_without_claiming_complete
     root = perseus.ContextNode(
         kind="requirement",
         content="compile partial context",
-        evidence={"validity": "observed", "verified": True, "source_ids": ["task"]},
+        evidence={"validity": "observed", "verified": True, "source_ids": ["artifact:task"]},
     )
     artifact = perseus.compile_context_dag(
         task_id="partial-profiled-dag",
@@ -63,7 +63,7 @@ def test_context_dag_profile_trims_item_overflow_and_reports_degradation():
     root = perseus.ContextNode(
         kind="requirement",
         content="compile overflow context",
-        evidence={"validity": "observed", "verified": True, "source_ids": ["task"]},
+        evidence={"validity": "observed", "verified": True, "source_ids": ["artifact:task"]},
     )
 
     def fetch(_node):
@@ -71,7 +71,7 @@ def test_context_dag_profile_trims_item_overflow_and_reports_degradation():
             perseus.ContextNode(
                 kind="retrieved_record",
                 content=f"record {index}",
-                evidence={"validity": "observed", "verified": True, "source_ids": [f"source-{index}"]},
+                evidence={"validity": "observed", "verified": True, "source_ids": [f"artifact:source-{index}"]},
             )
             for index in range(10)
         ]
