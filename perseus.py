@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "325a285-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "ce1a71d-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -40319,6 +40319,8 @@ def cisc_prioritize(candidates: list[dict], *,
             raise ContextDagError(
                 "CISC candidate requires numeric 'confidence'") from None
     total = sum(scores)
+    if not math.isfinite(total):
+        raise ContextDagError("CISC confidence total must be finite")
     if total <= 0:
         # All-zero confidence degrades to plain majority (frequency mode).
         weights = {i: 1.0 / len(ids) for i in ids}
@@ -40327,6 +40329,8 @@ def cisc_prioritize(candidates: list[dict], *,
     # Stable softmax normalization avoids overflow for very small positive
     # temperatures while still rejecting non-finite caller inputs above.
     logits = {i: weights[i] / float(temperature) for i in ids}
+    if any(not math.isfinite(value) for value in logits.values()):
+        raise ContextDagError("CISC logits must be finite")
     pivot = max(logits.values())
     exp = {i: math.exp(logits[i] - pivot) for i in ids}
     z = sum(exp.values()) or 1.0
