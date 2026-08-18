@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from typing import Any, Mapping
 
@@ -21,7 +22,7 @@ _CE_UNCERTAINTY_CLASSES = frozenset({"high", "medium", "low", "stale", "inferred
 _CE_DIGEST_RE = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
 _CE_PUBLIC_SOURCE_RE = re.compile(r"^(?:file|vault|ledger|artifact):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
 _CE_SENSITIVE_SOURCE_RE = re.compile(
-    r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private(?:[_-]?(?:body|scalar|data))?|raw(?:[_-]?payload)?)(?:$|[:/#._-])"
+    r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private(?:[_-]?(?:body|scalar|data))?|raw(?:[_-]?payload)?|prompt|body|content)(?:$|[:/#._-])"
 )
 _CE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$")
 _CE_MAX_ENTRIES = 64
@@ -175,7 +176,7 @@ def _ce_sources(record: Mapping[str, Any], candidate_id: str, *, evidence_requir
         if not isinstance(value, str) or not _CE_PUBLIC_SOURCE_RE.fullmatch(value.strip()):
             raise ContextEvidenceError(f"{candidate_id} contains an untrusted source namespace")
         source = value.strip()
-        if evidence_required and source.startswith("artifact:candidate:"):
+        if source.startswith("artifact:candidate:"):
             raise ContextEvidenceError(f"{candidate_id} contains an unverified synthetic source reference")
         refs.append(_ce_id(source, "source_ref"))
     refs = sorted(set(refs))
@@ -218,20 +219,55 @@ def _ce_evidence_digest(record: Mapping[str, Any], candidate_id: str) -> str | N
 
 
 def _ce_item_state(record: Mapping[str, Any], *, has_digest: bool) -> str:
-    raw = str(record.get("coverage_state", record.get("evidence_status", record.get("validity_state", record.get("status", ""))))).strip().lower().replace(" ", "_")
-    state = _CE_STATE_ALIASES.get(raw, raw)
-    if state in _CE_STATES:
-        return state
+    normalized: list[str] = []
+    for key in ("coverage_state", "evidence_status", "status"):
+        if key not in record or record[key] is None:
+            continue
+        raw = record[key]
+        if not isinstance(raw, str):
+            raise ContextEvidenceError(f"{key} must be text")
+        text = raw.strip().lower().replace(" ", "_")
+        if not text:
+            continue
+        state = _CE_STATE_ALIASES.get(text, text)
+        if state not in _CE_STATES:
+            raise ContextEvidenceError(f"{key} contains an unsupported coverage state")
+        normalized.append(state)
+    if normalized:
+        states = set(normalized)
+        return normalized[0] if len(states) == 1 else "conflicted"
+    if "validity_state" in record and record["validity_state"] is not None:
+        validity = record["validity_state"]
+        if not isinstance(validity, str):
+            raise ContextEvidenceError("validity_state must be text")
+        validity = validity.strip().lower().replace(" ", "_")
+        if validity and validity not in ({"observed", "derived", "inferred", "unknown", "contradictory"} | _CE_STATES | set(_CE_STATE_ALIASES)):
+            raise ContextEvidenceError("validity_state contains an unsupported state")
+        if validity in _CE_STATE_ALIASES:
+            validity = _CE_STATE_ALIASES[validity]
+        if validity in _CE_STATES:
+            return validity
     return "evidence_backed" if has_digest else "empty"
 
 
 def _ce_uncertainty(record: Mapping[str, Any], state: str) -> dict[str, Any]:
-    raw = record.get("uncertainty")
-    if isinstance(raw, Mapping):
-        cls = str(raw.get("class", "")).strip().lower()
-        score = raw.get("score")
-        if cls in _CE_UNCERTAINTY_CLASSES and isinstance(score, (int, float)) and not isinstance(score, bool) and 0 <= score <= 1:
-            return {"class": cls, "score": round(float(score), 6)}
+    if "uncertainty" in record:
+        raw = record["uncertainty"]
+        if not isinstance(raw, Mapping) or set(raw) != {"class", "score"}:
+            raise ContextEvidenceError("uncertainty must contain exactly class and score")
+        cls = raw["class"]
+        score = raw["score"]
+        if not isinstance(cls, str) or cls.strip().lower() not in _CE_UNCERTAINTY_CLASSES:
+            raise ContextEvidenceError("uncertainty class is invalid")
+        if isinstance(score, bool) or not isinstance(score, (int, float)):
+            raise ContextEvidenceError("uncertainty score must be numeric")
+        try:
+            numeric = float(score)
+        except (OverflowError, ValueError, TypeError):
+            raise ContextEvidenceError("uncertainty score must be finite") from None
+        if not math.isfinite(numeric) or not 0 <= numeric <= 1:
+            raise ContextEvidenceError("uncertainty score must be finite between 0 and 1")
+        return {"class": cls.strip().lower(), "score": round(numeric, 6)}
     if state == "evidence_backed":
         return {"class": "high" if record.get("verified") else "medium", "score": 0.9 if record.get("verified") else 0.65}
     if state == "stale":

@@ -432,7 +432,10 @@ class AdapterResult:
         runtime_raw = value["runtime"]
         if not isinstance(runtime_raw, Mapping) or set(runtime_raw) - _RA_RUNTIME_FIELDS:
             raise RuntimeAdapterError("runtime provenance contains unsupported fields")
-        runtime = {str(key): _ra_id(raw, f"runtime.{key}") for key, raw in runtime_raw.items()}
+        runtime = {
+            str(key): (_ra_provider_commitment(raw, f"runtime.{key}") if key == "provider_ref" else _ra_id(raw, f"runtime.{key}"))
+            for key, raw in runtime_raw.items()
+        }
         error_code = value["error_code"]
         if error_code is not None:
             error_code = _ra_id(error_code, "error_code")

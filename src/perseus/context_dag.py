@@ -102,7 +102,6 @@ _dag_validity_states = frozenset({
 })
 _dag_uncertainty_classes = frozenset({"high", "medium", "low", "inferred", "stale", "tie"})
 _dag_public_source_re = re.compile(r"^(?:file|vault|ledger|artifact):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
-_dag_opaque_id_re = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,159}$")
 _dag_meta_key_re = re.compile(r"^[A-Za-z][A-Za-z0-9_.\-]{0,63}$")
 _dag_commitment_re = re.compile(r"^sha256:[0-9a-fA-F]{64}$")
 _dag_sensitive_key_re = re.compile(r"(?i)(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private|prompt|body|content|raw)")
@@ -121,11 +120,9 @@ def _dag_public_ref(value: Any, field: str) -> str:
         raise ContextDagError(f"{field} cannot use a synthetic artifact reference")
     if _dag_public_source_re.fullmatch(source):
         namespace, _, suffix = source.partition(":")
-        if re.search(r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private|raw)(?:$|[:/#._-])", suffix):
+        if re.search(r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private|raw|prompt|body|content)(?:$|[:/#._-])", suffix):
             return f"{namespace}:sha256:{_dag_sha(source)}"
         return source
-    if _dag_opaque_id_re.fullmatch(source):
-        return f"artifact:sha256:{_dag_sha(source)}"
     raise ContextDagError(f"{field} contains an untrusted source namespace")
 
 
@@ -179,9 +176,15 @@ def _dag_uncertainty_value(value: Any) -> dict[str, Any]:
     score = value.get("score")
     if not isinstance(cls, str) or cls.strip().lower() not in _dag_uncertainty_classes:
         raise ContextDagError("node uncertainty class is invalid")
-    if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(float(score)) or not 0 <= float(score) <= 1:
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        raise ContextDagError("node uncertainty score must be numeric")
+    try:
+        numeric = float(score)
+    except (OverflowError, ValueError, TypeError):
+        raise ContextDagError("node uncertainty score must be finite") from None
+    if not math.isfinite(numeric) or not 0 <= numeric <= 1:
         raise ContextDagError("node uncertainty score must be finite between 0 and 1")
-    return {"class": cls.strip().lower(), "score": round(float(score), 6)}
+    return {"class": cls.strip().lower(), "score": round(numeric, 6)}
 
 
 def dag_tokens(text: str) -> int:
@@ -279,7 +282,10 @@ class ContextNode:
                                                 ev["verified"]))
         else:
             object.__setattr__(self, "uncertainty", normalized_uncertainty)
-        object.__setattr__(self, "content_ref", _dag_sha(self.content))
+        expected_content_ref = _dag_sha(self.content)
+        if self.content_ref and self.content_ref != expected_content_ref:
+            raise ContextDagError("caller-supplied content_ref does not match content commitment")
+        object.__setattr__(self, "content_ref", expected_content_ref)
         expected_node_id = _dag_sha(
             self.kind, self.content_ref, self.summary,
             _dag_json(self.uncertainty), _dag_json(ev),
@@ -316,6 +322,10 @@ class ContextEdge:
     def __post_init__(self) -> None:
         if self.kind not in EDGE_KINDS:
             raise ContextDagError(f"unknown edge kind: {self.kind!r}")
+        if not isinstance(self.src, str) or not isinstance(self.dst, str) or not self.src or not self.dst:
+            raise ContextDagError("edge endpoints must be non-empty text")
+        if isinstance(self.version, bool) or not isinstance(self.version, int) or self.version < 1:
+            raise ContextDagError("edge version must be a positive integer")
         if self.src == self.dst:
             raise ContextDagError("self-referential edge is not a DAG edge")
         object.__setattr__(self, "meta", _dag_meta(self.meta, "edge metadata"))
@@ -359,13 +369,15 @@ class CompilationBudget:
             isinstance(self.max_bytes, bool) or not isinstance(self.max_bytes, int) or self.max_bytes < 1
         ):
             raise ContextDagError("max_bytes must be a positive integer or None")
-        if (
-            isinstance(self.deadline_s, bool)
-            or not isinstance(self.deadline_s, (int, float))
-            or not math.isfinite(float(self.deadline_s))
-            or self.deadline_s <= 0
-        ):
+        if isinstance(self.deadline_s, bool) or not isinstance(self.deadline_s, (int, float)):
             raise ContextDagError("deadline_s must be a finite positive number")
+        try:
+            deadline = float(self.deadline_s)
+        except (OverflowError, ValueError, TypeError):
+            raise ContextDagError("deadline_s must be finite") from None
+        if not math.isfinite(deadline) or deadline <= 0:
+            raise ContextDagError("deadline_s must be a finite positive number")
+        self.deadline_s = deadline
 
     def ledger(self) -> "BudgetLedger":
         return BudgetLedger(self)
@@ -834,12 +846,21 @@ def cisc_prioritize(candidates: list[dict], *,
         return {"winner": None, "weights": {}, "vote_share": {},
                 "confidence_is": "uncalibrated model self-confidence "
                                  "(heuristic)"}
-    if isinstance(temperature, bool) or not isinstance(temperature, (int, float)) or not math.isfinite(float(temperature)) or temperature <= 0:
+    if isinstance(temperature, bool) or not isinstance(temperature, (int, float)):
+        raise ContextDagError("CISC temperature must be a finite positive number")
+    try:
+        temperature_value = float(temperature)
+    except (OverflowError, ValueError, TypeError):
+        raise ContextDagError("CISC temperature must be finite") from None
+    if not math.isfinite(temperature_value) or temperature_value <= 0:
         raise ContextDagError("CISC temperature must be a finite positive number")
     if any(not isinstance(c, Mapping) for c in candidates):
         raise ContextDagError("CISC candidates must be objects")
-    ids = [str(c.get("path_id", "")) for c in candidates]
-    if any(not i for i in ids) or len(set(ids)) != len(ids):
+    ids = [c.get("path_id") for c in candidates]
+    if any(not isinstance(identifier, str) or not identifier.strip() or len(identifier.strip()) > 160 for identifier in ids):
+        raise ContextDagError("CISC candidates need bounded text path_ids")
+    ids = [identifier.strip() for identifier in ids]
+    if len(set(ids)) != len(ids):
         raise ContextDagError("CISC candidates need unique non-empty path_ids")
     scores: list[float] = []
     for c in candidates:
@@ -861,7 +882,7 @@ def cisc_prioritize(candidates: list[dict], *,
         weights = {i: s / total for s, i in zip(scores, ids)}
     # Stable softmax normalization avoids overflow for very small positive
     # temperatures while still rejecting non-finite caller inputs above.
-    logits = {i: weights[i] / float(temperature) for i in ids}
+    logits = {i: weights[i] / temperature_value for i in ids}
     if any(not math.isfinite(value) for value in logits.values()):
         raise ContextDagError("CISC logits must be finite")
     pivot = max(logits.values())
