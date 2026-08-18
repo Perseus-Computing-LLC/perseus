@@ -456,12 +456,16 @@ class ContextDAG:
 
     def __init__(self, *, task_id: str, version: int = 1,
                  created_by: str = "", meta: Optional[dict] = None):
-        if not task_id:
-            raise ContextDagError("task_id is required")
-        self.task_id = str(task_id)
-        self.version = int(version)
-        self.created_by = str(created_by)
-        self.meta = _dag_meta(meta or {}, "graph metadata")
+        if not isinstance(task_id, str) or not task_id:
+            raise ContextDagError("task_id must be non-empty text")
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            raise ContextDagError("graph version must be a positive integer")
+        if not isinstance(created_by, str):
+            raise ContextDagError("created_by must be text")
+        self.task_id = task_id
+        self.version = version
+        self.created_by = created_by
+        self.meta = _dag_meta(meta, "graph metadata")
         self._nodes: dict[str, ContextNode] = {}
         self._edges: dict[str, ContextEdge] = {}
         self._adj: dict[str, list[str]] = {}
@@ -636,9 +640,14 @@ class ContextDAG:
             raise ContextDagError("graph contains unsupported or missing fields")
         if isinstance(data.get("version"), bool) or not isinstance(data.get("version"), int) or data["version"] < 1:
             raise ContextDagError("graph version must be a positive integer")
+        if not isinstance(data.get("task_id"), str) or not data["task_id"]:
+            raise ContextDagError("graph task_id must be non-empty text")
+        if not isinstance(data.get("created_by"), str):
+            raise ContextDagError("graph created_by must be text")
+        if not isinstance(data.get("meta"), Mapping):
+            raise ContextDagError("graph metadata must be an object")
         g = cls(task_id=data["task_id"], version=data["version"],
-                created_by=data.get("created_by", ""),
-                meta=data.get("meta") or {})
+                created_by=data["created_by"], meta=data["meta"])
         raw_nodes = data.get("nodes", [])
         raw_edges = data.get("edges", [])
         if not isinstance(raw_nodes, list) or not isinstance(raw_edges, list):
@@ -651,13 +660,17 @@ class ContextDAG:
                 raise ContextDagError("graph node contains unsupported or missing fields")
             if isinstance(raw.get("version"), bool) or not isinstance(raw.get("version"), int) or raw["version"] < 1:
                 raise ContextDagError("graph node version must be a positive integer")
+            if not isinstance(raw.get("uncertainty"), Mapping):
+                raise ContextDagError("graph node uncertainty must be an object")
+            if not isinstance(raw.get("evidence"), Mapping):
+                raise ContextDagError("graph node evidence must be an object")
+            if not isinstance(raw.get("meta"), Mapping):
+                raise ContextDagError("graph node metadata must be an object")
             node = ContextNode(
                 kind=raw["kind"], content=raw["content"],
-                summary=raw.get("summary", ""),
-                uncertainty=raw.get("uncertainty"),
-                evidence=raw.get("evidence"),
-                version=raw["version"],
-                meta=raw.get("meta") or {},
+                summary=raw["summary"], uncertainty=raw["uncertainty"],
+                evidence=raw["evidence"], version=raw["version"],
+                meta=raw["meta"],
             )
             if raw["content_ref"] != node.content_ref:
                 raise ContextDagError("node content reference mismatch")
@@ -680,10 +693,11 @@ class ContextDAG:
                 raise ContextDagError("graph edge version must be a positive integer")
             if raw["src"] not in g._nodes or raw["dst"] not in g._nodes:
                 raise ContextDagError("graph edge endpoint is not present")
+            if not isinstance(raw.get("meta"), Mapping):
+                raise ContextDagError("graph edge metadata must be an object")
             edge = ContextEdge(kind=raw["kind"], src=raw["src"],
-                               dst=raw["dst"],
-                               version=raw["version"],
-                               meta=raw.get("meta") or {})
+                               dst=raw["dst"], version=raw["version"],
+                               meta=raw["meta"])
             if edge.edge_id != raw["edge_id"]:
                 raise ContextDagError(
                     f"edge id mismatch: {edge.edge_id!r} != "
@@ -992,7 +1006,7 @@ def compile_context_dag(*, task_id: str,
         budget = budget or CompilationBudget()
     ledger = budget.ledger()
     profile_degradation_reasons: set[str] = set()
-    graph = ContextDAG(task_id=task_id, created_by=created_by, meta=meta or {})
+    graph = ContextDAG(task_id=task_id, created_by=created_by, meta=meta)
     graph.add_node(root, ledger, depth=0)
 
     queue: list[tuple[str, int]] = [(root.node_id, 0)]
