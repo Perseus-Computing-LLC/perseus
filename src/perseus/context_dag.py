@@ -106,6 +106,9 @@ _dag_opaque_id_re = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,159}$")
 _dag_meta_key_re = re.compile(r"^[A-Za-z][A-Za-z0-9_.\-]{0,63}$")
 _dag_commitment_re = re.compile(r"^sha256:[0-9a-fA-F]{64}$")
 _dag_sensitive_key_re = re.compile(r"(?i)(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private|prompt|body|content|raw)")
+_dag_graph_fields = frozenset({"schema_version", "task_id", "version", "created_by", "meta", "digest", "nodes", "edges"})
+_dag_node_fields = frozenset({"node_id", "kind", "content", "content_ref", "summary", "uncertainty", "evidence", "version", "meta"})
+_dag_edge_fields = frozenset({"edge_id", "kind", "src", "dst", "version", "meta"})
 
 
 def _dag_public_ref(value: Any, field: str) -> str:
@@ -279,7 +282,8 @@ class ContextNode:
         object.__setattr__(self, "content_ref", _dag_sha(self.content))
         if not self.node_id:
             object.__setattr__(self, "node_id", _dag_sha(
-                self.kind, self.content_ref, _dag_json(ev),
+                self.kind, self.content_ref, self.summary,
+                _dag_json(self.uncertainty), _dag_json(ev),
                 self.version, _dag_json(self.meta)))
 
     def to_dict(self) -> dict:
@@ -624,7 +628,11 @@ class ContextDAG:
             raise ContextDagError("graph must be an object")
         if data.get("schema_version") != "perseus-context-dag/v1":
             raise ContextDagError("unsupported context DAG schema version")
-        g = cls(task_id=data["task_id"], version=int(data["version"]),
+        if set(data) != _dag_graph_fields:
+            raise ContextDagError("graph contains unsupported or missing fields")
+        if isinstance(data.get("version"), bool) or not isinstance(data.get("version"), int) or data["version"] < 1:
+            raise ContextDagError("graph version must be a positive integer")
+        g = cls(task_id=data["task_id"], version=data["version"],
                 created_by=data.get("created_by", ""),
                 meta=data.get("meta") or {})
         raw_nodes = data.get("nodes", [])
@@ -635,14 +643,20 @@ class ContextDAG:
         for raw in raw_nodes:
             if not isinstance(raw, Mapping):
                 raise ContextDagError("graph node must be an object")
+            if set(raw) != _dag_node_fields:
+                raise ContextDagError("graph node contains unsupported or missing fields")
+            if isinstance(raw.get("version"), bool) or not isinstance(raw.get("version"), int) or raw["version"] < 1:
+                raise ContextDagError("graph node version must be a positive integer")
             node = ContextNode(
                 kind=raw["kind"], content=raw["content"],
                 summary=raw.get("summary", ""),
                 uncertainty=raw.get("uncertainty"),
                 evidence=raw.get("evidence"),
-                version=int(raw.get("version", 1)),
+                version=raw["version"],
                 meta=raw.get("meta") or {},
             )
+            if raw["content_ref"] != node.content_ref:
+                raise ContextDagError("node content reference mismatch")
             if node.node_id != raw["node_id"]:
                 raise ContextDagError(
                     f"node id mismatch: {node.node_id!r} != "
@@ -656,9 +670,15 @@ class ContextDAG:
         for raw in raw_edges:
             if not isinstance(raw, Mapping):
                 raise ContextDagError("graph edge must be an object")
+            if set(raw) != _dag_edge_fields:
+                raise ContextDagError("graph edge contains unsupported or missing fields")
+            if isinstance(raw.get("version"), bool) or not isinstance(raw.get("version"), int) or raw["version"] < 1:
+                raise ContextDagError("graph edge version must be a positive integer")
+            if raw["src"] not in g._nodes or raw["dst"] not in g._nodes:
+                raise ContextDagError("graph edge endpoint is not present")
             edge = ContextEdge(kind=raw["kind"], src=raw["src"],
                                dst=raw["dst"],
-                               version=int(raw.get("version", 1)),
+                               version=raw["version"],
                                meta=raw.get("meta") or {})
             if edge.edge_id != raw["edge_id"]:
                 raise ContextDagError(
