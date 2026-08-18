@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "676dc64-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "325a285-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -38067,8 +38067,12 @@ def _cc_private(record: Mapping[str, Any], policy: Mapping[str, Any]) -> bool:
     # it cannot disable this unconditional privacy boundary.
     if bool(record.get("private") or record.get("contains_sensitive_data")):
         return True
-    sensitivity = str(record.get("sensitivity", record.get("visibility", "")) or "").strip().casefold()
-    return sensitivity in {"private", "secret", "sensitive", "credential"}
+    private_markers = {"private", "secret", "sensitive", "credential"}
+    for field in ("sensitivity", "visibility"):
+        value = record.get(field)
+        if isinstance(value, str) and value.strip().casefold() in private_markers:
+            return True
+    return False
 
 
 def _cc_record_text(record: Mapping[str, Any], *, allow_content: bool = False) -> str:
@@ -38292,7 +38296,6 @@ def _cc_missing_attestation(integrations: Mapping[str, str]) -> bool:
 
 
 def _cc_coverage_state(record: Mapping[str, Any]) -> str:
-    raw = str(record.get("coverage_state", record.get("evidence_status", record.get("status", "")))).strip().lower().replace(" ", "_").replace("-", "_")
     aliases = {
         "supported": "evidence_backed",
         "complete": "evidence_backed",
@@ -38302,8 +38305,19 @@ def _cc_coverage_state(record: Mapping[str, Any]) -> str:
         "conflict": "conflicted",
         "no_evidence": "empty",
     }
-    if raw:
-        return aliases.get(raw, raw)
+    saw_explicit = False
+    for field in ("coverage_state", "evidence_status", "status"):
+        if field not in record or record.get(field) is None:
+            continue
+        saw_explicit = True
+        value = record.get(field)
+        if not isinstance(value, str):
+            return "invalid"
+        raw = value.strip().lower().replace(" ", "_").replace("-", "_")
+        if raw:
+            return aliases.get(raw, raw)
+    if saw_explicit:
+        return "empty"
     validity = _cc_validity(record)
     return {"stale": "stale", "contradictory": "conflicted", "unavailable": "unavailable"}.get(validity, "evidence_backed")
 
@@ -38960,8 +38974,8 @@ class AgentProjectionBoundary:
         if safe_authority_method:
             record["authority_method"] = safe_authority_method
         record["consent_commitment"] = "sha256:" + _cc_sha(record)
-        self._consents[(safe_agent, scope_fp)] = record
-        return dict(record)
+        self._consents[(safe_agent, scope_fp)] = copy.deepcopy(record)
+        return copy.deepcopy(record)
 
     def resume(self, *, agent_id: Any, scope: Any, topic: str = "") -> dict[str, Any]:
         """Clear a pause without clearing a separate revocation epoch."""
@@ -39577,6 +39591,9 @@ _dag_opaque_id_re = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,159}$")
 _dag_meta_key_re = re.compile(r"^[A-Za-z][A-Za-z0-9_.\-]{0,63}$")
 _dag_commitment_re = re.compile(r"^sha256:[0-9a-fA-F]{64}$")
 _dag_sensitive_key_re = re.compile(r"(?i)(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private|prompt|body|content|raw)")
+_dag_graph_fields = frozenset({"schema_version", "task_id", "version", "created_by", "meta", "digest", "nodes", "edges"})
+_dag_node_fields = frozenset({"node_id", "kind", "content", "content_ref", "summary", "uncertainty", "evidence", "version", "meta"})
+_dag_edge_fields = frozenset({"edge_id", "kind", "src", "dst", "version", "meta"})
 
 
 def _dag_public_ref(value: Any, field: str) -> str:
@@ -39750,7 +39767,8 @@ class ContextNode:
         object.__setattr__(self, "content_ref", _dag_sha(self.content))
         if not self.node_id:
             object.__setattr__(self, "node_id", _dag_sha(
-                self.kind, self.content_ref, _dag_json(ev),
+                self.kind, self.content_ref, self.summary,
+                _dag_json(self.uncertainty), _dag_json(ev),
                 self.version, _dag_json(self.meta)))
 
     def to_dict(self) -> dict:
@@ -40095,7 +40113,11 @@ class ContextDAG:
             raise ContextDagError("graph must be an object")
         if data.get("schema_version") != "perseus-context-dag/v1":
             raise ContextDagError("unsupported context DAG schema version")
-        g = cls(task_id=data["task_id"], version=int(data["version"]),
+        if set(data) != _dag_graph_fields:
+            raise ContextDagError("graph contains unsupported or missing fields")
+        if isinstance(data.get("version"), bool) or not isinstance(data.get("version"), int) or data["version"] < 1:
+            raise ContextDagError("graph version must be a positive integer")
+        g = cls(task_id=data["task_id"], version=data["version"],
                 created_by=data.get("created_by", ""),
                 meta=data.get("meta") or {})
         raw_nodes = data.get("nodes", [])
@@ -40106,14 +40128,20 @@ class ContextDAG:
         for raw in raw_nodes:
             if not isinstance(raw, Mapping):
                 raise ContextDagError("graph node must be an object")
+            if set(raw) != _dag_node_fields:
+                raise ContextDagError("graph node contains unsupported or missing fields")
+            if isinstance(raw.get("version"), bool) or not isinstance(raw.get("version"), int) or raw["version"] < 1:
+                raise ContextDagError("graph node version must be a positive integer")
             node = ContextNode(
                 kind=raw["kind"], content=raw["content"],
                 summary=raw.get("summary", ""),
                 uncertainty=raw.get("uncertainty"),
                 evidence=raw.get("evidence"),
-                version=int(raw.get("version", 1)),
+                version=raw["version"],
                 meta=raw.get("meta") or {},
             )
+            if raw["content_ref"] != node.content_ref:
+                raise ContextDagError("node content reference mismatch")
             if node.node_id != raw["node_id"]:
                 raise ContextDagError(
                     f"node id mismatch: {node.node_id!r} != "
@@ -40127,9 +40155,15 @@ class ContextDAG:
         for raw in raw_edges:
             if not isinstance(raw, Mapping):
                 raise ContextDagError("graph edge must be an object")
+            if set(raw) != _dag_edge_fields:
+                raise ContextDagError("graph edge contains unsupported or missing fields")
+            if isinstance(raw.get("version"), bool) or not isinstance(raw.get("version"), int) or raw["version"] < 1:
+                raise ContextDagError("graph edge version must be a positive integer")
+            if raw["src"] not in g._nodes or raw["dst"] not in g._nodes:
+                raise ContextDagError("graph edge endpoint is not present")
             edge = ContextEdge(kind=raw["kind"], src=raw["src"],
                                dst=raw["dst"],
-                               version=int(raw.get("version", 1)),
+                               version=raw["version"],
                                meta=raw.get("meta") or {})
             if edge.edge_id != raw["edge_id"]:
                 raise ContextDagError(

@@ -289,8 +289,12 @@ def _cc_private(record: Mapping[str, Any], policy: Mapping[str, Any]) -> bool:
     # it cannot disable this unconditional privacy boundary.
     if bool(record.get("private") or record.get("contains_sensitive_data")):
         return True
-    sensitivity = str(record.get("sensitivity", record.get("visibility", "")) or "").strip().casefold()
-    return sensitivity in {"private", "secret", "sensitive", "credential"}
+    private_markers = {"private", "secret", "sensitive", "credential"}
+    for field in ("sensitivity", "visibility"):
+        value = record.get(field)
+        if isinstance(value, str) and value.strip().casefold() in private_markers:
+            return True
+    return False
 
 
 def _cc_record_text(record: Mapping[str, Any], *, allow_content: bool = False) -> str:
@@ -514,7 +518,6 @@ def _cc_missing_attestation(integrations: Mapping[str, str]) -> bool:
 
 
 def _cc_coverage_state(record: Mapping[str, Any]) -> str:
-    raw = str(record.get("coverage_state", record.get("evidence_status", record.get("status", "")))).strip().lower().replace(" ", "_").replace("-", "_")
     aliases = {
         "supported": "evidence_backed",
         "complete": "evidence_backed",
@@ -524,8 +527,19 @@ def _cc_coverage_state(record: Mapping[str, Any]) -> str:
         "conflict": "conflicted",
         "no_evidence": "empty",
     }
-    if raw:
-        return aliases.get(raw, raw)
+    saw_explicit = False
+    for field in ("coverage_state", "evidence_status", "status"):
+        if field not in record or record.get(field) is None:
+            continue
+        saw_explicit = True
+        value = record.get(field)
+        if not isinstance(value, str):
+            return "invalid"
+        raw = value.strip().lower().replace(" ", "_").replace("-", "_")
+        if raw:
+            return aliases.get(raw, raw)
+    if saw_explicit:
+        return "empty"
     validity = _cc_validity(record)
     return {"stale": "stale", "contradictory": "conflicted", "unavailable": "unavailable"}.get(validity, "evidence_backed")
 
@@ -1182,8 +1196,8 @@ class AgentProjectionBoundary:
         if safe_authority_method:
             record["authority_method"] = safe_authority_method
         record["consent_commitment"] = "sha256:" + _cc_sha(record)
-        self._consents[(safe_agent, scope_fp)] = record
-        return dict(record)
+        self._consents[(safe_agent, scope_fp)] = copy.deepcopy(record)
+        return copy.deepcopy(record)
 
     def resume(self, *, agent_id: Any, scope: Any, topic: str = "") -> dict[str, Any]:
         """Clear a pause without clearing a separate revocation epoch."""
