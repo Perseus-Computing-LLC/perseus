@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "4e37924-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "cdfc6e2-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -40069,11 +40069,12 @@ class BudgetLedger:
         self.tokens: dict[str, int] = {}
         self.bytes: dict[str, int] = {}
         self.children: dict[str, list[str]] = {}
+        self.clock_resolution = time.get_clock_info("monotonic").resolution
         self.started_at = time.monotonic()
 
     def _tick(self) -> None:
         elapsed = time.monotonic() - self.started_at
-        if elapsed > self.budget.deadline_s:
+        if self.budget.deadline_s <= self.clock_resolution or elapsed >= self.budget.deadline_s:
             raise BudgetExceeded("wall_clock", f"{self.budget.deadline_s}s",
                                  f"{elapsed:.3f}s")
 

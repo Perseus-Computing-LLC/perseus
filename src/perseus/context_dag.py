@@ -404,11 +404,12 @@ class BudgetLedger:
         self.tokens: dict[str, int] = {}
         self.bytes: dict[str, int] = {}
         self.children: dict[str, list[str]] = {}
+        self.clock_resolution = time.get_clock_info("monotonic").resolution
         self.started_at = time.monotonic()
 
     def _tick(self) -> None:
         elapsed = time.monotonic() - self.started_at
-        if elapsed > self.budget.deadline_s:
+        if self.budget.deadline_s <= self.clock_resolution or elapsed >= self.budget.deadline_s:
             raise BudgetExceeded("wall_clock", f"{self.budget.deadline_s}s",
                                  f"{elapsed:.3f}s")
 
