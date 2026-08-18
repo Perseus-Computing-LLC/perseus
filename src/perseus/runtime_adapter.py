@@ -188,6 +188,26 @@ class RuntimeCapabilities:
     provider_ref: str
 
     def __post_init__(self) -> None:
+        if self.schema_version != _RA_CAPABILITIES_SCHEMA:
+            raise RuntimeAdapterError("unsupported runtime capabilities schema version")
+        for field in ("backend_id", "backend_version", "model_id", "model_version", "tokenizer_id", "hardware_class", "auth_mode"):
+            _ra_id(getattr(self, field), field)
+        if isinstance(self.context_capacity_tokens, bool) or not isinstance(self.context_capacity_tokens, int):
+            raise RuntimeAdapterError("context_capacity_tokens must be a positive integer")
+        _ra_limit(self.context_capacity_tokens, "context_capacity_tokens")
+        if (
+            not isinstance(self.execution_modes, tuple)
+            or not self.execution_modes
+            or any(not isinstance(mode, str) for mode in self.execution_modes)
+            or not set(self.execution_modes).issubset(_RA_EXECUTION_MODES)
+        ):
+            raise RuntimeAdapterError("execution_modes must contain offline, local, or approved_network")
+        if not isinstance(self.streaming, bool) or not isinstance(self.tools, bool):
+            raise RuntimeAdapterError("streaming and tools must be booleans")
+        if not isinstance(self.resource_metrics, tuple):
+            raise RuntimeAdapterError("resource_metrics must be a tuple of identifiers")
+        for metric in self.resource_metrics:
+            _ra_id(metric, "resource_metrics")
         object.__setattr__(self, "provider_ref", _ra_provider_commitment(self.provider_ref))
 
     @classmethod

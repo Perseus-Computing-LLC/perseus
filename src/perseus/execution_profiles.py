@@ -151,8 +151,34 @@ class ExecutionProfile:
     runtime_capabilities: tuple[str, ...]
     degradation_policy: str
     auth_mode: str
-    runtime_ref: str = ""
-    model_ref: str = ""
+    runtime_ref: str = "ref-none"
+    model_ref: str = "ref-none"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.schema_version, str) or self.schema_version != _EP_SCHEMA_VERSION:
+            raise ExecutionProfileError("unsupported execution profile schema version")
+        _ep_id(self.profile_id, "profile_id")
+        if not isinstance(self.mode, str) or self.mode not in _EP_MODE_DEFAULTS:
+            raise ExecutionProfileError("unsupported execution profile mode")
+        _ep_limit(self.max_context_tokens, "max_context_tokens")
+        _ep_limit(self.max_context_bytes, "max_context_bytes")
+        _ep_limit(self.max_items, "max_items", maximum=4096)
+        _ep_limit(self.max_depth, "max_depth", maximum=128)
+        _ep_optional_limit(self.latency_target_ms, "latency_target_ms", maximum=86_400_000)
+        _ep_id(self.resource_class, "resource_class")
+        if not isinstance(self.network_mode, str) or self.network_mode not in _EP_NETWORK_MODES:
+            raise ExecutionProfileError("network_mode must be offline, local, or approved_network")
+        if self.mode == "air-gapped" and self.network_mode != "offline":
+            raise ExecutionProfileError("air-gapped mode requires offline network_mode")
+        if not isinstance(self.degradation_policy, str) or self.degradation_policy not in _EP_DEGRADATION_POLICIES:
+            raise ExecutionProfileError("unsupported degradation_policy")
+        if not isinstance(self.runtime_capabilities, tuple) or len(self.runtime_capabilities) > 32:
+            raise ExecutionProfileError("runtime_capabilities must contain at most 32 identifiers")
+        for capability in self.runtime_capabilities:
+            _ep_id(capability, "runtime_capability")
+        _ep_id(self.auth_mode, "auth_mode")
+        _ep_id(self.runtime_ref, "runtime_ref")
+        _ep_id(self.model_ref, "model_ref")
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "ExecutionProfile" | None) -> "ExecutionProfile":
@@ -188,7 +214,7 @@ class ExecutionProfile:
         if not isinstance(capabilities, (list, tuple)) or len(capabilities) > 32:
             raise ExecutionProfileError("runtime_capabilities must contain at most 32 identifiers")
         capability_values = tuple(sorted({_ep_id(item, "runtime_capability") for item in capabilities}))
-        auth_mode = _ep_text(value.get("auth_mode", "none"), "auth_mode", max_length=64)
+        auth_mode = _ep_id(value.get("auth_mode", "none"), "auth_mode")
         runtime_ref = _ep_id(value.get("runtime_ref", "ref-none"), "runtime_ref")
         model_ref = _ep_id(value.get("model_ref", "ref-none"), "model_ref")
         return cls(
@@ -200,7 +226,7 @@ class ExecutionProfile:
             max_items=_ep_limit(value.get("max_items", defaults["max_items"]), "max_items", maximum=4096),
             max_depth=_ep_limit(value.get("max_depth", defaults["max_depth"]), "max_depth", maximum=128),
             latency_target_ms=_ep_optional_limit(value.get("latency_target_ms", defaults["latency_target_ms"]), "latency_target_ms", maximum=86_400_000),
-            resource_class=_ep_text(value.get("resource_class", defaults["resource_class"]), "resource_class", max_length=64),
+            resource_class=_ep_id(value.get("resource_class", defaults["resource_class"]), "resource_class"),
             network_mode=network_mode,
             runtime_capabilities=capability_values,
             degradation_policy=degradation_policy,

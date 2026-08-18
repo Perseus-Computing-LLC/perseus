@@ -1534,3 +1534,169 @@ def test_context_source_marker_is_hashed_at_public_boundary():
     rendered = json.dumps(result, sort_keys=True)
     assert "CONTEXT_CONTENT_SENTINEL" not in rendered
     assert "vault:sha256:" in rendered
+
+
+
+def _cache_release_fixture():
+    boundary = perseus.AgentProjectionBoundary()
+    scope = {"workspace": "cache-regression"}
+    boundary.grant_consent(
+        agent_id="cache-agent",
+        scope=scope,
+        permissions={"preview": True, "release": True},
+        topics=["cache"],
+    )
+    body = "cache answer"
+    record = {
+        "candidate_id": "cache",
+        "topic": "cache",
+        "scope": scope,
+        "summary": body,
+        "agent_text": body,
+        "content": body,
+        "source_id": "vault:cache",
+        "validity": "observed",
+        "verified": True,
+        "content_sha256": hashlib.sha256(body.encode()).hexdigest(),
+    }
+    preview = boundary.preview(
+        [record], agent_id="cache-agent", scope=scope, task="cache",
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    return boundary, preview
+
+
+def test_context_ask_reconciles_all_coverage_aliases():
+    body = "signed release"
+    result = perseus.context_ask(
+        "signed release",
+        context=[{
+            "candidate_id": "coverage-conflict-contract",
+            "summary": body,
+            "agent_text": body,
+            "content": "body",
+            "source_id": "vault:coverage-conflict-contract",
+            "content_sha256": hashlib.sha256(b"body").hexdigest(),
+            "validity": "observed",
+            "verified": True,
+            "coverage_state": "complete",
+            "evidence_status": "partial",
+            "status": "complete",
+        }],
+        policy={"evidence_required": True},
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    assert result["status"] in {"review", "abstain", "unavailable"}
+    assert result.get("answer") is None
+
+
+@pytest.mark.parametrize("field_value", [["private"], {"label": "private"}, 1])
+def test_malformed_privacy_fields_fail_closed(field_value):
+    body = "PRIVATE_SCALAR_TYPE_BYPASS"
+    result = perseus.context_ask(
+        "private item",
+        context=[{
+            "candidate_id": "privacy-type-bypass",
+            "summary": "private item",
+            "agent_text": body,
+            "content": body,
+            "source_id": "vault:privacy-type-bypass",
+            "content_sha256": hashlib.sha256(body.encode()).hexdigest(),
+            "validity": "observed",
+            "verified": True,
+            "sensitivity": field_value,
+        }],
+        policy={"min_score": 0},
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    assert result["status"] != "complete"
+    assert body not in json.dumps(result)
+
+
+def test_release_cache_isolation_is_deep():
+    boundary, preview = _cache_release_fixture()
+    first = boundary.release(preview)
+    assert first["status"] == "complete"
+    first["projection"]["items"][0]["text"] = "CACHE_MUTATION_SECRET"
+    second = boundary.release(preview)
+    assert second["cache"]["hit"] is True
+    assert second["projection"]["items"][0]["text"] == "cache answer"
+    assert "CACHE_MUTATION_SECRET" not in json.dumps(second)
+
+
+def test_public_dataclass_constructors_apply_strict_validation():
+    with pytest.raises(perseus.ExecutionProfileError):
+        perseus.ExecutionProfile(
+            schema_version="perseus-execution-profile/v1",
+            profile_id="direct-profile",
+            mode="standard-local",
+            max_context_tokens=1024,
+            max_context_bytes=4096,
+            max_items=4,
+            max_depth=2,
+            latency_target_ms=500,
+            resource_class="api_key=PROFILE_SECRET",
+            network_mode="offline",
+            runtime_capabilities=(),
+            degradation_policy="fail_closed",
+            auth_mode="api_key=AUTH_SECRET",
+            runtime_ref="https://:RUNTIME_PASSWORD@example.test",
+            model_ref="model",
+        )
+    with pytest.raises(perseus.RuntimeAdapterError):
+        perseus.RuntimeCapabilities(
+            schema_version="perseus-runtime-capabilities/v1",
+            backend_id="api_key=BACKEND_SECRET",
+            backend_version="1",
+            model_id="MODEL_SECRET",
+            model_version="1",
+            tokenizer_id="tokenizer",
+            context_capacity_tokens="1",
+            execution_modes=("offline",),
+            streaming=False,
+            tools=False,
+            hardware_class="cpu",
+            resource_metrics=(),
+            auth_mode="none",
+            provider_ref="PROVIDER_SECRET",
+        )
+
+
+def test_context_ask_rejects_huge_min_score_and_falsey_digest_aliases():
+    body = "cache answer"
+    base = {
+        "candidate_id": "digest-alias",
+        "summary": body,
+        "agent_text": body,
+        "content": body,
+        "source_id": "vault:digest-alias",
+        "validity": "observed",
+        "verified": True,
+    }
+    # The public envelope must not leak an exception for an oversized number.
+    huge_result = perseus.context_ask("cache answer", context=[base], policy={"min_score": 10**10000})
+    assert huge_result["status"] == "invalid_input"
+    malformed = dict(base, content_sha256=0, content_hash=hashlib.sha256(body.encode()).hexdigest())
+    result = perseus.context_ask(
+        "cache answer", context=[malformed], policy={"evidence_required": True},
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    assert result["status"] == "invalid_input"
+
+
+def test_dag_edge_and_advisory_inputs_fail_closed_without_raw_type_errors():
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextEdge(kind=[], src="a", dst="b")
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextEdge(kind="supports", src="a", dst="b", version=10**10000)
+    with pytest.raises(perseus.ContextDagError):
+        perseus.evaluate_compilation(verdict_hint=[])
+    with pytest.raises(perseus.ContextDagError):
+        perseus.evaluate_compilation(confidence=float("nan"))
+    root = perseus.ContextNode(
+        kind="requirement", content="advisory", evidence={
+            "validity": "observed", "verified": True, "source_ids": ["file:advisory"]
+        }
+    )
+    with pytest.raises(perseus.ContextDagError):
+        perseus.compile_context_dag(task_id="advisory-nan", root=root, confidence=float("nan"))
