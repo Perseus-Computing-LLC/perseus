@@ -346,7 +346,7 @@ def _cc_content_commitment(record: Mapping[str, Any]) -> str | None:
 
 _CC_PUBLIC_SOURCE_RE = re.compile(r"^(?:file|vault|ledger|artifact):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
 _CC_SENSITIVE_SOURCE_RE = re.compile(
-    r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private(?:[_-]?(?:body|scalar|data))?|raw(?:[_-]?payload)?)(?:$|[:/#._-])"
+    r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private(?:[_-]?(?:body|scalar|data))?|raw(?:[_-]?payload)?|prompt|body|content)(?:$|[:/#._-])"
 )
 
 
