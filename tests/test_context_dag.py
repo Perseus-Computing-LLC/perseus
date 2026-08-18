@@ -70,10 +70,9 @@ def test_collision_with_different_content_rejected():
     g = DAG(task_id="t")
     first = rec("same")
     g.add_node(first)
-    impostor = NODE(kind="retrieved_record", content="different",
-                    node_id=first.node_id)
     with pytest.raises(perseus.ContextDagError):
-        g.add_node(impostor)
+        NODE(kind="retrieved_record", content="different",
+             node_id=first.node_id)
 
 
 # ── Acyclicity and topology ───────────────────────────────────────────────
