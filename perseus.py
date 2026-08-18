@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "d8af6b9-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "afc2564-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -36664,7 +36664,10 @@ class AdapterResult:
         runtime_raw = value["runtime"]
         if not isinstance(runtime_raw, Mapping) or set(runtime_raw) - _RA_RUNTIME_FIELDS:
             raise RuntimeAdapterError("runtime provenance contains unsupported fields")
-        runtime = {str(key): _ra_id(raw, f"runtime.{key}") for key, raw in runtime_raw.items()}
+        runtime = {
+            str(key): (_ra_provider_commitment(raw, f"runtime.{key}") if key == "provider_ref" else _ra_id(raw, f"runtime.{key}"))
+            for key, raw in runtime_raw.items()
+        }
         error_code = value["error_code"]
         if error_code is not None:
             error_code = _ra_id(error_code, "error_code")
@@ -36849,6 +36852,7 @@ turns evidence-required uncertainty into an abstention signal.
 
 import hashlib
 import json
+import math
 import re
 from typing import Any, Mapping
 
@@ -36861,7 +36865,7 @@ _CE_UNCERTAINTY_CLASSES = frozenset({"high", "medium", "low", "stale", "inferred
 _CE_DIGEST_RE = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
 _CE_PUBLIC_SOURCE_RE = re.compile(r"^(?:file|vault|ledger|artifact):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
 _CE_SENSITIVE_SOURCE_RE = re.compile(
-    r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private(?:[_-]?(?:body|scalar|data))?|raw(?:[_-]?payload)?)(?:$|[:/#._-])"
+    r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private(?:[_-]?(?:body|scalar|data))?|raw(?:[_-]?payload)?|prompt|body|content)(?:$|[:/#._-])"
 )
 _CE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$")
 _CE_MAX_ENTRIES = 64
@@ -37015,7 +37019,7 @@ def _ce_sources(record: Mapping[str, Any], candidate_id: str, *, evidence_requir
         if not isinstance(value, str) or not _CE_PUBLIC_SOURCE_RE.fullmatch(value.strip()):
             raise ContextEvidenceError(f"{candidate_id} contains an untrusted source namespace")
         source = value.strip()
-        if evidence_required and source.startswith("artifact:candidate:"):
+        if source.startswith("artifact:candidate:"):
             raise ContextEvidenceError(f"{candidate_id} contains an unverified synthetic source reference")
         refs.append(_ce_id(source, "source_ref"))
     refs = sorted(set(refs))
@@ -37058,20 +37062,55 @@ def _ce_evidence_digest(record: Mapping[str, Any], candidate_id: str) -> str | N
 
 
 def _ce_item_state(record: Mapping[str, Any], *, has_digest: bool) -> str:
-    raw = str(record.get("coverage_state", record.get("evidence_status", record.get("validity_state", record.get("status", ""))))).strip().lower().replace(" ", "_")
-    state = _CE_STATE_ALIASES.get(raw, raw)
-    if state in _CE_STATES:
-        return state
+    normalized: list[str] = []
+    for key in ("coverage_state", "evidence_status", "status"):
+        if key not in record or record[key] is None:
+            continue
+        raw = record[key]
+        if not isinstance(raw, str):
+            raise ContextEvidenceError(f"{key} must be text")
+        text = raw.strip().lower().replace(" ", "_")
+        if not text:
+            continue
+        state = _CE_STATE_ALIASES.get(text, text)
+        if state not in _CE_STATES:
+            raise ContextEvidenceError(f"{key} contains an unsupported coverage state")
+        normalized.append(state)
+    if normalized:
+        states = set(normalized)
+        return normalized[0] if len(states) == 1 else "conflicted"
+    if "validity_state" in record and record["validity_state"] is not None:
+        validity = record["validity_state"]
+        if not isinstance(validity, str):
+            raise ContextEvidenceError("validity_state must be text")
+        validity = validity.strip().lower().replace(" ", "_")
+        if validity and validity not in ({"observed", "derived", "inferred", "unknown", "contradictory"} | _CE_STATES | set(_CE_STATE_ALIASES)):
+            raise ContextEvidenceError("validity_state contains an unsupported state")
+        if validity in _CE_STATE_ALIASES:
+            validity = _CE_STATE_ALIASES[validity]
+        if validity in _CE_STATES:
+            return validity
     return "evidence_backed" if has_digest else "empty"
 
 
 def _ce_uncertainty(record: Mapping[str, Any], state: str) -> dict[str, Any]:
-    raw = record.get("uncertainty")
-    if isinstance(raw, Mapping):
-        cls = str(raw.get("class", "")).strip().lower()
-        score = raw.get("score")
-        if cls in _CE_UNCERTAINTY_CLASSES and isinstance(score, (int, float)) and not isinstance(score, bool) and 0 <= score <= 1:
-            return {"class": cls, "score": round(float(score), 6)}
+    if "uncertainty" in record:
+        raw = record["uncertainty"]
+        if not isinstance(raw, Mapping) or set(raw) != {"class", "score"}:
+            raise ContextEvidenceError("uncertainty must contain exactly class and score")
+        cls = raw["class"]
+        score = raw["score"]
+        if not isinstance(cls, str) or cls.strip().lower() not in _CE_UNCERTAINTY_CLASSES:
+            raise ContextEvidenceError("uncertainty class is invalid")
+        if isinstance(score, bool) or not isinstance(score, (int, float)):
+            raise ContextEvidenceError("uncertainty score must be numeric")
+        try:
+            numeric = float(score)
+        except (OverflowError, ValueError, TypeError):
+            raise ContextEvidenceError("uncertainty score must be finite") from None
+        if not math.isfinite(numeric) or not 0 <= numeric <= 1:
+            raise ContextEvidenceError("uncertainty score must be finite between 0 and 1")
+        return {"class": cls.strip().lower(), "score": round(numeric, 6)}
     if state == "evidence_backed":
         return {"class": "high" if record.get("verified") else "medium", "score": 0.9 if record.get("verified") else 0.65}
     if state == "stale":
@@ -38124,7 +38163,7 @@ def _cc_content_commitment(record: Mapping[str, Any]) -> str | None:
 
 _CC_PUBLIC_SOURCE_RE = re.compile(r"^(?:file|vault|ledger|artifact):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
 _CC_SENSITIVE_SOURCE_RE = re.compile(
-    r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private(?:[_-]?(?:body|scalar|data))?|raw(?:[_-]?payload)?)(?:$|[:/#._-])"
+    r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private(?:[_-]?(?:body|scalar|data))?|raw(?:[_-]?payload)?|prompt|body|content)(?:$|[:/#._-])"
 )
 
 
@@ -39587,7 +39626,6 @@ _dag_validity_states = frozenset({
 })
 _dag_uncertainty_classes = frozenset({"high", "medium", "low", "inferred", "stale", "tie"})
 _dag_public_source_re = re.compile(r"^(?:file|vault|ledger|artifact):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
-_dag_opaque_id_re = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,159}$")
 _dag_meta_key_re = re.compile(r"^[A-Za-z][A-Za-z0-9_.\-]{0,63}$")
 _dag_commitment_re = re.compile(r"^sha256:[0-9a-fA-F]{64}$")
 _dag_sensitive_key_re = re.compile(r"(?i)(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private|prompt|body|content|raw)")
@@ -39606,11 +39644,9 @@ def _dag_public_ref(value: Any, field: str) -> str:
         raise ContextDagError(f"{field} cannot use a synthetic artifact reference")
     if _dag_public_source_re.fullmatch(source):
         namespace, _, suffix = source.partition(":")
-        if re.search(r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private|raw)(?:$|[:/#._-])", suffix):
+        if re.search(r"(?i)(?:^|[:/#._-])(?:api[_-]?key|authorization|password|passwd|secret|token|credential|private|raw|prompt|body|content)(?:$|[:/#._-])", suffix):
             return f"{namespace}:sha256:{_dag_sha(source)}"
         return source
-    if _dag_opaque_id_re.fullmatch(source):
-        return f"artifact:sha256:{_dag_sha(source)}"
     raise ContextDagError(f"{field} contains an untrusted source namespace")
 
 
@@ -39664,9 +39700,15 @@ def _dag_uncertainty_value(value: Any) -> dict[str, Any]:
     score = value.get("score")
     if not isinstance(cls, str) or cls.strip().lower() not in _dag_uncertainty_classes:
         raise ContextDagError("node uncertainty class is invalid")
-    if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(float(score)) or not 0 <= float(score) <= 1:
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        raise ContextDagError("node uncertainty score must be numeric")
+    try:
+        numeric = float(score)
+    except (OverflowError, ValueError, TypeError):
+        raise ContextDagError("node uncertainty score must be finite") from None
+    if not math.isfinite(numeric) or not 0 <= numeric <= 1:
         raise ContextDagError("node uncertainty score must be finite between 0 and 1")
-    return {"class": cls.strip().lower(), "score": round(float(score), 6)}
+    return {"class": cls.strip().lower(), "score": round(numeric, 6)}
 
 
 def dag_tokens(text: str) -> int:
@@ -39764,7 +39806,10 @@ class ContextNode:
                                                 ev["verified"]))
         else:
             object.__setattr__(self, "uncertainty", normalized_uncertainty)
-        object.__setattr__(self, "content_ref", _dag_sha(self.content))
+        expected_content_ref = _dag_sha(self.content)
+        if self.content_ref and self.content_ref != expected_content_ref:
+            raise ContextDagError("caller-supplied content_ref does not match content commitment")
+        object.__setattr__(self, "content_ref", expected_content_ref)
         expected_node_id = _dag_sha(
             self.kind, self.content_ref, self.summary,
             _dag_json(self.uncertainty), _dag_json(ev),
@@ -39801,6 +39846,10 @@ class ContextEdge:
     def __post_init__(self) -> None:
         if self.kind not in EDGE_KINDS:
             raise ContextDagError(f"unknown edge kind: {self.kind!r}")
+        if not isinstance(self.src, str) or not isinstance(self.dst, str) or not self.src or not self.dst:
+            raise ContextDagError("edge endpoints must be non-empty text")
+        if isinstance(self.version, bool) or not isinstance(self.version, int) or self.version < 1:
+            raise ContextDagError("edge version must be a positive integer")
         if self.src == self.dst:
             raise ContextDagError("self-referential edge is not a DAG edge")
         object.__setattr__(self, "meta", _dag_meta(self.meta, "edge metadata"))
@@ -39844,13 +39893,15 @@ class CompilationBudget:
             isinstance(self.max_bytes, bool) or not isinstance(self.max_bytes, int) or self.max_bytes < 1
         ):
             raise ContextDagError("max_bytes must be a positive integer or None")
-        if (
-            isinstance(self.deadline_s, bool)
-            or not isinstance(self.deadline_s, (int, float))
-            or not math.isfinite(float(self.deadline_s))
-            or self.deadline_s <= 0
-        ):
+        if isinstance(self.deadline_s, bool) or not isinstance(self.deadline_s, (int, float)):
             raise ContextDagError("deadline_s must be a finite positive number")
+        try:
+            deadline = float(self.deadline_s)
+        except (OverflowError, ValueError, TypeError):
+            raise ContextDagError("deadline_s must be finite") from None
+        if not math.isfinite(deadline) or deadline <= 0:
+            raise ContextDagError("deadline_s must be a finite positive number")
+        self.deadline_s = deadline
 
     def ledger(self) -> "BudgetLedger":
         return BudgetLedger(self)
@@ -40319,12 +40370,21 @@ def cisc_prioritize(candidates: list[dict], *,
         return {"winner": None, "weights": {}, "vote_share": {},
                 "confidence_is": "uncalibrated model self-confidence "
                                  "(heuristic)"}
-    if isinstance(temperature, bool) or not isinstance(temperature, (int, float)) or not math.isfinite(float(temperature)) or temperature <= 0:
+    if isinstance(temperature, bool) or not isinstance(temperature, (int, float)):
+        raise ContextDagError("CISC temperature must be a finite positive number")
+    try:
+        temperature_value = float(temperature)
+    except (OverflowError, ValueError, TypeError):
+        raise ContextDagError("CISC temperature must be finite") from None
+    if not math.isfinite(temperature_value) or temperature_value <= 0:
         raise ContextDagError("CISC temperature must be a finite positive number")
     if any(not isinstance(c, Mapping) for c in candidates):
         raise ContextDagError("CISC candidates must be objects")
-    ids = [str(c.get("path_id", "")) for c in candidates]
-    if any(not i for i in ids) or len(set(ids)) != len(ids):
+    ids = [c.get("path_id") for c in candidates]
+    if any(not isinstance(identifier, str) or not identifier.strip() or len(identifier.strip()) > 160 for identifier in ids):
+        raise ContextDagError("CISC candidates need bounded text path_ids")
+    ids = [identifier.strip() for identifier in ids]
+    if len(set(ids)) != len(ids):
         raise ContextDagError("CISC candidates need unique non-empty path_ids")
     scores: list[float] = []
     for c in candidates:
@@ -40346,7 +40406,7 @@ def cisc_prioritize(candidates: list[dict], *,
         weights = {i: s / total for s, i in zip(scores, ids)}
     # Stable softmax normalization avoids overflow for very small positive
     # temperatures while still rejecting non-finite caller inputs above.
-    logits = {i: weights[i] / float(temperature) for i in ids}
+    logits = {i: weights[i] / temperature_value for i in ids}
     if any(not math.isfinite(value) for value in logits.values()):
         raise ContextDagError("CISC logits must be finite")
     pivot = max(logits.values())

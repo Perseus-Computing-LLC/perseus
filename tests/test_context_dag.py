@@ -31,7 +31,7 @@ def rec(text, validity="observed", verified=True, **kw):
 def req(text, **kw):
     return NODE(kind="requirement", content=text,
                 evidence={"validity": "observed", "verified": True,
-                          "source_ids": ["task"]}, **kw)
+                          "source_ids": ["artifact:task"]}, **kw)
 
 
 # ── IDs, immutability, kind validation ────────────────────────────────────

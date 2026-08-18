@@ -193,7 +193,7 @@ def test_dag_enforces_profile_byte_limit_separately_from_token_estimate():
     root = perseus.ContextNode(
         kind="requirement",
         content="abcd",
-        evidence={"validity": "observed", "verified": True, "source_ids": ["task"]},
+        evidence={"validity": "observed", "verified": True, "source_ids": ["artifact:task"]},
     )
     with pytest.raises(perseus.BudgetExceeded, match="max_bytes"):
         perseus.compile_context_dag(
@@ -263,7 +263,7 @@ def test_dag_verifier_recomputes_budget_accounting_before_accepting_digest():
     root = perseus.ContextNode(
         kind="requirement",
         content="abcd",
-        evidence={"validity": "observed", "verified": True, "source_ids": ["task"]},
+        evidence={"validity": "observed", "verified": True, "source_ids": ["artifact:task"]},
     )
     artifact = perseus.compile_context_dag(task_id="budget-forge", root=root)
     artifact["budget"]["bytes"] = 0
@@ -741,7 +741,7 @@ def _dag_probe_artifact():
     node = perseus.ContextNode(
         kind="requirement",
         content="who owns the arcade?",
-        evidence={"validity": "observed", "verified": True, "source_ids": ["task"]},
+        evidence={"validity": "observed", "verified": True, "source_ids": ["artifact:task"]},
     )
     def fetch(_node):
         return [perseus.ContextNode(
@@ -1389,3 +1389,148 @@ def test_dag_does_not_coerce_falsey_malformed_types():
     raw["nodes"][0]["meta"] = None
     with pytest.raises(perseus.ContextDagError):
         perseus.ContextDAG.from_dict(raw)
+
+
+
+def test_evidence_projection_rejects_synthetic_refs_unconditionally():
+    body = "synthetic evidence body"
+    with pytest.raises(perseus.ContextEvidenceError, match="synthetic"):
+        perseus.project_context_evidence([{
+            "candidate_id": "synthetic-unconditional",
+            "content": body,
+            "source_id": "artifact:candidate:item",
+            "evidence_digest": hashlib.sha256(body.encode()).hexdigest(),
+            "verified": True,
+        }])
+
+
+def test_evidence_aliases_reconcile_and_unknown_states_fail_closed():
+    body = "alias evidence body"
+    entry = {
+        "candidate_id": "alias-reconcile",
+        "content": body,
+        "source_id": "vault:alias-reconcile",
+        "evidence_digest": hashlib.sha256(body.encode()).hexdigest(),
+        "verified": True,
+        "coverage_state": "",
+        "evidence_status": "partial",
+        "status": "partial",
+    }
+    projection = perseus.project_context_evidence(
+        [entry], provider_states={"vault": "active", "ledger": "active"}, evidence_required=True
+    )
+    assert projection["coverage"]["state"] == "partial"
+    assert projection["status"] == "abstention_required"
+    conflicting = dict(entry, coverage_state="complete", evidence_status="partial", status="complete")
+    projection = perseus.project_context_evidence(
+        [conflicting], provider_states={"vault": "active", "ledger": "active"}, evidence_required=True
+    )
+    assert projection["coverage"]["state"] == "conflicted"
+    assert projection["status"] == "abstention_required"
+    with pytest.raises(perseus.ContextEvidenceError, match="coverage"):
+        perseus.project_context_evidence([dict(entry, coverage_state="bogus", evidence_status="")])
+
+
+def test_malformed_evidence_uncertainty_is_rejected():
+    body = "uncertainty evidence body"
+    base = {
+        "candidate_id": "uncertainty-malformed",
+        "content": body,
+        "source_id": "vault:uncertainty-malformed",
+        "evidence_digest": hashlib.sha256(body.encode()).hexdigest(),
+        "verified": True,
+    }
+    for uncertainty in [
+        {"class": "bogus", "score": 0.5},
+        {"class": "high", "score": "0.9"},
+        {"class": "high", "score": float("nan")},
+        {"class": "high"},
+        [],
+        {"class": "high", "score": 10**10000},
+    ]:
+        with pytest.raises(perseus.ContextEvidenceError):
+            perseus.project_context_evidence([dict(base, uncertainty=uncertainty)])
+
+
+def test_dag_rejects_untrusted_refs_and_malformed_numeric_edges():
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextNode(kind="requirement", content="bare source", evidence={
+            "validity": "observed", "verified": True, "source_ids": ["bare-id"]
+        })
+    for src, dst, version in [(1, 2, 1), ("a", "b", False), ("a", "b", 0), ("a", "b", "1"), ("a", "b", None)]:
+        with pytest.raises(perseus.ContextDagError):
+            perseus.ContextEdge(kind="supports", src=src, dst=dst, version=version)
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextNode(kind="requirement", content="body", content_ref="FORGED_CONTENT_REF", evidence={
+            "validity": "observed", "verified": True, "source_ids": ["file:body"]
+        })
+
+
+def test_dag_and_cisc_overflow_inputs_fail_closed():
+    with pytest.raises(perseus.ContextDagError):
+        perseus.ContextNode(kind="requirement", content="uncertainty", uncertainty={"class": "high", "score": 10**10000}, evidence={
+            "validity": "observed", "verified": True, "source_ids": ["file:uncertainty"]
+        })
+    with pytest.raises(perseus.ContextDagError):
+        perseus.CompilationBudget(deadline_s=10**10000)
+    with pytest.raises(perseus.ContextDagError):
+        perseus.cisc_prioritize([{"path_id": "a", "confidence": 1.0}], temperature=10**10000)
+    with pytest.raises(perseus.ContextDagError):
+        perseus.cisc_prioritize([{"path_id": {"private": "CISC_SECRET"}, "confidence": 1.0}])
+
+
+def test_public_source_markers_are_namespace_preserving_commitments():
+    body = "source marker body"
+    projection = perseus.project_context_evidence([{
+        "candidate_id": "source-marker",
+        "content": body,
+        "source_id": "vault:content:CONTENT_SENTINEL",
+        "evidence_digest": hashlib.sha256(body.encode()).hexdigest(),
+        "verified": True,
+    }])
+    assert "CONTENT_SENTINEL" not in json.dumps(projection)
+    assert projection["selected"][0]["source_refs"][0].startswith("vault:sha256:")
+    node = perseus.ContextNode(kind="requirement", content="prompt ref", evidence={
+        "validity": "observed", "verified": True, "source_ids": ["vault:prompt:PROMPT_SENTINEL"]
+    })
+    node_json = json.dumps(node.to_dict())
+    assert "PROMPT_SENTINEL" not in node_json
+    assert node.to_dict()["evidence"]["source_ids"][0].startswith("vault:sha256:")
+
+
+def test_runtime_result_provider_reference_round_trips():
+    raw = {
+        "schema_version": "perseus-runtime-result/v1",
+        "request_id": "runtime-roundtrip",
+        "status": "success",
+        "output": "bounded",
+        "usage": {},
+        "runtime": {"provider_ref": "RUNTIME_PRIVATE_SENTINEL"},
+        "error_code": None,
+        "error_message": None,
+        "external_fallback_allowed": False,
+    }
+    first = perseus.AdapterResult.from_mapping(raw)
+    second = perseus.AdapterResult.from_mapping(first.to_dict())
+    assert second.to_dict() == first.to_dict()
+
+
+
+def test_context_source_marker_is_hashed_at_public_boundary():
+    result = perseus.context_ask(
+        "safe task",
+        context=[{
+            "candidate_id": "context-source-marker",
+            "summary": "safe answer",
+            "agent_text": "safe answer",
+            "content": "safe answer",
+            "source_id": "vault:content:CONTEXT_CONTENT_SENTINEL",
+            "validity": "observed",
+            "verified": True,
+            "content_sha256": hashlib.sha256("safe answer".encode()).hexdigest(),
+        }],
+        integrations={"vault": "active", "ledger": "active"},
+    )
+    rendered = json.dumps(result, sort_keys=True)
+    assert "CONTEXT_CONTENT_SENTINEL" not in rendered
+    assert "vault:sha256:" in rendered
