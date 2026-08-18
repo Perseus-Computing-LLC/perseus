@@ -100,6 +100,8 @@ def _ep_text(value: Any, field: str, *, max_length: int = 160) -> str:
 
 def _ep_id(value: Any, field: str, *, default: str = "") -> str:
     text = _ep_text(value if value is not None else default, field)
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", text) or any(marker in text for marker in ("://", "@", "?", "&", "=")):
+        raise ExecutionProfileError(f"{field} must not contain URI/userinfo/query syntax")
     if not _EP_ID_RE.fullmatch(text):
         raise ExecutionProfileError(f"{field} must be a bounded identifier")
     return text
@@ -115,7 +117,7 @@ def _ep_limit(value: Any, field: str, *, maximum: int = 10_000_000) -> int:
 
 
 def _ep_optional_limit(value: Any, field: str, *, maximum: int = 10_000_000) -> int | None:
-    if value is None or value == "":
+    if value is None:
         return None
     return _ep_limit(value, field, maximum=maximum)
 
@@ -149,8 +151,34 @@ class ExecutionProfile:
     runtime_capabilities: tuple[str, ...]
     degradation_policy: str
     auth_mode: str
-    runtime_ref: str = ""
-    model_ref: str = ""
+    runtime_ref: str = "ref-none"
+    model_ref: str = "ref-none"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.schema_version, str) or self.schema_version != _EP_SCHEMA_VERSION:
+            raise ExecutionProfileError("unsupported execution profile schema version")
+        _ep_id(self.profile_id, "profile_id")
+        if not isinstance(self.mode, str) or self.mode not in _EP_MODE_DEFAULTS:
+            raise ExecutionProfileError("unsupported execution profile mode")
+        _ep_limit(self.max_context_tokens, "max_context_tokens")
+        _ep_limit(self.max_context_bytes, "max_context_bytes")
+        _ep_limit(self.max_items, "max_items", maximum=4096)
+        _ep_limit(self.max_depth, "max_depth", maximum=128)
+        _ep_optional_limit(self.latency_target_ms, "latency_target_ms", maximum=86_400_000)
+        _ep_id(self.resource_class, "resource_class")
+        if not isinstance(self.network_mode, str) or self.network_mode not in _EP_NETWORK_MODES:
+            raise ExecutionProfileError("network_mode must be offline, local, or approved_network")
+        if self.mode == "air-gapped" and self.network_mode != "offline":
+            raise ExecutionProfileError("air-gapped mode requires offline network_mode")
+        if not isinstance(self.degradation_policy, str) or self.degradation_policy not in _EP_DEGRADATION_POLICIES:
+            raise ExecutionProfileError("unsupported degradation_policy")
+        if not isinstance(self.runtime_capabilities, tuple) or len(self.runtime_capabilities) > 32:
+            raise ExecutionProfileError("runtime_capabilities must contain at most 32 identifiers")
+        for capability in self.runtime_capabilities:
+            _ep_id(capability, "runtime_capability")
+        _ep_id(self.auth_mode, "auth_mode")
+        _ep_id(self.runtime_ref, "runtime_ref")
+        _ep_id(self.model_ref, "model_ref")
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "ExecutionProfile" | None) -> "ExecutionProfile":
@@ -186,9 +214,9 @@ class ExecutionProfile:
         if not isinstance(capabilities, (list, tuple)) or len(capabilities) > 32:
             raise ExecutionProfileError("runtime_capabilities must contain at most 32 identifiers")
         capability_values = tuple(sorted({_ep_id(item, "runtime_capability") for item in capabilities}))
-        auth_mode = _ep_text(value.get("auth_mode", "none"), "auth_mode", max_length=64)
-        runtime_ref = _ep_id(value.get("runtime_ref", "ref:none"), "runtime_ref")
-        model_ref = _ep_id(value.get("model_ref", "ref:none"), "model_ref")
+        auth_mode = _ep_id(value.get("auth_mode", "none"), "auth_mode")
+        runtime_ref = _ep_id(value.get("runtime_ref", "ref-none"), "runtime_ref")
+        model_ref = _ep_id(value.get("model_ref", "ref-none"), "model_ref")
         return cls(
             schema_version=schema_version,
             profile_id=profile_id,
@@ -198,7 +226,7 @@ class ExecutionProfile:
             max_items=_ep_limit(value.get("max_items", defaults["max_items"]), "max_items", maximum=4096),
             max_depth=_ep_limit(value.get("max_depth", defaults["max_depth"]), "max_depth", maximum=128),
             latency_target_ms=_ep_optional_limit(value.get("latency_target_ms", defaults["latency_target_ms"]), "latency_target_ms", maximum=86_400_000),
-            resource_class=_ep_text(value.get("resource_class", defaults["resource_class"]), "resource_class", max_length=64),
+            resource_class=_ep_id(value.get("resource_class", defaults["resource_class"]), "resource_class"),
             network_mode=network_mode,
             runtime_capabilities=capability_values,
             degradation_policy=degradation_policy,
@@ -238,7 +266,9 @@ def _ep_requirements(value: Mapping[str, Any] | None) -> dict[str, Any]:
         raise ExecutionProfileError(f"unsupported profile requirements: {sorted(map(str, unknown))}")
     result: dict[str, Any] = {}
     for field in ("max_context_tokens", "max_context_bytes", "max_items", "max_depth", "latency_target_ms"):
-        if field in value and value[field] is not None:
+        if field in value:
+            if value[field] is None:
+                raise ExecutionProfileError(f"requirements.{field} must be a positive integer")
             result[field] = _ep_limit(value[field], f"requirements.{field}", maximum=86_400_000 if field == "latency_target_ms" else 10_000_000)
     required = value.get("required_capabilities", ())
     if isinstance(required, str):
@@ -405,13 +435,62 @@ def negotiate_context_budget(
 
 
 def verify_execution_profile(resolved: Mapping[str, Any]) -> dict[str, Any]:
-    """Verify the commitment over a resolved, sanitized profile manifest."""
-    if not isinstance(resolved, Mapping) or not isinstance(resolved.get("profile_digest"), str):
-        return {"valid": False, "error": "missing profile digest"}
-    unsigned = dict(resolved)
-    supplied = unsigned.pop("profile_digest")
+    """Verify the digest and recompute every resolved profile relationship."""
+    required = {
+        "schema_version", "profile", "effective", "requirements", "resources",
+        "resource_state", "status", "diagnostics", "compilation_budget",
+        "profile_digest",
+    }
+    if not isinstance(resolved, Mapping) or set(resolved) != required:
+        return {"valid": False, "error": "resolved profile shape is invalid"}
+    supplied = resolved.get("profile_digest")
+    if not isinstance(supplied, str) or not re.fullmatch(r"[0-9a-f]{64}", supplied):
+        return {"valid": False, "error": "profile digest must be a SHA-256 string"}
     try:
-        expected = _ep_sha(unsigned)
-    except (TypeError, ValueError):
-        return {"valid": False, "error": "profile manifest is not canonical JSON"}
-    return {"valid": expected == supplied, "profile_digest": supplied, "expected_digest": expected}
+        diagnostics = resolved["diagnostics"]
+        if not isinstance(diagnostics, Mapping) or set(diagnostics) != {
+            "schema_version", "degraded", "reasons", "resource_state",
+            "abstention_required", "degradation_policy",
+        }:
+            return {"valid": False, "error": "profile diagnostics shape is invalid"}
+        reasons = diagnostics["reasons"]
+        if not isinstance(reasons, list) or any(not isinstance(reason, str) for reason in reasons):
+            return {"valid": False, "error": "profile diagnostic reasons are invalid"}
+        retrieval_reasons = {
+            "retrieval_partial": "partial",
+            "retrieval_degraded": "degraded",
+            "retrieval_unavailable": "unavailable",
+            "retrieval_timeout": "timeout",
+        }
+        retrieval_states = {retrieval_reasons[reason] for reason in reasons if reason in retrieval_reasons}
+        if len(retrieval_states) > 1 or any(
+            reason not in retrieval_reasons and reason not in {"max_depth", "max_items", "max_context_tokens", "max_context_bytes"}
+            for reason in reasons
+        ):
+            return {"valid": False, "error": "profile diagnostic reasons are invalid"}
+        retrieval_status = next(iter(retrieval_states), "complete")
+        expected = _ep_resolve_execution_profile_impl(
+            resolved["profile"],
+            requirements=resolved["requirements"] or None,
+            resources=resolved["resources"],
+            retrieval_status=retrieval_status,
+        )
+        candidate = dict(resolved)
+        candidate["profile_digest"] = expected["profile_digest"]
+        if _ep_json(candidate) != _ep_json(expected):
+            return {
+                "valid": False,
+                "profile_digest": supplied,
+                "expected_digest": expected["profile_digest"],
+                "error": "resolved profile does not recompute from its inputs",
+            }
+        unsigned = dict(resolved)
+        unsigned.pop("profile_digest")
+        expected_digest = _ep_sha(unsigned)
+    except (ExecutionProfileError, TypeError, ValueError, KeyError):
+        return {"valid": False, "error": "profile manifest is not valid"}
+    return {
+        "valid": expected_digest == supplied,
+        "profile_digest": supplied,
+        "expected_digest": expected_digest,
+    }

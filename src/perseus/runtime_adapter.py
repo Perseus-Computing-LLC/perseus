@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Mapping
 
 from perseus.execution_profiles import ExecutionProfileError, verify_execution_profile
@@ -73,8 +74,59 @@ def _ra_text(value: Any, field: str, *, max_length: int = 160, allow_empty: bool
     return text
 
 
+_RA_SECRET_ASSIGNMENT_RE = re.compile(
+    r"(?i)(\b(?:api[_-]?key|password|passwd|secret|token|authorization|bearer|credential)\s*[:=]\s*)([^\s,;]+)"
+)
+# Permit an empty username: `scheme://:password@host` is still credential-bearing.
+_RA_URI_USERINFO_RE = re.compile(r"(?i)([A-Za-z][A-Za-z0-9+.-]*://)([^/@\s:]*)(?::[^/@\s]*)?@")
+_RA_RAW_FIELD_RE = re.compile(r'(?i)(?:\b(?:prompt|body|content|credentials?|api[_-]?key|authorization|bearer|private[_-]?body|raw[_-]?payload)\s*[:=]|[\"\'](?:prompt|body|content|credentials?|api[_-]?key|authorization|bearer|private[_-]?body|raw[_-]?payload)[\"\']\s*:)' )
+_RA_RAW_FIELD_NAMES = frozenset({"prompt", "body", "content", "credential", "credentials", "api_key", "authorization", "bearer", "private_body", "raw_payload"})
+
+
+def _ra_decoded_raw_field(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            if isinstance(key, str) and key.casefold().replace("-", "_") in _RA_RAW_FIELD_NAMES:
+                return True
+            if _ra_decoded_raw_field(child):
+                return True
+    elif isinstance(value, list):
+        return any(_ra_decoded_raw_field(child) for child in value)
+    return False
+
+
+def _ra_contains_raw_field(text: str) -> bool:
+    if _RA_RAW_FIELD_RE.search(text):
+        return True
+    try:
+        decoded = json.loads(text)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return False
+    return _ra_decoded_raw_field(decoded)
+
+
+def _ra_public_text(value: Any, field: str, *, max_length: int = 160, allow_empty: bool = False) -> str:
+    text = _ra_text(value, field, max_length=max_length, allow_empty=allow_empty)
+    text = _RA_URI_USERINFO_RE.sub(r"\1[REDACTED]@", text)
+    text = re.sub(r"(?i)(\bauthorization\s*[:=]\s*(?:bearer\s+)?)[^\s,;]+", r"\1[REDACTED]", text)
+    text = re.sub(r"(?i)(\bbearer\s+)[^\s,;]+", r"\1[REDACTED]", text)
+    text = _RA_SECRET_ASSIGNMENT_RE.sub(r"\1[REDACTED]", text)
+    if _ra_contains_raw_field(text):
+        return "[REDACTED]"
+    return text
+
+
+def _ra_provider_commitment(value: Any, field: str = "provider_ref") -> str:
+    if isinstance(value, str) and _RA_DIGEST_RE.fullmatch(value):
+        return value.lower()
+    text = _ra_id(value, field)
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def _ra_id(value: Any, field: str, *, allow_empty: bool = False) -> str:
     text = _ra_text(value, field, allow_empty=allow_empty)
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", text) or any(marker in text for marker in ("://", "@", "?", "&", "=")):
+        raise RuntimeAdapterError(f"{field} must not contain URI/userinfo/query syntax")
     if text and not _RA_ID_RE.fullmatch(text):
         raise RuntimeAdapterError(f"{field} must be a bounded identifier")
     return text
@@ -135,6 +187,29 @@ class RuntimeCapabilities:
     auth_mode: str
     provider_ref: str
 
+    def __post_init__(self) -> None:
+        if self.schema_version != _RA_CAPABILITIES_SCHEMA:
+            raise RuntimeAdapterError("unsupported runtime capabilities schema version")
+        for field in ("backend_id", "backend_version", "model_id", "model_version", "tokenizer_id", "hardware_class", "auth_mode"):
+            _ra_id(getattr(self, field), field)
+        if isinstance(self.context_capacity_tokens, bool) or not isinstance(self.context_capacity_tokens, int):
+            raise RuntimeAdapterError("context_capacity_tokens must be a positive integer")
+        _ra_limit(self.context_capacity_tokens, "context_capacity_tokens")
+        if (
+            not isinstance(self.execution_modes, tuple)
+            or not self.execution_modes
+            or any(not isinstance(mode, str) for mode in self.execution_modes)
+            or not set(self.execution_modes).issubset(_RA_EXECUTION_MODES)
+        ):
+            raise RuntimeAdapterError("execution_modes must contain offline, local, or approved_network")
+        if not isinstance(self.streaming, bool) or not isinstance(self.tools, bool):
+            raise RuntimeAdapterError("streaming and tools must be booleans")
+        if not isinstance(self.resource_metrics, tuple):
+            raise RuntimeAdapterError("resource_metrics must be a tuple of identifiers")
+        for metric in self.resource_metrics:
+            _ra_id(metric, "resource_metrics")
+        object.__setattr__(self, "provider_ref", _ra_provider_commitment(self.provider_ref))
+
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "RuntimeCapabilities") -> "RuntimeCapabilities":
         if isinstance(value, cls):
@@ -154,8 +229,10 @@ class RuntimeCapabilities:
         if not modes or not set(modes).issubset(_RA_EXECUTION_MODES):
             raise RuntimeAdapterError("execution_modes must contain offline, local, or approved_network")
         metrics = _ra_string_list(value["resource_metrics"], "resource_metrics")
-        for field in ("backend_id", "backend_version", "model_id", "tokenizer_id", "auth_mode", "provider_ref"):
+        for field in ("backend_id", "backend_version", "model_id", "tokenizer_id", "auth_mode"):
             _ra_id(value[field], field)
+        if not (isinstance(value["provider_ref"], str) and _RA_DIGEST_RE.fullmatch(value["provider_ref"])):
+            _ra_id(value["provider_ref"], "provider_ref")
         model_version = _ra_id(value["model_version"], "model_version")
         hardware_class = _ra_id(value["hardware_class"], "hardware_class")
         if not isinstance(value["streaming"], bool) or not isinstance(value["tools"], bool):
@@ -174,7 +251,7 @@ class RuntimeCapabilities:
             hardware_class=hardware_class,
             resource_metrics=metrics,
             auth_mode=_ra_id(value["auth_mode"], "auth_mode"),
-            provider_ref=_ra_id(value["provider_ref"], "provider_ref"),
+            provider_ref=_ra_provider_commitment(value["provider_ref"]),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -257,7 +334,8 @@ class AdapterRequest:
         if _RA_NETWORK_RANK[mode] > _RA_NETWORK_RANK[effective_profile["network_mode"]]:
             raise RuntimeAdapterError("execution_mode exceeds execution_profile network policy")
         profile_digest = _ra_digest(value["execution_profile_digest"], "execution_profile_digest")
-        if profile_digest != str(profile["profile_digest"]).lower().removeprefix("sha256:"):
+        manifest_digest = profile.get("profile_digest")
+        if not isinstance(manifest_digest, str) or profile_digest != manifest_digest.lower().removeprefix("sha256:"):
             raise RuntimeAdapterError("execution_profile_digest does not match execution_profile")
         return cls(
             schema_version=_RA_REQUEST_SCHEMA,
@@ -295,11 +373,52 @@ class AdapterResult:
     request_id: str
     status: str
     output: str | None
-    usage: dict[str, int]
-    runtime: dict[str, str]
+    usage: Mapping[str, int]
+    runtime: Mapping[str, str]
     error_code: str | None
     error_message: str | None
     external_fallback_allowed: bool = False
+
+    def __post_init__(self) -> None:
+        # Dataclasses are public construction paths too.  Reapply the complete
+        # envelope contract here; callers must not bypass from_mapping by
+        # instantiating a frozen result directly.
+        if self.schema_version != _RA_RESULT_SCHEMA:
+            raise RuntimeAdapterError("unsupported runtime result schema version")
+        request_id = _ra_id(self.request_id, "request_id")
+        status = _ra_text(self.status, "status", max_length=32)
+        if status not in _RA_RESULT_STATUSES:
+            raise RuntimeAdapterError("unsupported runtime result status")
+        output = None if self.output is None else _ra_public_text(self.output, "output", max_length=1_000_000, allow_empty=True)
+        if not isinstance(self.usage, Mapping) or set(self.usage) - _RA_USAGE_FIELDS:
+            raise RuntimeAdapterError("usage contains unsupported fields")
+        usage: dict[str, int] = {}
+        for key, raw in self.usage.items():
+            if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+                raise RuntimeAdapterError(f"usage.{key} must be a non-negative integer")
+            usage[key] = raw
+        if not isinstance(self.runtime, Mapping) or set(self.runtime) - _RA_RUNTIME_FIELDS:
+            raise RuntimeAdapterError("runtime provenance contains unsupported fields")
+        _ra_forbidden_keys(self.runtime, "runtime")
+        runtime = {
+            str(key): (_ra_provider_commitment(raw, f"runtime.{key}") if key == "provider_ref" else _ra_id(raw, f"runtime.{key}"))
+            for key, raw in self.runtime.items()
+        }
+        error_code = None if self.error_code is None else _ra_id(self.error_code, "error_code")
+        error_message = None if self.error_message is None else _ra_public_text(self.error_message, "error_message", max_length=256)
+        if self.external_fallback_allowed is not False:
+            raise RuntimeAdapterError("external fallback is permanently disabled by the core contract")
+        if status in {"success", "partial"} and output is None:
+            raise RuntimeAdapterError("successful result requires bounded output")
+        if status not in {"success", "partial"} and output is not None:
+            raise RuntimeAdapterError("non-success result cannot carry output")
+        object.__setattr__(self, "request_id", request_id)
+        object.__setattr__(self, "status", status)
+        object.__setattr__(self, "output", output)
+        object.__setattr__(self, "usage", MappingProxyType(usage))
+        object.__setattr__(self, "runtime", MappingProxyType(runtime))
+        object.__setattr__(self, "error_code", error_code)
+        object.__setattr__(self, "error_message", error_message)
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | "AdapterResult") -> "AdapterResult":
@@ -321,7 +440,7 @@ class AdapterResult:
             raise RuntimeAdapterError("unsupported runtime result status")
         output = value["output"]
         if output is not None:
-            output = _ra_text(output, "output", max_length=1_000_000, allow_empty=True)
+            output = _ra_public_text(output, "output", max_length=1_000_000, allow_empty=True)
         usage_raw = value["usage"]
         if not isinstance(usage_raw, Mapping) or set(usage_raw) - _RA_USAGE_FIELDS:
             raise RuntimeAdapterError("usage contains unsupported fields")
@@ -333,13 +452,16 @@ class AdapterResult:
         runtime_raw = value["runtime"]
         if not isinstance(runtime_raw, Mapping) or set(runtime_raw) - _RA_RUNTIME_FIELDS:
             raise RuntimeAdapterError("runtime provenance contains unsupported fields")
-        runtime = {str(key): _ra_id(raw, f"runtime.{key}") for key, raw in runtime_raw.items()}
+        runtime = {
+            str(key): (_ra_provider_commitment(raw, f"runtime.{key}") if key == "provider_ref" else _ra_id(raw, f"runtime.{key}"))
+            for key, raw in runtime_raw.items()
+        }
         error_code = value["error_code"]
         if error_code is not None:
             error_code = _ra_id(error_code, "error_code")
         error_message = value["error_message"]
         if error_message is not None:
-            error_message = _ra_text(error_message, "error_message", max_length=256)
+            error_message = _ra_public_text(error_message, "error_message", max_length=256)
         fallback = value["external_fallback_allowed"]
         if fallback is not False:
             raise RuntimeAdapterError("external fallback is permanently disabled by the core contract")
@@ -455,7 +577,7 @@ class ReferenceRuntimeAdapter:
         if behavior not in _RA_RESULT_STATUSES:
             raise RuntimeAdapterError("unsupported reference adapter behavior")
         self.behavior = behavior
-        self.output = _ra_text(output, "output", max_length=1_000_000, allow_empty=True)
+        self.output = _ra_public_text(output, "output", max_length=1_000_000, allow_empty=True)
 
     def invoke(self, request: Mapping[str, Any] | AdapterRequest) -> AdapterResult:
         try:
