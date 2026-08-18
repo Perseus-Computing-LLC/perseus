@@ -834,6 +834,8 @@ def cisc_prioritize(candidates: list[dict], *,
             raise ContextDagError(
                 "CISC candidate requires numeric 'confidence'") from None
     total = sum(scores)
+    if not math.isfinite(total):
+        raise ContextDagError("CISC confidence total must be finite")
     if total <= 0:
         # All-zero confidence degrades to plain majority (frequency mode).
         weights = {i: 1.0 / len(ids) for i in ids}
@@ -842,6 +844,8 @@ def cisc_prioritize(candidates: list[dict], *,
     # Stable softmax normalization avoids overflow for very small positive
     # temperatures while still rejecting non-finite caller inputs above.
     logits = {i: weights[i] / float(temperature) for i in ids}
+    if any(not math.isfinite(value) for value in logits.values()):
+        raise ContextDagError("CISC logits must be finite")
     pivot = max(logits.values())
     exp = {i: math.exp(logits[i] - pivot) for i in ids}
     z = sum(exp.values()) or 1.0
