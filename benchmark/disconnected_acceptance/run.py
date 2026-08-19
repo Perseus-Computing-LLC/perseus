@@ -306,6 +306,7 @@ def _bounded_reason(value: Any, default: str = "contract_invalid") -> str:
         "child_spawn_failed",
         "contract_invalid",
         "fixture_load_failed",
+        "filesystem_sandbox_unavailable",
         "offline_guard_unavailable",
         "offline_report_invalid",
         "operation_completed",
@@ -523,6 +524,7 @@ _VOLATILE_FIELDS = frozenset({
     "operation_child_cpu_seconds_observed",
     "operation_child_peak_rss_mb_observed",
     "cpu_seconds_observed",
+    "disk_growth_bytes_observed",
     "peak_rss_mb_observed",
     "wall_seconds_observed",
     "startup_ms_observed",
@@ -544,16 +546,18 @@ def _stable_projection(value: Any) -> Any:
 
 def _bounded_reader(stream: Any, limit: int, result: dict[str, Any], key: str) -> None:
     total = 0
-    chunks: list[bytes] = []
-    while True:
+    captured = bytearray()
+    while total <= limit:
         chunk = stream.read(8192)
         if not chunk:
             break
         total += len(chunk)
-        if sum(len(item) for item in chunks) < limit:
-            remaining = limit - sum(len(item) for item in chunks)
-            chunks.append(chunk[:remaining])
-    result[f"{key}_bytes"] = b"".join(chunks)
+        if len(captured) < limit:
+            captured.extend(chunk[: limit - len(captured)])
+        if total > limit:
+            result[f"{key}_limit_exceeded"] = True
+            break
+    result[f"{key}_bytes"] = bytes(captured)
     result[f"{key}_total_bytes"] = total
     result[f"{key}_truncated"] = total > limit
 
@@ -582,6 +586,45 @@ def _monitor_size(roots: tuple[Path, ...] | list[Path] | None) -> int:
     return sum(_directory_size(root) for root in unique)
 
 
+def _filesystem_free_bytes() -> dict[int, int]:
+    """Return available bytes for every visible filesystem device."""
+    if not hasattr(os, "statvfs"):
+        return {}
+    candidates = [Path("/")]
+    if sys.platform.startswith("linux"):
+        try:
+            for line in Path("/proc/self/mountinfo").read_text(encoding="utf-8").splitlines():
+                fields = line.split(" - ", 1)[0].split()
+                if len(fields) >= 5:
+                    candidates.append(
+                        Path(
+                            fields[4]
+                            .replace(r"\040", " ")
+                            .replace(r"\011", "\t")
+                            .replace(r"\012", "\n")
+                            .replace(r"\134", "\\")
+                        )
+                    )
+        except (OSError, UnicodeDecodeError):
+            pass
+    result: dict[int, int] = {}
+    for path in candidates:
+        try:
+            device = os.stat(path).st_dev
+            usage = os.statvfs(path)
+            result.setdefault(device, int(usage.f_bavail * usage.f_frsize))
+        except (OSError, TypeError, ValueError, AttributeError):
+            continue
+    return result
+
+
+def _filesystem_growth_bytes(baseline: Mapping[int, int], current: Mapping[int, int]) -> int:
+    return max(
+        (max(0, int(baseline[device]) - int(free)) for device, free in current.items() if device in baseline),
+        default=0,
+    )
+
+
 class _AggregateResourceBudget:
     """Charge transient child resources against one run-level ceiling."""
 
@@ -591,6 +634,7 @@ class _AggregateResourceBudget:
         self.memory_limit = float(memory_mb)
         self.disk_limit = int(disk_bytes)
         self.baseline_disk = _monitor_size(roots)
+        self.baseline_filesystems = _filesystem_free_bytes()
         self.cpu_seconds = 0.0
         self.peak_rss_mb = 0.0
         self.disk_bytes = 0
@@ -599,8 +643,9 @@ class _AggregateResourceBudget:
         self.cpu_seconds += max(0.0, float(cpu_seconds))
         self.peak_rss_mb = max(self.peak_rss_mb, max(0.0, float(peak_rss_mb)))
         current_growth = max(0, _monitor_size(self.roots) - self.baseline_disk)
+        filesystem_growth = _filesystem_growth_bytes(self.baseline_filesystems, _filesystem_free_bytes())
         self.disk_bytes += max(0, int(disk_growth_bytes))
-        self.disk_bytes = max(self.disk_bytes, current_growth)
+        self.disk_bytes = max(self.disk_bytes, current_growth, filesystem_growth)
         return not self.exceeded
 
     @property
@@ -627,89 +672,231 @@ def _is_python_argv(argv: list[str]) -> bool:
     return executable.startswith(("python", "pypy"))
 
 
+def _prepare_filesystem_guard(
+    argv: list[str], cwd: Path, env: Mapping[str, str], allowed_roots: tuple[Path, ...] | list[Path]
+) -> tuple[dict[str, str], Path | None]:
+    """Install a fail-closed Python write sandbox when disk accounting is active."""
+    child_env = dict(env)
+    if not _is_python_argv(argv):
+        return child_env, None
+    guard_dir = Path(tempfile.mkdtemp(prefix=".perseus-filesystem-", dir=str(cwd)))
+    guard_path = guard_dir / "sitecustomize.py"
+    write_roots = tuple(str(Path(root).resolve()) for root in allowed_roots)
+    _strict_write_guard(
+        guard_dir,
+        guard_path,
+        "import os, sys\n"
+        f"_allowed_roots = {write_roots!r}\n"
+        "def _allowed(value):\n"
+        "    try:\n"
+        "        if isinstance(value, int):\n"
+        "            return True\n"
+        "        candidate = os.path.realpath(os.path.abspath(os.fspath(value)))\n"
+        "        return any(candidate == root or candidate.startswith(root + os.sep) for root in _allowed_roots)\n"
+        "    except BaseException:\n"
+        "        return False\n"
+        "def _violate():\n"
+        "    os._exit(126)\n"
+        "def _audit(event, args):\n"
+        "    if event == 'open':\n"
+        "        path = args[0] if args else None\n"
+        "        mode = args[1] if len(args) > 1 else ''\n"
+        "        writing = any(flag in mode for flag in 'wax+') if isinstance(mode, str) else isinstance(mode, int) and bool(mode & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND))\n"
+        "        if writing and not _allowed(path):\n"
+        "            _violate()\n"
+        "    elif event in {'os.remove', 'os.unlink', 'os.rmdir', 'os.mkdir', 'os.chmod', 'os.chown', 'os.truncate', 'os.utime', 'os.symlink', 'os.link', 'os.mknod'}:\n"
+        "        if args and not _allowed(args[0]):\n"
+        "            _violate()\n"
+        "    elif event == 'os.rename':\n"
+        "        if len(args) < 2 or not _allowed(args[0]) or not _allowed(args[1]):\n"
+        "            _violate()\n"
+        "    elif event == 'shutil.copyfile':\n"
+        "        if len(args) >= 2 and not _allowed(args[1]):\n"
+        "            _violate()\n"
+        "    elif event == 'os.system':\n"
+        "        _violate()\n"
+        "    elif event == 'subprocess.Popen':\n"
+        "        command = args[0] if args else None\n"
+        "        executable = command[0] if isinstance(command, (list, tuple)) and command else command\n"
+        "        if not isinstance(executable, str) or not os.path.basename(executable).casefold().startswith(('python', 'pypy')):\n"
+        "            _violate()\n"
+        "sys.addaudithook(_audit)\n",
+        encoding="utf-8",
+    )
+    old_pythonpath = child_env.get("PYTHONPATH")
+    child_env["PYTHONPATH"] = str(guard_dir) + (os.pathsep + old_pythonpath if old_pythonpath else "")
+    return child_env, guard_dir
+
+
 def _prepare_offline_guard(
-    argv: list[str], cwd: Path, env: Mapping[str, str]
-) -> tuple[dict[str, str], Path | None, Path | None, str | None]:
+    argv: list[str], cwd: Path, env: Mapping[str, str], *, allowed_roots: tuple[Path, ...] | list[Path] = ()
+) -> tuple[dict[str, str], Path | None, int, int]:
     """Install parent-owned Python telemetry; seccomp contains every child."""
     child_env = dict(env)
     child_env["PERSEUS_OFFLINE"] = "1"
     child_env.pop("PERSEUS_OFFLINE_REPORT", None)
     if not _is_python_argv(argv):
-        return child_env, None, None, None
+        return child_env, None, -1, -1
     runtime_raw = env.get("PERSEUS_OFFLINE_RUNTIME")
     runtime_path = Path(runtime_raw) if isinstance(runtime_raw, str) else None
     if runtime_path is None or not runtime_raw or runtime_path.is_symlink() or not runtime_path.is_file():
         raise AcceptanceError("offline_guard_runtime_unavailable")
     guard_dir = Path(tempfile.mkdtemp(prefix=".perseus-offline-", dir=str(cwd)))
-    report_path = guard_dir / "report.json"
+    report_read_fd, report_write_fd = os.pipe()
+    os.set_inheritable(report_write_fd, True)
     guard_path = guard_dir / "sitecustomize.py"
-    guard_token = secrets.token_hex(16)
-    _strict_write_guard(guard_dir, guard_path,
-        "import atexit, importlib.util, json, os\n"
-        f"_runtime = {str(runtime_path)!r}\n"
-        f"_report_path = {str(report_path)!r}\n"
-        f"_guard_token = {guard_token!r}\n"
-        "def _write(value):\n"
-        "    try:\n"
-        "        value = dict(value)\n"
-        "        value['guard_token'] = _guard_token\n"
-        "        with open(_report_path, 'w', encoding='utf-8') as handle:\n"
-        "            json.dump(value, handle, sort_keys=True, separators=(',', ':'), allow_nan=False)\n"
-        "    except BaseException:\n"
-        "        pass\n"
-        "try:\n"
-        "    _spec = importlib.util.spec_from_file_location('_perseus_offline_guard_runtime', _runtime)\n"
-        "    if _spec is None or _spec.loader is None:\n"
-        "        raise RuntimeError('offline runtime unavailable')\n"
-        "    _module = importlib.util.module_from_spec(_spec)\n"
-        "    _spec.loader.exec_module(_module)\n"
-        "    _module.activate_offline_mode()\n"
-        "except BaseException:\n"
-        "    _write({'active': False, 'policy': 'deny_all_non_loopback', 'attempts': [], 'attempts_truncated': True, 'blocked_attempts': 0, 'allowed_local_attempts': 0})\n"
-        "    os._exit(125)\n"
-        "def _finish():\n"
-        "    try:\n"
-        "        _value = _module.offline_network_report()\n"
-        "        _module.deactivate_offline_mode()\n"
-        "    except BaseException:\n"
-        "        _value = {'active': False, 'policy': 'deny_all_non_loopback', 'attempts': [], 'attempts_truncated': True, 'blocked_attempts': 0, 'allowed_local_attempts': 0}\n"
-        "    _write(_value)\n"
-        "atexit.register(_finish)\n",
-        encoding="utf-8",
-    )
+    write_roots = tuple(str(Path(root).resolve()) for root in allowed_roots) or (str(cwd.resolve()),)
+    try:
+        _strict_write_guard(guard_dir, guard_path,
+            "import atexit, importlib.util, json, os\n"
+            f"_runtime = {str(runtime_path)!r}\n"
+            f"_report_fd = {report_write_fd}\n"
+            f"_allowed_roots = {write_roots!r}\n"
+            "_sandbox_violation = False\n"
+            "def _path_allowed(value):\n"
+            "    try:\n"
+            "        if isinstance(value, int):\n"
+            "            return True\n"
+            "        candidate = os.path.realpath(os.path.abspath(os.fspath(value)))\n"
+            "        return any(candidate == root or candidate.startswith(root + os.sep) for root in _allowed_roots)\n"
+            "    except BaseException:\n"
+            "        return False\n"
+            "def _audit(event, args):\n"
+            "    global _sandbox_violation\n"
+            "    try:\n"
+            "        if event == 'open':\n"
+            "            path = args[0] if args else None\n"
+            "            mode = args[1] if len(args) > 1 else ''\n"
+            "            if isinstance(mode, str):\n"
+            "                writing = any(flag in mode for flag in 'wax+')\n"
+            "            elif isinstance(mode, int):\n"
+            "                writing = bool(mode & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND))\n"
+            "            else:\n"
+            "                writing = False\n"
+            "            if writing and not _path_allowed(path):\n"
+            "                raise PermissionError('filesystem sandbox')\n"
+            "        elif event in {'os.remove', 'os.unlink', 'os.rmdir', 'os.mkdir', 'os.chmod', 'os.chown', 'os.truncate', 'os.utime', 'os.symlink', 'os.link', 'os.mknod'}:\n"
+            "            if args and not _path_allowed(args[0]):\n"
+            "                raise PermissionError('filesystem sandbox')\n"
+            "        elif event == 'os.rename':\n"
+            "            if len(args) < 2 or not _path_allowed(args[0]) or not _path_allowed(args[1]):\n"
+            "                raise PermissionError('filesystem sandbox')\n"
+            "        elif event == 'shutil.copyfile':\n"
+            "            if len(args) >= 2 and not _path_allowed(args[1]):\n"
+            "                raise PermissionError('filesystem sandbox')\n"
+            "    except BaseException:\n"
+            "        _sandbox_violation = True\n"
+            "        raise\n"
+            "import sys; sys.addaudithook(_audit)\n"
+            "def _write_frame(kind, value):\n"
+            "    try:\n"
+            "        raw = json.dumps({'kind': kind, 'value': value}, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8')\n"
+            "        if len(raw) > 65536:\n"
+            "            return False\n"
+            "        packet = len(raw).to_bytes(4, 'big') + raw\n"
+            "        offset = 0\n"
+            "        while offset < len(packet):\n"
+            "            offset += os.write(_report_fd, packet[offset:])\n"
+            "        return True\n"
+            "    except BaseException:\n"
+            "        return False\n"
+            "def _start_time():\n"
+            "    try:\n"
+            "        text = open('/proc/self/stat', encoding='utf-8').read()\n"
+            "        return int(text[text.rfind(')') + 2:].split()[19])\n"
+            "    except BaseException:\n"
+            "        return -1\n"
+            "try:\n"
+            "    _spec = importlib.util.spec_from_file_location('_perseus_offline_guard_runtime', _runtime)\n"
+            "    if _spec is None or _spec.loader is None:\n"
+            "        raise RuntimeError('offline runtime unavailable')\n"
+            "    _module = importlib.util.module_from_spec(_spec)\n"
+            "    _spec.loader.exec_module(_module)\n"
+            "    _module.activate_offline_mode()\n"
+            "except BaseException:\n"
+            "    os._exit(125)\n"
+            "def _finish():\n"
+            "    try:\n"
+            "        _value = _module.offline_network_report()\n"
+            "        _module.deactivate_offline_mode()\n"
+            "        if _write_frame('report', _value):\n"
+            "            _write_frame('complete', {'pid': os.getpid(), 'start_time': _start_time(), 'sandbox_violation': _sandbox_violation})\n"
+            "    except BaseException:\n"
+            "        pass\n"
+            "atexit.register(_finish)\n",
+            encoding="utf-8",
+        )
+    except BaseException:
+        for fd in (report_read_fd, report_write_fd):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        raise
     old_pythonpath = child_env.get("PYTHONPATH")
     child_env["PYTHONPATH"] = str(guard_dir) + (os.pathsep + old_pythonpath if old_pythonpath else "")
-    return child_env, guard_dir, report_path, guard_token
+    return child_env, guard_dir, report_read_fd, report_write_fd
 
 
-def _read_offline_report(path: Path, expected_token: str | None) -> dict[str, Any] | None:
-    if not isinstance(expected_token, str) or not expected_token:
+def _read_offline_report(
+    report_fd: int | None,
+    expected_token: str | None = None,
+    *,
+    expected_pid: int | None = None,
+    expected_start_time: int | None = None,
+) -> dict[str, Any] | None:
+    """Read one completed report from the parent-owned child IPC pipe."""
+    del expected_token  # Legacy callers cannot authenticate a filesystem report.
+    if (
+        type(report_fd) is not int
+        or report_fd < 0
+        or type(expected_pid) is not int
+        or expected_pid <= 0
+        or type(expected_start_time) is not int
+        or expected_start_time < 0
+    ):
         return None
     try:
-        info = path.lstat()
-        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-            return None
-        if hasattr(os, "getuid") and info.st_uid != os.getuid():
-            return None
-        if info.st_size > _MAX_OFFLINE_REPORT_BYTES:
-            return None
-        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-        fd = os.open(str(path), flags)
-        try:
-            raw = os.read(fd, _MAX_OFFLINE_REPORT_BYTES + 1)
-        finally:
-            os.close(fd)
+        raw = bytearray()
+        while len(raw) <= _MAX_OFFLINE_REPORT_BYTES:
+            chunk = os.read(report_fd, min(4096, _MAX_OFFLINE_REPORT_BYTES + 1 - len(raw)))
+            if not chunk:
+                break
+            raw.extend(chunk)
         if len(raw) > _MAX_OFFLINE_REPORT_BYTES:
             return None
-        value = json.loads(raw.decode("utf-8"), parse_constant=lambda _value: (_ for _ in ()).throw(ValueError()))
+        frames: list[Mapping[str, Any]] = []
+        offset = 0
+        while offset < len(raw):
+            if len(raw) - offset < 4:
+                return None
+            frame_size = int.from_bytes(raw[offset:offset + 4], "big")
+            offset += 4
+            if frame_size <= 0 or frame_size > _MAX_OFFLINE_REPORT_BYTES or frame_size > len(raw) - offset:
+                return None
+            frame = json.loads(bytes(raw[offset:offset + frame_size]).decode("utf-8"), parse_constant=lambda _value: (_ for _ in ()).throw(ValueError()))
+            offset += frame_size
+            if not isinstance(frame, Mapping) or set(frame) != {"kind", "value"}:
+                return None
+            frames.append(frame)
     except (OSError, UnicodeDecodeError, TypeError, ValueError, json.JSONDecodeError):
         return None
-    required = {"active", "policy", "attempts", "attempts_truncated", "blocked_attempts", "allowed_local_attempts", "guard_token"}
+    if len(frames) != 2 or frames[0].get("kind") != "report" or frames[1].get("kind") != "complete":
+        return None
+    completion = frames[1].get("value")
+    if (
+        not isinstance(completion, Mapping)
+        or set(completion) != {"pid", "start_time", "sandbox_violation"}
+        or completion.get("pid") != expected_pid
+        or completion.get("start_time") != expected_start_time
+        or completion.get("sandbox_violation") is not False
+    ):
+        return None
+    value = frames[0].get("value")
+    required = {"active", "policy", "attempts", "attempts_truncated", "blocked_attempts", "allowed_local_attempts"}
     if not isinstance(value, Mapping) or set(value) != required or value.get("active") is not True or value.get("policy") != "deny_all_non_loopback":
         return None
-    if not isinstance(value.get("guard_token"), str) or not hmac.compare_digest(value["guard_token"], expected_token):
-        return None
-    if not isinstance(value["attempts"], list) or not isinstance(value["attempts_truncated"], bool):
+    if not isinstance(value["attempts"], list) or value["attempts_truncated"] is not False:
         return None
     if len(value["attempts"]) > _MAX_OFFLINE_ATTEMPTS:
         return None
@@ -719,6 +906,10 @@ def _read_offline_report(path: Path, expected_token: str | None) -> dict[str, An
         if not all(isinstance(attempt[key], str) for key in ("operation", "destination", "outcome")) or attempt["outcome"] not in _ALLOWED_PROBE_OUTCOMES:
             return None
     if any(isinstance(value[key], bool) or not isinstance(value[key], int) or value[key] < 0 or value[key] > _MAX_OFFLINE_ATTEMPTS for key in ("blocked_attempts", "allowed_local_attempts")):
+        return None
+    blocked_count = sum(item["outcome"] == "blocked" for item in value["attempts"])
+    allowed_count = sum(item["outcome"] == "allowed_local" for item in value["attempts"])
+    if value["blocked_attempts"] != blocked_count or value["allowed_local_attempts"] != allowed_count:
         return None
     return _sanitize_offline_report(value)
 
@@ -825,6 +1016,7 @@ def _owned_processes(
         if pid not in baseline and _process_has_run_token(pid, run_token):
             owned = dict(identity)
             owned["owned_by_ancestry"] = known.get(pid, {}).get("owned_by_ancestry", 0)
+            owned["owned_by_token"] = 1
             known[pid] = owned
     return known
 
@@ -840,7 +1032,7 @@ def _identity_alive(identity: Mapping[str, int], run_token: str | None) -> tuple
         return False, True
     if current["state"] == "Z":
         return False, True
-    if identity.get("owned_by_ancestry") != 1 and run_token is not None and not _process_has_run_token(identity["pid"], run_token):
+    if identity.get("owned_by_ancestry") != 1 and identity.get("owned_by_token") != 1 and run_token is not None and not _process_has_run_token(identity["pid"], run_token):
         return True, False
     return True, True
 
@@ -858,6 +1050,7 @@ def _signal_owned(
     if (
         trusted_pgid != current["pgid"]
         and identity.get("owned_by_ancestry") != 1
+        and identity.get("owned_by_token") != 1
         and run_token is not None
         and not _process_has_run_token(identity["pid"], run_token)
     ):
@@ -878,10 +1071,13 @@ def _terminate_process_group(
     leader_identity: Mapping[str, int] | None,
     known: dict[int, dict[str, int]],
     run_token: str | None,
+    *,
+    baseline: Mapping[int, Mapping[str, int]] | None = None,
 ) -> bool:
     """Terminate/reap only verified new processes and their current PGID."""
     cleanup_ok = leader_identity is not None
     leader_pid = process.pid
+    baseline_snapshot = baseline if baseline is not None else {}
     if os.name != "posix":
         try:
             if leader_identity is not None:
@@ -891,8 +1087,8 @@ def _terminate_process_group(
             cleanup_ok = False
         return cleanup_ok
     for sig, wait_time in ((signal.SIGTERM, 0.25), (signal.SIGKILL, 1.0)):
-        _owned_processes(leader_pid, {}, known, run_token)
         group_pgid: int | None = None
+        leader_verified = False
         if leader_identity is not None:
             current_leader = _process_identity(leader_pid)
             if current_leader is None:
@@ -900,26 +1096,13 @@ def _terminate_process_group(
                     cleanup_ok = False
             elif current_leader["start_time"] != leader_identity["start_time"]:
                 cleanup_ok = False
+            elif current_leader["pgid"] != leader_identity["pgid"]:
+                cleanup_ok = False
             else:
-                if current_leader["pgid"] == leader_identity["pgid"]:
-                    group_pgid = current_leader["pgid"]
-                else:
-                    cleanup_ok = False
-        if group_pgid is None:
-            for identity in list(known.values()):
-                current = _process_identity(identity["pid"])
-                if (
-                    current is not None
-                    and current["start_time"] == identity["start_time"]
-                    and current["pgid"] == identity.get("pgid")
-                    and (
-                        identity.get("owned_by_ancestry") == 1
-                        or _process_has_run_token(identity["pid"], run_token)
-                    )
-                ):
-                    group_pgid = current["pgid"]
-                    break
-        if group_pgid is not None:
+                leader_verified = True
+                group_pgid = current_leader["pgid"]
+                _owned_processes(leader_pid, baseline_snapshot, known, run_token)
+        if group_pgid is not None and leader_verified:
             try:
                 os.killpg(group_pgid, sig)
             except ProcessLookupError:
@@ -937,7 +1120,15 @@ def _terminate_process_group(
             pass
         except (OSError, subprocess.SubprocessError):
             cleanup_ok = False
-    _owned_processes(leader_pid, {}, known, run_token)
+    if leader_identity is not None:
+        current_leader = _process_identity(leader_pid)
+        if current_leader is not None and (
+            current_leader["start_time"] == leader_identity["start_time"]
+            and current_leader["pgid"] == leader_identity["pgid"]
+        ):
+            _owned_processes(leader_pid, baseline_snapshot, known, run_token)
+        elif current_leader is not None:
+            cleanup_ok = False
     deadline = time.monotonic() + 1.0
     while time.monotonic() < deadline:
         alive_owned = []
@@ -952,7 +1143,7 @@ def _terminate_process_group(
         for pid in {item["pid"] for item in alive_owned}:
             try:
                 os.waitpid(pid, os.WNOHANG)
-            except ChildProcessError:
+            except (ChildProcessError, ProcessLookupError):
                 pass
             except OSError:
                 cleanup_ok = False
@@ -968,7 +1159,7 @@ def _terminate_process_group(
         try:
             while os.waitpid(identity["pid"], os.WNOHANG)[0] > 0:
                 pass
-        except ChildProcessError:
+        except (ChildProcessError, ProcessLookupError):
             pass
         except OSError:
             cleanup_ok = False
@@ -1075,19 +1266,28 @@ def _run_bounded_child(
     if offline_required is False and offline_requested:
         raise AcceptanceError("offline_guard_required")
     require_offline = offline_requested if offline_required is None else offline_required
+    disk_sandbox_requested = disk_limit is not None or aggregate_budget is not None
     if require_offline and not sys.platform.startswith("linux"):
         raise AcceptanceError("offline_sandbox_unavailable")
     child_env = dict(env)
     run_token = secrets.token_hex(16)
     child_env["PERSEUS_ACCEPTANCE_RUN_ID"] = run_token
     guard_dir: Path | None = None
-    report_path: Path | None = None
-    report_token: str | None = None
+    report_read_fd = report_write_fd = -1
     if require_offline:
         try:
-            child_env, guard_dir, report_path, report_token = _prepare_offline_guard(argv, Path(cwd), child_env)
+            child_env, guard_dir, report_read_fd, report_write_fd = _prepare_offline_guard(
+                argv, Path(cwd), child_env, allowed_roots=monitor_roots
+            )
         except (OSError, TypeError, ValueError, AcceptanceError):
             return _blocked_child_result(limits, reason="offline_guard_unavailable")
+    elif disk_sandbox_requested:
+        if not _is_python_argv(argv):
+            return _blocked_child_result(limits, reason="filesystem_sandbox_unavailable")
+        try:
+            child_env, guard_dir = _prepare_filesystem_guard(argv, Path(cwd), child_env, monitor_roots)
+        except (OSError, TypeError, ValueError, AcceptanceError):
+            return _blocked_child_result(limits, reason="filesystem_sandbox_unavailable")
     kwargs: dict[str, Any] = {
         "cwd": str(cwd),
         "env": child_env,
@@ -1098,11 +1298,26 @@ def _run_bounded_child(
     guard_read_fd = guard_write_fd = -1
     if os.name == "posix":
         kwargs["start_new_session"] = True
-        resource_limiter = _child_resource_limiter(limits)
-        if require_offline:
-            guard_read_fd, guard_write_fd = os.pipe()
-            os.set_inheritable(guard_write_fd, True)
-            kwargs["pass_fds"] = (guard_write_fd,)
+        try:
+            resource_limiter = _child_resource_limiter(limits)
+            if require_offline:
+                guard_read_fd, guard_write_fd = os.pipe()
+                os.set_inheritable(guard_write_fd, True)
+                pass_fds = [guard_write_fd]
+                if report_write_fd >= 0:
+                    os.set_inheritable(report_write_fd, True)
+                    pass_fds.append(report_write_fd)
+                kwargs["pass_fds"] = tuple(pass_fds)
+        except (OSError, subprocess.SubprocessError, TypeError, ValueError, AcceptanceError):
+            for fd in (guard_read_fd, guard_write_fd, report_read_fd, report_write_fd):
+                if fd >= 0:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+            cleanup_ok = _cleanup_guard_dir(guard_dir)
+            reason = "child_resource_limit" if cleanup_ok else "child_cleanup_failed"
+            return _blocked_child_result(limits, reason=reason, cleanup_failed=not cleanup_ok)
 
         def _child_setup() -> None:
             if resource_limiter is not None:
@@ -1114,14 +1329,17 @@ def _run_bounded_child(
         kwargs["preexec_fn"] = _child_setup
     subreaper_ready = _ensure_child_subreaper() if sys.platform.startswith("linux") else False
     if sys.platform.startswith("linux") and not subreaper_ready:
-        if guard_read_fd >= 0:
-            os.close(guard_read_fd)
-        if guard_write_fd >= 0:
-            os.close(guard_write_fd)
+        for fd in (guard_read_fd, guard_write_fd, report_read_fd, report_write_fd):
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
         cleanup_ok = _cleanup_guard_dir(guard_dir)
         return _blocked_child_result(limits, reason="child_containment_unavailable", cleanup_failed=not cleanup_ok)
     baseline = _process_snapshot() if subreaper_ready else {}
     before_disk = _monitor_size(monitor_roots)
+    before_filesystems = _filesystem_free_bytes() if disk_limit is not None or aggregate_budget is not None else {}
     before_children = (
         resource.getrusage(resource.RUSAGE_CHILDREN)
         if os.name == "posix" and resource is not None and hasattr(resource, "RUSAGE_CHILDREN")
@@ -1130,8 +1348,12 @@ def _run_bounded_child(
     try:
         process = subprocess.Popen(argv, **kwargs)
     except (OSError, subprocess.SubprocessError, ValueError):
-        if guard_read_fd >= 0:
-            os.close(guard_read_fd)
+        for fd in (guard_read_fd, report_read_fd):
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
         cleanup_ok = _cleanup_guard_dir(guard_dir)
         if not cleanup_ok:
             return _blocked_child_result(limits, reason="child_cleanup_failed", cleanup_failed=True)
@@ -1141,8 +1363,12 @@ def _run_bounded_child(
         result["status"] = "failed"
         return result
     finally:
-        if guard_write_fd >= 0:
-            os.close(guard_write_fd)
+        for fd in (guard_write_fd, report_write_fd):
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
     guard_verified = False
     if guard_read_fd >= 0:
         try:
@@ -1157,6 +1383,7 @@ def _run_bounded_child(
     captured: dict[str, Any] = {}
     peak_rss_bytes = _read_process_peak_rss_bytes(process.pid)
     max_disk_growth = 0
+    max_filesystem_growth = 0
     stdout_thread = threading.Thread(target=_bounded_reader, args=(process.stdout, _MAX_CHILD_OUTPUT_BYTES, captured, "stdout"), daemon=True)
     stderr_thread = threading.Thread(target=_bounded_reader, args=(process.stderr, _MAX_CHILD_ERROR_BYTES, captured, "stderr"), daemon=True)
     stdout_thread.start()
@@ -1170,6 +1397,15 @@ def _run_bounded_child(
                 _owned_processes(process.pid, baseline, known, run_token)
             peak_rss_bytes = max(peak_rss_bytes, _read_process_peak_rss_bytes(process.pid))
             max_disk_growth = max(max_disk_growth, max(0, _monitor_size(monitor_roots) - before_disk))
+            if before_filesystems:
+                max_filesystem_growth = max(
+                    max_filesystem_growth,
+                    _filesystem_growth_bytes(before_filesystems, _filesystem_free_bytes()),
+                )
+                max_disk_growth = max(max_disk_growth, max_filesystem_growth)
+            if captured.get("stdout_limit_exceeded") or captured.get("stderr_limit_exceeded"):
+                status = "resource_limit"
+                break
             if process.poll() is not None:
                 break
             remaining = deadline - time.monotonic()
@@ -1177,14 +1413,16 @@ def _run_bounded_child(
                 status = "timeout"
                 break
             try:
-                process.wait(timeout=min(0.1, remaining) if disk_limit is not None else remaining)
+                process.wait(timeout=min(0.1, remaining))
             except subprocess.TimeoutExpired:
                 if disk_limit is not None and max_disk_growth > disk_limit:
                     status = "resource_limit"
                     break
     finally:
         try:
-            cleanup_ok = _terminate_process_group(process, leader_identity, known, run_token)
+            cleanup_ok = _terminate_process_group(
+                process, leader_identity, known, run_token, baseline=baseline
+            )
             cleanup_failed = not cleanup_ok
         except (OSError, subprocess.SubprocessError, ValueError):
             cleanup_failed = True
@@ -1206,7 +1444,15 @@ def _run_bounded_child(
     stderr_thread.join(timeout=0.25)
     stdout = captured.get("stdout_bytes", b"")
     stderr = captured.get("stderr_bytes", b"")
+    if captured.get("stdout_limit_exceeded") or captured.get("stderr_limit_exceeded"):
+        status = "resource_limit"
     max_disk_growth = max(max_disk_growth, max(0, _monitor_size(monitor_roots) - before_disk))
+    if before_filesystems:
+        max_filesystem_growth = max(
+            max_filesystem_growth,
+            _filesystem_growth_bytes(before_filesystems, _filesystem_free_bytes()),
+        )
+        max_disk_growth = max(max_disk_growth, max_filesystem_growth)
     if disk_limit is not None and max_disk_growth > disk_limit and status == "passed":
         status = "resource_limit"
     if cleanup_failed:
@@ -1227,12 +1473,25 @@ def _run_bounded_child(
     child_rss = max(child_rss_from_usage, peak_rss_bytes / (1024 * 1024))
     if status == "passed" and (child_cpu > limits["cpu_seconds"] or child_rss > limits["address_space_bytes"] / (1024 * 1024)):
         status = "resource_limit"
-    offline_report = _read_offline_report(report_path, report_token) if report_path is not None else None
+    offline_report = None
+    if report_read_fd >= 0:
+        try:
+            expected_start_time = leader_identity.get("start_time") if isinstance(leader_identity, Mapping) else None
+            offline_report = _read_offline_report(
+                report_read_fd,
+                expected_pid=process.pid,
+                expected_start_time=expected_start_time,
+            )
+        finally:
+            try:
+                os.close(report_read_fd)
+            except OSError:
+                pass
     guard_cleanup_failed = not _cleanup_guard_dir(guard_dir)
     cleanup_failed = cleanup_failed or guard_cleanup_failed
     if guard_cleanup_failed:
         status = "blocked" if require_offline else "failed"
-    if require_offline and (not guard_verified or report_path is None or offline_report is None):
+    if require_offline and (not guard_verified or offline_report is None):
         if status == "passed":
             status = "blocked"
     aggregate_resource = None
@@ -1250,7 +1509,7 @@ def _run_bounded_child(
         reason = "child_cleanup_failed"
     elif require_offline and not guard_verified:
         reason = "offline_guard_unavailable"
-    elif require_offline and (report_path is None or offline_report is None):
+    elif require_offline and offline_report is None:
         reason = "offline_report_invalid"
     elif status == "resource_limit":
         reason = "child_resource_limit"
@@ -1263,6 +1522,9 @@ def _run_bounded_child(
         "stderr": stderr.decode("utf-8", errors="replace"),
         "stdout_prefix_bytes": len(stdout),
         "stderr_prefix_bytes": len(stderr),
+        "stdout_total_bytes": int(captured.get("stdout_total_bytes", len(stdout))),
+        "stderr_total_bytes": int(captured.get("stderr_total_bytes", len(stderr))),
+        "output_limit_exceeded": bool(captured.get("stdout_limit_exceeded") or captured.get("stderr_limit_exceeded")),
         "stdout_truncated": bool(captured.get("stdout_truncated", False)),
         "stderr_truncated": bool(captured.get("stderr_truncated", False)),
         "child_cpu_seconds_observed": round(child_cpu, 6),
@@ -1380,6 +1642,15 @@ def _stage_runtime(root: Path, workspace: Path, *, expected: str | None = None) 
     return _stage_file(root, "perseus.py", workspace, expected=expected, immutable=True)
 
 
+def _operation_state_snapshot(workspace: Path) -> dict[str, str]:
+    """Hash workspace files before an operation for receipt provenance."""
+    try:
+        entries = _sorted_files(workspace)
+    except (OSError, TypeError, ValueError, AcceptanceError):
+        raise AcceptanceError("operation_receipt_invalid") from None
+    return {str(entry["path"]): str(entry["sha256"]) for entry in entries}
+
+
 def _parse_operation_receipt(
     text: str,
     *,
@@ -1388,6 +1659,7 @@ def _parse_operation_receipt(
     artifact_sha256: str,
     query: str,
     workspace: Path,
+    operation_baseline: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     try:
         value = json.loads(text, parse_constant=lambda _value: (_ for _ in ()).throw(ValueError()))
@@ -1409,13 +1681,17 @@ def _parse_operation_receipt(
         raise AcceptanceError("operation_receipt_invalid")
     state_path = persisted.get("path")
     state_digest = persisted.get("sha256")
+    state_rel = Path(state_path) if isinstance(state_path, str) else Path(".")
+    normalized_state_path = str(state_rel).replace(os.sep, "/")
     if (
         not isinstance(state_path, str)
         or not state_path.strip()
-        or Path(state_path).is_absolute()
-        or ".." in Path(state_path).parts
+        or state_rel.is_absolute()
+        or ".." in state_rel.parts
+        or ".perseus-immutable" in state_rel.parts
         or not isinstance(state_digest, str)
         or not re.fullmatch(r"[0-9a-f]{64}", state_digest)
+        or not isinstance(operation_baseline, Mapping)
     ):
         raise AcceptanceError("operation_receipt_invalid")
     try:
@@ -1424,7 +1700,37 @@ def _parse_operation_receipt(
         raise AcceptanceError("operation_receipt_invalid") from None
     if actual_state != state_digest.lower():
         raise AcceptanceError("operation_receipt_invalid")
+    if normalized_state_path in operation_baseline and operation_baseline[normalized_state_path] == actual_state:
+        raise AcceptanceError("operation_receipt_invalid")
     return dict(value)
+
+
+def _resolve_staged_argv(
+    command: list[str],
+    *,
+    root: Path,
+    artifact_path: str,
+    staged_artifact: Path,
+    staged_runtime: Path,
+) -> list[str]:
+    """Rewrite declared artifact/runtime argv inputs to immutable stage paths."""
+    resolved: list[str] = []
+    source_artifact = (root / artifact_path).resolve()
+    source_runtime = (root / "perseus.py").resolve()
+    artifact_rel = Path(artifact_path)
+    for raw in _validate_command(command, "operation"):
+        token = raw
+        try:
+            candidate = Path(raw)
+            candidate_resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+        except (OSError, RuntimeError, TypeError, ValueError):
+            candidate_resolved = None
+        if raw == str(artifact_rel) or candidate_resolved == source_artifact:
+            token = str(staged_artifact)
+        elif raw == "perseus.py" or candidate_resolved == source_runtime:
+            token = str(staged_runtime)
+        resolved.append(token)
+    return resolved
 
 
 def _bundle_reason(label: str, kind: str) -> str:
@@ -1474,6 +1780,11 @@ def _check_bundle(
             workspace = Path(workspace_name)
             staged_bundle, _ = _stage_file(root, spec["path"], workspace, expected=actual)
             staged_runtime, _ = _stage_runtime(root, workspace, expected=_sha_bytes(_secure_file_bytes(root, "perseus.py")))
+            operation_baseline = _operation_state_snapshot(workspace)
+            command = _resolve_staged_argv(
+                spec["command"], root=root, artifact_path=spec["path"],
+                staged_artifact=staged_bundle, staged_runtime=staged_runtime,
+            )
             env = dict(os.environ)
             env.pop("PERSEUS_ALLOW_DANGEROUS", None)
             env.update({
@@ -1489,7 +1800,7 @@ def _check_bundle(
                 "PERSEUS_WORKLOAD_QUERY": query_value,
             })
             operation = _run_bounded_child(
-                spec["command"],
+                command,
                 cwd=workspace,
                 timeout=60,
                 env=env,
@@ -1532,6 +1843,7 @@ def _check_bundle(
                     receipt = _parse_operation_receipt(
                         operation.get("stdout", ""), action=label, version=spec["version"],
                         artifact_sha256=actual, query=query_value, workspace=workspace,
+                        operation_baseline=operation_baseline,
                     )
                 except AcceptanceError:
                     receipt = None
@@ -1728,9 +2040,11 @@ def _run_adapter(
             staged_artifact, actual = _stage_file(root, spec["path"], workspace, expected=expected)
             runtime_expected = _sha_bytes(_secure_file_bytes(root, "perseus.py"))
             staged_runtime, runtime_digest = _stage_runtime(root, workspace, expected=runtime_expected)
-            command = list(spec["command"])
-            if command and not Path(command[0]).is_absolute() and (root / command[0]).is_file():
-                command[0] = str((root / command[0]).resolve())
+            operation_baseline = _operation_state_snapshot(workspace)
+            command = _resolve_staged_argv(
+                spec["command"], root=root, artifact_path=spec["path"],
+                staged_artifact=staged_artifact, staged_runtime=staged_runtime,
+            )
             env = dict(os.environ)
             env.pop("PERSEUS_ALLOW_DANGEROUS", None)
             env.update({
@@ -1794,6 +2108,7 @@ def _run_adapter(
                     receipt = _parse_operation_receipt(
                         operation.get("stdout", ""), action=name, version=version,
                         artifact_sha256=actual, query=query_value, workspace=workspace,
+                        operation_baseline=operation_baseline,
                     )
                 except AcceptanceError:
                     receipt = None

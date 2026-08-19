@@ -220,9 +220,9 @@ def test_bounded_child_owns_timeout_descendants_and_caps_output(tmp_path):
     result = harness._run_bounded_child(
         [sys.executable, "-c", code], cwd=tmp_path, timeout=0.25, env=dict(os.environ)
     )
-    assert result["status"] == "timeout"
+    assert result["status"] == "resource_limit"
     assert result["stdout_truncated"] is True
-    assert result["stdout_prefix_bytes"] <= harness._MAX_CHILD_OUTPUT_BYTES
+    assert result["output_limit_exceeded"] is True
     time.sleep(1.0)
     assert not marker.exists()
 
@@ -1215,3 +1215,204 @@ def test_public_fixture_errors_are_bounded_and_private(tmp_path, capsys):
     assert str(tmp_path) not in output
     assert "No such file" not in output
     assert "fixture_load_failed" in output
+
+
+def test_child_cannot_forge_parent_offline_report_from_sitecustomize(tmp_path):
+    runtime = tmp_path / "runtime.py"
+    runtime.write_text(
+        "def activate_offline_mode(): pass\n"
+        "def offline_network_report(): return {"
+        "'active': True, 'policy': 'deny_all_non_loopback', 'attempts': [], "
+        "'attempts_truncated': False, 'blocked_attempts': 0, "
+        "'allowed_local_attempts': 0}\n"
+        "def deactivate_offline_mode(): pass\n",
+        encoding="utf-8",
+    )
+    forged = {
+        "active": True,
+        "policy": "deny_all_non_loopback",
+        "attempts": [{"operation": "forged", "destination": "forged", "outcome": "blocked"}],
+        "attempts_truncated": False,
+        "blocked_attempts": 1,
+        "allowed_local_attempts": 0,
+    }
+    code = (
+        "import json,os,sitecustomize; "
+        "value=" + repr(forged) + "; "
+        "value['guard_token']=sitecustomize._guard_token; "
+        "open(sitecustomize._report_path, 'w').write(json.dumps(value)); "
+        "os._exit(0)"
+    )
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", code],
+        cwd=tmp_path,
+        timeout=5,
+        env={"PERSEUS_OFFLINE": "1", "PERSEUS_OFFLINE_RUNTIME": str(runtime)},
+        offline_required=True,
+    )
+    assert result["status"] == "blocked"
+    assert result["offline_report"]["attempts"] == []
+
+
+def test_cleanup_does_not_signal_descendants_after_leader_pid_reuse(monkeypatch):
+    if os.name != "posix":
+        pytest.skip("process-group assertion is POSIX-specific")
+
+    class FakeProcess:
+        pid = 424242
+        returncode = 0
+
+        def wait(self, timeout=None):
+            return 0
+
+    baseline = {111: {"pid": 111, "state": "S", "ppid": 1, "pgid": 111, "start_time": 10}}
+    unrelated = {"pid": 900, "state": "S", "ppid": 1, "pgid": 900, "start_time": 20, "owned_by_ancestry": 1}
+
+    def discover(_leader_pid, received_baseline, known, _run_token):
+        if received_baseline != baseline:
+            known[unrelated["pid"]] = dict(unrelated)
+        return known
+
+    def identity(pid):
+        if pid == 424242:
+            return {"pid": pid, "state": "S", "ppid": 1, "pgid": 777, "start_time": 999}
+        if pid == 900:
+            return dict(unrelated)
+        return None
+
+    monkeypatch.setattr(harness, "_owned_processes", discover)
+    monkeypatch.setattr(harness, "_process_identity", identity)
+    monkeypatch.setattr(harness.os, "killpg", lambda *_args: pytest.fail("unrelated reused-PID group was signaled"))
+    assert harness._terminate_process_group(
+        FakeProcess(),
+        {"pid": 424242, "pgid": 424242, "start_time": 1},
+        {},
+        "run-token",
+        baseline=baseline,
+    ) is False
+
+
+def test_bounded_reader_stops_an_unbounded_output_stream(tmp_path):
+    code = "import os; chunk=b'x' * 8192; [os.write(1, chunk) for _ in iter(int, 1)]"
+    started = time.monotonic()
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", code],
+        cwd=tmp_path,
+        timeout=5,
+        env=dict(os.environ),
+    )
+    elapsed = time.monotonic() - started
+    assert result["status"] == "resource_limit"
+    assert result["stdout_truncated"] is True
+    assert result["output_limit_exceeded"] is True
+    assert result["stdout_total_bytes"] <= harness._MAX_CHILD_OUTPUT_BYTES + 8192
+    assert elapsed < 3
+
+
+def test_disk_budget_charges_writes_outside_declared_roots(tmp_path):
+    workspace = tmp_path / "workspace"
+    declared = tmp_path / "declared"
+    escape = tmp_path / "escape"
+    workspace.mkdir()
+    declared.mkdir()
+    escape.mkdir()
+    escaped_file = escape / "outside.bin"
+    runtime = tmp_path / "runtime.py"
+    runtime.write_text(
+        "def activate_offline_mode(): pass\n"
+        "def offline_network_report(): return {"
+        "'active': True, 'policy': 'deny_all_non_loopback', 'attempts': [], "
+        "'attempts_truncated': False, 'blocked_attempts': 0, "
+        "'allowed_local_attempts': 0}\n"
+        "def deactivate_offline_mode(): pass\n",
+        encoding="utf-8",
+    )
+    code = f"open({str(escaped_file)!r}, 'wb').write(b'x' * 8192)"
+    budget = harness._AggregateResourceBudget((declared,), cpu_seconds=30, memory_mb=512, disk_bytes=1024)
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", code],
+        cwd=workspace,
+        timeout=5,
+        env={
+            "PERSEUS_OFFLINE": "1",
+            "PERSEUS_OFFLINE_RUNTIME": str(runtime),
+        },
+        monitor_dirs=(declared,),
+        disk_limit_bytes=1024,
+        aggregate_budget=budget,
+        offline_required=True,
+    )
+    assert result["status"] in {"blocked", "resource_limit"}
+    assert result["disk_growth_bytes_observed"] > 0
+    assert result["aggregate_resource"]["disk_growth_bytes_observed"] > budget.disk_limit
+    assert not escaped_file.exists()
+
+
+def test_operation_receipt_rejects_immutable_staged_persisted_state(tmp_path):
+    staged = tmp_path / ".perseus-immutable" / "perseus.py"
+    staged.parent.mkdir()
+    staged.write_bytes(b"immutable-runtime")
+    digest = harness._sha_bytes(b"bundle")
+    receipt = {
+        "schema_version": "perseus-disconnected-operation/v1",
+        "action": "upgrade",
+        "version": "v1",
+        "artifact_sha256": digest,
+        "query_sha256": harness._sha("query"),
+        "result": "passed",
+        "persisted_state": {
+            "path": ".perseus-immutable/perseus.py",
+            "sha256": harness._sha_bytes(staged.read_bytes()),
+        },
+    }
+    with pytest.raises(harness.AcceptanceError, match="receipt"):
+        harness._parse_operation_receipt(
+            json.dumps(receipt),
+            action="upgrade",
+            version="v1",
+            artifact_sha256=digest,
+            query="query",
+            workspace=tmp_path,
+        )
+
+
+def test_operation_command_executes_staged_bundle_path(tmp_path):
+    runtime = tmp_path / "perseus.py"
+    runtime.write_bytes((ROOT / "perseus.py").read_bytes())
+    marker = tmp_path / "execution-origin.txt"
+    bundle = tmp_path / "upgrade.py"
+    bundle.write_text(
+        "import json, os, pathlib\n"
+        f"pathlib.Path({str(marker)!r}).write_text('staged' if '.perseus-immutable' in __file__ else 'unstaged')\n"
+        "pathlib.Path('state.json').write_bytes(b'persisted')\n"
+        "print(json.dumps({'schema_version': 'perseus-disconnected-operation/v1', 'action': 'upgrade', 'version': 'v1', 'artifact_sha256': os.environ['PERSEUS_BUNDLE_SHA256'], 'query_sha256': '" + harness._sha("") + "', 'result': 'passed', 'persisted_state': {'path': 'state.json', 'sha256': '" + harness._sha_bytes(b"persisted") + "'}}, sort_keys=True))\n",
+        encoding="utf-8",
+    )
+    digest = harness._sha_bytes(bundle.read_bytes())
+    checked = harness._check_bundle(
+        tmp_path,
+        {"path": "upgrade.py", "version": "v1", "sha256": digest, "command": [sys.executable, str(bundle)]},
+        "upgrade",
+        execute=True,
+    )
+    assert checked["status"] == "passed"
+    assert marker.read_text(encoding="utf-8") == "staged"
+
+
+def test_limiter_setup_failure_cleans_offline_guard(tmp_path, monkeypatch):
+    runtime = tmp_path / "runtime.py"
+    runtime.write_text("def activate_offline_mode(): pass\n", encoding="utf-8")
+
+    def fail_limiter(*_args, **_kwargs):
+        raise OSError("limiter denied")
+
+    monkeypatch.setattr(harness, "_child_resource_limiter", fail_limiter)
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", "pass"],
+        cwd=tmp_path,
+        timeout=5,
+        env={"PERSEUS_OFFLINE": "1", "PERSEUS_OFFLINE_RUNTIME": str(runtime)},
+        offline_required=True,
+    )
+    assert result["status"] == "blocked"
+    assert not list(tmp_path.glob(".perseus-offline-*"))
