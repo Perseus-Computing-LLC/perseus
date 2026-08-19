@@ -95,3 +95,46 @@
 - [x] Dependency relationship: listed above
 - [x] SBOM author: Perseus Computing LLC
 - [x] Timestamp: included
+
+---
+
+## Queryable SBOM and lineage contract (#995)
+
+Perseus also provides an offline, stdlib-only normalization and query surface
+for SBOMs produced by an existing scanner or build pipeline. It does not replace
+those tools and it does not infer a clean result from an incomplete document.
+
+Supported input formats:
+
+- SPDX 2.2/2.3 JSON and XML;
+- CycloneDX 1.4/1.5/1.6 JSON and XML.
+
+Every normalized document records its format/version, source reference, raw
+document SHA-256, supplier/timestamp metadata when supplied, component and
+relationship counts, and an ingestion digest. Component projections retain
+names, versions, package identifiers, licenses, and supplied vulnerability,
+VEX, signature, attestation, advisory, or documentation references. Missing
+metadata is represented as `partial` coverage with explicit `unknown` fields.
+
+A local graph can add pipeline-owned edges for:
+
+```text
+source -> dependency -> build -> artifact -> deployment
+```
+
+Each edge carries explicit confidence (`high`, `medium`, `low`, or `unknown`),
+coverage (`complete`, `partial`, or `unknown`), and optional evidence
+references. The impacted-artifact query returns the traversed path and evidence
+references. A query with incomplete coverage returns `unknown` or `partial`;
+`not_affected` is never asserted merely because no artifact was found.
+
+Example offline commands:
+
+```bash
+perseus sbom ingest build.spdx.json --output normalized.json
+perseus sbom merge normalized.json --edges pipeline-edges.json --output lineage.json
+perseus sbom query lineage.json CVE-2021-44228 --json
+```
+
+The core path requires no cloud service. Deterministic JSON/XML fixtures and
+contract tests live under `tests/fixtures/sbom/` and `tests/test_sbom_lineage.py`.

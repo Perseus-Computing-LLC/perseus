@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bom xmlns="http://cyclonedx.org/schema/bom-1.5.xsd" version="1">
+  <metadata>
+    <timestamp>2026-08-19T12:00:00Z</timestamp>
+    <authors><author><name>Perseus Computing LLC</name></author></authors>
+    <component type="application" bom-ref="pkg:generic/perseus-service@1.0.26">
+      <name>perseus-service</name><version>1.0.26</version>
+      <supplier><name>Perseus Computing LLC</name></supplier>
+      <purl>pkg:generic/perseus-service@1.0.26</purl>
+    </component>
+  </metadata>
+  <components>
+    <component type="library" bom-ref="pkg:maven/org.apache.logging.log4j/log4j-core@2.17.0">
+      <group>org.apache.logging.log4j</group><name>log4j-core</name><version>2.17.0</version>
+      <supplier><name>Apache Software Foundation</name></supplier>
+      <purl>pkg:maven/org.apache.logging.log4j/log4j-core@2.17.0</purl>
+      <licenses><license><id>Apache-2.0</id></license></licenses>
+      <externalReferences><reference type="vulnerability"><url>cve:CVE-2021-44228</url></reference></externalReferences>
+    </component>
+  </components>
+  <dependencies>
+    <dependency ref="pkg:generic/perseus-service@1.0.26">
+      <dependency ref="pkg:maven/org.apache.logging.log4j/log4j-core@2.17.0" />
+    </dependency>
+  </dependencies>
+</bom>
