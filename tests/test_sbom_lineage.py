@@ -972,6 +972,12 @@ def test_privacy_sanitizer_covers_fragments_userinfo_markerless_private_refs_and
     assert "RAW_XML_SUPPLIER" not in json.dumps(xml_document, sort_keys=True)
 
 
+def test_strict_normalized_source_refs_reject_markerless_private_locators():
+    for source_ref in ("artifact:private", "build:home", "source:local", "artifact:raw"):
+        with pytest.raises(perseus.SBOMLineageError, match="visibility-safe|unsafe credential"):
+            perseus._sl_strict_source_ref(source_ref)
+
+
 def test_spdx_document_id_namespace_and_component_relationship_rebinding_are_consistent():
     payload = json.loads(_load("spdx-app.json"))
     payload["SPDXID"] = "SPDXRef-DOCUMENT-custom"
