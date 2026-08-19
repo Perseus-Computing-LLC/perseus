@@ -1,0 +1,7 @@
+{
+  "schema_version": "perseus-runner-owned-verifier/v1",
+  "verifier_id": "synthetic-deterministic-verifier",
+  "algorithm": "fixture-answer-v1",
+  "hidden_from_agent": true,
+  "runner_owned": true
+}
