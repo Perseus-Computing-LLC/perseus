@@ -1,14 +1,21 @@
 # stdlib imports available from build artifact header
 # ──────────────────────────────── Main ────────────────────────────────────────
 
-def main():
+def _main_impl():
     parser = argparse.ArgumentParser(
         prog="perseus",
         description=f"Perseus — Live Context Engine for AI Assistants (v{_PERSEUS_VERSION})",
     )
     parser.add_argument("--version", action="version", version=_perseus_version_banner())
-    parser.add_argument("--offline", action="store_true", help="(Hidden) Enable air-gapped deployment mode. No-op.")
+    parser.add_argument(
+        "--offline", action="store_true",
+        help="Enforce a fail-closed non-loopback network boundary for this process",
+    )
     sub = parser.add_subparsers(dest="command", required=False)
+
+    p_offline_probe = sub.add_parser("offline-probe", help="Probe the active offline network boundary in a child process")
+    p_offline_probe.add_argument("destination", help="Destination to probe")
+    p_offline_probe.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
     # render
     p_render = sub.add_parser("render", help="Render a @perseus source file")
@@ -765,6 +772,8 @@ def main():
     p_explain.add_argument("--json", action="store_true", help="Machine-readable JSON output (always JSON currently)")
 
     args = parser.parse_args()
+    if getattr(args, "offline", False):
+        activate_offline_mode()
     cfg = load_config()
 
     # A bare `perseus` (no subcommand) is a new user's first instinct — point
@@ -778,7 +787,9 @@ def main():
         print("           perseus --help          — all commands")
         return 0
 
-    if args.command == "render":
+    if args.command == "offline-probe":
+        return cmd_offline_probe(args, cfg)
+    elif args.command == "render":
         cmd_render(args, cfg)
     elif args.command == "scan":
         return cmd_scan(args, cfg)
@@ -910,6 +921,16 @@ def main():
         ws = getattr(args, "workspace", None)
         mcp_cfg = load_config(Path(ws).expanduser().resolve()) if ws else cfg
         return cmd_mcp(args, mcp_cfg)
+
+
+def main():
+    """Run the CLI while restoring offline hooks for in-process callers."""
+    was_active = offline_mode_active()
+    try:
+        return _main_impl()
+    finally:
+        if not was_active and offline_mode_active():
+            deactivate_offline_mode()
 
 
 # Module-level call: runs at import time so render_source() and other
