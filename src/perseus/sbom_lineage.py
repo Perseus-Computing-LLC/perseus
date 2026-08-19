@@ -16,7 +16,7 @@ import re
 import stat as _sl_stat
 import xml.etree.ElementTree as _sl_et
 from urllib.parse import unquote
-from collections import deque
+from collections import OrderedDict, deque
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -49,6 +49,8 @@ _SL_MAX_COMPONENTS = 512
 _SL_MAX_RELATIONSHIPS = 1024
 _SL_MAX_DOCUMENTS = 64
 _SL_MAX_EDGES = 4096
+_SL_MAX_CLI_TOTAL_BYTES = 64 * 1024 * 1024
+_SL_MAX_CLI_PATH_CHARS = 4096
 _SL_MAX_REFERENCES = 64
 _SL_MAX_PROPERTIES = 64
 _SL_MAX_IDENTIFIERS = 64
@@ -87,8 +89,53 @@ _SL_HASH_ALGORITHM_ALIASES = {
 # In-process provenance for normalized projections.  A projection digest alone
 # is caller-recomputable; only a projection produced by raw ingestion (or one
 # explicitly re-verified against raw bytes) is accepted by lineage builders.
-_SL_INGESTED_PROVENANCE: dict[str, tuple[str, str]] = {}
-_SL_LINEAGE_PROVENANCE: dict[str, tuple[str, str, str]] = {}
+_SL_MAX_PROVENANCE_ENTRIES = 128
+_SL_MAX_PROVENANCE_BYTES = 16 * 1024 * 1024
+
+
+class _SLBoundedReceiptCache(OrderedDict[str, Any]):
+    """Lifecycle-scoped receipt cache with entry and serialized-byte bounds."""
+
+    def __init__(self, *, max_entries: int, max_bytes: int) -> None:
+        super().__init__()
+        self._max_entries = max_entries
+        self._max_bytes = max_bytes
+        self._entry_bytes: dict[str, int] = {}
+        self._total_bytes = 0
+
+    @staticmethod
+    def _size(value: Any) -> int:
+        return len(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode("utf-8"))
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        if key in self:
+            self.__delitem__(key)
+        entry_size = self._size(value)
+        if entry_size > self._max_bytes:
+            return
+        super().__setitem__(key, value)
+        self._entry_bytes[key] = entry_size
+        self._total_bytes += entry_size
+        while len(self) > self._max_entries or self._total_bytes > self._max_bytes:
+            old_key, _ = super().popitem(last=False)
+            self._total_bytes -= self._entry_bytes.pop(old_key, 0)
+
+    def __delitem__(self, key: str) -> None:
+        super().__delitem__(key)
+        self._total_bytes -= self._entry_bytes.pop(key, 0)
+
+    def clear(self) -> None:
+        super().clear()
+        self._entry_bytes.clear()
+        self._total_bytes = 0
+
+
+_SL_INGESTED_PROVENANCE: _SLBoundedReceiptCache = _SLBoundedReceiptCache(
+    max_entries=_SL_MAX_PROVENANCE_ENTRIES, max_bytes=_SL_MAX_PROVENANCE_BYTES,
+)
+_SL_LINEAGE_PROVENANCE: _SLBoundedReceiptCache = _SLBoundedReceiptCache(
+    max_entries=_SL_MAX_PROVENANCE_ENTRIES, max_bytes=_SL_MAX_PROVENANCE_BYTES,
+)
 
 
 class SBOMLineageError(ValueError):
@@ -117,6 +164,25 @@ def _sl_json_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 def _sl_reject_json_constant(value: str) -> None:
     raise SBOMLineageError("non-finite JSON constant is not allowed")
+
+
+def _sl_parse_json_int(value: str) -> int:
+    if len(value.lstrip("-")) > 4096:
+        raise SBOMLineageError("SBOM JSON integer exceeds its bound")
+    try:
+        return int(value)
+    except (OverflowError, ValueError):
+        raise SBOMLineageError("SBOM JSON integer is invalid") from None
+
+
+def _sl_parse_json_float(value: str) -> float:
+    try:
+        result = float(value)
+    except (OverflowError, ValueError):
+        raise SBOMLineageError("SBOM JSON number is invalid") from None
+    if not math.isfinite(result):
+        raise SBOMLineageError("non-finite JSON number is not allowed")
+    return result
 
 
 def _sl_sha(value: Any) -> str:
@@ -381,8 +447,8 @@ def _sl_xml_scalar(element: Any, names: tuple[str, ...], *, default: str = "") -
                 scalar = str(value).lstrip("#")
                 break
         values.append(scalar)
-    if values and any(value != values[0] for value in values[1:]):
-        raise SBOMLineageError("XML singleton values conflict")
+    if len(values) > 1:
+        raise SBOMLineageError("XML singleton element is duplicated")
     return values[0] if values else default
 
 
@@ -401,6 +467,25 @@ def _sl_validate_xml_tree(root: Any) -> None:
         if depth > _SL_MAX_XML_DEPTH:
             raise SBOMLineageError("SBOM XML nesting is too deep")
         stack.extend((child, depth + 1) for child in list(element))
+
+
+def _sl_validate_xml_discriminators(root: Any) -> None:
+    spdx_markers = {
+        "spdxdocument", "spdxversion", "spdxid", "package", "relationship", "creationinfo",
+    }
+    cdx_markers = {
+        "bom", "bomformat", "specversion", "metadata", "components", "component", "dependencies", "dependency",
+    }
+    families: set[str] = set()
+    for element in root.iter():
+        local = _sl_local(element).casefold()
+        namespace = str(getattr(element, "tag", "")).split("}", 1)[0].casefold()
+        if local in spdx_markers or "spdx.org" in namespace:
+            families.add("SPDX")
+        if local in cdx_markers or "cyclonedx.org" in namespace:
+            families.add("CycloneDX")
+    if len(families) > 1:
+        raise SBOMLineageError("conflicting XML SBOM format markers")
 
 
 def _sl_xml_value(element: Any, *names: str, default: str = "") -> str:
@@ -552,6 +637,35 @@ def _sl_bind_component_alias_variants(component_id_map: dict[str, str], alias: s
         _sl_bind_component_alias(component_id_map, candidate, normalized_id)
 
 
+def _sl_component_alias_map(documents: list[Mapping[str, Any]]) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for document in documents:
+        for component in document.get("components", []):
+            component_id = component["component_id"]
+            _sl_bind_component_alias_variants(aliases, component_id, component_id)
+            for identifier in component.get("identifiers", []):
+                _sl_bind_component_alias_variants(aliases, identifier, component_id)
+    return aliases
+
+
+def _sl_resolve_external_edge_aliases(edges: list[Any], aliases: Mapping[str, str]) -> list[Any]:
+    resolved: list[Any] = []
+    for raw in edges:
+        if not isinstance(raw, Mapping):
+            resolved.append(raw)
+            continue
+        item: dict[str, Any] = {}
+        for key in ("from", "source", "to", "target", "type", "confidence", "coverage", "evidence_refs"):
+            if key in raw:
+                item[key] = raw[key]
+        for primary, fallback in (("from", "source"), ("to", "target")):
+            key = primary if primary in item else fallback if fallback in item else None
+            if key is not None and isinstance(item.get(key), str):
+                item[key] = aliases.get(item[key], item[key])
+        resolved.append(item)
+    return resolved
+
+
 def _sl_component(
     *,
     component_id: Any,
@@ -655,6 +769,12 @@ def _sl_relationship(source: Any, target: Any, relationship_type: Any, *, confid
             target = component_id_map[target]
     source_id = _sl_id(source, "relationship.from")
     target_id = _sl_id(target, "relationship.to")
+    if source_id == target_id and _sl_node_kind(source_id) == "document":
+        raise SBOMLineageError("document self-edge is not allowed")
+    if not _sl_edge_direction_allowed(source_id, target_id):
+        if _sl_node_kind(source_id) == "document" or _sl_node_kind(target_id) == "document":
+            raise SBOMLineageError("document relationship endpoint is not bound")
+        raise SBOMLineageError("lineage edge direction is not allowed")
     rel_type = _sl_safe_text(relationship_type, "relationship.type", required=True, limit=96).casefold().replace(" ", "_")
     if not isinstance(confidence, str) or confidence not in _SL_CONFIDENCE:
         raise SBOMLineageError("relationship confidence is unsupported")
@@ -745,6 +865,17 @@ def _sl_spdx_document_id(value: Any) -> str:
     return document_id
 
 
+def _sl_reject_unbound_document_edges(relationships: list[Any], document_id: str) -> None:
+    for relationship in relationships:
+        source = relationship["from"]
+        target = relationship["to"]
+        if source == document_id and target == document_id:
+            raise SBOMLineageError("document self-edge is not allowed")
+        for endpoint in (source, target):
+            if _sl_node_kind(endpoint) == "document" and endpoint != document_id:
+                raise SBOMLineageError("document relationship endpoint is not bound")
+
+
 def _sl_finalize_document(*, fmt: str, spec_version: str, document_id: str, document_name: str, created_at: str, supplier: str, components: list[dict[str, Any]], relationships: list[dict[str, Any]], raw_bytes: bytes, source_ref: str, truncated: list[str] | None = None, metadata_component_id: str = "") -> dict[str, Any]:
     if fmt not in _SL_FORMATS:
         raise SBOMLineageError("unsupported SBOM format")
@@ -763,6 +894,7 @@ def _sl_finalize_document(*, fmt: str, spec_version: str, document_id: str, docu
         component_ids.add(component_id)
     if document_id in component_ids:
         raise SBOMLineageError("document ID collides with a component ID")
+    _sl_reject_unbound_document_edges(relationships, document_id)
     known_ids = set(component_ids)
     known_ids.add(document_id)
     dangling = sorted({f"{item['from']}->{item['to']}" for item in relationships if item["from"] not in known_ids or item["to"] not in known_ids})
@@ -1223,14 +1355,25 @@ def _sl_validate_json_values(value: Any) -> None:
             stack.extend(current)
 
 
+def _sl_bounded_byteslike(source: bytes | bytearray | memoryview) -> bytes:
+    size = source.nbytes if isinstance(source, memoryview) else len(source)
+    if size > _SL_MAX_INPUT_BYTES:
+        raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
+    try:
+        raw_bytes = source if isinstance(source, bytes) else bytes(source)
+    except (BufferError, OverflowError, TypeError, ValueError):
+        raise SBOMLineageError("SBOM bytes-like input is invalid") from None
+    if len(raw_bytes) > _SL_MAX_INPUT_BYTES:
+        raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
+    return raw_bytes
+
+
 def _sl_load_json_bounded(source: Path | bytes | bytearray | memoryview, *, allow_non_json: bool = False) -> tuple[Any | None, bytes]:
     """Load JSON through the shared byte and nesting bounds."""
     if isinstance(source, Path):
         raw_bytes = _sl_read_bounded(source)
-    elif isinstance(source, bytes):
-        raw_bytes = source
-    elif isinstance(source, (bytearray, memoryview)):
-        raw_bytes = bytes(source)
+    elif isinstance(source, (bytes, bytearray, memoryview)):
+        raw_bytes = _sl_bounded_byteslike(source)
     else:
         raise SBOMLineageError("bounded JSON input must be bytes or a regular file")
     if len(raw_bytes) > _SL_MAX_INPUT_BYTES:
@@ -1240,6 +1383,8 @@ def _sl_load_json_bounded(source: Path | bytes | bytearray | memoryview, *, allo
         value = json.loads(
             raw_bytes.decode("utf-8"),
             object_pairs_hook=_sl_json_object_pairs,
+            parse_int=_sl_parse_json_int,
+            parse_float=_sl_parse_json_float,
             parse_constant=_sl_reject_json_constant,
         )
         _sl_validate_json_values(value)
@@ -1287,12 +1432,8 @@ def _sl_parse_xml_bounded(raw_bytes: bytes) -> Any:
 def _sl_payload(document: Any) -> tuple[Any, bytes]:
     if isinstance(document, Path):
         return _sl_payload(_sl_read_bounded(document))
-    if isinstance(document, bytes):
-        raw_bytes = document
-    elif isinstance(document, bytearray):
-        raw_bytes = bytes(document)
-    elif isinstance(document, memoryview):
-        raw_bytes = document.tobytes()
+    if isinstance(document, (bytes, bytearray, memoryview)):
+        raw_bytes = _sl_bounded_byteslike(document)
     elif isinstance(document, Mapping):
         try:
             raw_bytes = _sl_json(document).encode("utf-8")
@@ -1314,6 +1455,8 @@ def _sl_payload(document: Any) -> tuple[Any, bytes]:
         value = json.loads(
             raw_bytes.decode("utf-8"),
             object_pairs_hook=_sl_json_object_pairs,
+            parse_int=_sl_parse_json_int,
+            parse_float=_sl_parse_json_float,
             parse_constant=_sl_reject_json_constant,
         )
         _sl_validate_json_values(value)
@@ -1344,6 +1487,7 @@ def ingest_sbom_document(document: Any, *, source_ref: str = "") -> dict[str, An
         if has_cdx_marker:
             return _sl_parse_cdx_json(value, raw_bytes, normalized_source)
         raise SBOMLineageError("SBOM format is missing or unsupported")
+    _sl_validate_xml_discriminators(value)
     root_name = _sl_local(value).casefold()
     if root_name == "spdxdocument":
         if _sl_descendants(value, "Package") or _sl_descendants(value, "Relationship") and not _sl_children(value, "package"):
@@ -1373,6 +1517,22 @@ def _sl_node_kind(node_id: str) -> str:
     if node_id.startswith("source:"):
         return "source"
     return "component"
+
+
+def _sl_edge_direction_allowed(source: str, target: str) -> bool:
+    source_kind = _sl_node_kind(source)
+    target_kind = _sl_node_kind(target)
+    if target_kind == "document":
+        return False
+    allowed_targets = {
+        "document": {"document", "source", "component", "build", "artifact"},
+        "source": {"source", "component", "build", "artifact"},
+        "component": {"component", "build", "artifact"},
+        "build": {"build", "artifact"},
+        "artifact": {"deployment"},
+        "deployment": set(),
+    }
+    return target_kind in allowed_targets[source_kind]
 
 
 def _sl_require_keys(value: Any, required: set[str], optional: set[str], field: str) -> None:
@@ -1493,6 +1653,12 @@ def _sl_validate_relationship(relationship: Any, *, field: str = "relationship")
     assert source is not None and target is not None and rel_type is not None
     _sl_id(source, f"{field}.from")
     _sl_id(target, f"{field}.to")
+    if source == target and _sl_node_kind(source) == "document":
+        raise SBOMLineageError("document self-edge is not allowed")
+    if not _sl_edge_direction_allowed(source, target):
+        if _sl_node_kind(source) == "document" or _sl_node_kind(target) == "document":
+            raise SBOMLineageError(f"{field} document endpoint is not bound")
+        raise SBOMLineageError(f"{field} direction is not allowed")
     if rel_type != rel_type.casefold().replace(" ", "_"):
         raise SBOMLineageError(f"{field}.type is not normalized")
     if confidence not in _SL_CONFIDENCE or coverage not in _SL_COVERAGE:
@@ -1603,6 +1769,7 @@ def _sl_validate_document(document: Mapping[str, Any], *, raw_bytes: bytes | Non
     if document_id in seen:
         raise SBOMLineageError("document ID collides with a component ID")
     checked_relationships = [_sl_validate_relationship(item) for item in relationships]
+    _sl_reject_unbound_document_edges(checked_relationships, document_id)
     coverage = document.get("coverage")
     _sl_require_keys(coverage, {"state", "unknown", "component_count", "relationship_count", "truncated", "dangling_relationships"}, set(), "document.coverage")
     if coverage.get("state") not in _SL_COVERAGE:
@@ -1637,6 +1804,38 @@ def verify_sbom_document(document: Mapping[str, Any], raw_document: Any | None =
     except (SBOMLineageError, TypeError, ValueError) as exc:
         return {"valid": False, "error": _sl_public_error(exc)}
     return {"valid": True, "schema_version": checked["schema_version"], "ingestion_digest": checked["ingestion_digest"], "component_count": len(checked["components"]), "relationship_count": len(checked["relationships"])}
+
+
+def _sl_bounded_external_edges(edges: Any) -> list[Any]:
+    if edges is None:
+        return []
+    if isinstance(edges, (list, tuple)):
+        try:
+            if len(edges) > _SL_MAX_EDGES:
+                raise SBOMLineageError("lineage edges exceed their bound")
+        except SBOMLineageError:
+            raise
+        except Exception:
+            raise SBOMLineageError("lineage edge collection is invalid") from None
+    if isinstance(edges, (str, bytes, bytearray, memoryview, Mapping)):
+        raise SBOMLineageError("lineage edges must be a bounded collection")
+    try:
+        iterator = iter(edges)
+    except Exception:
+        raise SBOMLineageError("lineage edge collection is invalid") from None
+    result: list[Any] = []
+    try:
+        for index, raw in enumerate(iterator):
+            if index >= _SL_MAX_EDGES:
+                raise SBOMLineageError("lineage edges exceed their bound")
+            if not isinstance(raw, Mapping):
+                raise SBOMLineageError("lineage edges must contain objects")
+            result.append(raw)
+    except SBOMLineageError:
+        raise
+    except Exception:
+        raise SBOMLineageError("lineage edge collection is invalid") from None
+    return result
 
 
 def _sl_lineage_edges(edges: Any, *, truncated: list[str] | None = None) -> list[dict[str, Any]]:
@@ -1757,10 +1956,16 @@ def build_sbom_lineage(documents: Any, *, edges: Any = None, raw_documents: Any 
         native_edges.extend(document.get("relationships", []))
         for marker in document.get("coverage", {}).get("truncated", []):
             _sl_truncated(truncated, marker)
-    external_edges = [] if edges is None else list(edges) if isinstance(edges, (list, tuple)) else None
-    if external_edges is None:
-        raise SBOMLineageError("lineage edges must be a list")
+    external_edges = _sl_bounded_external_edges(edges)
+    component_aliases = _sl_component_alias_map(normalized)
+    external_edges = _sl_resolve_external_edge_aliases(external_edges, component_aliases)
     all_edges = _sl_lineage_edges(native_edges + external_edges, truncated=truncated)
+    for edge in all_edges:
+        if edge["from"] == edge["to"] and _sl_node_kind(edge["from"]) == "document":
+            raise SBOMLineageError("document self-edge is not allowed")
+        for node_id in (edge["from"], edge["to"]):
+            if _sl_node_kind(node_id) == "document" and node_id not in document_ids:
+                raise SBOMLineageError("document relationship endpoint is not bound")
     for edge in all_edges:
         for node_id in (edge["from"], edge["to"]):
             if node_id not in nodes and len(nodes) >= _SL_MAX_NODES:
@@ -2013,9 +2218,6 @@ def query_sbom_lineage(lineage: Mapping[str, Any], query: str, *, limit: int = 3
             continue
         source, target = str(edge.get("from")), str(edge.get("to"))
         adjacency.setdefault(source, []).append((target, edge))
-        reverse = dict(edge)
-        reverse["from"], reverse["to"] = target, source
-        adjacency.setdefault(target, []).append((source, reverse))
     found: dict[str, dict[str, Any]] = {}
     path_truncated = False
     states_used = 0
@@ -2208,9 +2410,7 @@ def _sl_validate_query_result(query_result: Mapping[str, Any], authoritative_lin
             raise SBOMLineageError("impacted_artifact.path is outside its bounds")
         checked_path = [_sl_validate_relationship(edge, field="query.path.edge") for edge in path]
         for path_edge in checked_path:
-            reversed_edge = dict(path_edge)
-            reversed_edge["from"], reversed_edge["to"] = path_edge["to"], path_edge["from"]
-            if not any(path_edge == authority_edge or reversed_edge == authority_edge for authority_edge in authority_edges):
+            if not any(path_edge == authority_edge for authority_edge in authority_edges):
                 raise SBOMLineageError("query path edge is not bound to the authoritative lineage")
         if checked_path[0]["from"] not in set(matched_nodes):
             raise SBOMLineageError("query path is not bound to a matched node")
@@ -2298,8 +2498,36 @@ def _sl_cli_bounded_paths(value: Any, field: str, *, required: bool = False) -> 
     for item in value:
         if not isinstance(item, str) or not item:
             raise SBOMLineageError(f"{field} paths must be strings")
+        if len(item) > _SL_MAX_CLI_PATH_CHARS:
+            raise SBOMLineageError(f"{field} path exceeds its character bound")
         result.append(item)
     return result
+
+
+def _sl_cli_checked_path(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise SBOMLineageError(f"{field} path must be a string")
+    if len(value) > _SL_MAX_CLI_PATH_CHARS:
+        raise SBOMLineageError(f"{field} path exceeds its character bound")
+    return value
+
+
+def _sl_cli_preflight_paths(groups: tuple[tuple[str, list[str] | None], ...]) -> None:
+    total_bytes = 0
+    for field, paths in groups:
+        for path in paths or []:
+            try:
+                info = _sl_os.lstat(path)
+            except OSError as exc:
+                raise SBOMLineageError("SBOM filesystem operation failed") from exc
+            if not _sl_stat.S_ISREG(info.st_mode):
+                raise SBOMLineageError("SBOM CLI input must be a regular file")
+            size = int(info.st_size)
+            if size > _SL_MAX_INPUT_BYTES:
+                raise SBOMLineageError("SBOM CLI input exceeds the per-file byte bound")
+            total_bytes += size
+            if total_bytes > _SL_MAX_CLI_TOTAL_BYTES:
+                raise SBOMLineageError("SBOM CLI input exceeds the aggregate byte bound")
 
 
 def cmd_sbom(args: Any, cfg: Mapping[str, Any] | None = None) -> int:
@@ -2308,13 +2536,21 @@ def cmd_sbom(args: Any, cfg: Mapping[str, Any] | None = None) -> int:
         command = getattr(args, "sbom_command", None)
         output = getattr(args, "output", None)
         if command == "ingest":
-            document = ingest_sbom_document(Path(args.document), source_ref=getattr(args, "source_ref", ""))
+            input_path = _sl_cli_checked_path(getattr(args, "document", None), "document")
+            _sl_cli_preflight_paths((("document", [input_path]),))
+            document = ingest_sbom_document(Path(input_path), source_ref=getattr(args, "source_ref", ""))
             _sl_validate_document(document)
         elif command == "merge":
             document_paths = _sl_cli_bounded_paths(getattr(args, "documents", None), "documents", required=True)
             raw_document_paths = _sl_cli_bounded_paths(getattr(args, "raw_documents", None), "raw_documents")
+            edge_path = _sl_cli_checked_path(getattr(args, "edges", None), "edges") if getattr(args, "edges", None) else None
             if raw_document_paths is not None and len(raw_document_paths) != len(document_paths or []):
                 raise SBOMLineageError("raw_documents must contain one raw source per document")
+            _sl_cli_preflight_paths((
+                ("documents", document_paths),
+                ("raw_documents", raw_document_paths),
+                ("edges", [edge_path] if edge_path is not None else None),
+            ))
             documents = []
             for path in document_paths or []:
                 payload, raw_bytes = _sl_load_json_bounded(Path(path), allow_non_json=True)
@@ -2325,8 +2561,8 @@ def cmd_sbom(args: Any, cfg: Mapping[str, Any] | None = None) -> int:
                 for raw_path in raw_document_paths:
                     _, raw_bytes = _sl_load_json_bounded(Path(raw_path), allow_non_json=True)
                     raw_inputs.append(raw_bytes)
-            if getattr(args, "edges", None):
-                edges, _ = _sl_load_json_bounded(Path(args.edges))
+            if edge_path is not None:
+                edges, _ = _sl_load_json_bounded(Path(edge_path))
                 if not isinstance(edges, list):
                     raise SBOMLineageError("lineage edges JSON must be a list")
             else:
@@ -2335,7 +2571,9 @@ def cmd_sbom(args: Any, cfg: Mapping[str, Any] | None = None) -> int:
             _sl_loaded_lineage(document, raw_documents=raw_inputs)
         elif command == "query":
             raw_document_paths = _sl_cli_bounded_paths(getattr(args, "raw_documents", None), "raw_documents")
-            lineage, _ = _sl_load_json_bounded(Path(args.lineage))
+            lineage_path = _sl_cli_checked_path(getattr(args, "lineage", None), "lineage")
+            _sl_cli_preflight_paths((("lineage", [lineage_path]), ("raw_documents", raw_document_paths)))
+            lineage, _ = _sl_load_json_bounded(Path(lineage_path))
             if not isinstance(lineage, Mapping):
                 raise SBOMLineageError("lineage JSON root must be an object")
             raw_inputs = None

@@ -71,7 +71,7 @@ def test_query_returns_auditable_impacted_artifact_path_without_false_clean_clai
     assert result["status"] == "partial"
     assert result["impacted_artifacts"][0]["artifact_id"] == "artifact:perseus-image@1.0.26"
     assert len(result["impacted_artifacts"][0]["path"]) == 3
-    assert [edge["type"] for edge in result["impacted_artifacts"][0]["path"]] == ["depends_on", "built_into", "generates"]
+    assert [edge["type"] for edge in result["impacted_artifacts"][0]["path"]] == ["used_by", "built_into", "generates"]
     assert result["impacted_artifacts"][0]["coverage"] == "complete"
     assert result["coverage"]["state"] == "partial"
     assert result["claims"]["not_affected"] is False
@@ -188,6 +188,7 @@ def test_untrusted_normalized_documents_and_conflicting_duplicate_ids_fail_close
         perseus.build_sbom_lineage([tampered])
     alternate = json.loads(_load("spdx-app.json"))
     alternate["SPDXID"] = "SPDXRef-DOCUMENT-ALTERNATE"
+    alternate["relationships"][0]["spdxElementId"] = alternate["SPDXID"]
     alternate["packages"][0]["name"] = "different-component"
     alternate_document = perseus.ingest_sbom_document(alternate, source_ref="artifact:alternate")
     with pytest.raises(perseus.SBOMLineageError, match="duplicate component ID"):
@@ -360,9 +361,8 @@ def test_all_collection_caps_are_recorded_and_downgrade_coverage():
     assert lineage["coverage"]["state"] != "complete"
 
     edges = [{"from": f"source:s{i}", "to": f"artifact:a{i}", "type": "generates", "confidence": "high", "coverage": "complete"} for i in range(4097)]
-    edge_lineage = perseus.build_sbom_lineage([document], edges=edges)
-    assert "edges" in edge_lineage["coverage"]["truncated"]
-    assert edge_lineage["coverage"]["state"] != "complete"
+    with pytest.raises(perseus.SBOMLineageError, match="edges|bound"):
+        perseus.build_sbom_lineage([document], edges=edges)
 
 
 def test_query_result_cap_is_recorded_and_cannot_claim_established_impact():
@@ -1207,10 +1207,12 @@ def test_cli_ingest_rejects_a_malformed_normalized_return_before_writing(tmp_pat
     valid = perseus.ingest_sbom_document(_load("cyclonedx-app.json"), source_ref="artifact:cli-validation")
     invalid = json.loads(json.dumps(valid))
     invalid["components"][0]["supplier"] = "A" * 513
+    input_path = tmp_path / "ignored-input.json"
+    input_path.write_bytes(_load("cyclonedx-app.json"))
     monkeypatch.setattr(perseus, "ingest_sbom_document", lambda *args, **kwargs: invalid)
     output = tmp_path / "invalid-normalized.json"
     args = type("Args", (), {
-        "sbom_command": "ingest", "document": "ignored-input", "source_ref": "",
+        "sbom_command": "ingest", "document": str(input_path), "source_ref": "",
         "output": str(output), "json": True,
     })()
     assert perseus.cmd_sbom(args, {}) == 1
@@ -1258,3 +1260,228 @@ def test_known_cyclonedx_document_endpoint_remains_bound_and_complete():
     node = next(item for item in lineage["nodes"] if item["node_id"] == document_id)
     assert node["kind"] == "document"
     assert perseus.verify_sbom_lineage(lineage)["valid"] is True
+
+
+def test_oversized_ignored_json_integer_is_a_structured_sbom_error():
+    raw = _load("cyclonedx-app.json").decode("utf-8").replace(
+        '"version": 1,',
+        '"version": 1, "ignored": {"overflow": ' + "9" * 5000 + '},',
+    )
+    with pytest.raises(perseus.SBOMLineageError) as error:
+        perseus.ingest_sbom_document(raw)
+    assert "9" * 32 not in str(error.value)
+
+
+def test_external_edges_resolve_component_purl_aliases_across_lineage():
+    payload = json.loads(_load("cyclonedx-app.json"))
+    component = payload["components"][0]
+    component["bom-ref"] = "custom:log4j-component"
+    purl = component["purl"]
+    document = perseus.ingest_sbom_document(payload, source_ref="artifact:alias-lineage")
+    component_id = next(item["component_id"] for item in document["components"] if item["name"] == "log4j-core")
+    lineage = perseus.build_sbom_lineage([document], edges=[
+        {"from": purl, "to": "build:alias-build", "type": "built_into", "confidence": "high", "coverage": "complete"},
+        {"from": "build:alias-build", "to": "artifact:alias-image", "type": "generates", "confidence": "high", "coverage": "complete"},
+    ])
+    assert purl not in {node["node_id"] for node in lineage["nodes"]}
+    result = perseus.query_sbom_lineage(lineage, "CVE-2021-44228")
+    assert result["impacted_artifacts"][0]["artifact_id"] == "artifact:alias-image"
+    assert result["impacted_artifacts"][0]["path"][0]["from"] == component_id
+
+
+def test_external_aliases_are_rejected_when_normalized_documents_are_ambiguous():
+    first_payload = json.loads(_load("cyclonedx-app.json"))
+    second_payload = json.loads(_load("cyclonedx-app.json"))
+    shared_purl = "pkg:generic/shared-alias@1"
+    first_payload["components"][0]["bom-ref"] = "custom:first"
+    first_payload["components"][0]["purl"] = shared_purl
+    first_payload["serialNumber"] = "urn:uuid:alias-first"
+    second_payload["components"][0]["bom-ref"] = "custom:second"
+    second_payload["components"][0]["purl"] = shared_purl
+    second_payload["serialNumber"] = "urn:uuid:alias-second"
+    first = perseus.ingest_sbom_document(first_payload, source_ref="artifact:alias-first")
+    second = perseus.ingest_sbom_document(second_payload, source_ref="artifact:alias-second")
+    with pytest.raises(perseus.SBOMLineageError, match="ambiguous|alias"):
+        perseus.build_sbom_lineage([first, second], edges=[])
+
+
+def test_reserved_component_collision_cannot_create_a_document_self_edge():
+    payload = json.loads(_load("spdx-app.json"))
+    payload["packages"][0]["SPDXID"] = "SPDXRef-DOCUMENT"
+    payload["relationships"] = [{
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relationshipType": "DESCRIBES",
+        "relatedSpdxElement": "SPDXRef-DOCUMENT",
+    }]
+    with pytest.raises(perseus.SBOMLineageError, match="self|document|reserved"):
+        perseus.ingest_sbom_document(payload)
+
+
+def test_unbound_document_namespace_relationship_endpoints_are_rejected():
+    payload = json.loads(_load("spdx-app.json"))
+    payload["relationships"] = [{
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relationshipType": "DESCRIBES",
+        "relatedSpdxElement": "SPDXRef-DOCUMENT-MISSING",
+    }]
+    with pytest.raises(perseus.SBOMLineageError, match="document|bound|dangling"):
+        perseus.ingest_sbom_document(payload)
+
+
+def test_external_edges_cannot_create_unbound_document_nodes():
+    document = perseus.ingest_sbom_document(_load("spdx-app.json"), source_ref="artifact:document-edge")
+    with pytest.raises(perseus.SBOMLineageError, match="document|bound"):
+        perseus.build_sbom_lineage([document], edges=[{
+            "from": "document:unbound",
+            "to": "SPDXRef-App",
+            "type": "describes",
+            "confidence": "high",
+            "coverage": "complete",
+        }])
+
+
+def test_xml_singletons_reject_identical_duplicates_and_cross_family_markers():
+    spdx_xml = _load("spdx-app.xml").decode("utf-8").replace(
+        "<spdxVersion>SPDX-2.3</spdxVersion>",
+        "<spdxVersion>SPDX-2.3</spdxVersion><spdxVersion>SPDX-2.3</spdxVersion>",
+    )
+    with pytest.raises(perseus.SBOMLineageError, match="singleton|duplicat"):
+        perseus.ingest_sbom_document(spdx_xml)
+
+    cdx_xml = _load("cyclonedx-app.xml").decode("utf-8").replace(
+        "<metadata>", "<metadata><spdxVersion>SPDX-2.3</spdxVersion>", 1,
+    )
+    with pytest.raises(perseus.SBOMLineageError, match="format|conflict|marker"):
+        perseus.ingest_sbom_document(cdx_xml)
+
+    spdx_with_cdx_marker = _load("spdx-app.xml").decode("utf-8").replace(
+        "<name>perseus-build-xml</name>",
+        "<name>perseus-build-xml</name><bomFormat>CycloneDX</bomFormat>",
+    )
+    with pytest.raises(perseus.SBOMLineageError, match="format|conflict|marker"):
+        perseus.ingest_sbom_document(spdx_with_cdx_marker)
+
+
+def test_query_does_not_reverse_traverse_artifact_to_component_edges():
+    document = perseus.ingest_sbom_document(_load("spdx-app.json"), source_ref="artifact:direction-query")
+    with pytest.raises(perseus.SBOMLineageError, match="direction"):
+        perseus.build_sbom_lineage([document], edges=[
+            {"from": "artifact:upstream", "to": "SPDXRef-Log4j", "type": "feeds_back", "confidence": "high", "coverage": "complete"},
+        ])
+
+
+def test_lineage_verifier_rejects_resealed_reversed_authoritative_edges():
+    raw = _load("spdx-app.json")
+    document = perseus.ingest_sbom_document(raw, source_ref="artifact:direction-verify")
+    lineage = perseus.build_sbom_lineage([document], edges=[
+        {"from": "SPDXRef-Log4j", "to": "artifact:direction-target", "type": "generates", "confidence": "high", "coverage": "complete"},
+    ])
+    forged = json.loads(json.dumps(lineage))
+    edge = next(item for item in forged["edges"] if item["to"] == "artifact:direction-target")
+    edge["from"], edge["to"] = edge["to"], edge["from"]
+    _reseal(forged)
+    assert perseus.verify_sbom_lineage(forged, raw_documents=[raw])["valid"] is False
+
+
+def test_cli_aggregate_input_budget_fails_before_retaining_document_buffers(tmp_path, monkeypatch, capsys):
+    first = tmp_path / "PATH_SECRET_FIRST.json"
+    second = tmp_path / "PATH_SECRET_SECOND.json"
+    first.write_bytes(b"{}")
+    second.write_bytes(b"{}")
+    calls = []
+
+    def unexpected_load(*args, **kwargs):
+        calls.append(args)
+        raise AssertionError("CLI retained a document before aggregate preflight")
+
+    monkeypatch.setattr(perseus, "_sl_load_json_bounded", unexpected_load)
+    monkeypatch.setattr(perseus, "_SL_MAX_CLI_TOTAL_BYTES", 3)
+    args = type("Args", (), {
+        "sbom_command": "merge", "documents": [str(first), str(second)],
+        "raw_documents": None, "edges": None, "output": None, "json": True,
+    })()
+    assert perseus.cmd_sbom(args, {}) == 1
+    assert calls == []
+    failure = json.loads(capsys.readouterr().out)
+    assert failure["valid"] is False
+    assert "PATH_SECRET" not in json.dumps(failure)
+
+
+def test_cli_path_character_bound_fails_before_stat_or_read(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "PATH_SECRET_INPUT.json"
+    path.write_bytes(b"{}")
+    monkeypatch.setattr(perseus, "_SL_MAX_CLI_PATH_CHARS", len(str(path)) - 1)
+    args = type("Args", (), {
+        "sbom_command": "merge", "documents": [str(path)],
+        "raw_documents": None, "edges": None, "output": None, "json": True,
+    })()
+    assert perseus.cmd_sbom(args, {}) == 1
+    failure = json.loads(capsys.readouterr().out)
+    assert failure["valid"] is False
+    assert "PATH_SECRET" not in json.dumps(failure)
+
+
+def test_bytes_like_bounds_are_checked_before_copy_at_exact_and_over_limits(monkeypatch):
+    monkeypatch.setattr(perseus, "_SL_MAX_INPUT_BYTES", 2)
+    exact_values = (b"{}", bytearray(b"{}"), memoryview(b"{}"))
+    for value in exact_values:
+        loaded, raw = perseus._sl_load_json_bounded(value)
+        assert loaded == {}
+        assert raw == b"{}"
+        payload, payload_raw = perseus._sl_payload(value)
+        assert payload == {}
+        assert payload_raw == b"{}"
+
+    class ExplodingBytearray(bytearray):
+        def __bytes__(self):
+            raise AssertionError("oversized bytes-like input was copied")
+
+    for value in (b"{} ", memoryview(b"{} ")):
+        with pytest.raises(perseus.SBOMLineageError, match="bytes"):
+            perseus._sl_load_json_bounded(value)
+        with pytest.raises(perseus.SBOMLineageError, match="bytes"):
+            perseus._sl_payload(value)
+    for loader in (perseus._sl_load_json_bounded, perseus._sl_payload):
+        with pytest.raises(perseus.SBOMLineageError, match="bytes"):
+            loader(ExplodingBytearray(b"{} "))
+
+
+def test_provenance_receipts_are_bounded_for_repeated_ingests_and_lineages():
+    max_entries = 128
+    raw = _load("spdx-app.json")
+    perseus._SL_INGESTED_PROVENANCE.clear()
+    for index in range(max_entries + 7):
+        perseus.ingest_sbom_document(raw, source_ref=f"artifact:provenance-{index}")
+    assert len(perseus._SL_INGESTED_PROVENANCE) <= max_entries
+
+    perseus._SL_LINEAGE_PROVENANCE.clear()
+    document = perseus.ingest_sbom_document(raw, source_ref="artifact:provenance-lineage")
+    for index in range(max_entries + 7):
+        perseus.build_sbom_lineage([document], edges=[{
+            "from": f"source:provenance-{index}",
+            "to": f"artifact:provenance-{index}",
+            "type": "generates",
+            "confidence": "high",
+            "coverage": "complete",
+        }])
+    assert len(perseus._SL_LINEAGE_PROVENANCE) <= max_entries
+
+
+def test_external_edge_iterators_are_bounded_and_oversized_collections_rejected():
+    document = perseus.ingest_sbom_document(_load("spdx-app.json"), source_ref="artifact:edge-contract")
+
+    def one_edge():
+        yield {"from": "source:iterator", "to": "artifact:iterator", "type": "generates", "confidence": "high", "coverage": "complete"}
+
+    lineage = perseus.build_sbom_lineage([document], edges=one_edge())
+    assert any(edge["from"] == "source:iterator" for edge in lineage["edges"])
+
+    oversized = [{
+        "from": "source:oversized",
+        "to": "artifact:oversized",
+        "type": "generates",
+        "confidence": "high",
+        "coverage": "complete",
+    } for _ in range(perseus._SL_MAX_EDGES + 1)]
+    with pytest.raises(perseus.SBOMLineageError, match="edges|bound"):
+        perseus.build_sbom_lineage([document], edges=oversized)
