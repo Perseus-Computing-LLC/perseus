@@ -625,7 +625,7 @@ def _sl_spdx_component(raw: Mapping[str, Any], *, truncated: list[str] | None = 
 def _sl_cdx_component(raw: Mapping[str, Any], *, truncated: list[str] | None = None, component_id_map: dict[str, str] | None = None) -> dict[str, Any]:
     component_truncated: list[str] = []
     references, identifiers = _sl_cdx_references(raw.get("externalReferences"), truncated=component_truncated)
-    if "purl" in raw and raw.get("purl") is not None:
+    if "purl" in raw:
         identifiers.append(_sl_safe_locator(raw.get("purl"), "purl"))
     references.extend(_sl_properties(raw.get("properties"), truncated=component_truncated))
     if truncated is not None:

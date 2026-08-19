@@ -710,6 +710,10 @@ def test_component_and_reference_identifier_fields_reject_non_strings():
     cases.append(payload)
 
     payload = json.loads(_load("cyclonedx-app.json"))
+    payload["components"][0]["purl"] = None
+    cases.append(payload)
+
+    payload = json.loads(_load("cyclonedx-app.json"))
     payload["components"][0]["externalReferences"] = [{"type": "website", "url": 123}]
     cases.append(payload)
 
