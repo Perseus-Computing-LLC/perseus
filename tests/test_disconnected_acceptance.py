@@ -7,6 +7,7 @@ import json
 import os
 import socket
 import subprocess
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -291,6 +292,18 @@ def test_evidence_digest_commits_to_outputs_and_manifest_report_commitments(tmp_
     assert manifest["report_commitment"] == first["report_commitment"]
 
 
+def test_report_commitment_binds_resource_observations(tmp_path, monkeypatch):
+    envelopes = [
+        {"cpu_seconds_observed": 1.0, "peak_rss_mb_observed": 10.0, "disk_growth_bytes_observed": 1.0, "wall_seconds_observed": 1.0, "measurement_status": "observed_with_host_metrics"},
+        {"cpu_seconds_observed": 2.0, "peak_rss_mb_observed": 11.0, "disk_growth_bytes_observed": 2.0, "wall_seconds_observed": 2.0, "measurement_status": "observed_with_host_metrics"},
+    ]
+    monkeypatch.setattr(harness, "_resource_envelope", lambda *_args: envelopes.pop(0))
+    first = harness.run_acceptance(ROOT, output_dir=tmp_path / "one")
+    second = harness.run_acceptance(ROOT, output_dir=tmp_path / "two")
+    assert first["report_commitment"] != second["report_commitment"]
+    assert first["evidence_digest"] == second["evidence_digest"]
+
+
 def test_process_group_kills_term_ignoring_descendants_after_leader_exits(tmp_path):
     if os.name != "posix":
         pytest.skip("process-group assertion is POSIX-specific")
@@ -414,6 +427,20 @@ def test_resource_envelope_measures_peak_rss_above_run_baseline(monkeypatch, tmp
     assert envelope["peak_rss_mb_observed"] == 20.0
     fixture = harness._load_fixture(ROOT / "benchmark" / "disconnected_acceptance" / "fixture.json")
     assert harness._validate_resource_envelope(envelope, fixture)["peak_rss_mb_observed"] == 20.0
+
+
+def test_child_rss_observation_uses_per_run_highwater_baseline(monkeypatch, tmp_path):
+    readings = iter(
+        [
+            SimpleNamespace(ru_utime=0.0, ru_stime=0.0, ru_maxrss=100 * 1024),
+            SimpleNamespace(ru_utime=0.0, ru_stime=0.0, ru_maxrss=200 * 1024),
+        ]
+    )
+    monkeypatch.setattr(harness.resource, "getrusage", lambda _kind: next(readings))
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", "pass"], cwd=tmp_path, timeout=5, env=dict(os.environ)
+    )
+    assert result["child_peak_rss_mb_observed"] == 100.0
 
 
 def test_child_probe_json_rejects_inconsistent_counters():
@@ -668,17 +695,60 @@ def test_every_offline_python_child_has_guard_and_attempt_accounting(tmp_path):
 def test_offline_guard_rejects_uncontainable_non_python_child(tmp_path):
     runtime = tmp_path / "perseus.py"
     runtime.write_bytes((ROOT / "perseus.py").read_bytes())
-    with pytest.raises(harness.AcceptanceError, match="offline_guard_unavailable"):
+    result = harness._run_bounded_child(
+        ["/bin/sh", "-c", "true"],
+        cwd=tmp_path,
+        timeout=5,
+        env={**dict(os.environ), "PERSEUS_OFFLINE": "1", "PERSEUS_OFFLINE_RUNTIME": str(runtime)},
+        offline_required=True,
+    )
+    assert result["status"] == "passed"
+    assert result["offline_sandbox"] == "seccomp"
+
+
+def test_offline_policy_cannot_be_disabled_by_explicit_false(tmp_path):
+    with pytest.raises(harness.AcceptanceError, match="offline_guard_required"):
         harness._run_bounded_child(
-            ["/bin/sh", "-c", "true"],
+            [sys.executable, "-c", "print('ok')"],
             cwd=tmp_path,
             timeout=5,
-            env={**dict(os.environ), "PERSEUS_OFFLINE": "1", "PERSEUS_OFFLINE_RUNTIME": str(runtime)},
-            offline_required=True,
+            env={**dict(os.environ), "PERSEUS_OFFLINE": "1"},
+            offline_required=False,
         )
 
 
-def test_disk_monitor_covers_dedicated_child_workspace(tmp_path):
+def test_seccomp_contains_python_s_without_sitecustomize(tmp_path):
+    runtime = tmp_path / "perseus.py"
+    runtime.write_bytes((ROOT / "perseus.py").read_bytes())
+    result = harness._run_bounded_child(
+        [sys.executable, "-S", "-c", "import socket; print(socket.socket().connect_ex(('203.0.113.9', 9)))"],
+        cwd=tmp_path,
+        timeout=5,
+        env={**dict(os.environ), "PERSEUS_OFFLINE": "1", "PERSEUS_OFFLINE_RUNTIME": str(runtime)},
+        offline_required=True,
+    )
+    assert result["status"] == "blocked"
+    assert result["offline_sandbox"] == "seccomp"
+
+
+def test_seccomp_contains_nested_python_s_descendant(tmp_path):
+    nested = "import socket; socket.socket()"
+    command = [
+        "/bin/sh",
+        "-c",
+        f"exec {shlex.quote(sys.executable)} -S -c {shlex.quote(nested)}",
+    ]
+    result = harness._run_bounded_child(
+        command,
+        cwd=tmp_path,
+        timeout=5,
+        env={**dict(os.environ), "PERSEUS_OFFLINE": "1"},
+        offline_required=True,
+    )
+    assert result["status"] == "blocked"
+    assert result["offline_sandbox"] == "seccomp"
+
+
     code = "open('workspace-write', 'wb').write(b'x' * 4096)"
     result = harness._run_bounded_child(
         [sys.executable, "-c", code],
@@ -717,6 +787,42 @@ def test_adapter_requires_bound_machine_receipt(tmp_path):
     checked = harness._run_adapter(tmp_path, bad, manifest, harness._CHILD_LIMITS, monitor_dir=tmp_path / "out2", query=query)
     assert checked["status"] == "blocked"
     assert checked["reason"] == "adapter_operation_receipt_invalid"
+
+
+def test_child_offline_report_is_sanitized_and_not_authoritative(tmp_path):
+    bundle = tmp_path / "upgrade.json"
+    bundle.write_text("upgrade-v1", encoding="utf-8")
+    digest = harness._sha_bytes(bundle.read_bytes())
+    receipt = {
+        "schema_version": "perseus-disconnected-operation/v1",
+        "action": "upgrade",
+        "version": "v1",
+        "artifact_sha256": digest,
+        "query_sha256": harness._sha(""),
+        "result": "passed",
+        "persisted": True,
+    }
+    forged_report = {
+        "active": True,
+        "policy": "deny_all_non_loopback",
+        "attempts": [{"operation": "SENSITIVE_MARKER", "destination": "SENSITIVE_MARKER", "outcome": "blocked"}],
+        "attempts_truncated": False,
+        "blocked_attempts": 1,
+        "allowed_local_attempts": 0,
+    }
+    code = (
+        "import json,os; "
+        f"open(os.environ['PERSEUS_OFFLINE_REPORT'], 'w').write({json.dumps(forged_report)!r}); "
+        f"print({json.dumps(receipt, sort_keys=True)!r}, flush=True); os._exit(0)"
+    )
+    checked = harness._check_bundle(
+        tmp_path,
+        {"path": "upgrade.json", "version": "v1", "sha256": digest, "command": [sys.executable, "-c", code]},
+        "upgrade",
+        execute=True,
+    )
+    assert checked["status"] == "passed"
+    assert "SENSITIVE_MARKER" not in json.dumps(checked)
 
 
 def test_render_binds_execution_to_manifest_digest(tmp_path, monkeypatch):

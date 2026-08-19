@@ -34,7 +34,9 @@ adapters before the report is used as evidence.
 
 ## Offline enforcement
 
-`perseus --offline ...` is an enforceable process-local boundary:
+`perseus --offline ...` is an enforceable process-local boundary, and the
+acceptance harness adds an inherited Linux seccomp deny-network boundary for
+its bounded children:
 
 - non-loopback socket connections, sends, and DNS/name-service lookups fail closed;
 - numeric loopback addresses and local Unix sockets are allowed for local
@@ -42,7 +44,8 @@ adapters before the report is used as evidence.
   implicitly trusted;
 - bounded attempt metadata is available through the runtime report;
 - child render processes receive CPU, address-space, and file-size limits;
-- subprocesses and container processes still require the deployment's network
+- seccomp containment is inherited by `python -S`, shell, and native descendants;
+- processes outside the harness still require the deployment's network
   namespace/egress policy. The flag is not a substitute for firewall or
   Kubernetes policy.
 
@@ -69,8 +72,10 @@ incident-response, backup, or Kubernetes controls.
 
 ## Reproducibility
 
-`evidence_digest` covers only stable fixture, artifact, flow-status, network
-policy, claims, and negative-result projections. Volatile CPU/RSS/time
-observations remain in the report as observations and are not allowed to alter
-the stable evidence identity. Raw context bodies, host paths, credentials, and
-child process output do not cross the report boundary.
+`evidence_digest` covers the stable fixture, artifact, flow-status, network
+policy, claims, and negative-result projection. The full `report_commitment`
+also covers volatile CPU/RSS/time and child resource observations, so those
+observations cannot be changed without invalidating the report commitment.
+The stable digest intentionally omits those volatile measurements so repeated
+acceptance runs retain the same evidence identity. Raw context bodies, host
+paths, credentials, and child process output do not cross the report boundary.

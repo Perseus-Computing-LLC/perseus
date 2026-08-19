@@ -56,6 +56,88 @@ _CHILD_LIMITS = {"cpu_seconds": 30, "address_space_bytes": 512 * 1024 * 1024, "f
 _MAX_CHILD_OUTPUT_BYTES = 64 * 1024
 _MAX_CHILD_ERROR_BYTES = 64 * 1024
 _ALLOWED_PROBE_OUTCOMES = frozenset({"blocked", "allowed_local"})
+_OFFLINE_SECCOMP_SYSCALLS = (
+    40,   # sendfile
+    41,   # socket
+    42,   # connect
+    43,   # accept
+    44,   # sendto
+    45,   # recvfrom
+    46,   # sendmsg
+    47,   # recvmsg
+    48,   # shutdown
+    49,   # bind
+    50,   # listen
+    51,   # getsockname
+    52,   # getpeername
+    53,   # socketpair
+    275,  # splice
+    276,  # tee
+    278,  # vmsplice
+    288,  # accept4
+    299,  # recvmmsg
+    307,  # sendmmsg
+)
+
+
+def _install_offline_seccomp() -> None:
+    """Install an inherited deny-network seccomp filter on x86_64 Linux.
+
+    The Python monkeypatch is useful telemetry, but it is not a containment
+    boundary: ``python -S`` and native/non-Python descendants can bypass it.
+    Seccomp filters are inherited across fork/exec, so this closes that class
+    without shipping a helper binary. Unsupported hosts fail closed.
+    """
+    if not sys.platform.startswith("linux") or os.uname().machine.casefold() not in {"x86_64", "amd64"}:
+        raise OSError("offline seccomp is unavailable on this host")
+    import ctypes
+
+    class _SockFilter(ctypes.Structure):
+        _fields_ = [("code", ctypes.c_ushort), ("jt", ctypes.c_ubyte), ("jf", ctypes.c_ubyte), ("k", ctypes.c_uint32)]
+
+    class _SockFprog(ctypes.Structure):
+        _fields_ = [("len", ctypes.c_ushort), ("filter", ctypes.POINTER(_SockFilter))]
+
+    bpf_ld_w_abs = 0x20
+    bpf_jmp_jeq_k = 0x15
+    bpf_ret_k = 0x06
+    seccomp_ret_errno = 0x00050001  # SECCOMP_RET_ERRNO | EPERM
+    seccomp_ret_allow = 0x7FFF0000  # SECCOMP_RET_ALLOW
+    instructions = [_SockFilter(bpf_ld_w_abs, 0, 0, 0)]
+    for syscall_number in _OFFLINE_SECCOMP_SYSCALLS:
+        instructions.append(_SockFilter(bpf_jmp_jeq_k, 0, 1, syscall_number))
+        instructions.append(_SockFilter(bpf_ret_k, 0, 0, seccomp_ret_errno))
+    instructions.append(_SockFilter(bpf_ret_k, 0, 0, seccomp_ret_allow))
+    array_type = _SockFilter * len(instructions)
+    array = array_type(*instructions)
+    program = _SockFprog(len(instructions), array)
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]
+    libc.prctl.restype = ctypes.c_int
+    if libc.prctl(38, 1, 0, 0, 0) != 0:  # PR_SET_NO_NEW_PRIVS
+        raise OSError(ctypes.get_errno(), "PR_SET_NO_NEW_PRIVS failed")
+    if libc.prctl(22, 2, ctypes.addressof(program), 0, 0) != 0:  # PR_SET_SECCOMP / FILTER
+        raise OSError(ctypes.get_errno(), "PR_SET_SECCOMP failed")
+
+
+def _evidence_token(value: Any) -> str:
+    """Hash child-controlled telemetry scalars before publication."""
+    text = value if isinstance(value, str) else repr(value)
+    return "sha256:" + _sha_bytes(text.encode("utf-8", errors="replace"))
+
+
+def _sanitize_offline_report(value: Mapping[str, Any]) -> dict[str, Any]:
+    sanitized = dict(value)
+    sanitized["attempts"] = [
+        {
+            "operation": _evidence_token(item["operation"]),
+            "destination": _evidence_token(item["destination"]),
+            "outcome": item["outcome"],
+        }
+        for item in value["attempts"]
+    ]
+    return sanitized
+
 _DEFAULT_QUERY = ""
 _STABLE_DATE_RE = re.compile(
     rb"\b\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?(?:\s+[A-Za-z][A-Za-z0-9_+:-]*)?\b"
@@ -370,10 +452,12 @@ def _is_python_argv(argv: list[str]) -> bool:
     return executable.startswith(("python", "pypy"))
 
 
-def _prepare_offline_guard(argv: list[str], cwd: Path, env: Mapping[str, str]) -> tuple[dict[str, str], Path, Path]:
-    """Install an inherited Python guard; reject commands it cannot contain."""
-    if not _is_python_argv(argv) or any(flag in argv[1:] for flag in ("-S", "-I", "-E")):
-        raise AcceptanceError("offline_guard_unavailable")
+def _prepare_offline_guard(argv: list[str], cwd: Path, env: Mapping[str, str]) -> tuple[dict[str, str], Path | None, Path | None]:
+    """Install optional Python telemetry; seccomp enforces every child type."""
+    child_env = dict(env)
+    child_env["PERSEUS_OFFLINE"] = "1"
+    if not _is_python_argv(argv):
+        return child_env, None, None
     runtime_raw = env.get("PERSEUS_OFFLINE_RUNTIME")
     if not isinstance(runtime_raw, str) or not runtime_raw or not Path(runtime_raw).is_file():
         raise AcceptanceError("offline_guard_runtime_unavailable")
@@ -435,7 +519,7 @@ def _read_offline_report(path: Path) -> dict[str, Any] | None:
             return None
     if any(isinstance(value[key], bool) or not isinstance(value[key], int) or value[key] < 0 for key in ("blocked_attempts", "allowed_local_attempts")):
         return None
-    return dict(value)
+    return _sanitize_offline_report(value)
 
 
 def _terminate_process_group(process: subprocess.Popen[Any]) -> None:
@@ -540,6 +624,19 @@ def _terminate_reparented_children(baseline: set[int], leader_pid: int) -> bool:
     return not (_direct_child_pids(os.getpid()) - baseline - {leader_pid})
 
 
+def _read_process_peak_rss_bytes(pid: int) -> int:
+    """Read a live Linux process high-water RSS without shared high-water reuse."""
+    if not sys.platform.startswith("linux"):
+        return 0
+    try:
+        for line in (Path("/proc") / str(pid) / "status").read_text(encoding="utf-8").splitlines():
+            if line.startswith("VmHWM:"):
+                return int(line.split()[1]) * 1024
+    except (OSError, IndexError, ValueError):
+        return 0
+    return 0
+
+
 def _run_bounded_child(
     argv: list[str],
     *,
@@ -558,7 +655,12 @@ def _run_bounded_child(
     if disk_limit_bytes is not None and (isinstance(disk_limit_bytes, bool) or not isinstance(disk_limit_bytes, (int, float)) or not math.isfinite(float(disk_limit_bytes)) or disk_limit_bytes <= 0):
         raise AcceptanceError("disk_limit_invalid")
     monitor_roots = tuple(monitor_dirs or (() if monitor_dir is None else (monitor_dir,)))
-    require_offline = env.get("PERSEUS_OFFLINE") == "1" if offline_required is None else offline_required
+    offline_requested = env.get("PERSEUS_OFFLINE") == "1"
+    if offline_required is False and offline_requested:
+        raise AcceptanceError("offline_guard_required")
+    require_offline = offline_requested if offline_required is None else bool(offline_required)
+    if require_offline and not sys.platform.startswith("linux"):
+        raise AcceptanceError("offline_sandbox_unavailable")
     child_env = dict(env)
     guard_dir: Path | None = None
     report_path: Path | None = None
@@ -573,7 +675,15 @@ def _run_bounded_child(
     }
     if os.name == "posix":
         kwargs["start_new_session"] = True
-        kwargs["preexec_fn"] = _child_resource_limiter(limits)
+        resource_limiter = _child_resource_limiter(limits)
+
+        def _child_setup() -> None:
+            if resource_limiter is not None:
+                resource_limiter()
+            if require_offline:
+                _install_offline_seccomp()
+
+        kwargs["preexec_fn"] = _child_setup
     subreaper_ready = _ensure_child_subreaper() if sys.platform.startswith("linux") else False
     if sys.platform.startswith("linux") and not subreaper_ready:
         raise AcceptanceError("child containment unavailable")
@@ -587,6 +697,7 @@ def _run_bounded_child(
             shutil.rmtree(guard_dir, ignore_errors=True)
         raise
     captured: dict[str, Any] = {}
+    peak_rss_bytes = _read_process_peak_rss_bytes(process.pid)
     stdout_thread = threading.Thread(target=_bounded_reader, args=(process.stdout, _MAX_CHILD_OUTPUT_BYTES, captured, "stdout"), daemon=True)
     stderr_thread = threading.Thread(target=_bounded_reader, args=(process.stderr, _MAX_CHILD_ERROR_BYTES, captured, "stderr"), daemon=True)
     stdout_thread.start()
@@ -595,7 +706,10 @@ def _run_bounded_child(
     cleanup_failed = False
     deadline = time.monotonic() + timeout_value
     try:
-        while process.poll() is None:
+        while True:
+            peak_rss_bytes = max(peak_rss_bytes, _read_process_peak_rss_bytes(process.pid))
+            if process.poll() is not None:
+                break
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 status = "timeout"
@@ -603,6 +717,7 @@ def _run_bounded_child(
             try:
                 process.wait(timeout=min(0.1, remaining) if disk_limit_bytes is not None else remaining)
             except subprocess.TimeoutExpired:
+                peak_rss_bytes = max(peak_rss_bytes, _read_process_peak_rss_bytes(process.pid))
                 if disk_limit_bytes is not None and _monitor_size(monitor_roots) - before_disk > float(disk_limit_bytes):
                     status = "resource_limit"
                     break
@@ -642,17 +757,20 @@ def _run_bounded_child(
     if cleanup_failed:
         status = "blocked" if require_offline else "failed"
     elif status not in {"timeout", "resource_limit"} and process.returncode != 0:
-        status = "failed"
+        status = "blocked" if require_offline else "failed"
     after_children = resource.getrusage(resource.RUSAGE_CHILDREN) if before_children is not None else None
     child_cpu = 0.0
-    child_rss = 0.0
+    child_rss_from_usage = 0.0
     if before_children is not None and after_children is not None:
         child_cpu = max(0.0, (after_children.ru_utime + after_children.ru_stime) - (before_children.ru_utime + before_children.ru_stime))
-        child_rss = float(after_children.ru_maxrss) / (1024 if sys.platform != "darwin" else 1)
+        rss_unit = 1 if sys.platform == "darwin" else 1024
+        child_rss_from_usage = max(0.0, float(after_children.ru_maxrss) - float(before_children.ru_maxrss)) / rss_unit
+    child_rss = max(child_rss_from_usage, peak_rss_bytes / (1024 * 1024))
     if status == "passed" and (child_cpu > float(limits["cpu_seconds"]) or child_rss > float(limits["address_space_bytes"]) / (1024 * 1024)):
         status = "resource_limit"
+    offline_sandbox = "seccomp" if require_offline else None
     offline_report = _read_offline_report(report_path) if report_path is not None else None
-    if require_offline and offline_report is None and status == "passed":
+    if require_offline and offline_sandbox != "seccomp" and status == "passed":
         status = "blocked"
     result = {
         "status": status,
@@ -666,6 +784,7 @@ def _run_bounded_child(
         "child_cpu_seconds_observed": round(child_cpu, 6),
         "child_peak_rss_mb_observed": round(child_rss, 3),
         "resource_limits": limits,
+        "offline_sandbox": offline_sandbox,
         "offline_report": offline_report,
     }
     if guard_dir is not None:
@@ -829,6 +948,7 @@ def _check_bundle(
                 "operation_output_truncated": bool(operation.get("stdout_truncated") or operation.get("stderr_truncated")),
                 "operation_child_cpu_seconds_observed": operation.get("child_cpu_seconds_observed", 0.0),
                 "operation_child_peak_rss_mb_observed": operation.get("child_peak_rss_mb_observed", 0.0),
+                "offline_sandbox": operation.get("offline_sandbox"),
                 "offline_report": operation.get("offline_report"),
             })
             if (
@@ -852,7 +972,7 @@ def _check_bundle(
             if result["status"] != "passed":
                 if operation.get("status") != "passed" or operation.get("exit_code") != 0:
                     reason = _operation_reason(label, "failed")
-                elif operation.get("offline_report") is None:
+                elif operation.get("offline_sandbox") != "seccomp":
                     reason = _operation_reason(label, "offline_guard_unavailable")
                 else:
                     reason = _operation_reason(label, "receipt_invalid")
@@ -909,7 +1029,10 @@ def _parse_child_probe_json(text: str) -> dict[str, Any]:
         raise AcceptanceError("offline child probe counters are inconsistent")
     if not report["attempts_truncated"] and (report["blocked_attempts"] != blocked_count or report["allowed_local_attempts"] != allowed_count):
         raise AcceptanceError("offline child probe counters are inconsistent")
-    return dict(value)
+    sanitized = dict(value)
+    sanitized["destination"] = _evidence_token(value["destination"])
+    sanitized["report"] = _sanitize_offline_report(report)
+    return sanitized
 
 
 def _run_render(
@@ -961,7 +1084,7 @@ def _run_render(
             post_digest = None
     elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
     output = result["stdout"].encode("utf-8", errors="replace")
-    status = "passed" if result["status"] == "passed" and result["exit_code"] == 0 and "@date" not in result["stdout"] and not result["stdout_truncated"] and not result["stderr_truncated"] and result.get("offline_report") is not None else "failed"
+    status = "passed" if result["status"] == "passed" and result["exit_code"] == 0 and "@date" not in result["stdout"] and not result["stdout_truncated"] and not result["stderr_truncated"] and result.get("offline_sandbox") == "seccomp" else "failed"
     if post_digest != expected or staged_digest != expected:
         status = "blocked"
     result_value = {
@@ -978,6 +1101,7 @@ def _run_render(
         "resource_limits": limits,
         "child_cpu_seconds_observed": result["child_cpu_seconds_observed"],
         "child_peak_rss_mb_observed": result["child_peak_rss_mb_observed"],
+        "offline_sandbox": result.get("offline_sandbox"),
         "offline_report": result.get("offline_report"),
         "query_sha256": _sha(query_value),
         "artifact_sha256": expected,
@@ -1062,6 +1186,7 @@ def _run_adapter(
                 "resource_limits": dict(resource_limits),
                 "child_cpu_seconds_observed": operation.get("child_cpu_seconds_observed", 0.0),
                 "child_peak_rss_mb_observed": operation.get("child_peak_rss_mb_observed", 0.0),
+                "offline_sandbox": operation.get("offline_sandbox"),
                 "offline_report": operation.get("offline_report"),
                 "query_sha256": _sha(query_value),
             }
@@ -1069,7 +1194,7 @@ def _run_adapter(
                 value["reason"] = "adapter_artifact_changed_during_operation"
             elif operation.get("status") != "passed" or operation.get("exit_code") != 0:
                 value["reason"] = "adapter_operation_failed"
-            elif operation.get("stderr") or value["output_truncated"] or operation.get("offline_report") is None:
+            elif operation.get("stderr") or value["output_truncated"] or operation.get("offline_sandbox") != "seccomp":
                 value["reason"] = "adapter_offline_guard_unavailable"
             else:
                 try:
@@ -1300,6 +1425,9 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
             "operation_receipt_sha256": value.get("operation_receipt_sha256"),
             "query_sha256": value.get("query_sha256"),
             "artifact_sha256": value.get("artifact_sha256"),
+            "child_cpu_seconds_observed": value.get("child_cpu_seconds_observed"),
+            "child_peak_rss_mb_observed": value.get("child_peak_rss_mb_observed"),
+            "offline_sandbox": value.get("offline_sandbox"),
         }
         for key, value in flow.items()
         if isinstance(value, Mapping)
@@ -1318,6 +1446,7 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
             "aggregate_disk_limit_bytes": child_limits["file_bytes"],
             "measurement_status": resource_envelope.get("measurement_status"),
         },
+        "resource_envelope": resource_envelope,
         "upgrade": upgrade,
         "rollback": rollback,
         "negative_results": negative_results,
@@ -1327,19 +1456,53 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
         "workload_query_digest": workload_query_digest,
     }
     report_commitment = _sha(report_core)
+    stable_flow_commitment = {
+        key: {
+            field: field_value
+            for field, field_value in value.items()
+            if field not in {"child_cpu_seconds_observed", "child_peak_rss_mb_observed"}
+        }
+        for key, value in flow_commitment.items()
+    }
+    stable_report_core = dict(report_core)
+    stable_report_core["flow_commitment"] = stable_flow_commitment
+    stable_report_core.pop("resource_envelope", None)
+    stable_report_commitment = _sha(stable_report_core)
+    _volatile_fields = {
+        "child_cpu_seconds_observed",
+        "child_peak_rss_mb_observed",
+        "operation_child_cpu_seconds_observed",
+        "operation_child_peak_rss_mb_observed",
+        "cpu_seconds_observed",
+        "peak_rss_mb_observed",
+        "disk_growth_bytes_observed",
+        "wall_seconds_observed",
+    }
+
+    def _stable_projection(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {
+                key: _stable_projection(item)
+                for key, item in value.items()
+                if key not in _volatile_fields
+            }
+        if isinstance(value, list):
+            return [_stable_projection(item) for item in value]
+        return value
+
     evidence_digest = _sha({
         "manifest_commitment": manifest_commitment,
-        "report_commitment": report_commitment,
+        "stable_report_commitment": stable_report_commitment,
         "workload_digest": workload_digest,
         "workload_query_digest": workload_query_digest,
         "artifacts": artifacts,
-        "flow": flow_commitment,
+        "flow": _stable_projection(flow_commitment),
         "backup_digest": flow.get("backup_restore", {}).get("backup_digest"),
-        "network": network,
+        "network": _stable_projection(network),
         "claims_ceiling": fixture["claims_ceiling"],
         "claims": claims,
-        "upgrade": upgrade,
-        "rollback": rollback,
+        "upgrade": _stable_projection(upgrade),
+        "rollback": _stable_projection(rollback),
         "negative_results": negative_results,
     })
     report = {
@@ -1348,9 +1511,10 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
         "resource_envelope": resource_envelope,
         "manifest_commitment": manifest_commitment,
         "report_commitment": report_commitment,
+        "stable_report_commitment": stable_report_commitment,
         "evidence_digest": evidence_digest,
     }
-    manifest = {**manifest_core, "manifest_commitment": manifest_commitment, "report_commitment": report_commitment}
+    manifest = {**manifest_core, "manifest_commitment": manifest_commitment, "report_commitment": report_commitment, "stable_report_commitment": stable_report_commitment}
     (out / "manifest.json").write_text(_json(manifest) + "\n", encoding="utf-8")
     (out / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if temp_context is not None:
