@@ -966,6 +966,27 @@ def test_successful_detached_descendant_closing_pipes_is_reaped(tmp_path):
     assert not marker.exists()
 
 
+def test_non_linux_cleanup_without_tree_primitive_fails_closed(monkeypatch):
+    class FakeProcess:
+        pid = 424242
+        returncode = 0
+
+        def terminate(self):
+            return None
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(harness.os, "name", "nt")
+    monkeypatch.setattr(harness.sys, "platform", "win32")
+    assert harness._terminate_process_group(
+        FakeProcess(),
+        {"pid": 424242, "start_time": 1},
+        {},
+        "run-token",
+    ) is False
+
+
 def test_cleanup_refuses_pid_reuse_or_unverified_pgid_signal(monkeypatch):
     if os.name != "posix":
         pytest.skip("process-group assertion is POSIX-specific")
@@ -1075,6 +1096,32 @@ def test_disk_limit_includes_child_cwd_even_when_not_declared_separately(tmp_pat
     assert result["status"] == "resource_limit"
 
 
+def test_filesystem_growth_sums_all_devices():
+    assert harness._filesystem_growth_bytes({1: 100, 2: 100}, {1: 90, 2: 70}) == 40
+
+
+def test_new_filesystem_device_blocks_aggregate_observation(tmp_path, monkeypatch):
+    snapshots = iter(
+        [
+            harness._FilesystemSnapshot({1: 100}, complete=True),
+            harness._FilesystemSnapshot({1: 90, 2: 100}, complete=True),
+        ]
+    )
+    monkeypatch.setattr(harness, "_filesystem_free_bytes", lambda: next(snapshots))
+    budget = harness._AggregateResourceBudget((tmp_path,), cpu_seconds=30, memory_mb=512, disk_bytes=1024)
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", "pass"],
+        cwd=tmp_path,
+        timeout=5,
+        env=dict(os.environ),
+        monitor_dirs=(tmp_path,),
+        disk_limit_bytes=1024,
+        aggregate_budget=budget,
+    )
+    assert result["status"] == "blocked"
+    assert result["reason"] == "filesystem_observation_unavailable"
+
+
 def test_aggregate_resource_budget_charges_persistent_child_workspace_growth(tmp_path):
     budget = harness._AggregateResourceBudget((tmp_path,), cpu_seconds=30, memory_mb=512, disk_bytes=1024)
     first = harness._run_bounded_child(
@@ -1162,6 +1209,32 @@ def test_adapter_runtime_bytes_cannot_be_mutated_during_execution(tmp_path):
     assert checked["reason"] == "adapter_artifact_changed_during_operation"
 
 
+def test_adapter_runtime_must_match_initial_manifest_digest(tmp_path):
+    runtime = tmp_path / "perseus.py"
+    initial = (ROOT / "perseus.py").read_bytes()
+    runtime.write_bytes(initial)
+    runtime_digest = harness._sha_bytes(initial)
+    artifact = tmp_path / "adapter.bin"
+    artifact.write_text("adapter-v1", encoding="utf-8")
+    artifact_digest = harness._sha_bytes(artifact.read_bytes())
+    runtime.write_bytes(b"substituted-runtime")
+    checked = harness._run_adapter(
+        tmp_path,
+        {
+            "name": "perseus-vault",
+            "path": "adapter.bin",
+            "version": "v1",
+            "command": [sys.executable, "-c", "pass"],
+        },
+        {"state": "available", "sha256": artifact_digest, "version": "v1"},
+        harness._CHILD_LIMITS,
+        runtime_digest=runtime_digest,
+        monitor_dir=tmp_path / "out",
+    )
+    assert checked["status"] == "blocked"
+    assert checked["reason"] == "adapter_digest_mismatch"
+
+
 def test_incomplete_runtime_manifest_returns_bounded_acceptance_error(tmp_path, monkeypatch):
     real = harness._artifact_manifest(ROOT, harness._load_fixture(ROOT / "benchmark" / "disconnected_acceptance" / "fixture.json"))
     monkeypatch.setattr(harness, "_artifact_manifest", lambda *_args: [real[0]])
@@ -1206,6 +1279,20 @@ def test_flow_commitment_binds_complete_publication_projection(tmp_path):
     assert "output_sha256" in render
     assert report["flow_commitment"]["backup_restore"]["result_binding"]["binding_sha256"]
     assert report["resource_contract"]["resource_observations_commitment"]
+
+
+def test_report_validation_rejects_mutated_raw_flow(tmp_path):
+    report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
+    mutated = json.loads(json.dumps(report))
+    mutated["flow"]["perseus_render"]["status"] = "failed"
+    with pytest.raises(harness.AcceptanceError, match="flow commitment"):
+        harness._validate_report_commitments(mutated)
+
+
+def test_negative_result_missing_reason_never_normalizes_success():
+    assert harness._negative_result_reason({"status": "blocked"}) == "operation_blocked"
+    assert harness._negative_result_reason({"status": "failed"}) == "operation_failed"
+    assert harness._negative_result_reason({"status": "unavailable"}) == "operation_unavailable"
 
 
 def test_public_fixture_errors_are_bounded_and_private(tmp_path, capsys):
@@ -1254,6 +1341,67 @@ def test_child_cannot_forge_parent_offline_report_from_sitecustomize(tmp_path):
     assert result["offline_report"]["attempts"] == []
 
 
+def test_forged_pipe_report_cannot_become_authoritative(tmp_path):
+    runtime = tmp_path / "runtime.py"
+    runtime.write_text(
+        "def activate_offline_mode(): pass\n"
+        "def offline_network_report(): return {"
+        "'active': True, 'policy': 'deny_all_non_loopback', 'attempts': [], "
+        "'attempts_truncated': False, 'blocked_attempts': 0, "
+        "'allowed_local_attempts': 0}\n"
+        "def deactivate_offline_mode(): pass\n",
+        encoding="utf-8",
+    )
+    forged = {
+        "active": True,
+        "policy": "deny_all_non_loopback",
+        "attempts": [{"operation": "SENSITIVE_MARKER", "destination": "SENSITIVE_MARKER", "outcome": "blocked"}],
+        "attempts_truncated": False,
+        "blocked_attempts": 1,
+        "allowed_local_attempts": 0,
+    }
+    code = (
+        "import os,sitecustomize; "
+        f"sitecustomize._write_frame('report', {forged!r}); "
+        "sitecustomize._write_frame('complete', {'pid': os.getpid(), 'start_time': sitecustomize._start_time(), 'sandbox_violation': False}); os._exit(0)"
+    )
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", code],
+        cwd=tmp_path,
+        timeout=5,
+        env={"PERSEUS_OFFLINE": "1", "PERSEUS_OFFLINE_RUNTIME": str(runtime)},
+        offline_required=True,
+    )
+    assert result["status"] == "blocked"
+    assert result.get("reason") == "offline_report_invalid"
+    assert "SENSITIVE_MARKER" not in json.dumps(result)
+
+
+def test_report_reader_deadline_handles_descendant_holding_write_fd():
+    if os.name != "posix":
+        pytest.skip("pipe inheritance is POSIX-specific")
+    read_fd, write_fd = os.pipe()
+    child = os.fork()
+    if child == 0:
+        os.close(read_fd)
+        time.sleep(2.0)
+        os.close(write_fd)
+        os._exit(0)
+    os.close(write_fd)
+    started = time.monotonic()
+    try:
+        result = harness._read_offline_report(
+            read_fd,
+            expected_report=harness._parent_derived_offline_report([sys.executable, "-c", "pass"]),
+        )
+        elapsed = time.monotonic() - started
+    finally:
+        os.close(read_fd)
+        os.waitpid(child, 0)
+    assert result is None
+    assert elapsed < 1.0
+
+
 def test_cleanup_does_not_signal_descendants_after_leader_pid_reuse(monkeypatch):
     if os.name != "posix":
         pytest.skip("process-group assertion is POSIX-specific")
@@ -1290,6 +1438,47 @@ def test_cleanup_does_not_signal_descendants_after_leader_pid_reuse(monkeypatch)
         "run-token",
         baseline=baseline,
     ) is False
+
+
+def test_python_s_cannot_bypass_filesystem_containment(tmp_path):
+    allowed = tmp_path / "allowed"
+    escape = tmp_path / "escape"
+    allowed.mkdir()
+    escape.mkdir()
+    escaped = escape / "outside.bin"
+    code = f"open({str(escaped)!r}, 'wb').write(b'escape')"
+    result = harness._run_bounded_child(
+        [sys.executable, "-S", "-c", code],
+        cwd=allowed,
+        timeout=5,
+        env=dict(os.environ),
+        monitor_dirs=(allowed,),
+        disk_limit_bytes=1024,
+    )
+    assert result["status"] == "blocked"
+    assert result["reason"] == "filesystem_sandbox_unavailable"
+    assert not escaped.exists()
+
+
+def test_filesystem_guard_validates_link_destination(tmp_path):
+    allowed = tmp_path / "allowed"
+    escape = tmp_path / "escape"
+    allowed.mkdir()
+    escape.mkdir()
+    source = allowed / "source.txt"
+    destination = escape / "link.txt"
+    source.write_text("source", encoding="utf-8")
+    code = f"import os; os.symlink({str(source)!r}, {str(destination)!r})"
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", code],
+        cwd=allowed,
+        timeout=5,
+        env=dict(os.environ),
+        monitor_dirs=(allowed,),
+        disk_limit_bytes=1024,
+    )
+    assert result["status"] == "blocked"
+    assert not destination.exists()
 
 
 def test_bounded_reader_stops_an_unbounded_output_stream(tmp_path):
@@ -1376,6 +1565,24 @@ def test_operation_receipt_rejects_immutable_staged_persisted_state(tmp_path):
         )
 
 
+def test_staged_argv_rejects_unbound_script_path(tmp_path):
+    staged_artifact = tmp_path / ".perseus-immutable" / "adapter.bin"
+    staged_runtime = tmp_path / ".perseus-immutable" / "perseus.py"
+    staged_artifact.parent.mkdir()
+    staged_artifact.write_text("adapter", encoding="utf-8")
+    staged_runtime.write_text("runtime", encoding="utf-8")
+    outside = tmp_path / "alternate.py"
+    outside.write_text("alternate", encoding="utf-8")
+    with pytest.raises(harness.AcceptanceError, match="operation"):
+        harness._resolve_staged_argv(
+            [sys.executable, str(outside)],
+            root=tmp_path,
+            artifact_path="adapter.bin",
+            staged_artifact=staged_artifact,
+            staged_runtime=staged_runtime,
+        )
+
+
 def test_operation_command_executes_staged_bundle_path(tmp_path):
     runtime = tmp_path / "perseus.py"
     runtime.write_bytes((ROOT / "perseus.py").read_bytes())
@@ -1397,6 +1604,23 @@ def test_operation_command_executes_staged_bundle_path(tmp_path):
     )
     assert checked["status"] == "passed"
     assert marker.read_text(encoding="utf-8") == "staged"
+
+
+def test_offline_guard_pipe_setup_failure_cleans_guard_dir(tmp_path, monkeypatch):
+    runtime = tmp_path / "runtime.py"
+    runtime.write_text("def activate_offline_mode(): pass\n", encoding="utf-8")
+
+    def fail_pipe():
+        raise OSError("pipe denied")
+
+    monkeypatch.setattr(harness.os, "pipe", fail_pipe)
+    with pytest.raises(OSError, match="pipe denied"):
+        harness._prepare_offline_guard(
+            [sys.executable, "-c", "pass"],
+            tmp_path,
+            {"PERSEUS_OFFLINE_RUNTIME": str(runtime)},
+        )
+    assert not list(tmp_path.glob(".perseus-offline-*"))
 
 
 def test_limiter_setup_failure_cleans_offline_guard(tmp_path, monkeypatch):

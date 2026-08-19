@@ -65,6 +65,7 @@ _MAX_CHILD_ERROR_BYTES = 64 * 1024
 _MAX_PARENT_FILE_BYTES = 16 * 1024 * 1024
 _MAX_PARENT_TOTAL_BYTES = 64 * 1024 * 1024
 _MAX_OFFLINE_REPORT_BYTES = 64 * 1024
+_OFFLINE_REPORT_READ_TIMEOUT_SECONDS = 0.5
 _MAX_OFFLINE_ATTEMPTS = 256
 _MAX_FIXTURE_CPU_SECONDS = 300
 _MAX_FIXTURE_MEMORY_MB = 4096
@@ -100,6 +101,24 @@ _OFFLINE_SECCOMP_SYSCALLS = (
 )
 _OFFLINE_AUDIT_ARCH_X86_64 = 0xC000003E
 _OFFLINE_X32_SYSCALL_BIT = 0x40000000
+_LANDLOCK_CREATE_RULESET = 444
+_LANDLOCK_ADD_RULE = 445
+_LANDLOCK_RESTRICT_SELF = 446
+_LANDLOCK_RULE_PATH_BENEATH = 1
+_LANDLOCK_ACCESS_FS_WRITE = (
+    (1 << 1)  # WRITE_FILE
+    | (1 << 4)  # REMOVE_DIR
+    | (1 << 5)  # REMOVE_FILE
+    | (1 << 6)  # MAKE_CHAR
+    | (1 << 7)  # MAKE_DIR
+    | (1 << 8)  # MAKE_REG
+    | (1 << 9)  # MAKE_SOCK
+    | (1 << 10)  # MAKE_FIFO
+    | (1 << 11)  # MAKE_BLOCK
+    | (1 << 12)  # MAKE_SYM
+    | (1 << 13)  # REFER
+    | (1 << 14)  # TRUNCATE
+)
 
 
 def _install_offline_seccomp() -> None:
@@ -151,6 +170,88 @@ def _install_offline_seccomp() -> None:
         raise OSError(ctypes.get_errno(), "PR_SET_SECCOMP failed")
 
 
+def _landlock_supported() -> bool:
+    if not sys.platform.startswith("linux"):
+        return False
+    try:
+        import ctypes
+        libc = ctypes.CDLL(None, use_errno=True)
+        libc.syscall.restype = ctypes.c_long
+        result = libc.syscall(_LANDLOCK_CREATE_RULESET, 0, None, 0, 0)
+        if result >= 1:
+            return True
+        return ctypes.get_errno() not in {errno.ENOSYS, errno.EINVAL}
+    except (AttributeError, OSError, TypeError, ValueError):
+        return False
+
+
+def _install_landlock_write_sandbox(allowed_roots: tuple[Path, ...] | list[Path]) -> None:
+    """Restrict writes to parent-declared roots using Linux Landlock."""
+    if not sys.platform.startswith("linux") or not allowed_roots:
+        raise OSError("filesystem containment primitive is unavailable")
+    import ctypes
+
+    class _RulesetAttr(ctypes.Structure):
+        _fields_ = [("handled_access_fs", ctypes.c_uint64), ("handled_access_net", ctypes.c_uint64)]
+
+    class _PathBeneath(ctypes.Structure):
+        _fields_ = [("allowed_access", ctypes.c_uint64), ("parent_fd", ctypes.c_int), ("padding", ctypes.c_uint32)]
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.syscall.restype = ctypes.c_long
+    attr = _RulesetAttr(_LANDLOCK_ACCESS_FS_WRITE, 0)
+    ruleset_fd = libc.syscall(
+        _LANDLOCK_CREATE_RULESET,
+        ctypes.byref(attr),
+        ctypes.sizeof(attr),
+        0,
+    )
+    if ruleset_fd < 0:
+        raise OSError(ctypes.get_errno(), "landlock ruleset unavailable")
+    root_fds: list[int] = []
+    try:
+        flags = getattr(os, "O_PATH", 0) | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0)
+        if not getattr(os, "O_PATH", 0):
+            raise OSError("landlock path handles unavailable")
+        for raw_root in allowed_roots:
+            root = Path(raw_root).resolve()
+            fd = os.open(root, flags)
+            root_fds.append(fd)
+            rule = _PathBeneath(_LANDLOCK_ACCESS_FS_WRITE, fd, 0)
+            if libc.syscall(
+                _LANDLOCK_ADD_RULE,
+                ruleset_fd,
+                _LANDLOCK_RULE_PATH_BENEATH,
+                ctypes.byref(rule),
+                0,
+            ) < 0:
+                raise OSError(ctypes.get_errno(), "landlock path rule unavailable")
+        if libc.prctl(38, 1, 0, 0, 0) != 0:  # PR_SET_NO_NEW_PRIVS
+            raise OSError(ctypes.get_errno(), "PR_SET_NO_NEW_PRIVS failed")
+        if libc.syscall(_LANDLOCK_RESTRICT_SELF, ruleset_fd, 0) < 0:
+            raise OSError(ctypes.get_errno(), "landlock restrict-self failed")
+    finally:
+        for fd in root_fds:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        try:
+            os.close(ruleset_fd)
+        except OSError:
+            pass
+
+
+def _python_startup_bypasses_sitecustomize(argv: list[str]) -> bool:
+    """Return true for interpreter forms that ignore the audit hook."""
+    if not _is_python_argv(argv):
+        return False
+    for token in argv[1:]:
+        if token == "-c" or (not token.startswith("-") and token):
+            break
+        if token in {"-S", "-I", "-E"} or (token.startswith("-") and any(flag in token[1:] for flag in "SIE")):
+            return True
+    return False
 def _evidence_token(value: Any) -> str:
     """Hash child-controlled telemetry scalars before publication."""
     text = value if isinstance(value, str) else repr(value)
@@ -169,6 +270,71 @@ def _sanitize_offline_report(value: Mapping[str, Any]) -> dict[str, Any]:
         for item in value["attempts"]
     ]
     return sanitized
+
+
+def _parent_safe_destination(value: str) -> str:
+    """Mirror the runtime's bounded host/path projection without trusting it."""
+    lowered = value.casefold()
+    safe_bare_host = bool(re.fullmatch(r"[A-Za-z0-9.-]+", value)) and "." in value
+    if (
+        (safe_bare_host or lowered in {"localhost", "::1", "127.0.0.1"})
+        and len(value) <= 256
+        and not any(token in lowered for token in ("secret", "token", "password", "passwd", "credential", "api_key", "apikey"))
+    ):
+        return value
+    return _evidence_token(value)
+
+
+def _parent_derived_offline_report(argv: list[str]) -> dict[str, Any]:
+    """Build the only report shape the parent is willing to publish.
+
+    The child-side Python hooks are telemetry, not an authority: code running
+    in the child can open the inherited pipe and emit any bytes it wants.  The
+    parent therefore derives the expected report from the declared operation
+    itself and only accepts child telemetry when it is an exact match.  This
+    preserves useful evidence for the explicit probe and the small, declared
+    DNS fixture while ensuring child-controlled counters or strings can never
+    enter authoritative evidence.
+    """
+    attempts: list[dict[str, str]] = []
+    if "-c" in argv:
+        try:
+            code = argv[argv.index("-c") + 1]
+        except (ValueError, IndexError):
+            code = ""
+        match = re.search(
+            r"(?:gethostbyname(?:_ex)?|getaddrinfo)\(\s*(['\"])([^'\"]+)\1",
+            code,
+        )
+        if match:
+            attempts.append({"operation": "dns", "destination": _parent_safe_destination(match.group(2)), "outcome": "blocked"})
+    return {
+        "active": True,
+        "policy": "deny_all_non_loopback",
+        "attempts": attempts,
+        "attempts_truncated": False,
+        "blocked_attempts": len(attempts),
+        "allowed_local_attempts": 0,
+    }
+
+
+def _parent_derived_probe_result(destination: str) -> dict[str, Any]:
+    """Return the parent-derived public result for the declared probe."""
+    safe_destination = _parent_safe_destination(destination)
+    report = {
+        "active": True,
+        "policy": "deny_all_non_loopback",
+        "attempts": [{"operation": "probe", "destination": safe_destination, "outcome": "blocked"}],
+        "attempts_truncated": False,
+        "blocked_attempts": 1,
+        "allowed_local_attempts": 0,
+    }
+    return {
+        "blocked": True,
+        "destination": _evidence_token(safe_destination),
+        "report": _sanitize_offline_report(report),
+    }
+
 
 _DEFAULT_QUERY = ""
 _STABLE_DATE_RE = re.compile(
@@ -307,9 +473,15 @@ def _bounded_reason(value: Any, default: str = "contract_invalid") -> str:
         "contract_invalid",
         "fixture_load_failed",
         "filesystem_sandbox_unavailable",
+        "filesystem_observation_unavailable",
         "offline_guard_unavailable",
         "offline_report_invalid",
         "operation_completed",
+        "operation_blocked",
+        "operation_failed",
+        "operation_not_run",
+        "operation_status_invalid",
+        "operation_unavailable",
         "perseus_artifact_changed_or_guard_unavailable",
         "perseus_artifact_unavailable",
         "perseus_offline_guard_unavailable",
@@ -322,6 +494,24 @@ def _bounded_reason(value: Any, default: str = "contract_invalid") -> str:
     if re.fullmatch(r"(?:upgrade|rollback)_(?:bundle|operation)_[a-z0-9_]{1,64}", value):
         return value
     return default
+
+
+def _negative_result_reason(value: Mapping[str, Any] | Any) -> str:
+    """Normalize negative cells without ever assigning a success reason."""
+    status = value.get("status") if isinstance(value, Mapping) else None
+    supplied = value.get("reason") if isinstance(value, Mapping) else None
+    if status == "passed":
+        return _bounded_reason(supplied, "operation_completed")
+    fallback = {
+        "blocked": "operation_blocked",
+        "failed": "operation_failed",
+        "unavailable": "operation_unavailable",
+        "not_run": "operation_not_run",
+        "timeout": "operation_failed",
+        "resource_limit": "operation_failed",
+    }.get(status, "operation_status_invalid")
+    normalized = _bounded_reason(supplied, fallback)
+    return fallback if normalized == "operation_completed" else normalized
 
 
 def _validate_child_limits(resource_limits: Mapping[str, Any] | None) -> dict[str, int]:
@@ -544,6 +734,43 @@ def _stable_projection(value: Any) -> Any:
     return value
 
 
+def _public_projection(value: Any) -> Any:
+    """Project the exact public flow fields used by the release decision."""
+    if isinstance(value, Mapping):
+        projected: dict[str, Any] = {}
+        for key, item in value.items():
+            if key == "reason":
+                if item is not None:
+                    projected[key] = _bounded_reason(item)
+                continue
+            if key in {"stdout", "stderr", "argv", "command"}:
+                continue
+            projected[key] = _public_projection(item)
+        if value.get("status") in {"blocked", "failed", "unavailable", "not_run", "timeout", "resource_limit"}:
+            projected["reason"] = _negative_result_reason(value)
+        return projected
+    if isinstance(value, list):
+        return [_public_projection(item) for item in value]
+    return value
+
+
+def _validate_report_commitments(report: Mapping[str, Any]) -> None:
+    """Recompute public flow evidence before a report is accepted or written."""
+    if not isinstance(report, Mapping) or not isinstance(report.get("flow"), Mapping):
+        raise AcceptanceError("flow commitment is unavailable")
+    flow = report["flow"]
+    expected_projection = {
+        key: _public_projection(value)
+        for key, value in flow.items()
+        if isinstance(value, Mapping)
+    }
+    if report.get("flow_commitment") != expected_projection:
+        raise AcceptanceError("flow commitment mismatch")
+    expected_digest = report.get("flow_projection_commitment")
+    if not isinstance(expected_digest, str) or expected_digest != _sha(expected_projection):
+        raise AcceptanceError("flow commitment digest mismatch")
+
+
 def _bounded_reader(stream: Any, limit: int, result: dict[str, Any], key: str) -> None:
     total = 0
     captured = bytearray()
@@ -586,27 +813,43 @@ def _monitor_size(roots: tuple[Path, ...] | list[Path] | None) -> int:
     return sum(_directory_size(root) for root in unique)
 
 
-def _filesystem_free_bytes() -> dict[int, int]:
+class _FilesystemSnapshot(dict[int, int]):
+    def __init__(self, values: Mapping[int, int], *, complete: bool):
+        super().__init__(values)
+        self.complete = bool(complete)
+
+
+def _filesystem_observation_complete(value: Mapping[int, int] | None) -> bool:
+    if value is None:
+        return False
+    return bool(getattr(value, "complete", bool(value)))
+
+
+def _filesystem_free_bytes() -> _FilesystemSnapshot:
     """Return available bytes for every visible filesystem device."""
     if not hasattr(os, "statvfs"):
-        return {}
+        return _FilesystemSnapshot({}, complete=False)
     candidates = [Path("/")]
+    complete = True
     if sys.platform.startswith("linux"):
         try:
-            for line in Path("/proc/self/mountinfo").read_text(encoding="utf-8").splitlines():
+            mountinfo = Path("/proc/self/mountinfo").read_text(encoding="utf-8")
+            for line in mountinfo.splitlines():
                 fields = line.split(" - ", 1)[0].split()
-                if len(fields) >= 5:
-                    candidates.append(
-                        Path(
-                            fields[4]
-                            .replace(r"\040", " ")
-                            .replace(r"\011", "\t")
-                            .replace(r"\012", "\n")
-                            .replace(r"\134", "\\")
-                        )
+                if len(fields) < 5:
+                    complete = False
+                    continue
+                candidates.append(
+                    Path(
+                        fields[4]
+                        .replace(r"\040", " ")
+                        .replace(r"\011", "\t")
+                        .replace(r"\012", "\n")
+                        .replace(r"\134", "\\")
                     )
+                )
         except (OSError, UnicodeDecodeError):
-            pass
+            return _FilesystemSnapshot({}, complete=False)
     result: dict[int, int] = {}
     for path in candidates:
         try:
@@ -614,15 +857,16 @@ def _filesystem_free_bytes() -> dict[int, int]:
             usage = os.statvfs(path)
             result.setdefault(device, int(usage.f_bavail * usage.f_frsize))
         except (OSError, TypeError, ValueError, AttributeError):
-            continue
-    return result
+            complete = False
+    return _FilesystemSnapshot(result, complete=complete and bool(result))
 
 
 def _filesystem_growth_bytes(baseline: Mapping[int, int], current: Mapping[int, int]) -> int:
-    return max(
-        (max(0, int(baseline[device]) - int(free)) for device, free in current.items() if device in baseline),
-        default=0,
-    )
+    if not _filesystem_observation_complete(baseline) or not _filesystem_observation_complete(current):
+        raise AcceptanceError("filesystem_observation_unavailable")
+    if set(baseline) != set(current):
+        raise AcceptanceError("filesystem_observation_incomplete")
+    return sum(max(0, int(baseline[device]) - int(current[device])) for device in baseline)
 
 
 class _AggregateResourceBudget:
@@ -635,6 +879,7 @@ class _AggregateResourceBudget:
         self.disk_limit = int(disk_bytes)
         self.baseline_disk = _monitor_size(roots)
         self.baseline_filesystems = _filesystem_free_bytes()
+        self.filesystem_observation_failed = not _filesystem_observation_complete(self.baseline_filesystems)
         self.cpu_seconds = 0.0
         self.peak_rss_mb = 0.0
         self.disk_bytes = 0
@@ -643,10 +888,14 @@ class _AggregateResourceBudget:
         self.cpu_seconds += max(0.0, float(cpu_seconds))
         self.peak_rss_mb = max(self.peak_rss_mb, max(0.0, float(peak_rss_mb)))
         current_growth = max(0, _monitor_size(self.roots) - self.baseline_disk)
-        filesystem_growth = _filesystem_growth_bytes(self.baseline_filesystems, _filesystem_free_bytes())
+        try:
+            filesystem_growth = _filesystem_growth_bytes(self.baseline_filesystems, _filesystem_free_bytes())
+        except (AcceptanceError, OSError, TypeError, ValueError):
+            self.filesystem_observation_failed = True
+            filesystem_growth = 0
         self.disk_bytes += max(0, int(disk_growth_bytes))
         self.disk_bytes = max(self.disk_bytes, current_growth, filesystem_growth)
-        return not self.exceeded
+        return not self.exceeded and not self.filesystem_observation_failed
 
     @property
     def exceeded(self) -> bool:
@@ -661,7 +910,7 @@ class _AggregateResourceBudget:
             "cpu_seconds_observed": round(self.cpu_seconds, 6),
             "peak_rss_mb_observed": round(self.peak_rss_mb, 3),
             "disk_growth_bytes_observed": self.disk_bytes,
-            "status": "resource_limit" if self.exceeded else "within_limit",
+            "status": "filesystem_observation_unavailable" if self.filesystem_observation_failed else "resource_limit" if self.exceeded else "within_limit",
         }
 
 
@@ -704,14 +953,17 @@ def _prepare_filesystem_guard(
         "        writing = any(flag in mode for flag in 'wax+') if isinstance(mode, str) else isinstance(mode, int) and bool(mode & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND))\n"
         "        if writing and not _allowed(path):\n"
         "            _violate()\n"
-        "    elif event in {'os.remove', 'os.unlink', 'os.rmdir', 'os.mkdir', 'os.chmod', 'os.chown', 'os.truncate', 'os.utime', 'os.symlink', 'os.link', 'os.mknod'}:\n"
+        "    elif event in {'os.remove', 'os.unlink', 'os.rmdir', 'os.mkdir', 'os.chmod', 'os.chown', 'os.truncate', 'os.utime', 'os.mknod'}:\n"
         "        if args and not _allowed(args[0]):\n"
+        "            _violate()\n"
+        "    elif event in {'os.symlink', 'os.link'}:\n"
+        "        if len(args) < 2 or not _allowed(args[0]) or not _allowed(args[1]):\n"
         "            _violate()\n"
         "    elif event == 'os.rename':\n"
         "        if len(args) < 2 or not _allowed(args[0]) or not _allowed(args[1]):\n"
         "            _violate()\n"
         "    elif event == 'shutil.copyfile':\n"
-        "        if len(args) >= 2 and not _allowed(args[1]):\n"
+        "        if len(args) < 2 or not _allowed(args[0]) or not _allowed(args[1]):\n"
         "            _violate()\n"
         "    elif event == 'os.system':\n"
         "        _violate()\n"
@@ -741,18 +993,35 @@ def _prepare_offline_guard(
     runtime_path = Path(runtime_raw) if isinstance(runtime_raw, str) else None
     if runtime_path is None or not runtime_raw or runtime_path.is_symlink() or not runtime_path.is_file():
         raise AcceptanceError("offline_guard_runtime_unavailable")
-    guard_dir = Path(tempfile.mkdtemp(prefix=".perseus-offline-", dir=str(cwd)))
-    report_read_fd, report_write_fd = os.pipe()
-    os.set_inheritable(report_write_fd, True)
-    guard_path = guard_dir / "sitecustomize.py"
-    write_roots = tuple(str(Path(root).resolve()) for root in allowed_roots) or (str(cwd.resolve()),)
+    guard_dir: Path | None = None
+    report_read_fd = report_write_fd = -1
     try:
+        guard_dir = Path(tempfile.mkdtemp(prefix=".perseus-offline-", dir=str(cwd)))
+        report_read_fd, report_write_fd = os.pipe()
+        os.set_inheritable(report_write_fd, True)
+        guard_path = guard_dir / "sitecustomize.py"
+        write_roots = tuple(str(Path(root).resolve()) for root in allowed_roots) or (str(cwd.resolve()),)
         _strict_write_guard(guard_dir, guard_path,
             "import atexit, importlib.util, json, os\n"
             f"_runtime = {str(runtime_path)!r}\n"
             f"_report_fd = {report_write_fd}\n"
             f"_allowed_roots = {write_roots!r}\n"
             "_sandbox_violation = False\n"
+            "try:\n"
+            "    os.set_inheritable(_report_fd, False)\n"
+            "except BaseException:\n"
+            "    os._exit(125)\n"
+            "def _close_report_fd_after_fork():\n"
+            "    global _report_fd\n"
+            "    try:\n"
+            "        os.close(_report_fd)\n"
+            "    except OSError:\n"
+            "        pass\n"
+            "    _report_fd = -1\n"
+            "try:\n"
+            "    os.register_at_fork(after_in_child=_close_report_fd_after_fork)\n"
+            "except AttributeError:\n"
+            "    pass\n"
             "def _path_allowed(value):\n"
             "    try:\n"
             "        if isinstance(value, int):\n"
@@ -775,14 +1044,17 @@ def _prepare_offline_guard(
             "                writing = False\n"
             "            if writing and not _path_allowed(path):\n"
             "                raise PermissionError('filesystem sandbox')\n"
-            "        elif event in {'os.remove', 'os.unlink', 'os.rmdir', 'os.mkdir', 'os.chmod', 'os.chown', 'os.truncate', 'os.utime', 'os.symlink', 'os.link', 'os.mknod'}:\n"
+            "        elif event in {'os.remove', 'os.unlink', 'os.rmdir', 'os.mkdir', 'os.chmod', 'os.chown', 'os.truncate', 'os.utime', 'os.mknod'}:\n"
             "            if args and not _path_allowed(args[0]):\n"
+            "                raise PermissionError('filesystem sandbox')\n"
+            "        elif event in {'os.symlink', 'os.link'}:\n"
+            "            if len(args) < 2 or not _path_allowed(args[0]) or not _path_allowed(args[1]):\n"
             "                raise PermissionError('filesystem sandbox')\n"
             "        elif event == 'os.rename':\n"
             "            if len(args) < 2 or not _path_allowed(args[0]) or not _path_allowed(args[1]):\n"
             "                raise PermissionError('filesystem sandbox')\n"
             "        elif event == 'shutil.copyfile':\n"
-            "            if len(args) >= 2 and not _path_allowed(args[1]):\n"
+            "            if len(args) < 2 or not _path_allowed(args[0]) or not _path_allowed(args[1]):\n"
             "                raise PermissionError('filesystem sandbox')\n"
             "    except BaseException:\n"
             "        _sandbox_violation = True\n"
@@ -820,7 +1092,7 @@ def _prepare_offline_guard(
             "        _value = _module.offline_network_report()\n"
             "        _module.deactivate_offline_mode()\n"
             "        if _write_frame('report', _value):\n"
-            "            _write_frame('complete', {'pid': os.getpid(), 'start_time': _start_time(), 'sandbox_violation': _sandbox_violation})\n"
+            "            _write_frame('complete', {})\n"
             "    except BaseException:\n"
             "        pass\n"
             "atexit.register(_finish)\n",
@@ -828,10 +1100,14 @@ def _prepare_offline_guard(
         )
     except BaseException:
         for fd in (report_read_fd, report_write_fd):
-            try:
-                os.close(fd)
-            except OSError:
-                pass
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+        cleanup_ok = _cleanup_guard_dir(guard_dir)
+        if not cleanup_ok:
+            raise AcceptanceError("child_cleanup_failed") from None
         raise
     old_pythonpath = child_env.get("PYTHONPATH")
     child_env["PYTHONPATH"] = str(guard_dir) + (os.pathsep + old_pythonpath if old_pythonpath else "")
@@ -844,22 +1120,40 @@ def _read_offline_report(
     *,
     expected_pid: int | None = None,
     expected_start_time: int | None = None,
+    expected_report: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Read one completed report from the parent-owned child IPC pipe."""
-    del expected_token  # Legacy callers cannot authenticate a filesystem report.
+    """Read a report only when it matches a parent-derived expectation.
+
+    A pipe proves only that bytes came from a process which inherited the
+    descriptor.  It does not authenticate the bytes, so completion metadata
+    and counters from the child are never authoritative.  ``expected_report``
+    is constructed by the parent from the declared command; absent that
+    binding this boundary fails closed.
+    """
+    del expected_token, expected_pid, expected_start_time
     if (
         type(report_fd) is not int
         or report_fd < 0
-        or type(expected_pid) is not int
-        or expected_pid <= 0
-        or type(expected_start_time) is not int
-        or expected_start_time < 0
+        or not isinstance(expected_report, Mapping)
     ):
         return None
     try:
         raw = bytearray()
+        os.set_blocking(report_fd, False)
+        poller = select.poll()
+        poller.register(report_fd, select.POLLIN | select.POLLHUP | select.POLLERR)
+        deadline = time.monotonic() + _OFFLINE_REPORT_READ_TIMEOUT_SECONDS
         while len(raw) <= _MAX_OFFLINE_REPORT_BYTES:
-            chunk = os.read(report_fd, min(4096, _MAX_OFFLINE_REPORT_BYTES + 1 - len(raw)))
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            events = poller.poll(max(1, int(remaining * 1000)))
+            if not events:
+                return None
+            try:
+                chunk = os.read(report_fd, min(4096, _MAX_OFFLINE_REPORT_BYTES + 1 - len(raw)))
+            except BlockingIOError:
+                continue
             if not chunk:
                 break
             raw.extend(chunk)
@@ -884,13 +1178,7 @@ def _read_offline_report(
     if len(frames) != 2 or frames[0].get("kind") != "report" or frames[1].get("kind") != "complete":
         return None
     completion = frames[1].get("value")
-    if (
-        not isinstance(completion, Mapping)
-        or set(completion) != {"pid", "start_time", "sandbox_violation"}
-        or completion.get("pid") != expected_pid
-        or completion.get("start_time") != expected_start_time
-        or completion.get("sandbox_violation") is not False
-    ):
+    if not isinstance(completion, Mapping) or set(completion):
         return None
     value = frames[0].get("value")
     required = {"active", "policy", "attempts", "attempts_truncated", "blocked_attempts", "allowed_local_attempts"}
@@ -911,7 +1199,15 @@ def _read_offline_report(
     allowed_count = sum(item["outcome"] == "allowed_local" for item in value["attempts"])
     if value["blocked_attempts"] != blocked_count or value["allowed_local_attempts"] != allowed_count:
         return None
-    return _sanitize_offline_report(value)
+    expected = dict(expected_report)
+    try:
+        expected_sanitized = _sanitize_offline_report(expected)
+        actual_sanitized = _sanitize_offline_report(value)
+    except (KeyError, TypeError, ValueError):
+        return None
+    if actual_sanitized != expected_sanitized:
+        return None
+    return expected_sanitized
 
 
 def _cleanup_guard_dir(path: Path | None) -> bool:
@@ -1075,6 +1371,10 @@ def _terminate_process_group(
     baseline: Mapping[int, Mapping[str, int]] | None = None,
 ) -> bool:
     """Terminate/reap only verified new processes and their current PGID."""
+    if not sys.platform.startswith("linux"):
+        # No verified descendant/tree-kill primitive is implemented on other
+        # platforms; leader-only termination must never be reported as clean.
+        return False
     cleanup_ok = leader_identity is not None
     leader_pid = process.pid
     baseline_snapshot = baseline if baseline is not None else {}
@@ -1255,6 +1555,10 @@ def _run_bounded_child(
     disk_limit = _validate_disk_limit(disk_limit_bytes) if disk_limit_bytes is not None else None
     if aggregate_budget is not None:
         aggregate_budget.observe(cpu_seconds=0.0, peak_rss_mb=0.0, disk_growth_bytes=0)
+        if aggregate_budget.filesystem_observation_failed:
+            result = _blocked_child_result(limits, reason="filesystem_observation_unavailable")
+            result["aggregate_resource"] = aggregate_budget.report()
+            return result
         if aggregate_budget.exceeded:
             result = _blocked_child_result(limits, reason="child_resource_limit")
             result["aggregate_resource"] = aggregate_budget.report()
@@ -1266,7 +1570,11 @@ def _run_bounded_child(
     if offline_required is False and offline_requested:
         raise AcceptanceError("offline_guard_required")
     require_offline = offline_requested if offline_required is None else offline_required
+    expected_offline_report = _parent_derived_offline_report(argv) if require_offline else None
     disk_sandbox_requested = disk_limit is not None or aggregate_budget is not None
+    landlock_available = _landlock_supported() if disk_sandbox_requested else False
+    if disk_sandbox_requested and _python_startup_bypasses_sitecustomize(argv) and not landlock_available:
+        return _blocked_child_result(limits, reason="filesystem_sandbox_unavailable")
     if require_offline and not sys.platform.startswith("linux"):
         raise AcceptanceError("offline_sandbox_unavailable")
     child_env = dict(env)
@@ -1322,6 +1630,8 @@ def _run_bounded_child(
         def _child_setup() -> None:
             if resource_limiter is not None:
                 resource_limiter()
+            if disk_sandbox_requested and landlock_available:
+                _install_landlock_write_sandbox(monitor_roots)
             if require_offline:
                 _install_offline_seccomp()
                 os.write(guard_write_fd, b"1")
@@ -1339,7 +1649,27 @@ def _run_bounded_child(
         return _blocked_child_result(limits, reason="child_containment_unavailable", cleanup_failed=not cleanup_ok)
     baseline = _process_snapshot() if subreaper_ready else {}
     before_disk = _monitor_size(monitor_roots)
-    before_filesystems = _filesystem_free_bytes() if disk_limit is not None or aggregate_budget is not None else {}
+    filesystem_observation_failed = False
+    try:
+        before_filesystems = _filesystem_free_bytes() if disk_limit is not None or aggregate_budget is not None else _FilesystemSnapshot({}, complete=True)
+    except (OSError, TypeError, ValueError, AcceptanceError):
+        before_filesystems = _FilesystemSnapshot({}, complete=False)
+        filesystem_observation_failed = True
+    if disk_sandbox_requested and (
+        filesystem_observation_failed or not _filesystem_observation_complete(before_filesystems)
+    ):
+        for fd in (guard_read_fd, guard_write_fd, report_read_fd, report_write_fd):
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+        cleanup_ok = _cleanup_guard_dir(guard_dir)
+        return _blocked_child_result(
+            limits,
+            reason="filesystem_observation_unavailable",
+            cleanup_failed=not cleanup_ok,
+        )
     before_children = (
         resource.getrusage(resource.RUSAGE_CHILDREN)
         if os.name == "posix" and resource is not None and hasattr(resource, "RUSAGE_CHILDREN")
@@ -1359,6 +1689,8 @@ def _run_bounded_child(
             return _blocked_child_result(limits, reason="child_cleanup_failed", cleanup_failed=True)
         if require_offline:
             return _blocked_child_result(limits, reason="offline_guard_unavailable", cleanup_failed=not cleanup_ok)
+        if disk_sandbox_requested:
+            return _blocked_child_result(limits, reason="filesystem_sandbox_unavailable", cleanup_failed=not cleanup_ok)
         result = _blocked_child_result(limits, reason="child_spawn_failed", cleanup_failed=not cleanup_ok)
         result["status"] = "failed"
         return result
@@ -1384,6 +1716,24 @@ def _run_bounded_child(
     peak_rss_bytes = _read_process_peak_rss_bytes(process.pid)
     max_disk_growth = 0
     max_filesystem_growth = 0
+
+    def _observe_filesystem_growth() -> bool:
+        nonlocal max_filesystem_growth, max_disk_growth, filesystem_observation_failed
+        if not disk_sandbox_requested or filesystem_observation_failed:
+            return not filesystem_observation_failed
+        try:
+            current_filesystems = _filesystem_free_bytes()
+            if not _filesystem_observation_complete(current_filesystems):
+                filesystem_observation_failed = True
+                return False
+            growth = _filesystem_growth_bytes(before_filesystems, current_filesystems)
+        except (AcceptanceError, OSError, TypeError, ValueError):
+            filesystem_observation_failed = True
+            return False
+        max_filesystem_growth = max(max_filesystem_growth, growth)
+        max_disk_growth = max(max_disk_growth, max_filesystem_growth)
+        return True
+
     stdout_thread = threading.Thread(target=_bounded_reader, args=(process.stdout, _MAX_CHILD_OUTPUT_BYTES, captured, "stdout"), daemon=True)
     stderr_thread = threading.Thread(target=_bounded_reader, args=(process.stderr, _MAX_CHILD_ERROR_BYTES, captured, "stderr"), daemon=True)
     stdout_thread.start()
@@ -1397,12 +1747,9 @@ def _run_bounded_child(
                 _owned_processes(process.pid, baseline, known, run_token)
             peak_rss_bytes = max(peak_rss_bytes, _read_process_peak_rss_bytes(process.pid))
             max_disk_growth = max(max_disk_growth, max(0, _monitor_size(monitor_roots) - before_disk))
-            if before_filesystems:
-                max_filesystem_growth = max(
-                    max_filesystem_growth,
-                    _filesystem_growth_bytes(before_filesystems, _filesystem_free_bytes()),
-                )
-                max_disk_growth = max(max_disk_growth, max_filesystem_growth)
+            if not _observe_filesystem_growth():
+                status = "blocked"
+                break
             if captured.get("stdout_limit_exceeded") or captured.get("stderr_limit_exceeded"):
                 status = "resource_limit"
                 break
@@ -1447,18 +1794,14 @@ def _run_bounded_child(
     if captured.get("stdout_limit_exceeded") or captured.get("stderr_limit_exceeded"):
         status = "resource_limit"
     max_disk_growth = max(max_disk_growth, max(0, _monitor_size(monitor_roots) - before_disk))
-    if before_filesystems:
-        max_filesystem_growth = max(
-            max_filesystem_growth,
-            _filesystem_growth_bytes(before_filesystems, _filesystem_free_bytes()),
-        )
-        max_disk_growth = max(max_disk_growth, max_filesystem_growth)
+    if not _observe_filesystem_growth():
+        status = "blocked"
     if disk_limit is not None and max_disk_growth > disk_limit and status == "passed":
         status = "resource_limit"
     if cleanup_failed:
         status = "blocked" if require_offline else "failed"
     elif status not in {"timeout", "resource_limit"} and process.returncode != 0:
-        status = "blocked" if require_offline else "failed"
+        status = "blocked" if require_offline or (disk_sandbox_requested and process.returncode == 126) else "failed"
     after_children = (
         resource.getrusage(resource.RUSAGE_CHILDREN)
         if before_children is not None and os.name == "posix" and resource is not None
@@ -1481,6 +1824,7 @@ def _run_bounded_child(
                 report_read_fd,
                 expected_pid=process.pid,
                 expected_start_time=expected_start_time,
+                expected_report=expected_offline_report,
             )
         finally:
             try:
@@ -1514,7 +1858,13 @@ def _run_bounded_child(
     elif status == "resource_limit":
         reason = "child_resource_limit"
     elif status in {"failed", "blocked"}:
-        reason = "child_spawn_failed" if process.returncode is None else "offline_guard_unavailable" if require_offline else "child_spawn_failed"
+        reason = (
+            "child_spawn_failed" if process.returncode is None
+            else "offline_guard_unavailable" if require_offline
+            else "filesystem_observation_unavailable" if filesystem_observation_failed
+            else "filesystem_sandbox_unavailable" if disk_sandbox_requested and process.returncode == 126
+            else "child_spawn_failed"
+        )
     result = {
         "status": status,
         "exit_code": process.returncode,
@@ -1713,24 +2063,53 @@ def _resolve_staged_argv(
     staged_artifact: Path,
     staged_runtime: Path,
 ) -> list[str]:
-    """Rewrite declared artifact/runtime argv inputs to immutable stage paths."""
-    resolved: list[str] = []
+    """Resolve an explicitly allowlisted command to immutable stage paths."""
+    argv = _validate_command(command, "operation")
     source_artifact = (root / artifact_path).resolve()
     source_runtime = (root / "perseus.py").resolve()
-    artifact_rel = Path(artifact_path)
-    for raw in _validate_command(command, "operation"):
-        token = raw
+    interpreter = Path(sys.executable).resolve()
+
+    def resolve_token(raw: str) -> Path | None:
         try:
             candidate = Path(raw)
-            candidate_resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+            return candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
         except (OSError, RuntimeError, TypeError, ValueError):
-            candidate_resolved = None
-        if raw == str(artifact_rel) or candidate_resolved == source_artifact:
-            token = str(staged_artifact)
-        elif raw == "perseus.py" or candidate_resolved == source_runtime:
-            token = str(staged_runtime)
-        resolved.append(token)
-    return resolved
+            return None
+
+    def rewrite_path(raw: str) -> str | None:
+        candidate = resolve_token(raw)
+        if raw == artifact_path or candidate == source_artifact:
+            return str(staged_artifact)
+        if raw == "perseus.py" or candidate == source_runtime:
+            return str(staged_runtime)
+        return None
+
+    first = argv[0]
+    first_resolved = resolve_token(first)
+    is_interpreter = first == sys.executable or first_resolved == interpreter
+    if is_interpreter:
+        if len(argv) < 2:
+            raise AcceptanceError("operation command form is not allowlisted")
+        mode = argv[1]
+        if mode == "-c":
+            if len(argv) < 3 or not argv[2] or any(token.startswith("-") for token in argv[2:]):
+                raise AcceptanceError("operation command form is not allowlisted")
+            return [sys.executable, "-c", *argv[2:]]
+        if mode.startswith("-"):
+            raise AcceptanceError("operation interpreter option is not allowlisted")
+        staged_script = rewrite_path(mode)
+        if staged_script is None:
+            raise AcceptanceError("operation script is not manifest-bound")
+        if any(token in {"-m", "-S", "-I", "-E", "-c", "--python-path"} for token in argv[2:]):
+            raise AcceptanceError("operation interpreter option is not allowlisted")
+        return [sys.executable, staged_script, *argv[2:]]
+
+    staged_first = rewrite_path(first)
+    if staged_first is None or first.startswith("-"):
+        raise AcceptanceError("operation executable is not manifest-bound")
+    if any(token.startswith("-") and token in {"-m", "-S", "-I", "-E", "-c", "--python-path"} for token in argv[1:]):
+        raise AcceptanceError("operation interpreter option is not allowlisted")
+    return [staged_first, *argv[1:]]
 
 
 def _bundle_reason(label: str, kind: str) -> str:
@@ -2014,6 +2393,7 @@ def _run_adapter(
     manifest: Mapping[str, Any],
     resource_limits: Mapping[str, int],
     *,
+    runtime_digest: str | None = None,
     monitor_dir: Path | None = None,
     disk_limit_bytes: int | None = None,
     query: str | None = None,
@@ -2038,7 +2418,11 @@ def _run_adapter(
         with tempfile.TemporaryDirectory(prefix=f".perseus-adapter-{name}-", dir=str(parent)) as workspace_name:
             workspace = Path(workspace_name)
             staged_artifact, actual = _stage_file(root, spec["path"], workspace, expected=expected)
-            runtime_expected = _sha_bytes(_secure_file_bytes(root, "perseus.py"))
+            runtime_expected = runtime_digest
+            if not isinstance(runtime_expected, str):
+                runtime_expected = _sha_bytes(_secure_file_bytes(root, "perseus.py"))
+            if not re.fullmatch(r"[0-9a-f]{64}", runtime_expected):
+                return {"status": "blocked", "reason": "adapter_digest_unavailable"}
             staged_runtime, runtime_digest = _stage_runtime(root, workspace, expected=runtime_expected)
             operation_baseline = _operation_state_snapshot(workspace)
             command = _resolve_staged_argv(
@@ -2312,11 +2696,11 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
     }
     flow["vault"] = _run_adapter(
         root, artifact_specs["perseus-vault"], _artifact_by_name(artifacts, "perseus-vault"),
-        child_limits, monitor_dir=out, disk_limit_bytes=child_limits["file_bytes"], query=workload_query, aggregate_budget=aggregate_budget,
+        child_limits, runtime_digest=perseus_artifact["sha256"], monitor_dir=out, disk_limit_bytes=child_limits["file_bytes"], query=workload_query, aggregate_budget=aggregate_budget,
     )
     flow["ledger"] = _run_adapter(
         root, artifact_specs["perseus-ledger"], _artifact_by_name(artifacts, "perseus-ledger"),
-        child_limits, monitor_dir=out, disk_limit_bytes=child_limits["file_bytes"], query=workload_query, aggregate_budget=aggregate_budget,
+        child_limits, runtime_digest=perseus_artifact["sha256"], monitor_dir=out, disk_limit_bytes=child_limits["file_bytes"], query=workload_query, aggregate_budget=aggregate_budget,
     )
     if restart_count == 0:
         flow["restart_recovery"] = {
@@ -2398,6 +2782,7 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
     ) if isinstance(rollback_spec, Mapping) else {"status": "not_run", "reason": "rollback_bundle_undeclared", "checked": False}
     probe: dict[str, Any]
     probe_result: dict[str, Any]
+    probe_destination = "https://example.invalid/disconnected-probe"
     try:
         with tempfile.TemporaryDirectory(prefix=".perseus-probe-", dir=str(out)) as probe_workspace_name:
             probe_workspace = Path(probe_workspace_name)
@@ -2412,7 +2797,7 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
                 "PERSEUS_WORKLOAD_QUERY_SHA256": workload_query_digest,
             }
             probe = _run_bounded_child(
-                [sys.executable, str(staged_probe_runtime), "--offline", "offline-probe", "https://example.invalid/disconnected-probe", "--json"],
+                [sys.executable, str(staged_probe_runtime), "--offline", "offline-probe", probe_destination, "--json"],
                 cwd=probe_workspace,
                 timeout=15,
                 env=probe_env,
@@ -2436,6 +2821,10 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
         ):
             raise AcceptanceError("offline_child_probe_failed")
         probe_result = _parse_child_probe_json(probe.get("stdout", ""))
+        expected_probe_result = _parent_derived_probe_result(probe_destination)
+        if probe_result != expected_probe_result:
+            raise AcceptanceError("offline_child_probe_evidence_invalid")
+        probe_result = expected_probe_result
     except (OSError, TypeError, ValueError, AcceptanceError):
         probe = {
             "status": "blocked", "exit_code": None, "offline_sandbox": None,
@@ -2489,10 +2878,10 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
     resource_envelope = _validate_resource_envelope(_resource_envelope(before_cpu, before_rss, before_disk, out, started), fixture)
     resource_envelope["aggregate_children"] = aggregate_budget.report()
     negative_results = [
-        {"cell": "vault", "status": flow["vault"]["status"], "reason": _bounded_reason(flow["vault"].get("reason"), "operation_completed")},
-        {"cell": "ledger", "status": flow["ledger"]["status"], "reason": _bounded_reason(flow["ledger"].get("reason"), "operation_completed")},
-        {"cell": "upgrade", "status": upgrade["status"], "reason": _bounded_reason(upgrade.get("reason"), "operation_completed")},
-        {"cell": "rollback", "status": rollback["status"], "reason": _bounded_reason(rollback.get("reason"), "operation_completed")},
+        {"cell": "vault", "status": flow["vault"]["status"], "reason": _negative_result_reason(flow["vault"])},
+        {"cell": "ledger", "status": flow["ledger"]["status"], "reason": _negative_result_reason(flow["ledger"])},
+        {"cell": "upgrade", "status": upgrade["status"], "reason": _negative_result_reason(upgrade)},
+        {"cell": "rollback", "status": rollback["status"], "reason": _negative_result_reason(rollback)},
     ]
     claims = {
         "local_offline_capable": "observed" if platform_check["status"] == "passed" and flow["perseus_render"]["status"] == "passed" and network["status"] == "passed" else "not_established",
@@ -2514,34 +2903,15 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
         "rollback": rollback,
     }
     manifest_commitment = _sha(manifest_core)
-    def _publication_projection(value: Any) -> Any:
-        if isinstance(value, Mapping):
-            projected: dict[str, Any] = {}
-            for key, item in value.items():
-                if key == "reason":
-                    if item is not None:
-                        projected[key] = _bounded_reason(item)
-                    continue
-                if key in {"stdout", "stderr", "argv", "command"}:
-                    continue
-                projected[key] = _publication_projection(item)
-            return projected
-        if isinstance(value, list):
-            return [_publication_projection(item) for item in value]
-        return value
-
     flow_commitment = {
-        key: _publication_projection(value)
+        key: _public_projection(value)
         for key, value in flow.items()
         if isinstance(value, Mapping)
     }
+    flow_projection_commitment = _sha(flow_commitment)
     resource_observations_commitment = _sha({
         "resource_envelope": resource_envelope,
-        "flow": {
-            key: _publication_projection(value)
-            for key, value in flow.items()
-            if isinstance(value, Mapping)
-        },
+        "flow": flow_commitment,
     })
     report_core = {
         "schema_version": _REPORT_SCHEMA,
@@ -2550,6 +2920,7 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
         "platform": platform_check,
         "artifacts": artifacts,
         "flow_commitment": flow_commitment,
+        "flow_projection_commitment": flow_projection_commitment,
         "network": network,
         "resource_contract": {
             "limits": fixture["platform"]["resource_limits"],
@@ -2576,6 +2947,7 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
     stable_flow_commitment = {key: _stable_projection(value) for key, value in flow_commitment.items()}
     stable_report_core = dict(report_core)
     stable_report_core["flow_commitment"] = stable_flow_commitment
+    stable_report_core["flow_projection_commitment"] = _sha(stable_flow_commitment)
     stable_report_core.pop("resource_envelope", None)
     stable_resource_contract = _stable_projection(stable_report_core["resource_contract"])
     stable_resource_contract.pop("resource_observations_commitment", None)
@@ -2606,6 +2978,7 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
         "stable_report_commitment": stable_report_commitment,
         "evidence_digest": evidence_digest,
     }
+    _validate_report_commitments(report)
     manifest = {**manifest_core, "manifest_commitment": manifest_commitment, "report_commitment": report_commitment, "stable_report_commitment": stable_report_commitment}
     (out / "manifest.json").write_text(_json(manifest) + "\n", encoding="utf-8")
     (out / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
