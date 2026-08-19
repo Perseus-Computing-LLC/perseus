@@ -102,6 +102,27 @@ CASE_FIELDS = frozenset({
     "acceptance", "exclusion_reasons", "comparability_key", "capability", "delivery",
     "observable_use", "outcome",
 })
+INSTRUMENTATION_FIELDS = frozenset({"status", "events", "version"})
+DELIVERY_FIELDS = frozenset({
+    "kind", "run_id", "arm_id", "status", "delivered", "fixture_id", "fixture_digest",
+})
+USE_FIELDS = frozenset({
+    "kind", "run_id", "arm_id", "status", "evidence_status", "marker_observed",
+    "lower_bound", "non_use_inferred",
+})
+OUTCOME_FIELDS = frozenset({
+    "kind", "run_id", "arm_id", "status", "correctness", "mutation_invalidated",
+    "workspace", "usage",
+})
+USAGE_FIELDS = frozenset({"calls", "time_ms", "input_tokens", "output_tokens", "cost_usd"})
+AUDIT_FIELDS = frozenset({"valid", "off_target", "mutations", "counts", "allowed_subtrees"})
+METRIC_FIELDS = frozenset({
+    "id", "kind", "unit", "status", "numerator", "denominator", "value", "missing_reason",
+})
+PUBLIC_REPORT_CLAIMS = [
+    "This offline synthetic run does not establish memory efficacy, productivity, win-rate, or significance.",
+    "Heterogeneous cohorts are not pooled into a single productivity score.",
+]
 
 
 def canonical_json(value: Any) -> str:
@@ -429,6 +450,22 @@ def _validate_manifest_shape(manifest: Any, *, base_dir: Path | None) -> dict[st
             raise ManifestError("arm role or memory_mode is unsupported")
         if not isinstance(item["credential_access"], bool) or not isinstance(item["integration_artifact"], bool):
             raise ManifestError("arm credential_access and integration_artifact must be booleans")
+        instrumentation = _mapping(item["instrumentation"], f"arms[{index}].instrumentation")
+        _unknown(instrumentation, INSTRUMENTATION_FIELDS, f"arms[{index}].instrumentation")
+        if "status" not in instrumentation:
+            raise ManifestError(f"arms[{index}].instrumentation.status is required")
+        instrumentation_status = _text(instrumentation["status"], f"arms[{index}].instrumentation.status", identifier=True)
+        if instrumentation_status not in {"none", "transcript_marker", "tool_trace"}:
+            raise ManifestError(f"arms[{index}].instrumentation.status is unsupported")
+        if "events" in instrumentation:
+            events = instrumentation["events"]
+            if not isinstance(events, list) or not all(isinstance(event, str) and event for event in events):
+                raise ManifestError(f"arms[{index}].instrumentation.events must be string labels")
+        instrumentation_norm: dict[str, Any] = {"status": instrumentation_status}
+        if "events" in instrumentation:
+            instrumentation_norm["events"] = list(instrumentation["events"])
+        if "version" in instrumentation:
+            instrumentation_norm["version"] = _text(instrumentation["version"], f"arms[{index}].instrumentation.version")
         fixture_id = item["fixture_id"]
         fixture_digest_value = item["fixture_digest"]
         if fixture_id is not None:
@@ -453,7 +490,7 @@ def _validate_manifest_shape(manifest: Any, *, base_dir: Path | None) -> dict[st
         arms.append({
             "id": arm_id, "role": role, "memory_mode": mode, "fixture_id": fixture_id,
             "fixture_digest": fixture_digest_value, "credential_access": item["credential_access"],
-            "integration_artifact": item["integration_artifact"], "instrumentation": _copy_json(item["instrumentation"]),
+            "integration_artifact": item["integration_artifact"], "instrumentation": instrumentation_norm,
         })
     if roles.count("control") != 1 or roles.count("treatment") != 1:
         raise ManifestError("exactly one control and one treatment arm are required")
@@ -942,6 +979,16 @@ def derive_paired_deltas(result: Mapping[str, Any]) -> list[dict[str, Any]]:
     return output
 
 
+def _report_projection(result: Mapping[str, Any]) -> dict[str, Any]:
+    deltas = result.get("paired_deltas", [])
+    return {
+        "observed": {"case_count": len(result.get("cases", [])), "metric_count": len(result.get("metrics", []))},
+        "derived_paired_deltas": _copy_json(deltas),
+        "exploratory": [item["cohort_id"] for item in deltas if item.get("exploratory")],
+        "claims_not_established": list(PUBLIC_REPORT_CLAIMS),
+    }
+
+
 def build_result(
     manifest: Mapping[str, Any], cases: list[Mapping[str, Any]], metrics: list[Mapping[str, Any]],
     *, build_under_test: Mapping[str, Any], run_id: str = "synthetic-run-0001",
@@ -962,15 +1009,7 @@ def build_result(
     result["accepted_count"] = sum(case.get("acceptance") == "accepted" for case in result["cases"])
     result["excluded_count"] = sum(case.get("acceptance") == "excluded" for case in result["cases"])
     result["paired_deltas"] = derive_paired_deltas(result)
-    result["report"] = {
-        "observed": {"case_count": len(result["cases"]), "metric_count": len(result["metrics"])},
-        "derived_paired_deltas": result["paired_deltas"],
-        "exploratory": [item["cohort_id"] for item in result["paired_deltas"] if item["exploratory"]],
-        "claims_not_established": [
-            "This offline synthetic run does not establish memory efficacy, productivity, win-rate, or significance.",
-            "Heterogeneous cohorts are not pooled into a single productivity score.",
-        ],
-    }
+    result["report"] = _report_projection(result)
     result["result_digest"] = sha256_value(result)
     return result
 
@@ -1012,6 +1051,7 @@ def validate_result(result: Any, manifest: Mapping[str, Any] | None = None) -> d
         raise ResultValidationError("build_under_test must be separately identified")
     if not isinstance(build["id"], str) or not build["id"] or not _HEX40.fullmatch(str(build["commit"])) or not _HEX64.fullmatch(str(build["digest"])):
         raise ResultValidationError("build_under_test identity or digest is invalid")
+    expected_manifest: dict[str, Any] | None = None
     if manifest is not None:
         expected_manifest = validate_manifest(manifest)
         if value["challenge_id"] != expected_manifest["challenge"]["id"] or value["manifest_digest"] != expected_manifest["manifest_digest"]:
@@ -1019,11 +1059,13 @@ def validate_result(result: Any, manifest: Mapping[str, Any] | None = None) -> d
         expected_key = build_comparability_key(expected_manifest)
         if value["comparability_key"] != expected_key:
             raise ResultValidationError("comparability key is not bound to challenge, both arms, and resources")
+        if value["analysis"] != expected_manifest["analysis"]:
+            raise ResultValidationError("result analysis is not bound to the preregistration")
         arm_map = {arm["id"]: arm for arm in expected_manifest["arms"]}
     else:
         arm_map = {}
 
-    pair_groups: dict[str, set[str]] = {}
+    pair_groups: dict[str, list[str]] = {}
     seen_cases: set[str] = set()
     for index, raw_case in enumerate(value["cases"]):
         case = _mapping(raw_case, f"result.cases[{index}]", ResultValidationError)
@@ -1037,6 +1079,10 @@ def validate_result(result: Any, manifest: Mapping[str, Any] | None = None) -> d
         if case_id in seen_cases:
             raise ResultValidationError("case ids must be unique")
         seen_cases.add(case_id)
+        if any(not isinstance(case[field], str) or not case[field].strip() for field in ("case_id", "pair_id", "cohort_id", "challenge_id", "arm_id", "role")):
+            raise ResultValidationError("case identity fields must be non-empty strings")
+        if case["challenge_id"] != value["challenge_id"]:
+            raise ResultValidationError("case challenge binding mismatch")
         if case["status"] not in {"completed", "failed", "cancelled", "invalidated", "excluded"}:
             raise ResultValidationError("case status is invalid")
         if case["acceptance"] not in {"accepted", "excluded"}:
@@ -1051,36 +1097,82 @@ def validate_result(result: Any, manifest: Mapping[str, Any] | None = None) -> d
             raise ResultValidationError("accepted cases cannot carry exclusion reasons")
         if case["comparability_key"] != value["comparability_key"]:
             raise ResultValidationError("paired identity mismatch")
-        if arm_map:
+        if arm_map and expected_manifest is not None:
             arm = arm_map.get(case["arm_id"])
             if arm is None or case["role"] != arm["role"]:
                 raise ResultValidationError("case arm is not in the manifest")
+            if case["cohort_id"] != expected_manifest["challenge"]["cohort_id"]:
+                raise ResultValidationError("case cohort binding mismatch")
         capability = _mapping(case["capability"], f"case {index}.capability", ResultValidationError)
+        if set(capability) - {"status", "reason"}:
+            raise ResultValidationError("capability has unknown fields")
         status = capability.get("status")
         if status not in {"available", "partial", "unavailable", "not_applicable"}:
             raise ResultValidationError("case capability status must be explicit")
         if status in {"partial", "unavailable"} and not isinstance(capability.get("reason"), str):
             raise ResultValidationError("degraded capability needs a reason")
         delivery = _mapping(case["delivery"], f"case {index}.delivery", ResultValidationError)
+        if set(delivery) != DELIVERY_FIELDS:
+            raise ResultValidationError("delivery receipt has an incomplete or unknown schema")
+        if delivery.get("kind") != "delivery" or delivery.get("run_id") != value["run_id"] or delivery.get("arm_id") != case["arm_id"]:
+            raise ResultValidationError("delivery receipt binding mismatch")
+        if not isinstance(delivery.get("delivered"), bool) or delivery.get("status") not in {"source_only", "delivered"}:
+            raise ResultValidationError("delivery receipt status is invalid")
+        if delivery.get("fixture_digest") is not None and not _HEX64.fullmatch(str(delivery["fixture_digest"])):
+            raise ResultValidationError("delivery fixture digest is invalid")
+        if arm_map and expected_manifest is not None:
+            expected_arm = arm_map[case["arm_id"]]
+            if expected_arm["role"] == "control":
+                if delivery["delivered"] or delivery["fixture_id"] is not None or delivery["fixture_digest"] is not None or delivery["status"] != "source_only":
+                    raise ResultValidationError("control delivery is contradictory")
+            elif expected_arm["role"] == "treatment":
+                memory = expected_manifest["fixtures"]["memory"]
+                if not delivery["delivered"] or delivery["fixture_id"] != memory["id"] or delivery["fixture_digest"] != memory["digest"] or delivery["status"] != "delivered":
+                    raise ResultValidationError("treatment delivery is not bound to the memory fixture")
         use = _mapping(case["observable_use"], f"case {index}.observable_use", ResultValidationError)
+        if set(use) != USE_FIELDS:
+            raise ResultValidationError("observable-use receipt has an incomplete or unknown schema")
+        if use.get("kind") != "observable_use" or use.get("run_id") != value["run_id"] or use.get("arm_id") != case["arm_id"]:
+            raise ResultValidationError("observable-use receipt binding mismatch")
+        if use.get("marker_observed") not in {True, False, None} or not isinstance(use.get("non_use_inferred"), bool):
+            raise ResultValidationError("observable-use receipt types are invalid")
+        expected_use_status = "observed" if use["marker_observed"] is True else "not_observed"
+        if use["status"] != expected_use_status or use["non_use_inferred"] is not False or use["lower_bound"] != (1 if use["marker_observed"] is True else 0):
+            raise ResultValidationError("observable-use receipt contradicts its evidence")
         outcome = _mapping(case["outcome"], f"case {index}.outcome", ResultValidationError)
-        if delivery.get("kind") != "delivery" or use.get("kind") != "observable_use" or outcome.get("kind") != "outcome":
+        if set(outcome) != OUTCOME_FIELDS:
+            raise ResultValidationError("outcome receipt has an incomplete or unknown schema")
+        if outcome.get("kind") != "outcome" or outcome.get("run_id") != value["run_id"] or outcome.get("arm_id") != case["arm_id"]:
             raise ResultValidationError("delivery, observable-use, and outcome receipts must remain independent")
         if use.get("non_use_inferred") is not False or "used" in use:
             raise ResultValidationError("observable-use receipt must never infer non-use")
         correctness = _mapping(outcome.get("correctness"), f"case {index}.outcome.correctness", ResultValidationError)
         _validate_measure(correctness, f"case {index}.outcome.correctness")
-        audit = outcome.get("workspace", {}).get("mutation_audit") if isinstance(outcome.get("workspace"), Mapping) else None
+        if outcome.get("status") not in {"completed", "invalidated"} or not isinstance(outcome.get("mutation_invalidated"), bool):
+            raise ResultValidationError("outcome status is invalid")
+        workspace = _mapping(outcome.get("workspace"), f"case {index}.outcome.workspace", ResultValidationError)
+        if set(workspace) != {"mutation_audit"}:
+            raise ResultValidationError("outcome workspace schema is invalid")
+        audit = workspace.get("mutation_audit")
+        if isinstance(audit, Mapping) and set(audit) - AUDIT_FIELDS:
+            raise ResultValidationError("mutation audit has unknown fields")
         if not isinstance(audit, Mapping) or not isinstance(audit.get("valid"), bool) or not isinstance(audit.get("off_target"), list):
             raise ResultValidationError("outcome mutation audit is incomplete")
+        if audit["valid"] is True and audit["off_target"]:
+            raise ResultValidationError("valid mutation audit cannot contain off-target mutations")
+        if outcome["mutation_invalidated"] != (audit["valid"] is False):
+            raise ResultValidationError("outcome mutation invalidation contradicts its audit")
+        usage = _mapping(outcome.get("usage"), f"case {index}.outcome.usage", ResultValidationError)
+        if set(usage) != USAGE_FIELDS:
+            raise ResultValidationError("outcome usage schema is invalid")
         if case["acceptance"] == "accepted" and audit["valid"] is not True:
             raise ResultValidationError("accepted cases cannot contain an invalidated mutation audit")
         if audit["valid"] is False and (case["acceptance"] != "excluded" or correctness.get("value") != 0.0):
             raise ResultValidationError("off-target mutation must invalidate and zero an excluded case")
         for field in ("calls", "time_ms", "input_tokens", "output_tokens", "cost_usd"):
-            _validate_measure(outcome.get("usage", {}).get(field), f"case {index}.outcome.usage.{field}")
-        pair_groups.setdefault(str(case["pair_id"]), set()).add(str(case["role"]))
-    if any(roles != {"control", "treatment"} for roles in pair_groups.values()):
+            _validate_measure(usage.get(field), f"case {index}.outcome.usage.{field}")
+        pair_groups.setdefault(str(case["pair_id"]), []).append(str(case["role"]))
+    if any(len(roles) != 2 or sorted(roles) != ["control", "treatment"] for roles in pair_groups.values()):
         raise ResultValidationError("every pair must contain exactly control and treatment")
     if value["accepted_count"] != sum(case["acceptance"] == "accepted" for case in value["cases"]):
         raise ResultValidationError("accepted_count denominator is inconsistent")
@@ -1089,6 +1181,8 @@ def validate_result(result: Any, manifest: Mapping[str, Any] | None = None) -> d
 
     for index, raw_metric in enumerate(value["metrics"]):
         metric = _mapping(raw_metric, f"result.metrics[{index}]", ResultValidationError)
+        if set(metric) - METRIC_FIELDS:
+            raise ResultValidationError(f"metric {index} has unknown fields")
         for field in ("id", "kind", "unit", "status", "numerator", "denominator", "value"):
             if field not in metric:
                 raise ResultValidationError(f"metric {index} missing {field}")
@@ -1116,6 +1210,12 @@ def validate_result(result: Any, manifest: Mapping[str, Any] | None = None) -> d
         raise ResultValidationError("claims-not-established section cannot be empty")
     if not isinstance(value["paired_deltas"], list):
         raise ResultValidationError("paired_deltas must be a list")
+    expected_deltas = derive_paired_deltas(value)
+    if value["paired_deltas"] != expected_deltas:
+        raise ResultValidationError("paired_deltas are not recomputed from accepted cases")
+    expected_report = _report_projection({**value, "paired_deltas": expected_deltas})
+    if report != expected_report:
+        raise ResultValidationError("report is not recomputed from observed result fields")
     expected_digest = sha256_value({key: value[key] for key in value if key != "result_digest"})
     if value["result_digest"] != expected_digest:
         raise ResultValidationError("result_digest does not match result bytes")
@@ -1214,7 +1314,13 @@ def verify_public_evidence(value: Mapping[str, Any]) -> bool:
         return False
     digest = value.get("evidence_digest")
     evidence = value.get("evidence")
-    return isinstance(digest, str) and _HEX64.fullmatch(digest) is not None and digest == sha256_value(evidence)
+    sanitized = sanitize_public_evidence(evidence)
+    return (
+        isinstance(digest, str)
+        and _HEX64.fullmatch(digest) is not None
+        and sanitized == evidence
+        and digest == sha256_value(evidence)
+    )
 
 
 def run_smoke(manifest_path: str | os.PathLike[str]) -> dict[str, Any]:
