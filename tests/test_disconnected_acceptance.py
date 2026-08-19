@@ -731,6 +731,30 @@ def test_seccomp_contains_python_s_without_sitecustomize(tmp_path):
     assert result["offline_sandbox"] == "seccomp"
 
 
+def test_offline_required_must_be_a_boolean(tmp_path):
+    with pytest.raises(harness.AcceptanceError, match="offline_policy"):
+        harness._run_bounded_child(
+            [sys.executable, "-c", "print('ok')"],
+            cwd=tmp_path,
+            timeout=5,
+            env={"PERSEUS_OFFLINE": "0"},
+            offline_required=0,
+        )
+
+
+def test_guard_cleanup_failure_is_blocked(tmp_path, monkeypatch):
+    monkeypatch.setattr(harness.shutil, "rmtree", lambda *_args, **_kwargs: None)
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", "print('ok')"],
+        cwd=tmp_path,
+        timeout=5,
+        env={"PERSEUS_OFFLINE": "1", "PERSEUS_OFFLINE_RUNTIME": str(ROOT / "perseus.py")},
+        offline_required=True,
+    )
+    assert result["status"] == "blocked"
+    assert result["cleanup_failed"] is True
+
+
 def test_seccomp_contains_nested_python_s_descendant(tmp_path):
     nested = "import socket; socket.socket()"
     command = [

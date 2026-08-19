@@ -71,13 +71,19 @@ _OFFLINE_SECCOMP_SYSCALLS = (
     51,   # getsockname
     52,   # getpeername
     53,   # socketpair
+    102,  # socketcall (32-bit ABI)
     275,  # splice
     276,  # tee
     278,  # vmsplice
     288,  # accept4
     299,  # recvmmsg
     307,  # sendmmsg
+    425,  # io_uring_setup
+    426,  # io_uring_enter
+    427,  # io_uring_register
 )
+_OFFLINE_AUDIT_ARCH_X86_64 = 0xC000003E
+_OFFLINE_X32_SYSCALL_BIT = 0x40000000
 
 
 def _install_offline_seccomp() -> None:
@@ -100,10 +106,19 @@ def _install_offline_seccomp() -> None:
 
     bpf_ld_w_abs = 0x20
     bpf_jmp_jeq_k = 0x15
+    bpf_jmp_jge_k = 0x25
     bpf_ret_k = 0x06
     seccomp_ret_errno = 0x00050001  # SECCOMP_RET_ERRNO | EPERM
+    seccomp_ret_kill_process = 0x80000000  # SECCOMP_RET_KILL_PROCESS
     seccomp_ret_allow = 0x7FFF0000  # SECCOMP_RET_ALLOW
-    instructions = [_SockFilter(bpf_ld_w_abs, 0, 0, 0)]
+    instructions = [
+        _SockFilter(bpf_ld_w_abs, 0, 0, 4),  # seccomp_data.arch
+        _SockFilter(bpf_jmp_jeq_k, 1, 0, _OFFLINE_AUDIT_ARCH_X86_64),
+        _SockFilter(bpf_ret_k, 0, 0, seccomp_ret_kill_process),
+        _SockFilter(bpf_ld_w_abs, 0, 0, 0),  # seccomp_data.nr
+        _SockFilter(bpf_jmp_jge_k, 0, 1, _OFFLINE_X32_SYSCALL_BIT),
+        _SockFilter(bpf_ret_k, 0, 0, seccomp_ret_errno),
+    ]
     for syscall_number in _OFFLINE_SECCOMP_SYSCALLS:
         instructions.append(_SockFilter(bpf_jmp_jeq_k, 0, 1, syscall_number))
         instructions.append(_SockFilter(bpf_ret_k, 0, 0, seccomp_ret_errno))
@@ -656,9 +671,11 @@ def _run_bounded_child(
         raise AcceptanceError("disk_limit_invalid")
     monitor_roots = tuple(monitor_dirs or (() if monitor_dir is None else (monitor_dir,)))
     offline_requested = env.get("PERSEUS_OFFLINE") == "1"
+    if offline_required is not None and not isinstance(offline_required, bool):
+        raise AcceptanceError("offline_policy_invalid")
     if offline_required is False and offline_requested:
         raise AcceptanceError("offline_guard_required")
-    require_offline = offline_requested if offline_required is None else bool(offline_required)
+    require_offline = offline_requested if offline_required is None else offline_required
     if require_offline and not sys.platform.startswith("linux"):
         raise AcceptanceError("offline_sandbox_unavailable")
     child_env = dict(env)
@@ -770,6 +787,17 @@ def _run_bounded_child(
         status = "resource_limit"
     offline_sandbox = "seccomp" if require_offline else None
     offline_report = _read_offline_report(report_path) if report_path is not None else None
+    guard_cleanup_failed = False
+    if guard_dir is not None:
+        try:
+            shutil.rmtree(guard_dir, ignore_errors=False)
+        except BaseException:
+            guard_cleanup_failed = True
+        if guard_dir.exists():
+            guard_cleanup_failed = True
+    if guard_cleanup_failed:
+        cleanup_failed = True
+        status = "blocked" if require_offline else "failed"
     if require_offline and offline_sandbox != "seccomp" and status == "passed":
         status = "blocked"
     result = {
@@ -786,9 +814,8 @@ def _run_bounded_child(
         "resource_limits": limits,
         "offline_sandbox": offline_sandbox,
         "offline_report": offline_report,
+        "cleanup_failed": cleanup_failed or guard_cleanup_failed,
     }
-    if guard_dir is not None:
-        shutil.rmtree(guard_dir, ignore_errors=True)
     return result
 
 
