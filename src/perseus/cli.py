@@ -952,6 +952,12 @@ for _spec in DIRECTIVE_REGISTRY.values():
         )
 
 if __name__ == "__main__":
+    if "--offline" in sys.argv:
+        try:
+            install_inherited_seccomp()
+        except BaseException:
+            print("PERSEUS OFFLINE BLOCKED: offline_seccomp_unavailable", file=sys.stderr)
+            sys.exit(125)
     rc = main()
     if isinstance(rc, int):
         sys.exit(rc)

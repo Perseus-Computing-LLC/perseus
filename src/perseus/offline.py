@@ -14,6 +14,7 @@ import json as _off_json
 import os as _off_os
 import re as _off_re
 import socket as _off_socket
+import sys as _off_sys
 from typing import Any, Iterator, Mapping
 
 _OFF_ENV = "PERSEUS_OFFLINE"
@@ -25,6 +26,12 @@ _OFF_MAX_ATTEMPTS = 64
 _OFF_ATTEMPTS_TRUNCATED = False
 _OFF_ENV_WAS_SET = False
 _OFF_ENV_VALUE: str | None = None
+_OFF_SECCOMP_SYSCALLS = (
+    40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53,
+    102, 275, 276, 278, 288, 299, 307, 425, 426, 427,
+)
+_OFF_AUDIT_ARCH_X86_64 = 0xC000003E
+_OFF_X32_SYSCALL_BIT = 0x40000000
 _OFF_SENSITIVE_RE = _off_re.compile(
     r"(?i)(?:bearer\s+|basic\s+|password\s*=|passwd\s*=|secret\s*=|"
     r"token\s*=|api[_-]?key\s*=|credential\s*=|://[^/\s]*@)"
@@ -33,6 +40,39 @@ _OFF_SENSITIVE_RE = _off_re.compile(
 
 class OfflineNetworkError(ConnectionError):
     """Raised when offline mode blocks a non-local network operation."""
+
+
+def install_inherited_seccomp() -> None:
+    """Install an inherited fail-closed network filter for direct CLI use."""
+    if not _off_os.name == "posix" or not _off_sys.platform.startswith("linux") or _off_os.uname().machine.casefold() not in {"x86_64", "amd64"}:
+        raise RuntimeError("offline_seccomp_unavailable")
+    import ctypes as _off_ctypes
+
+    class _SockFilter(_off_ctypes.Structure):
+        _fields_ = [("code", _off_ctypes.c_ushort), ("jt", _off_ctypes.c_ubyte), ("jf", _off_ctypes.c_ubyte), ("k", _off_ctypes.c_uint32)]
+
+    class _SockFprog(_off_ctypes.Structure):
+        _fields_ = [("len", _off_ctypes.c_ushort), ("filter", _off_ctypes.POINTER(_SockFilter))]
+
+    instructions = [
+        _SockFilter(0x20, 0, 0, 4),
+        _SockFilter(0x15, 1, 0, _OFF_AUDIT_ARCH_X86_64),
+        _SockFilter(0x06, 0, 0, 0x80000000),
+        _SockFilter(0x20, 0, 0, 0),
+        _SockFilter(0x25, 0, 1, _OFF_X32_SYSCALL_BIT),
+        _SockFilter(0x06, 0, 0, 0x00050001),
+    ]
+    for syscall_number in _OFF_SECCOMP_SYSCALLS:
+        instructions.extend((_SockFilter(0x15, 0, 1, syscall_number), _SockFilter(0x06, 0, 0, 0x00050001)))
+    instructions.append(_SockFilter(0x06, 0, 0, 0x7FFF0000))
+    array_type = _SockFilter * len(instructions)
+    array = array_type(*instructions)
+    program = _SockFprog(len(instructions), array)
+    libc = _off_ctypes.CDLL(None, use_errno=True)
+    libc.prctl.argtypes = [_off_ctypes.c_int, _off_ctypes.c_ulong, _off_ctypes.c_ulong, _off_ctypes.c_ulong, _off_ctypes.c_ulong]
+    libc.prctl.restype = _off_ctypes.c_int
+    if libc.prctl(38, 1, 0, 0, 0) != 0 or libc.prctl(22, 2, _off_ctypes.addressof(program), 0, 0) != 0:
+        raise RuntimeError("offline_seccomp_unavailable")
 
 
 def _off_host(value: Any) -> str:
