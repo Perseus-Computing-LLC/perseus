@@ -1,0 +1,13 @@
+{
+  "schema_version": "perseus-retrieval-replay-envelope/v1",
+  "fixture_id": "retrieval-replay-synthetic",
+  "profile": "chronological_sequence_v1",
+  "top_k": 3,
+  "status": "complete",
+  "candidates": [
+    {"id": "memory-a", "wire_rank": 2, "final_rank": 1, "source_ref": "synthetic:a"},
+    {"id": "memory-b", "wire_rank": 1, "final_rank": 2, "source_ref": "synthetic:b"}
+  ],
+  "scores": null,
+  "raw_bodies": false
+}

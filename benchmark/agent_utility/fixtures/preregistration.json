@@ -1,0 +1,140 @@
+{
+  "analysis": {
+    "cohort_policy": "separate_no_pooling",
+    "continuous_metric_min_pairs": 10,
+    "min_pairs": 3,
+    "paired_metrics": [
+      "correctness",
+      "calls",
+      "time_ms",
+      "input_tokens",
+      "output_tokens",
+      "cost_usd"
+    ]
+  },
+  "arms": [
+    {
+      "credential_access": false,
+      "fixture_digest": null,
+      "fixture_id": null,
+      "id": "control",
+      "instrumentation": {
+        "status": "none"
+      },
+      "integration_artifact": false,
+      "memory_mode": "source_only",
+      "role": "control"
+    },
+    {
+      "credential_access": false,
+      "fixture_digest": "50562ad8b09eabd7bd4127e39b36012ae937e6f948cf986ecb5c7bead23d6acb",
+      "fixture_id": "memory-fixture",
+      "id": "treatment",
+      "instrumentation": {
+        "status": "none"
+      },
+      "integration_artifact": true,
+      "memory_mode": "frozen_fixture",
+      "role": "treatment"
+    }
+  ],
+  "challenge": {
+    "allowed_output_subtrees": [
+      "out"
+    ],
+    "cohort_id": "synthetic-cohort-a",
+    "fixture_digest": "581dc67ee9b3e1548ed6db7f694faca0a0678f34cbdafed2baf408840d44a6fe",
+    "id": "synthetic-task-001",
+    "prompt_digest": "3235f9de49c9a23d3bb4ca1d7805d807684e8098d8e2defb66254b8a49e76a06",
+    "task_digest": "67c44a00d82250c41bb3968ba9ee89163c117a3f5d34846cd7dba255587d00a1",
+    "toolchain_paths": [
+      ".toolchain"
+    ],
+    "visible_prompt": "Implement the tiny fixture task and preserve all files outside the declared output subtree."
+  },
+  "fixtures": {
+    "capability": {
+      "digest": "96c726a7dc077d9011dfd46298abd5763dbd5cba7e332311c859ad0834c44a7c",
+      "format": "json",
+      "id": "portable-capability-synthetic",
+      "path": "capability.json",
+      "schema_version": "perseus-memory-capability-fixture/v1"
+    },
+    "memory": {
+      "digest": "50562ad8b09eabd7bd4127e39b36012ae937e6f948cf986ecb5c7bead23d6acb",
+      "format": "json",
+      "id": "memory-fixture",
+      "path": "memory.json",
+      "schema_version": "perseus-frozen-memory-context/v1"
+    },
+    "replay": {
+      "digest": "fcd9f9aea98aa1a83d76c30a5815ce0a855561cd5fe74bdd898768f56a83725b",
+      "format": "json",
+      "id": "retrieval-replay-synthetic",
+      "path": "replay.json",
+      "schema_version": "perseus-retrieval-replay-envelope/v1"
+    }
+  },
+  "harness": {
+    "digest": "9ac44fc2a19e9fd795dd937cad277eb5172b95330bed025b63efaa47a47a5824",
+    "id": "perseus-agent-utility-harness",
+    "version": "v1"
+  },
+  "image": {
+    "digest": "bcfd2e05b0a8b331284cd76831774f700ca97c37b36140fdb160ad608e9ec259",
+    "reference": "python:3.12-slim"
+  },
+  "limits": {
+    "max_cost_usd": 0.25,
+    "max_input_tokens": 4096,
+    "max_output_tokens": 2048,
+    "max_turns": 4
+  },
+  "manifest_digest": "56af78e4aa12ee5a7f9f4f58a3f9a6e9ed104b181c9e80b607ae7caf8b16373b",
+  "model": {
+    "name": "offline-synthetic-agent",
+    "provider": "fixture",
+    "version": "v1"
+  },
+  "preregistration_id": "agent-utility-synthetic-v1",
+  "resources": {
+    "cpu_millis": 1000,
+    "disk_mb": 256,
+    "memory_mb": 512,
+    "network": "disabled",
+    "timeout_seconds": 30.0
+  },
+  "schema_version": "perseus-agent-utility-preregistration/v1",
+  "source": {
+    "commit": "2c7c472019b7788c107093314bb542fa3ad9f355",
+    "materialization": "gitless",
+    "repository": "fixture://perseus-agent-utility-project",
+    "snapshot_path": "source",
+    "tree_digest": "0a9e86564f2b6a504bd49728d445323fa48e8a8df0c1a499e204467634529c71"
+  },
+  "spend_fence": {
+    "credential_identity": "dedicated-agent-utility-synthetic-key",
+    "per_key_budget_usd": 0.25,
+    "required_between_arm_drain": true,
+    "shared_headroom_usd": 1.0
+  },
+  "stopping_rule": {
+    "kind": "verifier_pass_or_limit",
+    "max_turns": 4
+  },
+  "verifier": {
+    "digest": "7b7699e07e7febb4085142ebaf900c208baf3f77f4bedccce605e3ee93973319",
+    "hidden": true,
+    "id": "synthetic-deterministic-verifier",
+    "input_binding": {
+      "challenge_id": "synthetic-task-001",
+      "fixture_digest": "581dc67ee9b3e1548ed6db7f694faca0a0678f34cbdafed2baf408840d44a6fe",
+      "source_commit": "2c7c472019b7788c107093314bb542fa3ad9f355",
+      "task_digest": "67c44a00d82250c41bb3968ba9ee89163c117a3f5d34846cd7dba255587d00a1"
+    },
+    "mutable": false,
+    "owner": "runner",
+    "path": "verifier.json",
+    "version": "v1"
+  }
+}

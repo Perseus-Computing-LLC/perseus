@@ -1,0 +1,8 @@
+{
+  "schema_version": "perseus-frozen-memory-context/v1",
+  "fixture_id": "memory-fixture",
+  "capability_fixture": "portable-capability-synthetic",
+  "replay_fixture": "retrieval-replay-synthetic",
+  "scope_digest": "synthetic-scope-only",
+  "raw_bodies": false
+}
