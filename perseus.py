@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "8610f04-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "17f53e2-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -44542,9 +44542,10 @@ def _sl_sensitive(value: str) -> bool:
     """Return whether a scalar looks like it carries a credential."""
     candidates = [value]
     decoded = value
-    # Decode a small, bounded number of layers so encoded URL/PURL userinfo
-    # and query keys cannot evade the credential checks below.
-    for _ in range(3):
+    # Decode until stable, bounded by the scalar length. Each successful
+    # percent-decoding pass must consume at least one encoded triplet, so this
+    # remains bounded for the 1024-character input limit.
+    for _ in range(min(len(value) + 1, 1025)):
         next_decoded = unquote(decoded)
         if next_decoded == decoded:
             break
@@ -44623,6 +44624,8 @@ def _sl_id(value: Any, field: str, *, fallback: str = "") -> str:
 
 def _sl_safe_locator(value: Any, field: str) -> str:
     """Keep public identifiers; hash credential-bearing scalar values."""
+    if not isinstance(value, str):
+        raise SBOMLineageError(f"{field} must be a string")
     text = _sl_text(value, field, required=True, limit=1024)
     if _sl_sensitive(text):
         return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -46042,10 +46045,15 @@ def _sl_loaded_lineage(lineage: Mapping[str, Any]) -> dict[str, Any]:
     if full_component_ids != set(component_map):
         raise SBOMLineageError("lineage component nodes are not bound to all documents")
     checked_edges = []
+    edge_endpoints: set[tuple[str, str]] = set()
     for edge in edges:
         checked = _sl_validate_relationship(edge, field="lineage.edge")
         if checked["from"] not in node_ids or checked["to"] not in node_ids:
             raise SBOMLineageError("lineage edge endpoint is not bound to a node")
+        endpoint = (checked["from"], checked["to"])
+        if endpoint in edge_endpoints:
+            raise SBOMLineageError("lineage contains duplicate edge endpoints")
+        edge_endpoints.add(endpoint)
         checked_edges.append(checked)
     coverage = lineage.get("coverage")
     _sl_require_keys(coverage, {"state", "unknown", "truncated"}, set(), "lineage.coverage")
@@ -46270,6 +46278,9 @@ def _sl_validate_query_result(query_result: Mapping[str, Any], authoritative_lin
         _sl_id(node_id, "matched_node")
     if not set(matched_nodes).issubset(authority_node_ids):
         raise SBOMLineageError("query matched nodes are not bound to the authoritative lineage")
+    expected_matches = _sl_query_matches(lineage_nodes, query)[:_SL_MAX_QUERY_MATCHES]
+    if matched_nodes != expected_matches:
+        raise SBOMLineageError("query matched nodes are inconsistent with the query text")
     impacted = _sl_list(query_result.get("impacted_artifacts"), "impacted_artifacts")
     if len(impacted) > _SL_MAX_QUERY_RESULTS:
         raise SBOMLineageError("impacted_artifacts exceeds its bound")

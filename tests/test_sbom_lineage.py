@@ -123,6 +123,60 @@ def test_credential_bearing_source_and_references_are_not_persisted():
     assert document["source_ref"].startswith("sha256:")
 
 
+def test_percent_encoded_secrets_are_redacted_from_all_reference_depths():
+    payload = json.loads(_load("spdx-app.json"))
+    payload["packages"][0]["externalRefs"].append(
+        {
+            "referenceCategory": "SECURITY",
+            "referenceType": "website",
+            "referenceLocator": "https://example.invalid/?%25252561pi_key=RAW_DEEP",
+        }
+    )
+    document = perseus.ingest_sbom_document(payload, source_ref="artifact:a%25252574oken:RAW_DEEP_SOURCE")
+    serialized = json.dumps(document, sort_keys=True)
+    assert "RAW_DEEP" not in serialized
+    assert "api_key" not in serialized.casefold()
+    assert document["source_ref"].startswith("sha256:")
+
+
+def test_raw_reference_scalars_must_be_strings():
+    payload = json.loads(_load("cyclonedx-app.json"))
+    payload["components"][0]["purl"] = 123
+    with pytest.raises(perseus.SBOMLineageError, match="purl.*string|component_identifier.*string"):
+        perseus.ingest_sbom_document(payload)
+
+    payload = json.loads(_load("cyclonedx-app.json"))
+    payload["components"][0]["externalReferences"] = [{"type": "website", "url": {"note": "RAW_URL_OBJECT"}}]
+    with pytest.raises(perseus.SBOMLineageError, match="reference_locator.*string"):
+        perseus.ingest_sbom_document(payload)
+
+
+def test_query_result_must_bind_query_text_to_matched_nodes():
+    document = perseus.ingest_sbom_document(_load("spdx-app.json"), source_ref="artifact:query-binding")
+    lineage = perseus.build_sbom_lineage([document], edges=_lineage_edges())
+    result = perseus.query_sbom_lineage(lineage, "CVE-2021-44228")
+    forged = dict(result)
+    forged["query"] = "term-that-does-not-match"
+    forged.pop("query_digest")
+    forged["query_digest"] = perseus._sl_sha(forged)
+    verification = perseus.verify_sbom_lineage_query(forged, lineage)
+    assert verification["valid"] is False
+
+
+def test_persisted_lineage_rejects_duplicate_endpoint_edges():
+    document = perseus.ingest_sbom_document(_load("spdx-app.json"), source_ref="artifact:duplicate-edge")
+    lineage = perseus.build_sbom_lineage([document], edges=_lineage_edges())
+    forged = json.loads(json.dumps(lineage))
+    duplicate = dict(forged["edges"][0])
+    duplicate["type"] = "alternate_relation"
+    forged["edges"].append(duplicate)
+    unsigned = dict(forged)
+    unsigned.pop("lineage_digest")
+    forged["lineage_digest"] = perseus._sl_sha(unsigned)
+    verification = perseus.verify_sbom_lineage(forged)
+    assert verification["valid"] is False
+
+
 def test_untrusted_normalized_documents_and_conflicting_duplicate_ids_fail_closed():
     document = perseus.ingest_sbom_document(_load("spdx-app.json"), source_ref="artifact:fixture")
     tampered = json.loads(json.dumps(document))
