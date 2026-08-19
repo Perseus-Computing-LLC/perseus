@@ -18,6 +18,7 @@ from typing import Any, Iterator, Mapping
 
 _OFF_ENV = "PERSEUS_OFFLINE"
 _OFF_ACTIVE = False
+_OFF_CONTEXT_DEPTH = 0
 _OFF_ATTEMPTS: list[dict[str, Any]] = []
 _OFF_ORIGINALS: dict[str, Any] = {}
 _OFF_MAX_ATTEMPTS = 64
@@ -91,7 +92,18 @@ def _off_safe_destination(destination: Any) -> str:
         text = _off_host(destination) if isinstance(destination, (tuple, list, bytes, str)) else str(destination)
     except Exception:
         text = "<unprintable>"
-    if _OFF_SENSITIVE_RE.search(text) or len(text) > 256:
+    # A destination is evidence, not a diagnostic dump. Preserve a bare
+    # public host for useful policy reports, but never emit local paths,
+    # URL paths/query strings, or values that merely look like credentials.
+    lowered = text.casefold()
+    has_url_detail = "://" in text and any(mark in text.split("://", 1)[1] for mark in ("/", "?", "#", "@"))
+    looks_like_secret = bool(_OFF_SENSITIVE_RE.search(text)) or any(
+        token in lowered for token in ("secret", "token", "password", "passwd", "credential", "api_key", "apikey")
+    )
+    is_local_path = text.startswith(("/", "\\", "\x00"))
+    safe_bare_host = bool(_off_re.fullmatch(r"[A-Za-z0-9.-]+", text)) and "." in text
+    bare_opaque = "://" not in text and not safe_bare_host and not _off_is_loopback_host(text)
+    if looks_like_secret or has_url_detail or is_local_path or bare_opaque or len(text) > 256:
         return "sha256:" + _off_hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
     return text
 
@@ -182,8 +194,8 @@ def _off_sendfile(sock: Any, file: Any, *args: Any, **kwargs: Any) -> Any:
 
 def _off_getaddrinfo(*args: Any, **kwargs: Any) -> Any:
     destination = args[0] if args else kwargs.get("host")
-    if _OFF_ACTIVE and not _off_is_local(destination, operation="dns"):
-        _off_block(destination, "dns")
+    if _OFF_ACTIVE:
+        offline_network_check(destination, operation="dns")
     return _OFF_ORIGINALS["getaddrinfo"](*args, **kwargs)
 
 
@@ -284,7 +296,7 @@ def activate_offline_mode() -> dict[str, Any]:
 
 def deactivate_offline_mode() -> None:
     """Restore every patched function and the caller's prior environment."""
-    global _OFF_ACTIVE, _OFF_ATTEMPTS_TRUNCATED
+    global _OFF_ACTIVE, _OFF_ATTEMPTS_TRUNCATED, _OFF_CONTEXT_DEPTH
     specs = _off_specs_present()
     errors: list[BaseException] = []
     for key, target, attr, _wrapper in reversed(specs):
@@ -295,6 +307,7 @@ def deactivate_offline_mode() -> None:
         except BaseException as exc:
             errors.append(exc)
     _OFF_ACTIVE = False
+    _OFF_CONTEXT_DEPTH = 0
     _off_restore_environment()
     _OFF_ORIGINALS.clear()
     _OFF_ATTEMPTS.clear()
@@ -306,11 +319,17 @@ def deactivate_offline_mode() -> None:
 @_off_contextlib.contextmanager
 def offline_mode() -> Iterator[None]:
     """Temporarily activate offline mode and always restore process state."""
-    activate_offline_mode()
+    global _OFF_CONTEXT_DEPTH
+    owned_activation = not _OFF_ACTIVE
+    if owned_activation:
+        activate_offline_mode()
+    _OFF_CONTEXT_DEPTH += 1
     try:
         yield
     finally:
-        deactivate_offline_mode()
+        _OFF_CONTEXT_DEPTH = max(0, _OFF_CONTEXT_DEPTH - 1)
+        if owned_activation and _OFF_CONTEXT_DEPTH == 0:
+            deactivate_offline_mode()
 
 
 def offline_mode_active() -> bool:

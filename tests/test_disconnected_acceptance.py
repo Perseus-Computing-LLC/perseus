@@ -288,3 +288,180 @@ def test_evidence_digest_commits_to_outputs_and_manifest_report_commitments(tmp_
     manifest = json.loads((tmp_path / "one" / "manifest.json").read_text())
     assert manifest["manifest_commitment"] == first["manifest_commitment"]
     assert manifest["report_commitment"] == first["report_commitment"]
+
+
+def test_process_group_kills_term_ignoring_descendants_after_leader_exits(tmp_path):
+    if os.name != "posix":
+        pytest.skip("process-group assertion is POSIX-specific")
+    marker = tmp_path / "descendant-ignored-term"
+    marker_literal = repr(str(marker))
+    grandchild = (
+        "import pathlib,signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        f"time.sleep(0.8); pathlib.Path({marker_literal}).write_text('leaked')"
+    )
+    parent = (
+        "import subprocess,sys,time; "
+        f"subprocess.Popen([sys.executable, '-c', {grandchild!r}]); time.sleep(5)"
+    )
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", parent], cwd=tmp_path, timeout=0.1, env=dict(os.environ)
+    )
+    assert result["status"] == "timeout"
+    time.sleep(1.0)
+    assert not marker.exists()
+
+
+def test_offline_guard_hashes_short_secrets_and_local_paths():
+    perseus.deactivate_offline_mode()
+    perseus.activate_offline_mode()
+    try:
+        secret = "https://example.invalid/s"
+        local_path = "/tmp/short-secret"
+        with pytest.raises(perseus.OfflineNetworkError) as exc_info:
+            perseus.offline_network_check(secret)
+        assert secret not in str(exc_info.value)
+        assert perseus.offline_network_check(local_path) is True
+        destinations = [item["destination"] for item in perseus.offline_network_report()["attempts"]]
+        assert destinations[0].startswith("sha256:")
+        assert destinations[1].startswith("sha256:")
+    finally:
+        perseus.deactivate_offline_mode()
+
+
+def test_offline_mode_is_reentrant_and_inner_exit_keeps_outer_guard():
+    perseus.deactivate_offline_mode()
+    with perseus.offline_mode():
+        with perseus.offline_mode():
+            with pytest.raises(perseus.OfflineNetworkError):
+                socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(b"x", ("203.0.113.9", 9))
+        assert perseus.offline_mode_active() is True
+        with pytest.raises(perseus.OfflineNetworkError):
+            socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(b"x", ("203.0.113.9", 9))
+    assert perseus.offline_mode_active() is False
+
+
+def test_getaddrinfo_numeric_loopback_is_accounted():
+    perseus.deactivate_offline_mode()
+    perseus.activate_offline_mode()
+    try:
+        socket.getaddrinfo("127.0.0.1", 9)
+        report = perseus.offline_network_report()
+        assert report["allowed_local_attempts"] == 1
+        assert report["attempts"][-1]["outcome"] == "allowed_local"
+    finally:
+        perseus.deactivate_offline_mode()
+
+
+def test_output_bundle_contains_no_raw_workload_body(tmp_path):
+    fixture = json.loads((ROOT / "benchmark" / "disconnected_acceptance" / "fixture.json").read_text())
+    marker = "UNIQUE-WORKLOAD-BODY-MARKER"
+    fixture["workload"]["source"] = f"@perseus v1.0.26\n{marker}\n"
+    fixture_path = tmp_path / "fixture.json"
+    output = tmp_path / "evidence"
+    fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
+    harness.run_acceptance(ROOT, fixture_path=fixture_path, output_dir=output)
+    assert all(marker.encode() not in path.read_bytes() for path in output.rglob("*" ) if path.is_file())
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda data: data.__setitem__("fixture_id", 7),
+        lambda data: data["platform"].__setitem__("extra", True),
+        lambda data: data["workload"].__setitem__("extra", True),
+        lambda data: data["artifacts"][0].__setitem__("extra", True),
+        lambda data: data["claims_ceiling"].__setitem__("extra", "nope"),
+        lambda data: data["claims_ceiling"].__setitem__("iron_bank_submitted", "approved"),
+        lambda data: data["platform"]["resource_limits"].__setitem__("cpu_seconds", float("inf")),
+    ],
+)
+def test_fixture_rejects_closed_schema_violations(tmp_path, mutate):
+    data = json.loads((ROOT / "benchmark" / "disconnected_acceptance" / "fixture.json").read_text())
+    mutate(data)
+    fixture_path = tmp_path / "invalid-fixture.json"
+    fixture_path.write_text(json.dumps(data, allow_nan=True), encoding="utf-8")
+    with pytest.raises(harness.AcceptanceError):
+        harness._load_fixture(fixture_path)
+
+
+def test_resource_envelope_rejects_nan():
+    fixture = harness._load_fixture(ROOT / "benchmark" / "disconnected_acceptance" / "fixture.json")
+    with pytest.raises(harness.AcceptanceError):
+        harness._validate_resource_envelope(
+            {
+                "cpu_seconds_observed": float("nan"),
+                "peak_rss_mb_observed": 1.0,
+                "disk_growth_bytes_observed": 1.0,
+            },
+            fixture,
+        )
+
+
+def test_child_probe_json_rejects_inconsistent_counters():
+    payload = {
+        "blocked": True,
+        "destination": "https://example.invalid/probe",
+        "report": {
+            "active": True,
+            "policy": "deny_all_non_loopback",
+            "attempts": [{"operation": "probe", "destination": "x", "outcome": "blocked"}],
+            "attempts_truncated": False,
+            "blocked_attempts": 0,
+            "allowed_local_attempts": 0,
+        },
+    }
+    with pytest.raises(harness.AcceptanceError):
+        harness._parse_child_probe_json(json.dumps(payload))
+
+
+def test_fixture_limits_drive_child_enforcement_values():
+    fixture = harness._load_fixture(ROOT / "benchmark" / "disconnected_acceptance" / "fixture.json")
+    limits = harness._child_limits_from_fixture(fixture)
+    assert limits == {
+        "cpu_seconds": 30,
+        "address_space_bytes": 512 * 1024 * 1024,
+        "file_bytes": 256 * 1024 * 1024,
+    }
+
+
+def test_declared_bundle_requires_and_executes_digest_bound_operation(tmp_path):
+    bundle = tmp_path / "upgrade.json"
+    marker = tmp_path / "executed"
+    bundle.write_text("upgrade-v1", encoding="utf-8")
+    command = [sys.executable, "-c", f"open({str(marker)!r}, 'w').write('ok')"]
+    spec = {
+        "path": "upgrade.json",
+        "version": "v1",
+        "sha256": harness._sha_bytes(bundle.read_bytes()),
+        "command": command,
+    }
+    checked = harness._check_bundle(tmp_path, spec, "upgrade", execute=True)
+    assert checked["status"] == "passed"
+    assert checked["operation_executed"] is True
+    assert marker.read_text() == "ok"
+
+
+def test_bundle_without_operation_cannot_report_passed(tmp_path):
+    bundle = tmp_path / "upgrade.json"
+    bundle.write_text("upgrade-v1", encoding="utf-8")
+    spec = {
+        "path": "upgrade.json",
+        "version": "v1",
+        "sha256": harness._sha_bytes(bundle.read_bytes()),
+    }
+    checked = harness._check_bundle(tmp_path, spec, "upgrade", execute=True)
+    assert checked["status"] == "blocked"
+    assert checked["checked"] is False
+
+
+def test_stable_output_digest_ignores_rendered_calendar_date():
+    first = b"Rendered on 2026-08-19 12:34:56 UTC"
+    second = b"Rendered on 2027-01-02 12:34:56 UTC"
+    assert harness._stable_output_digest(first) == harness._stable_output_digest(second)
+
+
+def test_backup_restore_reports_digest_comparison(tmp_path):
+    report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
+    restored = report["flow"]["backup_restore"]
+    assert restored["digest_match"] is True
+    assert restored["restored_digest"] == restored["backup_digest"]
