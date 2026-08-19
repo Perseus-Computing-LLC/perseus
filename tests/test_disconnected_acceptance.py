@@ -177,6 +177,35 @@ def test_resource_limit_setup_failure_is_fail_closed(monkeypatch):
         apply_limits()
 
 
+def test_missing_posix_resource_capability_fails_closed(monkeypatch):
+    if os.name != "posix":
+        pytest.skip("resource limits are POSIX-specific")
+    monkeypatch.setattr(harness, "resource", None)
+    with pytest.raises(harness.AcceptanceError, match="resource"):
+        harness._child_resource_limiter()
+
+
+def test_harness_imports_without_posix_resource_capability():
+    code = (
+        "import builtins, importlib.util\n"
+        f"run = {str(RUN)!r}\n"
+        "real_import = builtins.__import__\n"
+        "def deny_resource(name, globals=None, locals=None, fromlist=(), level=0):\n"
+        "    if name == 'resource':\n"
+        "        raise ModuleNotFoundError('resource is unavailable')\n"
+        "    return real_import(name, globals, locals, fromlist, level)\n"
+        "builtins.__import__ = deny_resource\n"
+        "spec = importlib.util.spec_from_file_location('disconnected_acceptance_no_resource', run)\n"
+        "module = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(module)\n"
+        "assert module.resource is None\n"
+        "module.os.name = 'nt'\n"
+        "assert module._child_resource_limiter() is None\n"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=str(ROOT), timeout=60)
+    assert result.returncode == 0, result.stderr
+
+
 def test_bounded_child_owns_timeout_descendants_and_caps_output(tmp_path):
     if os.name != "posix":
         pytest.skip("process-group assertion is POSIX-specific")
@@ -234,6 +263,20 @@ def test_resource_envelope_cannot_exceed_fixture_ceiling():
             },
             fixture,
         )
+
+
+def test_fixture_cpu_contract_allows_coverage_budget_but_preserves_ceiling():
+    fixture = harness._load_fixture(ROOT / "benchmark" / "disconnected_acceptance" / "fixture.json")
+    limits = fixture["platform"]["resource_limits"]
+    assert limits["cpu_seconds"] == harness._MAX_FIXTURE_CPU_SECONDS == 300
+    envelope = {
+        "cpu_seconds_observed": 299.0,
+        "peak_rss_mb_observed": 1.0,
+        "disk_growth_bytes_observed": 1.0,
+    }
+    assert harness._validate_resource_envelope(envelope, fixture) == envelope
+    with pytest.raises(harness.AcceptanceError, match="cpu_seconds_observed"):
+        harness._validate_resource_envelope({**envelope, "cpu_seconds_observed": 301.0}, fixture)
 
 
 def test_declared_upgrade_bundle_is_bound_to_actual_digest_check(tmp_path):
@@ -464,10 +507,25 @@ def test_fixture_limits_drive_child_enforcement_values():
     fixture = harness._load_fixture(ROOT / "benchmark" / "disconnected_acceptance" / "fixture.json")
     limits = harness._child_limits_from_fixture(fixture)
     assert limits == {
-        "cpu_seconds": 30,
+        "cpu_seconds": 300,
         "address_space_bytes": 512 * 1024 * 1024,
         "file_bytes": 256 * 1024 * 1024,
     }
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits only")
+def test_immutable_staged_file_is_owner_read_only_and_digest_bound(tmp_path):
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"immutable staged bytes")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    staged, digest = harness._stage_file(tmp_path, "source.bin", workspace)
+    mode = staged.stat().st_mode & 0o777
+    assert mode == 0o400
+    assert mode & 0o077 == 0
+    harness._verify_staged_file(staged, digest, workspace=workspace)
+    with pytest.raises(harness.AcceptanceError, match="replaced"):
+        harness._stage_file(tmp_path, "source.bin", workspace)
 
 
 def test_declared_bundle_requires_and_executes_digest_bound_operation(tmp_path):

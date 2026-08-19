@@ -17,7 +17,10 @@ import json
 import math
 import os
 import re
-import resource
+try:
+    import resource
+except ModuleNotFoundError:  # pragma: no cover - POSIX-only stdlib module
+    resource = None
 import secrets
 import shutil
 import select
@@ -473,18 +476,21 @@ def _child_resource_limiter(resource_limits: Mapping[str, int] | None = None) ->
     if os.name != "posix":
         return None
     limits = _validate_child_limits(resource_limits)
+    resource_module = resource
+    if resource_module is None:
+        raise AcceptanceError("child_resource_limits_unavailable")
 
     def apply_limits() -> None:
         limit_specs = (
-            (resource.RLIMIT_CPU, limits["cpu_seconds"]),
-            (resource.RLIMIT_AS, limits["address_space_bytes"]),
-            (resource.RLIMIT_FSIZE, limits["file_bytes"]),
+            (resource_module.RLIMIT_CPU, limits["cpu_seconds"]),
+            (resource_module.RLIMIT_AS, limits["address_space_bytes"]),
+            (resource_module.RLIMIT_FSIZE, limits["file_bytes"]),
         )
         for kind, value in limit_specs:
             # A disconnected acceptance run must fail closed when a declared
             # containment limit cannot be installed; swallowing this error
             # would turn an observation into an unenforced claim.
-            resource.setrlimit(kind, (value, value))
+            resource_module.setrlimit(kind, (value, value))
 
     return apply_limits
 
@@ -1116,7 +1122,11 @@ def _run_bounded_child(
         return _blocked_child_result(limits, reason="child_containment_unavailable", cleanup_failed=not cleanup_ok)
     baseline = _process_snapshot() if subreaper_ready else {}
     before_disk = _monitor_size(monitor_roots)
-    before_children = resource.getrusage(resource.RUSAGE_CHILDREN) if hasattr(resource, "RUSAGE_CHILDREN") else None
+    before_children = (
+        resource.getrusage(resource.RUSAGE_CHILDREN)
+        if os.name == "posix" and resource is not None and hasattr(resource, "RUSAGE_CHILDREN")
+        else None
+    )
     try:
         process = subprocess.Popen(argv, **kwargs)
     except (OSError, subprocess.SubprocessError, ValueError):
@@ -1203,7 +1213,11 @@ def _run_bounded_child(
         status = "blocked" if require_offline else "failed"
     elif status not in {"timeout", "resource_limit"} and process.returncode != 0:
         status = "blocked" if require_offline else "failed"
-    after_children = resource.getrusage(resource.RUSAGE_CHILDREN) if before_children is not None else None
+    after_children = (
+        resource.getrusage(resource.RUSAGE_CHILDREN)
+        if before_children is not None and os.name == "posix" and resource is not None
+        else None
+    )
     child_cpu = 0.0
     child_rss_from_usage = 0.0
     if before_children is not None and after_children is not None:
@@ -1356,7 +1370,7 @@ def _stage_file(
     except FileExistsError:
         raise AcceptanceError("staged_artifact_replaced") from None
     if immutable:
-        os.chmod(target, 0o444)
+        os.chmod(target, 0o400)
     if target.stat().st_size > _MAX_PARENT_FILE_BYTES or _sha_bytes(target.read_bytes()) != digest:
         raise AcceptanceError("staged_artifact_digest_mismatch")
     return target, digest
@@ -1807,9 +1821,15 @@ def _run_adapter(
         return {"status": "blocked", "reason": "adapter_operation_blocked"}
 
 
-def _resource_envelope(before_cpu: float, before_rss: int, before_disk: int, output_dir: Path, started: float) -> dict[str, Any]:
+def _resource_envelope(before_cpu: float, before_rss: int | None, before_disk: int, output_dir: Path, started: float) -> dict[str, Any]:
     after_cpu = time.process_time()
-    usage = resource.getrusage(resource.RUSAGE_SELF)
+    usage = (
+        resource.getrusage(resource.RUSAGE_SELF)
+        if os.name == "posix" and resource is not None and hasattr(resource, "RUSAGE_SELF")
+        else None
+    )
+    if usage is None or before_rss is None:
+        raise AcceptanceError("resource_metrics_unavailable")
     after_disk = _directory_size(output_dir)
     # ru_maxrss is a process-lifetime high-water mark. Measure only the
     # high-water growth attributable to this acceptance run; otherwise a
@@ -1948,7 +1968,11 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
         disk_bytes=int(math.ceil(float(fixture["platform"]["resource_limits"]["disk_mb"]) * 1024 * 1024)),
     )
     before_cpu = time.process_time()
-    before_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    before_rss = (
+        resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        if os.name == "posix" and resource is not None and hasattr(resource, "RUSAGE_SELF")
+        else None
+    )
     before_disk = _directory_size(out)
     started = time.perf_counter()
     artifacts = _artifact_manifest(root, fixture)

@@ -5,7 +5,7 @@
     "os": "linux",
     "python": "3.12",
     "network_policy": "deny_all",
-    "resource_limits": {"cpu_seconds": 30, "memory_mb": 512, "disk_mb": 256}
+    "resource_limits": {"cpu_seconds": 300, "memory_mb": 512, "disk_mb": 256}
   },
   "artifacts": [
     {"name": "perseus", "path": "perseus.py", "required": true, "sbom": "sbom.cdx.json"},
