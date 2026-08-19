@@ -1,0 +1,8 @@
+{
+  "schema_version": "perseus-memory-capability-fixture/v1",
+  "fixture_id": "portable-capability-synthetic",
+  "scope": {"user": "synthetic-user", "workspace": "synthetic-workspace", "agent": "synthetic-agent", "session": "synthetic-session"},
+  "operations": ["memory.search", "memory.context", "memory.inspect", "memory.store", "memory.correct", "memory.supersede"],
+  "outcomes": ["allow", "deny", "scope_mismatch", "stale_evidence", "abstain", "unavailable"],
+  "raw_bodies": false
+}
