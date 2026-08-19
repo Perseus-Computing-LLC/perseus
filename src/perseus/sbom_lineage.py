@@ -25,6 +25,7 @@ _SL_CDX_VERSIONS = frozenset({"1.4", "1.5", "1.6"})
 _SL_CONFIDENCE = frozenset({"high", "medium", "low", "unknown"})
 _SL_COVERAGE = frozenset({"complete", "partial", "unknown"})
 _SL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+%~\-]{0,255}$")
+_SL_PURL_ID_RE = re.compile(r"^pkg:[A-Za-z0-9][A-Za-z0-9.+-]{0,31}/[^\s]{1,240}$")
 _SL_SPDX_VERSION_RE = re.compile(r"^SPDX-(\d+\.\d+)$")
 _SL_CDX_NAMESPACE_RE = re.compile(r"bom-(1\.\d+)\.xsd")
 _SL_PUBLIC_SOURCE_RE = re.compile(r"^(?:file|artifact|vault|ledger|build|deployment):[A-Za-z0-9][A-Za-z0-9_.:/#@+%~\-]{0,255}$")
@@ -52,6 +53,28 @@ _SL_MAX_QUERY_MATCHES = 256
 _SL_MAX_QUERY_RESULTS = 256
 _SL_MAX_PATH_LENGTH = 32
 _SL_MAX_NODES = 20_000
+_SL_MAX_JSON_DEPTH = 128
+_SL_MAX_QUERY_STATES = 16_384
+_SL_MAX_QUERY_QUEUE = 4_096
+_SL_HASH_ALGORITHM_ALIASES = {
+    "md5": "md5",
+    "sha1": "sha-1",
+    "sha-1": "sha-1",
+    "sha224": "sha-224",
+    "sha-224": "sha-224",
+    "sha256": "sha-256",
+    "sha-256": "sha-256",
+    "sha384": "sha-384",
+    "sha-384": "sha-384",
+    "sha512": "sha-512",
+    "sha-512": "sha-512",
+    "sha3-256": "sha3-256",
+    "sha3-384": "sha3-384",
+    "sha3-512": "sha3-512",
+    "blake2b-256": "blake2b-256",
+    "blake2s-256": "blake2s-256",
+    "blake3": "blake3",
+}
 
 
 class SBOMLineageError(ValueError):
@@ -66,10 +89,19 @@ def _sl_sha(value: Any) -> str:
     return hashlib.sha256(_sl_json(value).encode("utf-8")).hexdigest()
 
 
+def _sl_ingestion_sha(unsigned: Mapping[str, Any]) -> str:
+    return _sl_sha({"domain": "perseus-sbom-ingestion", "document_sha256": unsigned.get("document_sha256"), "projection": unsigned})
+
+
 def _sl_sensitive(value: str) -> bool:
     """Return whether a scalar looks like it carries a credential."""
     authority = value.split("://", 1)[1].split("/", 1)[0] if "://" in value else ""
-    return bool(_SL_SENSITIVE_REFERENCE_RE.search(value) or (authority and "@" in authority))
+    normalized = re.sub(r"[^a-z0-9]+", "_", value.casefold())
+    return bool(
+        _SL_SENSITIVE_REFERENCE_RE.search(value)
+        or (authority and "@" in authority)
+        or any(marker in normalized for marker in _SL_FORBIDDEN_MARKERS)
+    )
 
 
 def _sl_truncated(truncated: list[str] | None, name: str) -> None:
@@ -117,7 +149,13 @@ def _sl_text(value: Any, field: str, *, required: bool = False, limit: int = 512
 
 def _sl_id(value: Any, field: str, *, fallback: str = "") -> str:
     text = _sl_text(value if value is not None else fallback, field, required=True, limit=256)
-    if not _SL_ID_RE.fullmatch(text):
+    if _sl_sensitive(text):
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        prefix = text.split(":", 1)[0]
+        if prefix in {"source", "artifact", "deployment", "build", "vault", "ledger", "file"}:
+            return f"{prefix}:sha256:{digest}"
+        return f"sha256:{digest}"
+    if not _SL_ID_RE.fullmatch(text) and not _SL_PURL_ID_RE.fullmatch(text):
         raise SBOMLineageError(f"{field} is not a bounded identifier")
     return text
 
@@ -134,11 +172,23 @@ def _sl_safe_source_ref(value: Any, raw_bytes: bytes) -> str:
     if value in (None, ""):
         return f"sha256:{hashlib.sha256(raw_bytes).hexdigest()}"
     text = _sl_text(value, "source_ref", required=True, limit=512)
-    if text.startswith("sha256:") and re.fullmatch(r"sha256:[0-9a-fA-F]{64}", text):
+    raw_digest = hashlib.sha256(raw_bytes).hexdigest()
+    if text.startswith("sha256:"):
+        if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", text) or text[7:].casefold() != raw_digest:
+            raise SBOMLineageError("source_ref digest is not bound to the SBOM bytes")
         return text.lower()
-    if _SL_PUBLIC_SOURCE_RE.fullmatch(text) and not _SL_SENSITIVE_REFERENCE_RE.search(text):
+    if _SL_PUBLIC_SOURCE_RE.fullmatch(text) and not _sl_sensitive(text):
         return text
-    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return "sha256:source-ref:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _sl_hash_algorithm(value: Any, field: str = "hash_algorithm", *, strict: bool = False) -> str | None:
+    text = _sl_text(value, field, required=True, limit=32)
+    normalized = re.sub(r"[_ ]+", "-", text.casefold())
+    result = _SL_HASH_ALGORITHM_ALIASES.get(normalized)
+    if result is None and strict:
+        raise SBOMLineageError(f"{field} is unsupported")
+    return result
 
 
 def _sl_strict_text(value: Any, field: str, *, allow_none: bool = False, limit: int = 512) -> str | None:
@@ -167,7 +217,7 @@ def _sl_strict_source_ref(value: Any) -> str:
     text = _sl_strict_text(value, "source_ref", limit=512)
     assert text is not None
     if text.startswith("sha256:"):
-        if not re.fullmatch(r"sha256:[0-9a-f]{64}", text):
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", text) and not re.fullmatch(r"sha256:source-ref:[0-9a-f]{64}", text):
             raise SBOMLineageError("source_ref digest is malformed")
         return text
     if not _SL_PUBLIC_SOURCE_RE.fullmatch(text) or _sl_sensitive(text):
@@ -185,12 +235,14 @@ def _sl_safe_hashes(value: Any, *, truncated: list[str] | None = None) -> list[d
     for raw in hashes[:_SL_MAX_HASHES]:
         if not isinstance(raw, Mapping):
             raise SBOMLineageError("hashes must contain objects")
-        algorithm = _sl_text(raw.get("alg"), "hash_algorithm", required=True, limit=32)
+        algorithm = _sl_hash_algorithm(raw.get("alg"))
         content = _sl_text(raw.get("content"), "hash", required=True, limit=256)
         # Only retain actual digest-looking values.  Arbitrary hash content is
         # an attacker-controlled data channel and is deliberately dropped.
-        if re.fullmatch(r"[0-9a-fA-F]{32,128}", content):
+        if algorithm is not None and re.fullmatch(r"[0-9a-fA-F]{32,128}", content):
             result.append({"alg": algorithm, "content": content.lower()})
+        else:
+            _sl_truncated(truncated, "hashes")
     return result
 
 
@@ -250,11 +302,18 @@ def _sl_descendants(root: Any, *names: str) -> list[Any]:
 
 def _sl_supplier(value: Any) -> str:
     if isinstance(value, Mapping):
-        return _sl_text(value.get("name"), "supplier")
+        return _sl_safe_text(value.get("name"), "supplier")
     if isinstance(value, list):
         names = [_sl_supplier(item) for item in value]
         return "; ".join(item for item in names if item)
-    return _sl_text(value, "supplier")
+    return _sl_safe_text(value, "supplier")
+
+
+def _sl_safe_text(value: Any, field: str, *, required: bool = False, limit: int = 512) -> str:
+    text = _sl_text(value, field, required=required, limit=limit)
+    if _sl_sensitive(text):
+        return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return text
 
 
 def _sl_normalize_reference(reference_type: Any, locator: Any, *, category: Any = "", comment: Any = None, hashes: Any = None, truncated: list[str] | None = None) -> dict[str, Any]:
@@ -264,7 +323,7 @@ def _sl_normalize_reference(reference_type: Any, locator: Any, *, category: Any 
         "type": ref_type if ref_type in _SL_REFERENCE_TYPES else "other",
         "locator": locator_text,
     }
-    category_text = _sl_text(category, "reference_category", limit=64)
+    category_text = _sl_safe_text(category, "reference_category", limit=64)
     if category_text:
         result["category"] = category_text
     safe_hashes = _sl_safe_hashes(hashes, truncated=truncated)
@@ -335,11 +394,17 @@ def _sl_properties(value: Any, *, truncated: list[str] | None = None) -> list[di
             raise SBOMLineageError("properties must contain objects")
         name = _sl_text(raw.get("name"), "property_name", limit=128)
         prop_value = _sl_text(raw.get("value"), "property_value", required=True, limit=1024)
-        if name and prop_value and any(marker in name.casefold() for marker in ("vex", "vuln", "signature", "attestation")):
+        normalized_name = re.sub(r"[^a-z0-9]+", "_", name.casefold())
+        category = next((marker for marker in ("vex", "vulnerability", "vuln", "signature", "attestation") if marker in normalized_name), "")
+        if category == "vuln":
+            category = "vulnerability"
+        if category and prop_value:
             result.append({
-                "type": name,
+                "type": category,
                 "locator": "sha256:" + hashlib.sha256(prop_value.encode("utf-8")).hexdigest(),
             })
+        elif name or prop_value:
+            _sl_truncated(truncated, "properties")
     return result
 
 
@@ -355,8 +420,8 @@ def _sl_component(
     licenses: Any = None,
     truncated: list[str] | None = None,
 ) -> dict[str, Any]:
-    normalized_name = _sl_text(name, "component_name", required=True, limit=256)
-    normalized_version = _sl_text(version, "component_version", limit=128)
+    normalized_name = _sl_safe_text(name, "component_name", required=True, limit=256)
+    normalized_version = _sl_safe_text(version, "component_version", limit=128)
     normalized_id = _sl_id(component_id, "component ID")
     ids = {normalized_id}
     component_truncated: list[str] = list(truncated or [])
@@ -394,11 +459,11 @@ def _sl_component(
                 item = item.get("license", item.get("id"))
             if isinstance(item, Mapping):
                 item = item.get("id") or item.get("name")
-            text = _sl_text(item, "license", limit=128)
+            text = _sl_safe_text(item, "license", limit=128)
             if text:
                 license_values.append(text)
     elif licenses:
-        text = _sl_text(licenses, "license", limit=128)
+        text = _sl_safe_text(licenses, "license", limit=128)
         if text:
             license_values.append(text)
     unknown = []
@@ -425,7 +490,7 @@ def _sl_component(
 def _sl_relationship(source: Any, target: Any, relationship_type: Any, *, confidence: str = "high", coverage: str = "complete", evidence_refs: Any = None, truncated: list[str] | None = None) -> dict[str, Any]:
     source_id = _sl_id(source, "relationship.from")
     target_id = _sl_id(target, "relationship.to")
-    rel_type = _sl_text(relationship_type, "relationship.type", required=True, limit=96).casefold().replace(" ", "_")
+    rel_type = _sl_safe_text(relationship_type, "relationship.type", required=True, limit=96).casefold().replace(" ", "_")
     if not isinstance(confidence, str) or confidence not in _SL_CONFIDENCE:
         raise SBOMLineageError("relationship confidence is unsupported")
     if not isinstance(coverage, str) or coverage not in _SL_COVERAGE:
@@ -506,6 +571,10 @@ def _sl_validate_cdx_version(value: Any) -> str:
 def _sl_finalize_document(*, fmt: str, spec_version: str, document_id: str, document_name: str, created_at: str, supplier: str, components: list[dict[str, Any]], relationships: list[dict[str, Any]], raw_bytes: bytes, source_ref: str, truncated: list[str] | None = None, metadata_component_id: str = "") -> dict[str, Any]:
     if fmt not in _SL_FORMATS:
         raise SBOMLineageError("unsupported SBOM format")
+    if len(components) > _SL_MAX_COMPONENTS:
+        raise SBOMLineageError("normalized SBOM components exceed their global bound")
+    if len(relationships) > _SL_MAX_RELATIONSHIPS:
+        raise SBOMLineageError("normalized SBOM relationships exceed their global bound")
     component_ids: set[str] = set()
     for item in components:
         component_id = item.get("component_id") if isinstance(item, Mapping) else None
@@ -522,6 +591,12 @@ def _sl_finalize_document(*, fmt: str, spec_version: str, document_id: str, docu
         unknown.append("components")
     if not relationships:
         unknown.append("relationships")
+    if not document_name:
+        unknown.append("document_name")
+    if not created_at:
+        unknown.append("created_at")
+    if not supplier:
+        unknown.append("supplier")
     if dangling:
         unknown.append("dangling_relationships")
     if truncation:
@@ -530,7 +605,7 @@ def _sl_finalize_document(*, fmt: str, spec_version: str, document_id: str, docu
         unknown.append("component_metadata")
     if not components:
         coverage_state = "unknown"
-    elif dangling or truncation or any(item.get("coverage", {}).get("state") != "complete" for item in components) or not relationships:
+    elif dangling or truncation or not document_name or not created_at or not supplier or any(item.get("coverage", {}).get("state") != "complete" for item in components) or not relationships:
         coverage_state = "partial"
     else:
         coverage_state = "complete"
@@ -539,10 +614,10 @@ def _sl_finalize_document(*, fmt: str, spec_version: str, document_id: str, docu
         "format": fmt,
         "spec_version": spec_version,
         "document_id": document_id,
-        "document_name": document_name or None,
+        "document_name": _sl_safe_text(document_name, "document_name", limit=256) or None,
         "document_sha256": hashlib.sha256(raw_bytes).hexdigest(),
         "source_ref": source_ref,
-        "created_at": created_at or None,
+        "created_at": _sl_safe_text(created_at, "created_at", limit=128) or None,
         "supplier": supplier or None,
         "components": sorted(components, key=lambda item: (item["component_id"] == metadata_component_id, item["component_id"])),
         "relationships": sorted(relationships, key=lambda item: (item["from"], item["to"], item["type"])),
@@ -555,7 +630,7 @@ def _sl_finalize_document(*, fmt: str, spec_version: str, document_id: str, docu
             "dangling_relationships": dangling,
         },
     }
-    unsigned["ingestion_digest"] = _sl_sha(unsigned)
+    unsigned["ingestion_digest"] = _sl_ingestion_sha(unsigned)
     return unsigned
 
 
@@ -617,11 +692,12 @@ def _sl_parse_cdx_json(value: Mapping[str, Any], raw_bytes: bytes, source_ref: s
         raw_components.append(metadata_component)
     raw_component_list = _sl_list(value.get("components"), "components")
     raw_dependency_list = _sl_list(value.get("dependencies"), "dependencies")
-    if len(raw_component_list) > _SL_MAX_COMPONENTS:
+    component_budget = _SL_MAX_COMPONENTS - (1 if metadata_component else 0)
+    if len(raw_component_list) > component_budget:
         truncated.append("components")
     if len(raw_dependency_list) > _SL_MAX_RELATIONSHIPS:
         truncated.append("dependencies")
-    for item in raw_component_list[:_SL_MAX_COMPONENTS]:
+    for item in raw_component_list[:component_budget]:
         if not isinstance(item, Mapping):
             raise SBOMLineageError("components must contain objects")
         raw_components.append(item)
@@ -636,7 +712,14 @@ def _sl_parse_cdx_json(value: Mapping[str, Any], raw_bytes: bytes, source_ref: s
         targets = _sl_list(raw.get("dependsOn"), "dependsOn")
         if len(targets) > _SL_MAX_DEPENDENCY_TARGETS:
             truncated.append("dependency_edges")
-        for target in targets[:_SL_MAX_DEPENDENCY_TARGETS]:
+        remaining = _SL_MAX_RELATIONSHIPS - len(relationships)
+        if remaining <= 0:
+            truncated.append("dependency_edges")
+            break
+        allowed_targets = min(_SL_MAX_DEPENDENCY_TARGETS, remaining)
+        if len(targets) > allowed_targets:
+            truncated.append("dependency_edges")
+        for target in targets[:allowed_targets]:
             relationships.append(_sl_relationship(source, target, "depends_on", truncated=truncated))
     creators = metadata.get("authors", [])
     if not isinstance(creators, list):
@@ -645,7 +728,7 @@ def _sl_parse_cdx_json(value: Mapping[str, Any], raw_bytes: bytes, source_ref: s
     document_id = _sl_id(value.get("serialNumber"), "serialNumber", fallback="document:cyclonedx")
     return _sl_finalize_document(
         fmt="CycloneDX", spec_version=version, document_id=document_id,
-        document_name="CycloneDX BOM", created_at=_sl_text(metadata.get("timestamp"), "created_at"), supplier=supplier,
+        document_name=_sl_text(metadata.get("name"), "document_name"), created_at=_sl_text(metadata.get("timestamp"), "created_at"), supplier=supplier,
         components=components, relationships=relationships, raw_bytes=raw_bytes, source_ref=source_ref, truncated=truncated,
         metadata_component_id=components[0]["component_id"] if metadata_component else "",
     )
@@ -821,9 +904,10 @@ def _sl_parse_cdx_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str,
     components_node = _sl_child(root, "components")
     if components_node is not None:
         component_nodes = _sl_children(components_node, "component")
-        if len(component_nodes) > _SL_MAX_COMPONENTS:
+        component_budget = _SL_MAX_COMPONENTS - (1 if metadata_component is not None else 0)
+        if len(component_nodes) > component_budget:
             truncated.append("components")
-        raw_components.extend(component_nodes[:_SL_MAX_COMPONENTS])
+        raw_components.extend(component_nodes[:component_budget])
     components = []
     for raw in raw_components:
         components.append(_sl_cdx_xml_component(raw, truncated=truncated))
@@ -838,7 +922,14 @@ def _sl_parse_cdx_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str,
             children = _sl_children(dependency, "dependency")
             if len(children) > _SL_MAX_DEPENDENCY_TARGETS:
                 truncated.append("dependency_edges")
-            for child in children[:_SL_MAX_DEPENDENCY_TARGETS]:
+            remaining = _SL_MAX_RELATIONSHIPS - len(relationships)
+            if remaining <= 0:
+                truncated.append("dependency_edges")
+                break
+            allowed_targets = min(_SL_MAX_DEPENDENCY_TARGETS, remaining)
+            if len(children) > allowed_targets:
+                truncated.append("dependency_edges")
+            for child in children[:allowed_targets]:
                 relationships.append(_sl_relationship(source, child.attrib.get("ref"), "depends_on", truncated=truncated))
     timestamp = _sl_xml_text(metadata, "timestamp") if metadata is not None else ""
     authors = _sl_child(metadata, "authors") if metadata is not None else None
@@ -846,7 +937,7 @@ def _sl_parse_cdx_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str,
     document_id = _sl_id(root.attrib.get("serialNumber"), "serialNumber", fallback="document:cyclonedx")
     return _sl_finalize_document(
         fmt="CycloneDX", spec_version=version, document_id=document_id,
-        document_name="CycloneDX BOM", created_at=timestamp, supplier=author,
+        document_name=_sl_xml_text(metadata, "name") if metadata is not None else "", created_at=timestamp, supplier=author,
         components=components, relationships=relationships, raw_bytes=raw_bytes, source_ref=source_ref, truncated=truncated,
         metadata_component_id=components[0]["component_id"] if metadata_component is not None else "",
     )
@@ -867,6 +958,61 @@ def _sl_read_bounded(path: Path) -> bytes:
     if len(raw_bytes) > _SL_MAX_INPUT_BYTES:
         raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
     return raw_bytes
+
+
+def _sl_validate_json_depth(raw_bytes: bytes) -> None:
+    depth = 0
+    in_string = False
+    escaped = False
+    for byte in raw_bytes:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif byte == 0x5C:
+                escaped = True
+            elif byte == 0x22:
+                in_string = False
+            continue
+        if byte == 0x22:
+            in_string = True
+        elif byte in (0x7B, 0x5B):
+            depth += 1
+            if depth > _SL_MAX_JSON_DEPTH:
+                raise SBOMLineageError("SBOM JSON nesting is too deep")
+        elif byte in (0x7D, 0x5D):
+            depth = max(0, depth - 1)
+
+
+def _sl_parse_xml_bounded(raw_bytes: bytes) -> Any:
+    if re.search(rb"<!\s*(?:DOCTYPE|ENTITY)\b", raw_bytes, re.IGNORECASE):
+        raise SBOMLineageError("SBOM XML DTD and entity declarations are not allowed")
+    parser = _sl_et.XMLPullParser(events=("start", "end"))
+    count = 0
+    depth = 0
+    root = None
+    try:
+        for offset in range(0, len(raw_bytes), 1024):
+            parser.feed(raw_bytes[offset:offset + 1024])
+            for event, element in parser.read_events():
+                if event == "start":
+                    depth += 1
+                    count += 1
+                    if count > _SL_MAX_XML_ELEMENTS:
+                        raise SBOMLineageError("SBOM XML contains too many elements")
+                    if depth > _SL_MAX_XML_DEPTH:
+                        raise SBOMLineageError("SBOM XML nesting is too deep")
+                    if root is None:
+                        root = element
+                else:
+                    depth -= 1
+        parsed = parser.close()
+    except _sl_et.ParseError:
+        raise
+    if parsed is not None:
+        root = parsed
+    if root is None:
+        raise _sl_et.ParseError("empty XML document")
+    return root
 
 
 def _sl_payload(document: Any) -> tuple[Any, bytes]:
@@ -893,14 +1039,16 @@ def _sl_payload(document: Any) -> tuple[Any, bytes]:
     if not raw_bytes.strip():
         raise SBOMLineageError("SBOM input is empty")
     try:
+        _sl_validate_json_depth(raw_bytes)
         value = json.loads(raw_bytes.decode("utf-8"))
         if not isinstance(value, Mapping):
             raise SBOMLineageError("SBOM JSON root must be an object")
         return dict(value), raw_bytes
+    except RecursionError as exc:
+        raise SBOMLineageError("SBOM JSON nesting is too deep") from exc
     except (UnicodeDecodeError, json.JSONDecodeError):
         try:
-            root = _sl_et.fromstring(raw_bytes)
-            _sl_validate_xml_tree(root)
+            root = _sl_parse_xml_bounded(raw_bytes)
         except _sl_et.ParseError as exc:
             raise SBOMLineageError("SBOM is neither valid JSON nor XML") from exc
         return root, raw_bytes
@@ -980,7 +1128,7 @@ def _sl_validate_reference(reference: Any) -> dict[str, Any]:
         checked_hashes = []
         for item in hashes:
             _sl_require_keys(item, {"alg", "content"}, set(), "reference.hash")
-            algorithm = _sl_strict_text(item.get("alg"), "reference.hash.alg", limit=32)
+            algorithm = _sl_hash_algorithm(item.get("alg"), "reference.hash.alg", strict=True)
             content = _sl_strict_text(item.get("content"), "reference.hash.content", limit=256)
             assert algorithm is not None and content is not None
             if not re.fullmatch(r"[0-9a-f]{32,128}", content):
@@ -1080,7 +1228,7 @@ def _sl_validate_relationship(relationship: Any, *, field: str = "relationship")
     return result
 
 
-def _sl_expected_document_coverage(document_id: str, fmt: str, components: list[Mapping[str, Any]], relationships: list[Mapping[str, Any]], truncated: list[str]) -> dict[str, Any]:
+def _sl_expected_document_coverage(document_id: str, fmt: str, document_name: str | None, created_at: str | None, supplier: str | None, components: list[dict[str, Any]], relationships: list[dict[str, Any]], truncated: list[str]) -> dict[str, Any]:
     component_ids = {item["component_id"] for item in components}
     known_ids = set(component_ids)
     if fmt == "SPDX":
@@ -1091,13 +1239,19 @@ def _sl_expected_document_coverage(document_id: str, fmt: str, components: list[
         unknown.append("components")
     if not relationships:
         unknown.append("relationships")
+    if not document_name:
+        unknown.append("document_name")
+    if not created_at:
+        unknown.append("created_at")
+    if not supplier:
+        unknown.append("supplier")
     if dangling:
         unknown.append("dangling_relationships")
     if truncated:
         unknown.append("truncated:" + ",".join(sorted(set(truncated))))
     if any(item["coverage"]["state"] != "complete" for item in components):
         unknown.append("component_metadata")
-    state = "unknown" if not components else "partial" if (dangling or truncated or not relationships or any(item["coverage"]["state"] != "complete" for item in components)) else "complete"
+    state = "unknown" if not components else "partial" if (dangling or truncated or not document_name or not created_at or not supplier or not relationships or any(item["coverage"]["state"] != "complete" for item in components)) else "complete"
     return {
         "state": state,
         "unknown": sorted(set(unknown)),
@@ -1119,8 +1273,9 @@ def _sl_validate_document(document: Mapping[str, Any]) -> dict[str, Any]:
     supplied = document.get("ingestion_digest")
     unsigned = dict(document)
     unsigned.pop("ingestion_digest", None)
-    if not isinstance(supplied, str) or not re.fullmatch(r"[0-9a-f]{64}", supplied) or _sl_sha(unsigned) != supplied:
+    if not isinstance(supplied, str) or not re.fullmatch(r"[0-9a-f]{64}", supplied) or supplied not in {_sl_ingestion_sha(unsigned), _sl_sha(unsigned)}:
         raise SBOMLineageError("normalized SBOM ingestion digest mismatch")
+    legacy_ingestion_digest = supplied == _sl_sha(unsigned)
     fmt = document.get("format")
     if fmt not in _SL_FORMATS:
         raise SBOMLineageError("normalized SBOM format is invalid")
@@ -1137,7 +1292,9 @@ def _sl_validate_document(document: Mapping[str, Any]) -> dict[str, Any]:
     document_sha = document.get("document_sha256")
     if not isinstance(document_sha, str) or not re.fullmatch(r"[0-9a-f]{64}", document_sha):
         raise SBOMLineageError("normalized SBOM document digest is invalid")
-    _sl_strict_source_ref(document.get("source_ref"))
+    source_ref = _sl_strict_source_ref(document.get("source_ref"))
+    if re.fullmatch(r"sha256:[0-9a-f]{64}", source_ref) and source_ref[7:] != document_sha:
+        raise SBOMLineageError("normalized source_ref is not bound to document bytes")
     components = _sl_list(document.get("components"), "components")
     relationships = _sl_list(document.get("relationships"), "relationships")
     if len(components) > _SL_MAX_COMPONENTS or len(relationships) > _SL_MAX_RELATIONSHIPS:
@@ -1160,9 +1317,14 @@ def _sl_validate_document(document: Mapping[str, Any]) -> dict[str, Any]:
     dangling = _sl_string_list(coverage.get("dangling_relationships"), "document.coverage.dangling_relationships", maximum=_SL_MAX_RELATIONSHIPS)
     _sl_nonnegative_int(coverage.get("component_count"), "document.coverage.component_count", maximum=_SL_MAX_COMPONENTS)
     _sl_nonnegative_int(coverage.get("relationship_count"), "document.coverage.relationship_count", maximum=_SL_MAX_RELATIONSHIPS)
-    expected = _sl_expected_document_coverage(document_id, fmt, checked_components, checked_relationships, truncated)
+    expected = _sl_expected_document_coverage(
+        document_id, fmt, document.get("document_name"), document.get("created_at"), document.get("supplier"),
+        checked_components, checked_relationships, truncated,
+    )
     if coverage != expected:
         raise SBOMLineageError("document coverage is inconsistent with its contents")
+    if legacy_ingestion_digest:
+        raise SBOMLineageError("normalized SBOM ingestion digest is not bound to document bytes")
     return dict(document)
 
 
@@ -1190,7 +1352,36 @@ def _sl_lineage_edges(edges: Any, *, truncated: list[str] | None = None) -> list
             confidence=raw.get("confidence", "unknown"), coverage=raw.get("coverage", "unknown"),
             evidence_refs=raw.get("evidence_refs", []), truncated=truncated,
         ))
-    return sorted(result, key=lambda item: (item["from"], item["to"], item["type"], item["confidence"], item["coverage"]))
+    confidence_rank = {"high": 3, "medium": 2, "low": 1, "unknown": 0}
+    coverage_rank = {"complete": 2, "partial": 1, "unknown": 0}
+    selected: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for edge in result:
+        key = (edge["from"], edge["to"], edge["type"])
+        evidence = tuple(edge.get("evidence_refs", []))
+        candidate_rank = (
+            0 if evidence else 1,
+            -len(evidence),
+            -confidence_rank[edge["confidence"]],
+            -coverage_rank[edge["coverage"]],
+            evidence,
+            _sl_sha(edge),
+        )
+        current = selected.get(key)
+        if current is None:
+            selected[key] = edge
+            continue
+        current_evidence = tuple(current.get("evidence_refs", []))
+        current_rank = (
+            0 if current_evidence else 1,
+            -len(current_evidence),
+            -confidence_rank[current["confidence"]],
+            -coverage_rank[current["coverage"]],
+            current_evidence,
+            _sl_sha(current),
+        )
+        if candidate_rank < current_rank:
+            selected[key] = edge
+    return sorted(selected.values(), key=lambda item: (item["from"], item["to"], item["type"], _sl_sha(item)))
 
 
 def build_sbom_lineage(documents: Any, *, edges: Any = None) -> dict[str, Any]:
@@ -1235,7 +1426,7 @@ def build_sbom_lineage(documents: Any, *, edges: Any = None) -> dict[str, Any]:
             nodes.setdefault(node_id, {"node_id": node_id, "kind": _sl_node_kind(node_id), "coverage": {"state": "partial", "unknown": ["node_metadata"], "truncated": []}})
     coverage_states = {edge["coverage"] for edge in all_edges}
     document_states = {document.get("coverage", {}).get("state", "unknown") for document in normalized}
-    node_states = {node.get("coverage", {}).get("state", "complete") for node in nodes.values() if node.get("kind") == "component"}
+    node_states = {node.get("coverage", {}).get("state", "complete") for node in nodes.values()}
     if "unknown" in coverage_states or "unknown" in document_states or "unknown" in node_states:
         coverage_state = "unknown"
     elif truncated or "partial" in coverage_states or "partial" in document_states or "partial" in node_states:
@@ -1352,7 +1543,7 @@ def _sl_loaded_lineage(lineage: Mapping[str, Any]) -> dict[str, Any]:
         raise SBOMLineageError("lineage coverage lost document truncation metadata")
     edge_states = {edge["coverage"] for edge in checked_edges}
     document_states = {document["coverage"]["state"] for document in checked_documents}
-    node_states = {node["coverage"]["state"] for node in nodes if node.get("kind") == "component"}
+    node_states = {node["coverage"]["state"] for node in nodes}
     expected_state = "unknown" if "unknown" in edge_states or "unknown" in document_states or "unknown" in node_states else "partial" if truncated or "partial" in edge_states or "partial" in document_states or "partial" in node_states else "complete"
     expected_unknown = [] if expected_state == "complete" else ["external_lineage"]
     if state != expected_state or unknown != expected_unknown:
@@ -1424,13 +1615,30 @@ def query_sbom_lineage(lineage: Mapping[str, Any], query: str, *, limit: int = 3
             continue
         source, target = str(edge.get("from")), str(edge.get("to"))
         adjacency.setdefault(source, []).append((target, edge))
-        adjacency.setdefault(target, []).append((source, edge))
+        reverse = dict(edge)
+        reverse["from"], reverse["to"] = target, source
+        adjacency.setdefault(target, []).append((source, reverse))
     found: dict[str, dict[str, Any]] = {}
     path_truncated = False
+    states_used = 0
+    queued_states = 0
+    budget_exhausted = False
     for start in matches:
-        queue = deque([(start, [], {start})])
+        if queued_states >= _SL_MAX_QUERY_QUEUE:
+            path_truncated = True
+            truncated.append("query_queue")
+            break
+        queue = deque([(start, [])])
+        queued_states += 1
+        seen_nodes = {start}
         while queue:
-            current, path, visited = queue.popleft()
+            if states_used >= _SL_MAX_QUERY_STATES:
+                path_truncated = True
+                truncated.append("query_states")
+                budget_exhausted = True
+                break
+            current, path = queue.popleft()
+            states_used += 1
             if current != start and _sl_node_kind(current) == "artifact":
                 candidate = {"artifact_id": current, "path": path, "coverage": _sl_path_state(path), "confidence": _sl_path_confidence(path), "evidence_refs": sorted({ref for edge in path for ref in edge.get("evidence_refs", [])})}
                 previous = found.get(current)
@@ -1442,9 +1650,18 @@ def query_sbom_lineage(lineage: Mapping[str, Any], query: str, *, limit: int = 3
                     path_truncated = True
                 continue
             for neighbor, edge in sorted(adjacency.get(current, []), key=lambda item: (item[0], item[1].get("type", ""))):
-                if neighbor in visited:
+                if neighbor in seen_nodes:
                     continue
-                queue.append((neighbor, path + [dict(edge)], visited | {neighbor}))
+                seen_nodes.add(neighbor)
+                if len(queue) >= _SL_MAX_QUERY_QUEUE or queued_states >= _SL_MAX_QUERY_QUEUE:
+                    path_truncated = True
+                    truncated.append("query_queue")
+                    budget_exhausted = True
+                    continue
+                queue.append((neighbor, path + [dict(edge)]))
+                queued_states += 1
+        if budget_exhausted:
+            break
     all_impacted = [found[key] for key in sorted(found)]
     if len(all_impacted) > limit:
         truncated.append("impacted_artifacts")
@@ -1512,12 +1729,12 @@ def _sl_validate_query_result(query_result: Mapping[str, Any]) -> dict[str, Any]
         if not path or len(path) > _SL_MAX_PATH_LENGTH:
             raise SBOMLineageError("impacted_artifact.path is outside its bounds")
         checked_path = [_sl_validate_relationship(edge, field="query.path.edge") for edge in path]
-        if not any(set((edge["from"], edge["to"])) & set(matched_nodes) for edge in checked_path[:1]):
+        if checked_path[0]["from"] not in set(matched_nodes):
             raise SBOMLineageError("query path is not bound to a matched node")
         for first, second in zip(checked_path, checked_path[1:]):
-            if not set((first["from"], first["to"])) & set((second["from"], second["to"])):
-                raise SBOMLineageError("query path edges are not endpoint-bound")
-        if artifact_id not in {checked_path[-1]["from"], checked_path[-1]["to"]}:
+            if first["to"] != second["from"]:
+                raise SBOMLineageError("query path edges are not directed and contiguous")
+        if checked_path[-1]["to"] != artifact_id:
             raise SBOMLineageError("query path does not terminate at its artifact")
         coverage = item.get("coverage")
         confidence = item.get("confidence")

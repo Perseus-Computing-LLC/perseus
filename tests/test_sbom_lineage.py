@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -351,3 +352,132 @@ def test_query_numeric_bounds_and_complete_schema_are_fail_closed():
     del invalid["components"][0]["coverage"]["unknown"]
     _reseal(invalid)
     assert perseus.verify_sbom_document(invalid)["valid"] is False
+
+
+def test_unsafe_ids_properties_and_hash_algorithms_are_not_projected():
+    payload = json.loads(_load("cyclonedx-app.json"))
+    component = payload["components"][0]
+    component["bom-ref"] = "artifact:credential-token"
+    component["purl"] = "pkg:maven/example/pkg@1?api_key=RAW_PURL"
+    component["properties"] = [{"name": "vex-secret-property", "value": "RAW_PROPERTY_VALUE"}]
+    component["externalReferences"] = [{
+        "type": "other",
+        "url": "https://source.invalid/?token=RAW_URL",
+        "hashes": [{"alg": "Bearer RAW_HASH_ALGORITHM", "content": "a" * 64}],
+    }]
+    document = perseus.ingest_sbom_document(payload, source_ref="artifact:secret-token-source")
+    encoded = json.dumps(document, sort_keys=True)
+    for secret in ("credential-token", "RAW_PURL", "RAW_PROPERTY_VALUE", "RAW_URL", "RAW_HASH_ALGORITHM", "secret-token-source"):
+        assert secret not in encoded
+    assert perseus.verify_sbom_document(document)["valid"] is True
+
+
+def test_json_nesting_and_xml_dtd_are_rejected_as_sbom_errors():
+    with pytest.raises(perseus.SBOMLineageError, match="nesting"):
+        perseus.ingest_sbom_document(b"[" * 20_000 + b"]" * 20_000)
+    with pytest.raises(perseus.SBOMLineageError, match="DTD|entity"):
+        perseus.ingest_sbom_document(b'<!DOCTYPE bom [<!ENTITY x "expanded">]><bom/>')
+    with pytest.raises(perseus.SBOMLineageError, match="nesting"):
+        perseus.ingest_sbom_document(b"<a>" + b"<b>" * (perseus._SL_MAX_XML_DEPTH + 1) + b"</b>" * (perseus._SL_MAX_XML_DEPTH + 1) + b"</a>")
+    with pytest.raises(perseus.SBOMLineageError, match="elements"):
+        perseus.ingest_sbom_document(b"<root>" + b"<item/>" * (perseus._SL_MAX_XML_ELEMENTS + 1) + b"</root>")
+
+
+def test_cyclonedx_global_expansion_caps_produce_valid_truncated_documents():
+    payload = json.loads(_load("cyclonedx-app.json"))
+    payload["components"] = [
+        {"type": "library", "bom-ref": f"pkg:generic/example-{i}@1", "name": f"example-{i}", "version": "1", "supplier": {"name": "Example"}}
+        for i in range(perseus._SL_MAX_COMPONENTS + 1)
+    ]
+    targets = [f"pkg:generic/example-{i}@1" for i in range(perseus._SL_MAX_RELATIONSHIPS)]
+    payload["dependencies"] = [{"ref": targets[0], "dependsOn": targets}]
+    document = perseus.ingest_sbom_document(payload)
+    assert len(document["components"]) <= perseus._SL_MAX_COMPONENTS
+    assert len(document["relationships"]) <= perseus._SL_MAX_RELATIONSHIPS
+    assert document["coverage"]["truncated"]
+    assert perseus.verify_sbom_document(document)["valid"] is True
+
+
+def test_source_digest_must_match_raw_sbom_bytes():
+    raw = _load("spdx-app.json")
+    expected = hashlib.sha256(raw).hexdigest()
+    document = perseus.ingest_sbom_document(raw, source_ref=f"sha256:{expected}")
+    assert document["source_ref"] == f"sha256:{expected}"
+    with pytest.raises(perseus.SBOMLineageError, match="bound"):
+        perseus.ingest_sbom_document(raw, source_ref="sha256:" + "0" * 64)
+
+    forged = json.loads(json.dumps(document))
+    forged["source_ref"] = "sha256:" + "1" * 64
+    _reseal(forged)
+    with pytest.raises(perseus.SBOMLineageError, match="bound"):
+        perseus.build_sbom_lineage([forged])
+
+    public_document = perseus.ingest_sbom_document(raw, source_ref="artifact:fixture")
+    forged_digest = json.loads(json.dumps(public_document))
+    forged_digest["document_sha256"] = "2" * 64
+    _reseal(forged_digest)
+    with pytest.raises(perseus.SBOMLineageError, match="bound"):
+        perseus.build_sbom_lineage([forged_digest])
+
+
+def test_missing_document_metadata_and_external_nodes_are_partial():
+    payload = json.loads(_load("spdx-app.json"))
+    payload.pop("name")
+    payload.pop("creationInfo")
+    document = perseus.ingest_sbom_document(payload)
+    assert document["coverage"]["state"] == "partial"
+    assert {"document_name", "created_at", "supplier"}.issubset(set(document["coverage"]["unknown"]))
+    lineage = perseus.build_sbom_lineage([document], edges=[
+        {"from": "source:unresolved", "to": "SPDXRef-App", "type": "contains", "confidence": "high", "coverage": "complete"},
+    ])
+    assert lineage["coverage"]["state"] == "partial"
+    assert perseus.verify_sbom_lineage(lineage)["valid"] is True
+
+
+def test_query_verifier_requires_directed_contiguous_path_edges():
+    document = perseus.ingest_sbom_document(_load("spdx-app.json"), source_ref="artifact:fixture")
+    result = perseus.query_sbom_lineage(perseus.build_sbom_lineage([document], edges=_lineage_edges()), "CVE-2021-44228")
+    invalid = json.loads(json.dumps(result))
+    path = invalid["impacted_artifacts"][0]["path"]
+    path[1]["from"], path[1]["to"] = path[1]["to"], path[1]["from"]
+    _reseal(invalid)
+    assert perseus.verify_sbom_lineage_query(invalid)["valid"] is False
+
+
+def test_query_bfs_has_global_state_and_queue_budgets():
+    document = perseus.ingest_sbom_document(_load("spdx-app.json"), source_ref="artifact:fixture")
+    edges = []
+    hubs = [f"build:hub-{i}" for i in range(20)]
+    for source_index in range(200):
+        source = f"source:needle-{source_index}"
+        for hub in hubs:
+            edges.append({"from": source, "to": hub, "type": "routes", "confidence": "high", "coverage": "complete"})
+    edges.extend({"from": hub, "to": "artifact:budget-target", "type": "generates", "confidence": "high", "coverage": "complete"} for hub in hubs)
+    lineage = perseus.build_sbom_lineage([document], edges=edges)
+    result = perseus.query_sbom_lineage(lineage, "needle", limit=32)
+    assert "query_queue" in result["coverage"]["truncated"] or "query_states" in result["coverage"]["truncated"]
+    assert result["status"] != "complete"
+
+
+def test_conflicting_same_key_edges_are_deterministic_and_tie_break_evidence():
+    document = perseus.ingest_sbom_document(_load("spdx-app.json"), source_ref="artifact:fixture")
+    edges = [
+        {"from": "source:stable", "to": "artifact:stable", "type": "generates", "confidence": "high", "coverage": "complete"},
+        {"from": "source:stable", "to": "artifact:stable", "type": "generates", "confidence": "unknown", "coverage": "unknown", "evidence_refs": ["ledger:strong"]},
+    ]
+    first = perseus.build_sbom_lineage([document], edges=edges)
+    second = perseus.build_sbom_lineage([document], edges=list(reversed(edges)))
+    assert first["lineage_digest"] == second["lineage_digest"]
+    selected = next(edge for edge in first["edges"] if edge["from"] == "source:stable")
+    assert selected["evidence_refs"] == ["ledger:strong"]
+
+
+def test_cyclonedx_purl_qualifiers_are_valid_component_ids():
+    payload = json.loads(_load("cyclonedx-app.json"))
+    qualified = "pkg:maven/org.example/example@1.0?classifier=sources&repository_url=https%3A%2F%2Frepo.example"
+    payload["components"][0]["bom-ref"] = qualified
+    payload["components"][0]["purl"] = qualified
+    payload["dependencies"][0]["dependsOn"] = [qualified]
+    document = perseus.ingest_sbom_document(payload)
+    assert any(component["component_id"] == qualified for component in document["components"])
+    assert perseus.verify_sbom_document(document)["valid"] is True
