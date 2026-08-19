@@ -517,6 +517,32 @@ def test_successful_child_finalizes_owned_process_group_before_return(tmp_path):
     assert not marker.exists()
 
 
+def test_successful_child_cannot_escape_with_a_detached_session(tmp_path):
+    if os.name != "posix":
+        pytest.skip("process-group assertion is POSIX-specific")
+    marker = tmp_path / "detached-descendant-leaked"
+    ready = tmp_path / "detached-descendant-ready"
+    grandchild = (
+        "import os,pathlib,time; os.setsid(); "
+        f"pathlib.Path({str(ready)!r}).write_text('ready'); time.sleep(1.0); "
+        f"pathlib.Path({str(marker)!r}).write_text('leaked')"
+    )
+    parent = (
+        "import pathlib,subprocess,sys,time; "
+        f"subprocess.Popen([sys.executable, '-c', {grandchild!r}]); "
+        f"deadline=time.monotonic()+1.0; "
+        f"\nwhile time.monotonic() < deadline and not pathlib.Path({str(ready)!r}).exists(): time.sleep(0.01); "
+        "print('ok')"
+    )
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", parent], cwd=tmp_path, timeout=2.0, env=dict(os.environ)
+    )
+    assert result["status"] == "passed"
+    assert result["exit_code"] == 0
+    time.sleep(1.2)
+    assert not marker.exists()
+
+
 def test_bounded_child_rejects_nonfinite_timeout_before_spawn(monkeypatch, tmp_path):
     def fail_if_spawned(*_args, **_kwargs):
         raise AssertionError("Popen must not run for an invalid timeout")

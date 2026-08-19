@@ -465,6 +465,81 @@ def _terminate_process_group(process: subprocess.Popen[Any]) -> None:
         process.wait(timeout=1.0)
 
 
+_SUBREAPER_UNAVAILABLE = object()
+_subreaper_state: bool | object | None = None
+
+
+def _ensure_child_subreaper() -> bool:
+    """Make orphaned descendants observable so detached sessions fail closed."""
+    global _subreaper_state
+    if _subreaper_state is not None:
+        return _subreaper_state is True
+    if not sys.platform.startswith("linux"):
+        _subreaper_state = _SUBREAPER_UNAVAILABLE
+        return False
+    try:
+        import ctypes
+
+        libc = ctypes.CDLL(None, use_errno=True)
+        prctl = libc.prctl
+        prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]
+        prctl.restype = ctypes.c_int
+        if prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
+            _subreaper_state = _SUBREAPER_UNAVAILABLE
+            return False
+    except (AttributeError, OSError, TypeError, ValueError):
+        _subreaper_state = _SUBREAPER_UNAVAILABLE
+        return False
+    _subreaper_state = True
+    return True
+
+
+def _direct_child_pids(parent_pid: int) -> set[int]:
+    if not sys.platform.startswith("linux"):
+        return set()
+    children: set[int] = set()
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return children
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            stat = Path("/proc") / entry / "stat"
+            fields = stat.read_text(encoding="utf-8").split(") ", 1)[1].split()
+            if int(fields[1]) == parent_pid:
+                children.add(int(entry))
+        except (OSError, IndexError, ValueError):
+            continue
+    return children
+
+
+def _terminate_reparented_children(baseline: set[int], leader_pid: int) -> bool:
+    """Kill and reap descendants reparented to this subreaper after leader exit."""
+    if _subreaper_state is not True:
+        return True
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        candidates = _direct_child_pids(os.getpid()) - baseline - {leader_pid}
+        for pid in candidates:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except OSError:
+                return False
+        for pid in candidates | {leader_pid}:
+            try:
+                os.waitpid(pid, os.WNOHANG)
+            except (ChildProcessError, OSError):
+                pass
+        if not candidates:
+            return True
+        time.sleep(0.01)
+    return not (_direct_child_pids(os.getpid()) - baseline - {leader_pid})
+
+
 def _run_bounded_child(
     argv: list[str],
     *,
@@ -499,6 +574,10 @@ def _run_bounded_child(
     if os.name == "posix":
         kwargs["start_new_session"] = True
         kwargs["preexec_fn"] = _child_resource_limiter(limits)
+    subreaper_ready = _ensure_child_subreaper() if sys.platform.startswith("linux") else False
+    if sys.platform.startswith("linux") and not subreaper_ready:
+        raise AcceptanceError("child containment unavailable")
+    baseline_children = _direct_child_pids(os.getpid()) if subreaper_ready else set()
     before_disk = _monitor_size(monitor_roots)
     before_children = resource.getrusage(resource.RUSAGE_CHILDREN) if hasattr(resource, "RUSAGE_CHILDREN") else None
     try:
@@ -534,6 +613,12 @@ def _run_bounded_child(
             _terminate_process_group(process)
         except BaseException:
             cleanup_failed = True
+        if subreaper_ready:
+            try:
+                if not _terminate_reparented_children(baseline_children, process.pid):
+                    cleanup_failed = True
+            except BaseException:
+                cleanup_failed = True
     if process.returncode is None:
         try:
             process.wait(timeout=1.0)
