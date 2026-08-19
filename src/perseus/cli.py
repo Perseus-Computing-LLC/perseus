@@ -162,6 +162,7 @@ def main():
     p_sbom_ingest.add_argument("--json", action="store_true", help="Print machine-readable JSON")
     p_sbom_merge = sbom_sub.add_parser("merge", help="Build a queryable lineage graph from normalized SBOM documents")
     p_sbom_merge.add_argument("documents", nargs="+", help="SBOM document paths")
+    p_sbom_merge.add_argument("--raw-documents", nargs="+", default=None, dest="raw_documents", help="Raw source paths corresponding to normalized documents")
     p_sbom_merge.add_argument("--edges", default=None, help="Optional JSON file of source/build/artifact/deployment edges")
     p_sbom_merge.add_argument("--output", "-o", default=None, help="Write the lineage graph to a JSON file")
     p_sbom_merge.add_argument("--json", action="store_true", help="Print machine-readable JSON")

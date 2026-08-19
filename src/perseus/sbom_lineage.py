@@ -12,6 +12,7 @@ import hashlib
 import json
 import re
 import xml.etree.ElementTree as _sl_et
+from urllib.parse import unquote
 from collections import deque
 from pathlib import Path
 from typing import Any, Mapping
@@ -77,6 +78,13 @@ _SL_HASH_ALGORITHM_ALIASES = {
 }
 
 
+# In-process provenance for normalized projections.  A projection digest alone
+# is caller-recomputable; only a projection produced by raw ingestion (or one
+# explicitly re-verified against raw bytes) is accepted by lineage builders.
+_SL_INGESTED_PROVENANCE: dict[str, tuple[str, str]] = {}
+_SL_LINEAGE_PROVENANCE: dict[str, tuple[str, str]] = {}
+
+
 class SBOMLineageError(ValueError):
     """Raised when an SBOM or lineage projection cannot be verified."""
 
@@ -89,19 +97,33 @@ def _sl_sha(value: Any) -> str:
     return hashlib.sha256(_sl_json(value).encode("utf-8")).hexdigest()
 
 
-def _sl_ingestion_sha(unsigned: Mapping[str, Any]) -> str:
-    return _sl_sha({"domain": "perseus-sbom-ingestion", "document_sha256": unsigned.get("document_sha256"), "projection": unsigned})
+def _sl_ingestion_sha(unsigned: Mapping[str, Any], raw_bytes: bytes | None = None) -> str:
+    raw_digest = hashlib.sha256(raw_bytes).hexdigest() if raw_bytes is not None else unsigned.get("document_sha256")
+    return _sl_sha({"domain": "perseus-sbom-ingestion", "raw_sha256": raw_digest, "projection": unsigned})
 
 
 def _sl_sensitive(value: str) -> bool:
     """Return whether a scalar looks like it carries a credential."""
-    authority = value.split("://", 1)[1].split("/", 1)[0] if "://" in value else ""
-    normalized = re.sub(r"[^a-z0-9]+", "_", value.casefold())
-    return bool(
-        _SL_SENSITIVE_REFERENCE_RE.search(value)
-        or (authority and "@" in authority)
-        or any(marker in normalized for marker in _SL_FORBIDDEN_MARKERS)
-    )
+    candidates = [value]
+    decoded = value
+    # Decode a small, bounded number of layers so encoded URL/PURL userinfo
+    # and query keys cannot evade the credential checks below.
+    for _ in range(3):
+        next_decoded = unquote(decoded)
+        if next_decoded == decoded:
+            break
+        candidates.append(next_decoded)
+        decoded = next_decoded
+    for candidate in candidates:
+        authority = candidate.split("://", 1)[1].split("/", 1)[0] if "://" in candidate else ""
+        normalized = re.sub(r"[^a-z0-9]+", "_", candidate.casefold())
+        if (
+            _SL_SENSITIVE_REFERENCE_RE.search(candidate)
+            or (authority and "@" in authority)
+            or any(marker in normalized for marker in _SL_FORBIDDEN_MARKERS)
+        ):
+            return True
+    return False
 
 
 def _sl_truncated(truncated: list[str] | None, name: str) -> None:
@@ -148,7 +170,10 @@ def _sl_text(value: Any, field: str, *, required: bool = False, limit: int = 512
 
 
 def _sl_id(value: Any, field: str, *, fallback: str = "") -> str:
-    text = _sl_text(value if value is not None else fallback, field, required=True, limit=256)
+    candidate = fallback if value is None else value
+    if not isinstance(candidate, str):
+        raise SBOMLineageError(f"{field} must be a string")
+    text = _sl_text(candidate, field, required=True, limit=256)
     if _sl_sensitive(text):
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
         prefix = text.split(":", 1)[0]
@@ -173,6 +198,10 @@ def _sl_safe_source_ref(value: Any, raw_bytes: bytes) -> str:
         return f"sha256:{hashlib.sha256(raw_bytes).hexdigest()}"
     text = _sl_text(value, "source_ref", required=True, limit=512)
     raw_digest = hashlib.sha256(raw_bytes).hexdigest()
+    if text.startswith("sha256:source-ref:"):
+        if not re.fullmatch(r"sha256:source-ref:[0-9a-fA-F]{64}", text):
+            raise SBOMLineageError("source_ref sanitized digest is malformed")
+        return text.lower()
     if text.startswith("sha256:"):
         if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", text) or text[7:].casefold() != raw_digest:
             raise SBOMLineageError("source_ref digest is not bound to the SBOM bytes")
@@ -630,7 +659,11 @@ def _sl_finalize_document(*, fmt: str, spec_version: str, document_id: str, docu
             "dangling_relationships": dangling,
         },
     }
-    unsigned["ingestion_digest"] = _sl_ingestion_sha(unsigned)
+    unsigned["ingestion_digest"] = _sl_ingestion_sha(unsigned, raw_bytes)
+    _SL_INGESTED_PROVENANCE[unsigned["ingestion_digest"]] = (
+        unsigned["document_sha256"],
+        _sl_json(unsigned),
+    )
     return unsigned
 
 
@@ -983,6 +1016,20 @@ def _sl_validate_json_depth(raw_bytes: bytes) -> None:
             depth = max(0, depth - 1)
 
 
+def _sl_load_json_bounded(source: Path | bytes, *, allow_non_json: bool = False) -> tuple[Any | None, bytes]:
+    """Load JSON through the shared byte and nesting bounds."""
+    raw_bytes = _sl_read_bounded(source) if isinstance(source, Path) else bytes(source)
+    _sl_validate_json_depth(raw_bytes)
+    try:
+        return json.loads(raw_bytes.decode("utf-8")), raw_bytes
+    except RecursionError as exc:
+        raise SBOMLineageError("SBOM JSON nesting is too deep") from exc
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        if allow_non_json:
+            return None, raw_bytes
+        raise SBOMLineageError("SBOM JSON is invalid") from exc
+
+
 def _sl_parse_xml_bounded(raw_bytes: bytes) -> Any:
     if re.search(rb"<!\s*(?:DOCTYPE|ENTITY)\b", raw_bytes, re.IGNORECASE):
         raise SBOMLineageError("SBOM XML DTD and entity declarations are not allowed")
@@ -1262,7 +1309,7 @@ def _sl_expected_document_coverage(document_id: str, fmt: str, document_name: st
     }
 
 
-def _sl_validate_document(document: Mapping[str, Any]) -> dict[str, Any]:
+def _sl_validate_document(document: Mapping[str, Any], *, raw_bytes: bytes | None = None) -> dict[str, Any]:
     required = {
         "schema_version", "format", "spec_version", "document_id", "document_name",
         "document_sha256", "source_ref", "created_at", "supplier", "components",
@@ -1273,9 +1320,16 @@ def _sl_validate_document(document: Mapping[str, Any]) -> dict[str, Any]:
     supplied = document.get("ingestion_digest")
     unsigned = dict(document)
     unsigned.pop("ingestion_digest", None)
-    if not isinstance(supplied, str) or not re.fullmatch(r"[0-9a-f]{64}", supplied) or supplied not in {_sl_ingestion_sha(unsigned), _sl_sha(unsigned)}:
-        raise SBOMLineageError("normalized SBOM ingestion digest mismatch")
-    legacy_ingestion_digest = supplied == _sl_sha(unsigned)
+    expected_raw_sha = hashlib.sha256(raw_bytes).hexdigest() if raw_bytes is not None else unsigned.get("document_sha256")
+    expected_ingestion = _sl_ingestion_sha(unsigned, raw_bytes)
+    if not isinstance(supplied, str) or not re.fullmatch(r"[0-9a-f]{64}", supplied) or supplied != expected_ingestion:
+        raise SBOMLineageError("normalized SBOM ingestion digest mismatch; unsafe or source-bound projection required")
+    if raw_bytes is not None and unsigned.get("document_sha256") != expected_raw_sha:
+        raise SBOMLineageError("normalized SBOM document digest is not bound to raw ingestion bytes")
+    if raw_bytes is None:
+        provenance = _SL_INGESTED_PROVENANCE.get(supplied)
+        if provenance is None or provenance != (unsigned.get("document_sha256"), _sl_json(document)):
+            raise SBOMLineageError("normalized SBOM is not bound to raw ingestion bytes/source digest")
     fmt = document.get("format")
     if fmt not in _SL_FORMATS:
         raise SBOMLineageError("normalized SBOM format is invalid")
@@ -1323,14 +1377,22 @@ def _sl_validate_document(document: Mapping[str, Any]) -> dict[str, Any]:
     )
     if coverage != expected:
         raise SBOMLineageError("document coverage is inconsistent with its contents")
-    if legacy_ingestion_digest:
-        raise SBOMLineageError("normalized SBOM ingestion digest is not bound to document bytes")
     return dict(document)
 
 
-def verify_sbom_document(document: Mapping[str, Any]) -> dict[str, Any]:
+def _sl_rebind_document(document: Mapping[str, Any], raw_document: Any) -> dict[str, Any]:
+    """Re-verify a persisted normalized projection against its raw source bytes."""
+    _, raw_bytes = _sl_payload(raw_document)
+    checked = _sl_validate_document(document, raw_bytes=raw_bytes)
+    expected = ingest_sbom_document(raw_bytes, source_ref=document.get("source_ref", ""))
+    if _sl_json(expected) != _sl_json(dict(document)):
+        raise SBOMLineageError("normalized SBOM projection is not bound to raw ingestion bytes")
+    return checked
+
+
+def verify_sbom_document(document: Mapping[str, Any], raw_document: Any | None = None) -> dict[str, Any]:
     try:
-        checked = _sl_validate_document(document)
+        checked = _sl_validate_document(document) if raw_document is None else _sl_rebind_document(document, raw_document)
     except (SBOMLineageError, TypeError, ValueError) as exc:
         return {"valid": False, "error": str(exc)}
     return {"valid": True, "schema_version": checked["schema_version"], "ingestion_digest": checked["ingestion_digest"], "component_count": len(checked["components"]), "relationship_count": len(checked["relationships"])}
@@ -1354,9 +1416,9 @@ def _sl_lineage_edges(edges: Any, *, truncated: list[str] | None = None) -> list
         ))
     confidence_rank = {"high": 3, "medium": 2, "low": 1, "unknown": 0}
     coverage_rank = {"complete": 2, "partial": 1, "unknown": 0}
-    selected: dict[tuple[str, str, str], dict[str, Any]] = {}
+    selected: dict[tuple[str, str], dict[str, Any]] = {}
     for edge in result:
-        key = (edge["from"], edge["to"], edge["type"])
+        key = (edge["from"], edge["to"])
         evidence = tuple(edge.get("evidence_refs", []))
         candidate_rank = (
             0 if evidence else 1,
@@ -1384,18 +1446,28 @@ def _sl_lineage_edges(edges: Any, *, truncated: list[str] | None = None) -> list
     return sorted(selected.values(), key=lambda item: (item["from"], item["to"], item["type"], _sl_sha(item)))
 
 
-def build_sbom_lineage(documents: Any, *, edges: Any = None) -> dict[str, Any]:
+def build_sbom_lineage(documents: Any, *, edges: Any = None, raw_documents: Any = None) -> dict[str, Any]:
     """Build a deterministic graph from normalized or raw SBOM documents."""
     if not isinstance(documents, (list, tuple)) or not documents:
         raise SBOMLineageError("at least one SBOM document is required")
+    rebound_raw: list[Any] | None = None
+    if raw_documents is not None:
+        if not isinstance(raw_documents, (list, tuple)) or len(raw_documents) != len(documents) or len(raw_documents) > _SL_MAX_DOCUMENTS:
+            raise SBOMLineageError("raw_documents must match the document list within its bound")
+        rebound_raw = list(raw_documents)
     truncated: list[str] = []
     if len(documents) > _SL_MAX_DOCUMENTS:
         truncated.append("documents")
     normalized = []
-    for document in documents[:_SL_MAX_DOCUMENTS]:
+    for index, document in enumerate(documents[:_SL_MAX_DOCUMENTS]):
         if isinstance(document, Mapping) and document.get("schema_version") == _SL_SCHEMA:
-            normalized.append(_sl_validate_document(document))
+            if rebound_raw is None:
+                normalized.append(_sl_validate_document(document))
+            else:
+                normalized.append(_sl_rebind_document(document, rebound_raw[index]))
         else:
+            if rebound_raw is not None:
+                raise SBOMLineageError("raw_documents may only rebind normalized SBOM projections")
             normalized.append(ingest_sbom_document(document))
     nodes: dict[str, dict[str, Any]] = {}
     component_fingerprints: dict[str, str] = {}
@@ -1408,6 +1480,8 @@ def build_sbom_lineage(documents: Any, *, edges: Any = None) -> dict[str, Any]:
                 raise SBOMLineageError(f"conflicting duplicate component ID: {component_id}")
             if component_id in component_fingerprints:
                 continue
+            if len(nodes) >= _SL_MAX_NODES:
+                raise SBOMLineageError("lineage nodes exceed its global bound")
             component_fingerprints[component_id] = fingerprint
             node = dict(component)
             node["node_id"] = component_id
@@ -1423,6 +1497,8 @@ def build_sbom_lineage(documents: Any, *, edges: Any = None) -> dict[str, Any]:
     all_edges = _sl_lineage_edges(native_edges + external_edges, truncated=truncated)
     for edge in all_edges:
         for node_id in (edge["from"], edge["to"]):
+            if node_id not in nodes and len(nodes) >= _SL_MAX_NODES:
+                raise SBOMLineageError("lineage nodes exceed its global bound")
             nodes.setdefault(node_id, {"node_id": node_id, "kind": _sl_node_kind(node_id), "coverage": {"state": "partial", "unknown": ["node_metadata"], "truncated": []}})
     coverage_states = {edge["coverage"] for edge in all_edges}
     document_states = {document.get("coverage", {}).get("state", "unknown") for document in normalized}
@@ -1441,6 +1517,10 @@ def build_sbom_lineage(documents: Any, *, edges: Any = None) -> dict[str, Any]:
         "coverage": {"state": coverage_state, "unknown": [] if coverage_state == "complete" else ["external_lineage"], "truncated": sorted(set(truncated))},
     }
     body["lineage_digest"] = _sl_sha(body)
+    _SL_LINEAGE_PROVENANCE[body["lineage_digest"]] = (
+        _sl_json(body["nodes"]),
+        _sl_json(body["edges"]),
+    )
     return body
 
 
@@ -1685,6 +1765,9 @@ def query_sbom_lineage(lineage: Mapping[str, Any], query: str, *, limit: int = 3
         impact_status = "not_established"
     unsigned: dict[str, Any] = {
         "schema_version": _SL_QUERY_SCHEMA,
+        "lineage_digest": loaded["lineage_digest"],
+        "lineage_nodes": loaded["nodes"],
+        "lineage_edges": loaded["edges"],
         "query": query_text,
         "matched_nodes": matches,
         "impacted_artifacts": impacted,
@@ -1696,8 +1779,8 @@ def query_sbom_lineage(lineage: Mapping[str, Any], query: str, *, limit: int = 3
     return unsigned
 
 
-def _sl_validate_query_result(query_result: Mapping[str, Any]) -> dict[str, Any]:
-    required = {"schema_version", "query", "matched_nodes", "impacted_artifacts", "status", "coverage", "claims", "query_digest"}
+def _sl_validate_query_result(query_result: Mapping[str, Any], authoritative_lineage: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    required = {"schema_version", "lineage_digest", "lineage_nodes", "lineage_edges", "query", "matched_nodes", "impacted_artifacts", "status", "coverage", "claims", "query_digest"}
     if not isinstance(query_result, Mapping) or set(query_result) != required or query_result.get("schema_version") != _SL_QUERY_SCHEMA:
         raise SBOMLineageError("unsupported query schema")
     supplied = query_result.get("query_digest")
@@ -1705,11 +1788,52 @@ def _sl_validate_query_result(query_result: Mapping[str, Any]) -> dict[str, Any]
     unsigned.pop("query_digest", None)
     if not isinstance(supplied, str) or not re.fullmatch(r"[0-9a-f]{64}", supplied) or _sl_sha(unsigned) != supplied:
         raise SBOMLineageError("query digest mismatch")
+    lineage_digest = query_result.get("lineage_digest")
+    if not isinstance(lineage_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", lineage_digest):
+        raise SBOMLineageError("query lineage digest is invalid")
+    lineage_nodes = _sl_list(query_result.get("lineage_nodes"), "query.lineage_nodes")
+    lineage_edges = _sl_list(query_result.get("lineage_edges"), "query.lineage_edges")
+    if len(lineage_nodes) > _SL_MAX_NODES or len(lineage_edges) > _SL_MAX_EDGES:
+        raise SBOMLineageError("query authoritative lineage exceeds its bound")
+    authority = _SL_LINEAGE_PROVENANCE.get(lineage_digest)
+    if authoritative_lineage is not None:
+        loaded_authority = _sl_loaded_lineage(authoritative_lineage)
+        if lineage_digest != loaded_authority["lineage_digest"]:
+            raise SBOMLineageError("query result lineage digest does not match the authoritative lineage")
+        authority = (_sl_json(loaded_authority["nodes"]), _sl_json(loaded_authority["edges"]))
+    if authority is None or authority != (_sl_json(lineage_nodes), _sl_json(lineage_edges)):
+        raise SBOMLineageError("query result is not bound to the authoritative lineage digest and nodes/edges")
+    authority_node_ids: set[str] = set()
+    for node in lineage_nodes:
+        if not isinstance(node, Mapping):
+            raise SBOMLineageError("query authoritative node must be an object")
+        _sl_require_keys(node, {"node_id", "kind", "coverage"}, {"component_id", "name", "version", "supplier", "identifiers", "references", "licenses", "component_type", "document_sha256"}, "query.authoritative_node")
+        node_id = _sl_strict_text(node.get("node_id"), "query.authoritative_node.node_id", limit=256)
+        kind = _sl_strict_text(node.get("kind"), "query.authoritative_node.kind", limit=32)
+        assert node_id is not None and kind is not None
+        _sl_id(node_id, "query.authoritative_node.node_id")
+        if kind != _sl_node_kind(node_id) or node_id in authority_node_ids:
+            raise SBOMLineageError("query authoritative node identity is invalid")
+        authority_node_ids.add(node_id)
+        full_component = {"component_id", "name", "version", "supplier", "identifiers", "references", "licenses", "component_type", "coverage"}
+        if full_component.issubset(set(node)):
+            _sl_validate_component({key: node[key] for key in full_component})
+            _sl_validate_node_coverage(node.get("coverage"), component=True)
+        else:
+            _sl_validate_node_coverage(node.get("coverage"), component=False)
+    authority_edges: list[dict[str, Any]] = []
+    for edge in lineage_edges:
+        checked_edge = _sl_validate_relationship(edge, field="query.authoritative_edge")
+        if checked_edge["from"] not in authority_node_ids or checked_edge["to"] not in authority_node_ids:
+            raise SBOMLineageError("query authoritative edge endpoint is not bound to a node")
+        authority_edges.append(checked_edge)
     query = _sl_strict_text(query_result.get("query"), "query", limit=512)
     assert query is not None
     matched_nodes = _sl_string_list(query_result.get("matched_nodes"), "matched_nodes", maximum=_SL_MAX_QUERY_MATCHES)
     for node_id in matched_nodes:
         _sl_id(node_id, "matched_node")
+    if not set(matched_nodes).issubset(authority_node_ids):
+        raise SBOMLineageError("query matched nodes are not bound to the authoritative lineage")
     impacted = _sl_list(query_result.get("impacted_artifacts"), "impacted_artifacts")
     if len(impacted) > _SL_MAX_QUERY_RESULTS:
         raise SBOMLineageError("impacted_artifacts exceeds its bound")
@@ -1722,6 +1846,8 @@ def _sl_validate_query_result(query_result: Mapping[str, Any]) -> dict[str, Any]
         _sl_id(artifact_id, "artifact_id")
         if _sl_node_kind(artifact_id) != "artifact":
             raise SBOMLineageError("impacted artifact ID is not an artifact")
+        if artifact_id not in authority_node_ids:
+            raise SBOMLineageError("impacted artifact is not bound to the authoritative lineage")
         if impacted_ids and artifact_id <= impacted_ids[-1]:
             raise SBOMLineageError("impacted_artifacts must be unique and sorted")
         impacted_ids.append(artifact_id)
@@ -1729,6 +1855,11 @@ def _sl_validate_query_result(query_result: Mapping[str, Any]) -> dict[str, Any]
         if not path or len(path) > _SL_MAX_PATH_LENGTH:
             raise SBOMLineageError("impacted_artifact.path is outside its bounds")
         checked_path = [_sl_validate_relationship(edge, field="query.path.edge") for edge in path]
+        for path_edge in checked_path:
+            reversed_edge = dict(path_edge)
+            reversed_edge["from"], reversed_edge["to"] = path_edge["to"], path_edge["from"]
+            if not any(path_edge == authority_edge or reversed_edge == authority_edge for authority_edge in authority_edges):
+                raise SBOMLineageError("query path edge is not bound to the authoritative lineage")
         if checked_path[0]["from"] not in set(matched_nodes):
             raise SBOMLineageError("query path is not bound to a matched node")
         for first, second in zip(checked_path, checked_path[1:]):
@@ -1782,9 +1913,9 @@ def _sl_validate_query_result(query_result: Mapping[str, Any]) -> dict[str, Any]
     return dict(query_result)
 
 
-def verify_sbom_lineage_query(query_result: Mapping[str, Any]) -> dict[str, Any]:
+def verify_sbom_lineage_query(query_result: Mapping[str, Any], authoritative_lineage: Mapping[str, Any] | None = None) -> dict[str, Any]:
     try:
-        checked = _sl_validate_query_result(query_result)
+        checked = _sl_validate_query_result(query_result, authoritative_lineage)
     except (SBOMLineageError, TypeError, ValueError) as exc:
         return {"valid": False, "error": str(exc)}
     return {"valid": True, "schema_version": checked["schema_version"], "query_digest": checked["query_digest"], "expected_digest": checked["query_digest"]}
@@ -1800,16 +1931,28 @@ def cmd_sbom(args: Any, cfg: Mapping[str, Any] | None = None) -> int:
         elif command == "merge":
             documents = []
             for path in args.documents:
-                raw_bytes = _sl_read_bounded(Path(path))
-                try:
-                    payload = json.loads(raw_bytes.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    payload = None
+                payload, raw_bytes = _sl_load_json_bounded(Path(path), allow_non_json=True)
                 documents.append(payload if isinstance(payload, Mapping) and payload.get("schema_version") == _SL_SCHEMA else ingest_sbom_document(raw_bytes, source_ref=f"file:{path}"))
-            edges = json.loads(_sl_read_bounded(Path(args.edges)).decode("utf-8")) if getattr(args, "edges", None) else []
-            document = build_sbom_lineage(documents, edges=edges)
+            raw_documents = getattr(args, "raw_documents", None)
+            raw_inputs = None
+            if raw_documents is not None:
+                if not isinstance(raw_documents, (list, tuple)) or len(raw_documents) != len(documents):
+                    raise SBOMLineageError("raw_documents must contain one raw source per document")
+                raw_inputs = []
+                for raw_path in raw_documents:
+                    _, raw_bytes = _sl_load_json_bounded(Path(raw_path), allow_non_json=True)
+                    raw_inputs.append(raw_bytes)
+            if getattr(args, "edges", None):
+                edges, _ = _sl_load_json_bounded(Path(args.edges))
+                if not isinstance(edges, list):
+                    raise SBOMLineageError("lineage edges JSON must be a list")
+            else:
+                edges = []
+            document = build_sbom_lineage(documents, edges=edges, raw_documents=raw_inputs)
         elif command == "query":
-            lineage = json.loads(_sl_read_bounded(Path(args.lineage)).decode("utf-8"))
+            lineage, _ = _sl_load_json_bounded(Path(args.lineage))
+            if not isinstance(lineage, Mapping):
+                raise SBOMLineageError("lineage JSON root must be an object")
             document = query_sbom_lineage(lineage, args.component, limit=getattr(args, "limit", 32))
         else:
             raise SBOMLineageError("command must be ingest, merge, or query")

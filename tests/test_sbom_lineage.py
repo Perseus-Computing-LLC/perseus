@@ -481,3 +481,132 @@ def test_cyclonedx_purl_qualifiers_are_valid_component_ids():
     document = perseus.ingest_sbom_document(payload)
     assert any(component["component_id"] == qualified for component in document["components"])
     assert perseus.verify_sbom_document(document)["valid"] is True
+
+
+def test_percent_encoded_secret_surfaces_are_not_projected():
+    payload = json.loads(_load("cyclonedx-app.json"))
+    component = payload["components"][0]
+    component["purl"] = "pkg:maven/example/pkg@1?%61pi_key=RAW_PURL"
+    component["externalReferences"] = [{
+        "type": "website",
+        "url": "https://%75ser:%70w@example.invalid/?%74oken=RAW_URL",
+        "comment": "%42earer%20RAW_COMMENT",
+    }]
+    document = perseus.ingest_sbom_document(payload, source_ref="artifact:%74oken=RAW_SOURCE")
+    encoded = json.dumps(document, sort_keys=True)
+    for secret in ("RAW_PURL", "RAW_URL", "RAW_COMMENT", "RAW_SOURCE"):
+        assert secret not in encoded
+
+
+def test_raw_identifier_fields_reject_non_string_values():
+    payload = json.loads(_load("cyclonedx-app.json"))
+    payload["components"][0]["bom-ref"] = 123
+    with pytest.raises(perseus.SBOMLineageError, match="string"):
+        perseus.ingest_sbom_document(payload)
+
+
+def test_recomputed_projection_digest_without_raw_binding_is_rejected():
+    raw = _load("spdx-app.json")
+    document = perseus.ingest_sbom_document(raw, source_ref="artifact:fixture")
+    forged = json.loads(json.dumps(document))
+    forged["components"][0]["name"] = "forged-component"
+    unsigned = dict(forged)
+    unsigned.pop("ingestion_digest")
+    forged["ingestion_digest"] = perseus._sl_ingestion_sha(unsigned)
+    with pytest.raises(perseus.SBOMLineageError, match="raw|source|bound|digest"):
+        perseus.build_sbom_lineage([forged])
+
+
+def test_query_verifier_rejects_self_consistent_path_outside_authoritative_lineage():
+    document = perseus.ingest_sbom_document(_load("spdx-app.json"), source_ref="artifact:fixture")
+    lineage = perseus.build_sbom_lineage([document], edges=_lineage_edges())
+    result = perseus.query_sbom_lineage(lineage, "CVE-2021-44228")
+    forged = json.loads(json.dumps(result))
+    forged["impacted_artifacts"][0]["path"][0]["type"] = "forged_relation"
+    _reseal(forged)
+    assert perseus.verify_sbom_lineage_query(forged)["valid"] is False
+
+
+def test_lineage_builder_rejects_node_cap_before_return():
+    documents = []
+    batches = perseus._SL_MAX_NODES // perseus._SL_MAX_COMPONENTS + 1
+    for batch in range(batches):
+        payload = {
+            "spdxVersion": "SPDX-2.3",
+            "SPDXID": f"SPDXRef-DOCUMENT-{batch}",
+            "packages": [
+                {
+                    "SPDXID": f"SPDXRef-Pkg-{batch}-{index}",
+                    "name": f"pkg-{batch}-{index}",
+                    "versionInfo": "1.0",
+                    "supplier": "Organization: Test",
+                }
+                for index in range(perseus._SL_MAX_COMPONENTS)
+            ],
+            "relationships": [],
+        }
+        documents.append(perseus.ingest_sbom_document(payload, source_ref=f"artifact:node-cap-{batch}"))
+    with pytest.raises(perseus.SBOMLineageError, match="nodes"):
+        perseus.build_sbom_lineage(documents, edges=[])
+
+
+def test_cli_json_reads_fail_closed_on_deep_nesting(tmp_path, capsys):
+    depth = max(perseus._SL_MAX_JSON_DEPTH + 1, 10000)
+    deep = b"{" + b'"x":{' * depth + b'"leaf":0' + b"}" * (depth + 1)
+    deep_path = tmp_path / "deep.json"
+    deep_path.write_bytes(deep)
+    merge_args = type("Args", (), {
+        "sbom_command": "merge", "documents": [str(deep_path)], "edges": None,
+        "output": None, "json": True,
+    })()
+    query_args = type("Args", (), {
+        "sbom_command": "query", "lineage": str(deep_path), "component": "x",
+        "limit": 32, "output": None, "json": True,
+    })()
+    assert perseus.cmd_sbom(merge_args, {}) == 1
+    assert perseus.cmd_sbom(query_args, {}) == 1
+    assert "nesting" in capsys.readouterr().out
+
+
+def test_duplicate_endpoint_edges_are_canonicalized_across_relationship_types():
+    document = perseus.ingest_sbom_document(_load("spdx-app.json"), source_ref="artifact:fixture")
+    edges = [
+        {"from": "source:stable", "to": "artifact:stable", "type": "generates", "confidence": "high", "coverage": "complete"},
+        {"from": "source:stable", "to": "artifact:stable", "type": "derived_from", "confidence": "unknown", "coverage": "unknown", "evidence_refs": ["ledger:strong"]},
+    ]
+    lineage = perseus.build_sbom_lineage([document], edges=edges)
+    selected = [edge for edge in lineage["edges"] if edge["from"] == "source:stable"]
+    assert len(selected) == 1
+    assert selected[0]["evidence_refs"] == ["ledger:strong"]
+
+
+def test_lineage_builder_rebinds_persisted_documents_to_raw_bytes():
+    raw = _load("spdx-app.json")
+    document = perseus.ingest_sbom_document(raw, source_ref="artifact:cross-process")
+    perseus._SL_INGESTED_PROVENANCE.clear()
+    lineage = perseus.build_sbom_lineage([document], edges=[], raw_documents=[raw])
+    assert perseus.verify_sbom_lineage(lineage)["valid"] is True
+
+
+def test_rebinding_accepts_an_already_sanitized_source_reference():
+    raw = _load("spdx-app.json")
+    document = perseus.ingest_sbom_document(raw, source_ref="artifact:token=RAW_SOURCE")
+    assert document["source_ref"].startswith("sha256:source-ref:")
+    perseus._SL_INGESTED_PROVENANCE.clear()
+    lineage = perseus.build_sbom_lineage([document], edges=[], raw_documents=[raw])
+    assert perseus.verify_sbom_lineage(lineage)["valid"] is True
+
+
+def test_cli_merge_rebinds_normalized_documents_with_raw_documents(tmp_path, capsys):
+    raw = _load("spdx-app.json")
+    raw_path = tmp_path / "raw.json"
+    normalized_path = tmp_path / "normalized.json"
+    raw_path.write_bytes(raw)
+    normalized_path.write_text(json.dumps(perseus.ingest_sbom_document(raw, source_ref="artifact:cross-process")), encoding="utf-8")
+    perseus._SL_INGESTED_PROVENANCE.clear()
+    args = type("Args", (), {
+        "sbom_command": "merge", "documents": [str(normalized_path)],
+        "raw_documents": [str(raw_path)], "edges": None, "output": None, "json": True,
+    })()
+    assert perseus.cmd_sbom(args, {}) == 0
+    assert "lineage_digest" in capsys.readouterr().out
