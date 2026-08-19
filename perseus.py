@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "fcd2773-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "619730c-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -44657,6 +44657,15 @@ def _sl_userinfo_locator(value: str) -> bool:
             continue
         if re.match(r"^[^/]+:[^/]+", suffix) or "/" in suffix:
             return True
+        prefix = value[:at]
+        namespace_end = prefix.find(":")
+        if (
+            namespace_end >= 0
+            and ":" in prefix[namespace_end + 1:]
+            and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,253}", suffix)
+            and not re.fullmatch(r"\d+(?:\.\d+){1,3}", suffix)
+        ):
+            return True
     return False
 
 
@@ -45062,6 +45071,8 @@ def _sl_properties(value: Any, *, truncated: list[str] | None = None) -> list[di
 
 
 def _sl_bind_component_alias(component_id_map: dict[str, str], alias: str, normalized_id: str) -> None:
+    if _sl_node_kind(alias) == "document":
+        return
     existing = component_id_map.get(alias)
     if existing is not None and existing != normalized_id:
         raise SBOMLineageError("ambiguous component alias")
@@ -45135,7 +45146,7 @@ def _sl_component(
         _sl_truncated(component_truncated, "identifiers")
     for identifier in identifier_values[:_SL_MAX_IDENTIFIERS]:
         text = _sl_safe_locator(identifier, "component_identifier")
-        if text:
+        if text and _sl_node_kind(text) != "document":
             ids.add(text)
     if component_id_map is not None:
         for identifier in ids:
@@ -46173,6 +46184,8 @@ def _sl_validate_document(document: Mapping[str, Any], *, raw_bytes: bytes | Non
     if fmt not in _SL_FORMATS:
         raise SBOMLineageError("normalized SBOM format is invalid")
     spec_version = document.get("spec_version")
+    if not isinstance(spec_version, str):
+        raise SBOMLineageError("normalized SBOM spec_version must be a string")
     if fmt == "SPDX":
         _sl_validate_spdx_version(f"SPDX-{spec_version}")
     else:

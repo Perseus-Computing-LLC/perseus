@@ -64,6 +64,18 @@ def test_rejects_unknown_format_and_unsupported_version():
         perseus.ingest_sbom_document(json.dumps({"spdxVersion": "SPDX-9.9", "SPDXID": "SPDXRef-DOCUMENT"}))
 
 
+def test_normalized_spec_version_must_remain_a_supported_string():
+    raw = _load("spdx-app.json")
+    document = perseus.ingest_sbom_document(raw, source_ref="artifact:scalar-fixture")
+    document["spec_version"] = 2.3
+    unsigned = dict(document)
+    unsigned.pop("ingestion_digest")
+    document["ingestion_digest"] = perseus._sl_ingestion_sha(unsigned, raw)
+
+    with pytest.raises(perseus.SBOMLineageError, match="spec_version.*string|version"):
+        perseus._sl_validate_document(document, raw_bytes=raw)
+
+
 def test_query_returns_auditable_impacted_artifact_path_without_false_clean_claim():
     document = perseus.ingest_sbom_document(_load("spdx-app.json"), source_ref="artifact:fixture-spdx-json")
     lineage = perseus.build_sbom_lineage([document], edges=_lineage_edges())
@@ -124,6 +136,37 @@ def test_credential_bearing_source_and_references_are_not_persisted():
     assert "Authorization" not in encoded
     assert any(ref["locator"].startswith("sha256:") for component in document["components"] for ref in component["references"])
     assert document["source_ref"].startswith("sha256:")
+
+
+def test_terminal_host_userinfo_source_refs_are_hashed_without_hiding_versions():
+    raw = _load("spdx-app.json")
+    private = perseus.ingest_sbom_document(raw, source_ref="artifact:alice:pw@host")
+    assert private["source_ref"].startswith("sha256:source-ref:")
+    assert "alice" not in json.dumps(private, sort_keys=True)
+
+    public = perseus.ingest_sbom_document(raw, source_ref="artifact:component@1.2.3")
+    assert public["source_ref"] == "artifact:component@1.2.3"
+    assert any(
+        "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.0" in component["identifiers"]
+        for component in public["components"]
+    )
+
+
+def test_document_namespaces_cannot_be_component_aliases():
+    payload = json.loads(_load("cyclonedx-app.json"))
+    payload["components"][0]["externalReferences"] = [{"type": "purl", "url": "document:unbound"}]
+    document = perseus.ingest_sbom_document(payload, source_ref="artifact:namespace-fixture")
+    assert all("document:unbound" not in component["identifiers"] for component in document["components"])
+
+    valid = perseus.build_sbom_lineage([document], edges=[
+        {"from": document["document_id"], "to": "build:alias", "type": "routes", "confidence": "high", "coverage": "complete"},
+    ])
+    assert any(edge["from"] == document["document_id"] and edge["to"] == "build:alias" for edge in valid["edges"])
+
+    with pytest.raises(perseus.SBOMLineageError, match="document.*endpoint|bound"):
+        perseus.build_sbom_lineage([document], edges=[
+            {"from": "document:unbound", "to": "build:alias", "type": "routes", "confidence": "high", "coverage": "complete"},
+        ])
 
 
 def test_percent_encoded_secrets_are_redacted_from_all_reference_depths():
