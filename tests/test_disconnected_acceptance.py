@@ -454,6 +454,7 @@ def test_resource_envelope_rejects_nan():
         )
 
 
+@pytest.mark.skipif(os.name != "posix", reason="resource metrics are POSIX-specific")
 def test_resource_envelope_measures_peak_rss_above_run_baseline(monkeypatch, tmp_path):
     monkeypatch.setattr(
         harness.resource,
@@ -472,6 +473,7 @@ def test_resource_envelope_measures_peak_rss_above_run_baseline(monkeypatch, tmp
     assert harness._validate_resource_envelope(envelope, fixture)["peak_rss_mb_observed"] == 20.0
 
 
+@pytest.mark.skipif(os.name != "posix", reason="resource metrics are POSIX-specific")
 def test_child_rss_observation_uses_per_run_highwater_baseline(monkeypatch, tmp_path):
     readings = iter(
         [
