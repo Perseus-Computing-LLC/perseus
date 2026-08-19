@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "17f53e2-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "9421bbc"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -44446,7 +44446,10 @@ those references.
 
 import hashlib
 import json
+import math
+import os as _sl_os
 import re
+import stat as _sl_stat
 import xml.etree.ElementTree as _sl_et
 from urllib.parse import unquote
 from collections import deque
@@ -44466,7 +44469,9 @@ _SL_PURL_ID_RE = re.compile(r"^pkg:[A-Za-z0-9][A-Za-z0-9.+-]{0,31}/[^\s]{1,240}$
 _SL_SPDX_VERSION_RE = re.compile(r"^SPDX-(\d+\.\d+)$")
 _SL_CDX_NAMESPACE_RE = re.compile(r"bom-(1\.\d+)\.xsd")
 _SL_PUBLIC_SOURCE_RE = re.compile(r"^(?:file|artifact|vault|ledger|build|deployment):[A-Za-z0-9][A-Za-z0-9_.:/#@+%~\-]{0,255}$")
-_SL_SENSITIVE_REFERENCE_RE = re.compile(r"(?i)(?:bearer\s+|basic\s+|password\s*=|passwd\s*=|secret\s*=|token\s*=|api[_-]?key\s*=|credential\s*=)")
+_SL_SENSITIVE_REFERENCE_RE = re.compile(r"(?i)(?:bearer(?:\s+|\s*:)|basic(?:\s+|\s*:)|password\s*=|passwd\s*=|secret\s*=|token\s*=|api[_-]?key\s*[/=:]|credential\s*=)")
+_SL_PRIVATE_LOCATOR_RE = re.compile(r"(?i)(?:^|[/?:=&_.-])(private|home|user|local|raw)(?:[/?:=&_.-]|$)")
+_SL_PUBLIC_PURL_QUERY_KEYS = frozenset({"classifier", "extension", "type", "repository_url"})
 _SL_REFERENCE_TYPES = frozenset({
     "advisory", "attestation", "cve", "distribution", "documentation", "license",
     "purl", "signature", "vex", "vulnerability", "website", "other",
@@ -44518,7 +44523,7 @@ _SL_HASH_ALGORITHM_ALIASES = {
 # is caller-recomputable; only a projection produced by raw ingestion (or one
 # explicitly re-verified against raw bytes) is accepted by lineage builders.
 _SL_INGESTED_PROVENANCE: dict[str, tuple[str, str]] = {}
-_SL_LINEAGE_PROVENANCE: dict[str, tuple[str, str]] = {}
+_SL_LINEAGE_PROVENANCE: dict[str, tuple[str, str, str]] = {}
 
 
 class SBOMLineageError(ValueError):
@@ -44529,6 +44534,19 @@ def _sl_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
 
 
+def _sl_json_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise SBOMLineageError("duplicate JSON object key")
+        result[key] = value
+    return result
+
+
+def _sl_reject_json_constant(value: str) -> None:
+    raise SBOMLineageError(f"non-finite JSON constant is not allowed: {value}")
+
+
 def _sl_sha(value: Any) -> str:
     return hashlib.sha256(_sl_json(value).encode("utf-8")).hexdigest()
 
@@ -44536,6 +44554,29 @@ def _sl_sha(value: Any) -> str:
 def _sl_ingestion_sha(unsigned: Mapping[str, Any], raw_bytes: bytes | None = None) -> str:
     raw_digest = hashlib.sha256(raw_bytes).hexdigest() if raw_bytes is not None else unsigned.get("document_sha256")
     return _sl_sha({"domain": "perseus-sbom-ingestion", "raw_sha256": raw_digest, "projection": unsigned})
+
+
+def _sl_private_locator(value: str) -> bool:
+    """Identify private/credential-bearing URI and identifier shapes."""
+    decoded = value
+    for _ in range(min(len(value) + 1, 1025)):
+        next_decoded = unquote(decoded)
+        if next_decoded == decoded:
+            break
+        decoded = next_decoded
+    lowered = decoded.casefold()
+    if "#" in decoded or lowered.startswith("file:") or _SL_PRIVATE_LOCATOR_RE.search(decoded):
+        return True
+    authority = decoded.split("://", 1)[1].split("/", 1)[0] if "://" in decoded else ""
+    if authority and "@" in authority:
+        return True
+    if "?" in decoded:
+        query = decoded.split("?", 1)[1].split("#", 1)[0]
+        for pair in query.split("&"):
+            key = pair.split("=", 1)[0].casefold()
+            if key and key not in _SL_PUBLIC_PURL_QUERY_KEYS:
+                return True
+    return False
 
 
 def _sl_sensitive(value: str) -> bool:
@@ -44552,11 +44593,10 @@ def _sl_sensitive(value: str) -> bool:
         candidates.append(next_decoded)
         decoded = next_decoded
     for candidate in candidates:
-        authority = candidate.split("://", 1)[1].split("/", 1)[0] if "://" in candidate else ""
         normalized = re.sub(r"[^a-z0-9]+", "_", candidate.casefold())
         if (
             _SL_SENSITIVE_REFERENCE_RE.search(candidate)
-            or (authority and "@" in authority)
+            or _sl_private_locator(candidate)
             or any(marker in normalized for marker in _SL_FORBIDDEN_MARKERS)
         ):
             return True
@@ -44597,7 +44637,7 @@ def _sl_text(value: Any, field: str, *, required: bool = False, limit: int = 512
             raise SBOMLineageError(f"{field} is required")
         return ""
     if not isinstance(value, str):
-        value = str(value)
+        raise SBOMLineageError(f"{field} must be a string")
     text = re.sub(r"[\x00-\x1f\x7f]", " ", value).strip()
     if required and not text:
         raise SBOMLineageError(f"{field} is required")
@@ -44633,8 +44673,10 @@ def _sl_safe_locator(value: Any, field: str) -> str:
 
 
 def _sl_safe_source_ref(value: Any, raw_bytes: bytes) -> str:
-    if value in (None, ""):
+    if value == "":
         return f"sha256:{hashlib.sha256(raw_bytes).hexdigest()}"
+    if not isinstance(value, str):
+        raise SBOMLineageError("source_ref must be a string")
     text = _sl_text(value, "source_ref", required=True, limit=512)
     raw_digest = hashlib.sha256(raw_bytes).hexdigest()
     if text.startswith("sha256:source-ref:"):
@@ -44887,10 +44929,17 @@ def _sl_component(
     component_type: Any = None,
     licenses: Any = None,
     truncated: list[str] | None = None,
+    component_id_map: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     normalized_name = _sl_safe_text(name, "component_name", required=True, limit=256)
     normalized_version = _sl_safe_text(version, "component_version", limit=128)
     normalized_id = _sl_id(component_id, "component ID")
+    if isinstance(component_id, str) and component_id_map is not None:
+        component_id_map[component_id] = normalized_id
+    if _sl_node_kind(normalized_id) != "component":
+        normalized_id = "component:sha256:" + hashlib.sha256(normalized_id.encode("utf-8")).hexdigest()
+        if isinstance(component_id, str) and component_id_map is not None:
+            component_id_map[component_id] = normalized_id
     ids = {normalized_id}
     component_truncated: list[str] = list(truncated or [])
     if identifiers is not None and not isinstance(identifiers, (list, tuple, set)):
@@ -44902,6 +44951,9 @@ def _sl_component(
         text = _sl_safe_locator(identifier, "component_identifier")
         if text:
             ids.add(text)
+    if component_id_map is not None:
+        for identifier in ids:
+            component_id_map.setdefault(identifier, normalized_id)
     safe_references = []
     if references is not None and not isinstance(references, (list, tuple)):
         raise SBOMLineageError("component references must be a list")
@@ -44950,12 +45002,17 @@ def _sl_component(
         "identifiers": sorted(ids),
         "references": sorted(safe_references, key=lambda item: (item.get("type", ""), item.get("locator", ""))),
         "licenses": sorted(set(license_values)),
-        "component_type": _sl_text(component_type, "component_type", limit=64) or "unknown",
+        "component_type": _sl_safe_text(component_type, "component_type", limit=128) or "unknown",
         "coverage": {"state": coverage_state, "unknown": sorted(set(unknown)), "truncated": sorted(set(component_truncated))},
     }
 
 
-def _sl_relationship(source: Any, target: Any, relationship_type: Any, *, confidence: str = "high", coverage: str = "complete", evidence_refs: Any = None, truncated: list[str] | None = None) -> dict[str, Any]:
+def _sl_relationship(source: Any, target: Any, relationship_type: Any, *, confidence: str = "high", coverage: str = "complete", evidence_refs: Any = None, truncated: list[str] | None = None, component_id_map: Mapping[str, str] | None = None) -> dict[str, Any]:
+    if component_id_map is not None:
+        if isinstance(source, str):
+            source = component_id_map.get(source, source)
+        if isinstance(target, str):
+            target = component_id_map.get(target, target)
     source_id = _sl_id(source, "relationship.from")
     target_id = _sl_id(target, "relationship.to")
     rel_type = _sl_safe_text(relationship_type, "relationship.type", required=True, limit=96).casefold().replace(" ", "_")
@@ -44982,7 +45039,7 @@ def _sl_relationship(source: Any, target: Any, relationship_type: Any, *, confid
     return result
 
 
-def _sl_spdx_component(raw: Mapping[str, Any], *, truncated: list[str] | None = None) -> dict[str, Any]:
+def _sl_spdx_component(raw: Mapping[str, Any], *, truncated: list[str] | None = None, component_id_map: dict[str, str] | None = None) -> dict[str, Any]:
     component_truncated: list[str] = []
     references, identifiers = _sl_spdx_references(raw.get("externalRefs"), truncated=component_truncated)
     if truncated is not None:
@@ -44997,10 +45054,11 @@ def _sl_spdx_component(raw: Mapping[str, Any], *, truncated: list[str] | None = 
         component_type="package",
         licenses=raw.get("licenseConcluded"),
         truncated=component_truncated,
+        component_id_map=component_id_map,
     )
 
 
-def _sl_cdx_component(raw: Mapping[str, Any], *, truncated: list[str] | None = None) -> dict[str, Any]:
+def _sl_cdx_component(raw: Mapping[str, Any], *, truncated: list[str] | None = None, component_id_map: dict[str, str] | None = None) -> dict[str, Any]:
     component_truncated: list[str] = []
     references, identifiers = _sl_cdx_references(raw.get("externalReferences"), truncated=component_truncated)
     if "purl" in raw and raw.get("purl") is not None:
@@ -45008,7 +45066,7 @@ def _sl_cdx_component(raw: Mapping[str, Any], *, truncated: list[str] | None = N
     references.extend(_sl_properties(raw.get("properties"), truncated=component_truncated))
     if truncated is not None:
         truncated.extend(item for item in component_truncated if item not in truncated)
-    return _sl_component(
+    component = _sl_component(
         component_id=raw.get("bom-ref"),
         name=raw.get("name"),
         version=raw.get("version"),
@@ -45018,7 +45076,11 @@ def _sl_cdx_component(raw: Mapping[str, Any], *, truncated: list[str] | None = N
         component_type=raw.get("type"),
         licenses=raw.get("licenses"),
         truncated=component_truncated,
+        component_id_map=component_id_map,
     )
+    if component_id_map is not None and isinstance(raw.get("purl"), str):
+        component_id_map.setdefault(raw["purl"], component["component_id"])
+    return component
 
 
 def _sl_validate_spdx_version(value: Any) -> str:
@@ -45036,6 +45098,13 @@ def _sl_validate_cdx_version(value: Any) -> str:
     return version_text
 
 
+def _sl_spdx_document_id(value: Any) -> str:
+    document_id = _sl_id(value, "SPDXID")
+    if _sl_node_kind(document_id) != "document":
+        raise SBOMLineageError("SPDXID must use the document namespace")
+    return document_id
+
+
 def _sl_finalize_document(*, fmt: str, spec_version: str, document_id: str, document_name: str, created_at: str, supplier: str, components: list[dict[str, Any]], relationships: list[dict[str, Any]], raw_bytes: bytes, source_ref: str, truncated: list[str] | None = None, metadata_component_id: str = "") -> dict[str, Any]:
     if fmt not in _SL_FORMATS:
         raise SBOMLineageError("unsupported SBOM format")
@@ -45043,12 +45112,15 @@ def _sl_finalize_document(*, fmt: str, spec_version: str, document_id: str, docu
         raise SBOMLineageError("normalized SBOM components exceed their global bound")
     if len(relationships) > _SL_MAX_RELATIONSHIPS:
         raise SBOMLineageError("normalized SBOM relationships exceed their global bound")
+    safe_supplier = _sl_safe_text(supplier, "supplier", limit=512)
     component_ids: set[str] = set()
     for item in components:
         component_id = item.get("component_id") if isinstance(item, Mapping) else None
         if not isinstance(component_id, str) or component_id in component_ids:
             raise SBOMLineageError("duplicate or missing component ID")
         component_ids.add(component_id)
+    if fmt == "SPDX" and document_id in component_ids:
+        raise SBOMLineageError("SPDX document ID collides with a component ID")
     known_ids = set(component_ids)
     if fmt == "SPDX":
         known_ids.add(document_id)
@@ -45063,7 +45135,7 @@ def _sl_finalize_document(*, fmt: str, spec_version: str, document_id: str, docu
         unknown.append("document_name")
     if not created_at:
         unknown.append("created_at")
-    if not supplier:
+    if not safe_supplier:
         unknown.append("supplier")
     if dangling:
         unknown.append("dangling_relationships")
@@ -45073,7 +45145,7 @@ def _sl_finalize_document(*, fmt: str, spec_version: str, document_id: str, docu
         unknown.append("component_metadata")
     if not components:
         coverage_state = "unknown"
-    elif dangling or truncation or not document_name or not created_at or not supplier or any(item.get("coverage", {}).get("state") != "complete" for item in components) or not relationships:
+    elif dangling or truncation or not document_name or not created_at or not safe_supplier or any(item.get("coverage", {}).get("state") != "complete" for item in components) or not relationships:
         coverage_state = "partial"
     else:
         coverage_state = "complete"
@@ -45086,7 +45158,7 @@ def _sl_finalize_document(*, fmt: str, spec_version: str, document_id: str, docu
         "document_sha256": hashlib.sha256(raw_bytes).hexdigest(),
         "source_ref": source_ref,
         "created_at": _sl_safe_text(created_at, "created_at", limit=128) or None,
-        "supplier": supplier or None,
+        "supplier": safe_supplier or None,
         "components": sorted(components, key=lambda item: (item["component_id"] == metadata_component_id, item["component_id"])),
         "relationships": sorted(relationships, key=lambda item: (item["from"], item["to"], item["type"])),
         "coverage": {
@@ -45108,7 +45180,7 @@ def _sl_finalize_document(*, fmt: str, spec_version: str, document_id: str, docu
 
 def _sl_parse_spdx_json(value: Mapping[str, Any], raw_bytes: bytes, source_ref: str) -> dict[str, Any]:
     version = _sl_validate_spdx_version(value.get("spdxVersion"))
-    document_id = _sl_id(value.get("SPDXID"), "SPDXID")
+    document_id = _sl_spdx_document_id(value.get("SPDXID"))
     creation = value.get("creationInfo", {})
     if creation is None:
         creation = {}
@@ -45125,18 +45197,19 @@ def _sl_parse_spdx_json(value: Mapping[str, Any], raw_bytes: bytes, source_ref: 
         truncated.append("packages")
     if len(raw_relationships) > _SL_MAX_RELATIONSHIPS:
         truncated.append("relationships")
+    component_id_map: dict[str, str] = {}
     components = []
     for item in packages[:_SL_MAX_COMPONENTS]:
         if not isinstance(item, Mapping):
             raise SBOMLineageError("packages must contain objects")
-        components.append(_sl_spdx_component(item, truncated=truncated))
+        components.append(_sl_spdx_component(item, truncated=truncated, component_id_map=component_id_map))
     relationships = []
     for raw in raw_relationships[:_SL_MAX_RELATIONSHIPS]:
         if not isinstance(raw, Mapping):
             raise SBOMLineageError("relationships must contain objects")
         relationships.append(_sl_relationship(
             raw.get("spdxElementId"), raw.get("relatedSpdxElement"),
-            raw.get("relationshipType", "related"), truncated=truncated,
+            raw.get("relationshipType", "related"), truncated=truncated, component_id_map=component_id_map,
         ))
     return _sl_finalize_document(
         fmt="SPDX", spec_version=version, document_id=document_id,
@@ -45174,8 +45247,9 @@ def _sl_parse_cdx_json(value: Mapping[str, Any], raw_bytes: bytes, source_ref: s
             raise SBOMLineageError("components must contain objects")
         raw_components.append(item)
     components: list[dict[str, Any]] = []
+    component_id_map: dict[str, str] = {}
     for raw in raw_components:
-        components.append(_sl_cdx_component(raw, truncated=truncated))
+        components.append(_sl_cdx_component(raw, truncated=truncated, component_id_map=component_id_map))
     relationships = []
     for raw in raw_dependency_list[:_SL_MAX_RELATIONSHIPS]:
         if not isinstance(raw, Mapping):
@@ -45192,12 +45266,15 @@ def _sl_parse_cdx_json(value: Mapping[str, Any], raw_bytes: bytes, source_ref: s
         if len(targets) > allowed_targets:
             truncated.append("dependency_edges")
         for target in targets[:allowed_targets]:
-            relationships.append(_sl_relationship(source, target, "depends_on", truncated=truncated))
+            relationships.append(_sl_relationship(source, target, "depends_on", truncated=truncated, component_id_map=component_id_map))
     creators = metadata.get("authors", [])
     if not isinstance(creators, list):
         raise SBOMLineageError("metadata.authors must be a list")
     supplier = _sl_supplier(creators[0] if creators else (metadata_component or {}))
-    document_id = _sl_id(value.get("serialNumber"), "serialNumber", fallback="document:cyclonedx")
+    if "serialNumber" in value:
+        document_id = _sl_id(value.get("serialNumber"), "serialNumber")
+    else:
+        document_id = "document:sha256:" + hashlib.sha256(raw_bytes).hexdigest()
     return _sl_finalize_document(
         fmt="CycloneDX", spec_version=version, document_id=document_id,
         document_name=_sl_text(metadata.get("name"), "document_name"), created_at=_sl_text(metadata.get("timestamp"), "created_at"), supplier=supplier,
@@ -45213,7 +45290,7 @@ def _sl_spdx_rdf_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str, 
     raw_document_id = _sl_xml_value(document, "SPDXID", "spdxid")
     if not raw_document_id:
         raw_document_id = next((str(value).lstrip("#") for key, value in document.attrib.items() if str(key).rsplit("}", 1)[-1].casefold() == "about"), "")
-    document_id = _sl_id(raw_document_id, "SPDXID")
+    document_id = _sl_spdx_document_id(raw_document_id)
     creation = next(iter(_sl_descendants(document, "creationInfo")), None)
     created_at = _sl_xml_value(creation, "created")
     creator = _sl_xml_value(creation, "creator")
@@ -45224,6 +45301,7 @@ def _sl_spdx_rdf_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str, 
         truncated.append("packages")
     if len(relationships_raw) > _SL_MAX_RELATIONSHIPS:
         truncated.append("relationships")
+    component_id_map: dict[str, str] = {}
     components = []
     for raw in packages[:_SL_MAX_COMPONENTS]:
         component_truncated: list[str] = []
@@ -45254,7 +45332,7 @@ def _sl_spdx_rdf_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str, 
             references=refs,
             component_type="package",
             licenses=_sl_xml_value(raw, "licenseConcluded"),
-            truncated=component_truncated,
+            truncated=component_truncated, component_id_map=component_id_map,
         ))
     relationships = []
     for raw in relationships_raw[:_SL_MAX_RELATIONSHIPS]:
@@ -45262,7 +45340,7 @@ def _sl_spdx_rdf_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str, 
             _sl_xml_value(raw, "spdxElementId"),
             _sl_xml_value(raw, "relatedSpdxElement"),
             _sl_xml_value(raw, "relationshipType", default="related"),
-            truncated=truncated,
+            truncated=truncated, component_id_map=component_id_map,
         ))
     return _sl_finalize_document(
         fmt="SPDX", spec_version=version, document_id=document_id,
@@ -45273,7 +45351,7 @@ def _sl_spdx_rdf_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str, 
 
 def _sl_spdx_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str, Any]:
     version = _sl_validate_spdx_version(_sl_xml_text(root, "spdxVersion"))
-    document_id = _sl_id(_sl_xml_text(root, "SPDXID"), "SPDXID")
+    document_id = _sl_spdx_document_id(_sl_xml_text(root, "SPDXID"))
     creation = _sl_child(root, "creationInfo")
     created_at = _sl_xml_text(creation, "created") if creation is not None else ""
     creator = _sl_xml_text(creation, "creator") if creation is not None else ""
@@ -45284,6 +45362,7 @@ def _sl_spdx_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str, Any]
         truncated.append("packages")
     if len(relationships_raw) > _SL_MAX_RELATIONSHIPS:
         truncated.append("relationships")
+    component_id_map: dict[str, str] = {}
     components = []
     for raw in packages[:_SL_MAX_COMPONENTS]:
         component_truncated: list[str] = []
@@ -45307,14 +45386,14 @@ def _sl_spdx_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str, Any]
             version=_sl_xml_text(raw, "versionInfo"), supplier=_sl_xml_text(raw, "supplier"),
             identifiers=identifiers, references=refs, component_type="package",
             licenses=_sl_xml_text(raw, "licenseConcluded"),
-            truncated=component_truncated,
+            truncated=component_truncated, component_id_map=component_id_map,
         ))
     relationships = []
     for raw in relationships_raw[:_SL_MAX_RELATIONSHIPS]:
         relationships.append(_sl_relationship(
             _sl_xml_text(raw, "spdxElementId"), _sl_xml_text(raw, "relatedSpdxElement"),
             _sl_xml_text(raw, "relationshipType", default="related"),
-            truncated=truncated,
+            truncated=truncated, component_id_map=component_id_map,
         ))
     return _sl_finalize_document(
         fmt="SPDX", spec_version=version, document_id=document_id,
@@ -45323,7 +45402,7 @@ def _sl_spdx_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str, Any]
     )
 
 
-def _sl_cdx_xml_component(raw: Any, *, truncated: list[str] | None = None) -> dict[str, Any]:
+def _sl_cdx_xml_component(raw: Any, *, truncated: list[str] | None = None, component_id_map: dict[str, str] | None = None) -> dict[str, Any]:
     component_truncated: list[str] = []
     refs = []
     identifiers = []
@@ -45353,12 +45432,15 @@ def _sl_cdx_xml_component(raw: Any, *, truncated: list[str] | None = None) -> di
             licenses.append(_sl_xml_text(item, "id") or _sl_xml_text(item, "name"))
     if truncated is not None:
         truncated.extend(item for item in component_truncated if item not in truncated)
-    return _sl_component(
+    component = _sl_component(
         component_id=raw.attrib.get("bom-ref"), name=_sl_xml_text(raw, "name"),
         version=_sl_xml_text(raw, "version"), supplier=_sl_xml_text(_sl_child(raw, "supplier"), "name"),
         identifiers=identifiers, references=refs, component_type=raw.attrib.get("type"), licenses=licenses,
-        truncated=component_truncated,
+        truncated=component_truncated, component_id_map=component_id_map,
     )
+    if component_id_map is not None and purl:
+        component_id_map.setdefault(purl, component["component_id"])
+    return component
 
 
 def _sl_parse_cdx_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str, Any]:
@@ -45380,9 +45462,10 @@ def _sl_parse_cdx_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str,
         if len(component_nodes) > component_budget:
             truncated.append("components")
         raw_components.extend(component_nodes[:component_budget])
+    component_id_map: dict[str, str] = {}
     components = []
     for raw in raw_components:
-        components.append(_sl_cdx_xml_component(raw, truncated=truncated))
+        components.append(_sl_cdx_xml_component(raw, truncated=truncated, component_id_map=component_id_map))
     relationships = []
     dependencies_node = _sl_child(root, "dependencies")
     if dependencies_node is not None:
@@ -45402,11 +45485,14 @@ def _sl_parse_cdx_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str,
             if len(children) > allowed_targets:
                 truncated.append("dependency_edges")
             for child in children[:allowed_targets]:
-                relationships.append(_sl_relationship(source, child.attrib.get("ref"), "depends_on", truncated=truncated))
+                relationships.append(_sl_relationship(source, child.attrib.get("ref"), "depends_on", truncated=truncated, component_id_map=component_id_map))
     timestamp = _sl_xml_text(metadata, "timestamp") if metadata is not None else ""
     authors = _sl_child(metadata, "authors") if metadata is not None else None
     author = _sl_xml_text(_sl_child(authors, "author"), "name") if authors is not None else ""
-    document_id = _sl_id(root.attrib.get("serialNumber"), "serialNumber", fallback="document:cyclonedx")
+    if "serialNumber" in root.attrib:
+        document_id = _sl_id(root.attrib.get("serialNumber"), "serialNumber")
+    else:
+        document_id = "document:sha256:" + hashlib.sha256(raw_bytes).hexdigest()
     return _sl_finalize_document(
         fmt="CycloneDX", spec_version=version, document_id=document_id,
         document_name=_sl_xml_text(metadata, "name") if metadata is not None else "", created_at=timestamp, supplier=author,
@@ -45416,20 +45502,42 @@ def _sl_parse_cdx_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str,
 
 
 def _sl_read_bounded(path: Path) -> bytes:
-    """Read a file only after checking its size, including race re-check."""
+    """Read a regular file through a no-follow descriptor with a hard cap."""
     try:
-        size = path.stat().st_size
+        initial = _sl_os.lstat(path)
+        if not _sl_stat.S_ISREG(initial.st_mode):
+            raise SBOMLineageError("SBOM input must be a regular file")
+        flags = _sl_os.O_RDONLY | getattr(_sl_os, "O_CLOEXEC", 0) | getattr(_sl_os, "O_NOFOLLOW", 0) | getattr(_sl_os, "O_NONBLOCK", 0)
+        fd = _sl_os.open(path, flags)
+    except SBOMLineageError:
+        raise
     except OSError as exc:
-        raise SBOMLineageError(f"could not stat SBOM: {exc}") from exc
-    if size > _SL_MAX_INPUT_BYTES:
-        raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
+        raise SBOMLineageError(f"could not open SBOM safely: {exc}") from exc
     try:
-        raw_bytes = path.read_bytes()
+        opened = _sl_os.fstat(fd)
+        if not _sl_stat.S_ISREG(opened.st_mode):
+            raise SBOMLineageError("SBOM input must be a regular file")
+        initial_identity = (getattr(initial, "st_dev", None), getattr(initial, "st_ino", None))
+        opened_identity = (getattr(opened, "st_dev", None), getattr(opened, "st_ino", None))
+        if None not in initial_identity + opened_identity and opened_identity != initial_identity:
+            raise SBOMLineageError("SBOM input changed during safe open")
+        if opened.st_size > _SL_MAX_INPUT_BYTES:
+            raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
+        data = bytearray()
+        while len(data) <= _SL_MAX_INPUT_BYTES:
+            chunk = _sl_os.read(fd, min(64 * 1024, _SL_MAX_INPUT_BYTES + 1 - len(data)))
+            if not chunk:
+                break
+            data.extend(chunk)
+        if len(data) > _SL_MAX_INPUT_BYTES:
+            raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
+        return bytes(data)
+    except SBOMLineageError:
+        raise
     except OSError as exc:
-        raise SBOMLineageError(f"could not read SBOM: {exc}") from exc
-    if len(raw_bytes) > _SL_MAX_INPUT_BYTES:
-        raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
-    return raw_bytes
+        raise SBOMLineageError(f"could not read SBOM safely: {exc}") from exc
+    finally:
+        _sl_os.close(fd)
 
 
 def _sl_validate_json_depth(raw_bytes: bytes) -> None:
@@ -45455,12 +45563,30 @@ def _sl_validate_json_depth(raw_bytes: bytes) -> None:
             depth = max(0, depth - 1)
 
 
+def _sl_validate_json_values(value: Any) -> None:
+    stack = [value]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, float) and not math.isfinite(current):
+            raise SBOMLineageError("non-finite JSON number is not allowed")
+        if isinstance(current, Mapping):
+            stack.extend(current.values())
+        elif isinstance(current, list):
+            stack.extend(current)
+
+
 def _sl_load_json_bounded(source: Path | bytes, *, allow_non_json: bool = False) -> tuple[Any | None, bytes]:
     """Load JSON through the shared byte and nesting bounds."""
     raw_bytes = _sl_read_bounded(source) if isinstance(source, Path) else bytes(source)
     _sl_validate_json_depth(raw_bytes)
     try:
-        return json.loads(raw_bytes.decode("utf-8")), raw_bytes
+        value = json.loads(
+            raw_bytes.decode("utf-8"),
+            object_pairs_hook=_sl_json_object_pairs,
+            parse_constant=_sl_reject_json_constant,
+        )
+        _sl_validate_json_values(value)
+        return value, raw_bytes
     except RecursionError as exc:
         raise SBOMLineageError("SBOM JSON nesting is too deep") from exc
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -45526,7 +45652,12 @@ def _sl_payload(document: Any) -> tuple[Any, bytes]:
         raise SBOMLineageError("SBOM input is empty")
     try:
         _sl_validate_json_depth(raw_bytes)
-        value = json.loads(raw_bytes.decode("utf-8"))
+        value = json.loads(
+            raw_bytes.decode("utf-8"),
+            object_pairs_hook=_sl_json_object_pairs,
+            parse_constant=_sl_reject_json_constant,
+        )
+        _sl_validate_json_values(value)
         if not isinstance(value, Mapping):
             raise SBOMLineageError("SBOM JSON root must be an object")
         return dict(value), raw_bytes
@@ -45563,7 +45694,7 @@ def ingest_sbom_document(document: Any, *, source_ref: str = "") -> dict[str, An
 
 
 def _sl_node_kind(node_id: str) -> str:
-    if node_id == "SPDXRef-DOCUMENT" or node_id.startswith("document:"):
+    if node_id == "SPDXRef-DOCUMENT" or node_id.startswith("SPDXRef-DOCUMENT-") or node_id.startswith("document:"):
         return "document"
     if node_id.startswith("artifact:"):
         return "artifact"
@@ -45663,7 +45794,7 @@ def _sl_validate_component(component: Any) -> dict[str, Any]:
         raise SBOMLineageError("component.references exceeds its bound")
     checked_references = [_sl_validate_reference(reference) for reference in references]
     licenses = _sl_string_list(component.get("licenses"), "component.licenses", maximum=_SL_MAX_LICENSES)
-    component_type = _sl_strict_text(component.get("component_type"), "component.component_type", limit=64)
+    component_type = _sl_strict_text(component.get("component_type"), "component.component_type", limit=128)
     assert component_type is not None
     coverage = _sl_validate_component_coverage(
         component.get("coverage"), has_version=version is not None, has_supplier=supplier is not None,
@@ -45780,6 +45911,8 @@ def _sl_validate_document(document: Mapping[str, Any], *, raw_bytes: bytes | Non
     document_id_text = _sl_strict_text(document.get("document_id"), "document_id", limit=256)
     assert document_id_text is not None
     document_id = _sl_id(document_id_text, "document_id")
+    if fmt == "SPDX" and _sl_node_kind(document_id) != "document":
+        raise SBOMLineageError("SPDX document ID must use the document namespace")
     for field, limit in (("document_name", 256), ("created_at", 128), ("supplier", 512)):
         _sl_strict_text(document.get(field), field, allow_none=True, limit=limit)
     document_sha = document.get("document_sha256")
@@ -45800,6 +45933,8 @@ def _sl_validate_document(document: Mapping[str, Any], *, raw_bytes: bytes | Non
             raise SBOMLineageError("normalized SBOM contains duplicate component IDs")
         seen.add(checked["component_id"])
         checked_components.append(checked)
+    if fmt == "SPDX" and document_id in seen:
+        raise SBOMLineageError("SPDX document ID collides with a component ID")
     checked_relationships = [_sl_validate_relationship(item) for item in relationships]
     coverage = document.get("coverage")
     _sl_require_keys(coverage, {"state", "unknown", "component_count", "relationship_count", "truncated", "dangling_relationships"}, set(), "document.coverage")
@@ -45957,6 +46092,7 @@ def build_sbom_lineage(documents: Any, *, edges: Any = None, raw_documents: Any 
     }
     body["lineage_digest"] = _sl_sha(body)
     _SL_LINEAGE_PROVENANCE[body["lineage_digest"]] = (
+        _sl_json(body),
         _sl_json(body["nodes"]),
         _sl_json(body["edges"]),
     )
@@ -46011,7 +46147,7 @@ def _sl_validate_lineage_node(node: Any, component_map: Mapping[str, list[tuple[
     return node_id
 
 
-def _sl_loaded_lineage(lineage: Mapping[str, Any]) -> dict[str, Any]:
+def _sl_loaded_lineage(lineage: Mapping[str, Any], *, raw_documents: Any | None = None) -> dict[str, Any]:
     required = {"schema_version", "documents", "nodes", "edges", "coverage", "lineage_digest"}
     if not isinstance(lineage, Mapping) or set(lineage) != required or lineage.get("schema_version") != _SL_LINEAGE_SCHEMA:
         raise SBOMLineageError("unsupported software-lineage schema")
@@ -46020,12 +46156,22 @@ def _sl_loaded_lineage(lineage: Mapping[str, Any]) -> dict[str, Any]:
     unsigned.pop("lineage_digest", None)
     if not isinstance(supplied, str) or not re.fullmatch(r"[0-9a-f]{64}", supplied) or _sl_sha(unsigned) != supplied:
         raise SBOMLineageError("lineage digest mismatch")
+    trusted = _SL_LINEAGE_PROVENANCE.get(supplied)
+    if raw_documents is None and (trusted is None or trusted[0] != _sl_json(dict(lineage))):
+        raise SBOMLineageError("lineage is not bound to a trusted builder receipt or raw documents")
     documents = _sl_list(lineage.get("documents"), "lineage.documents")
     nodes = _sl_list(lineage.get("nodes"), "lineage.nodes")
     edges = _sl_list(lineage.get("edges"), "lineage.edges")
+    if not documents:
+        raise SBOMLineageError("lineage must contain at least one document")
     if len(documents) > _SL_MAX_DOCUMENTS or len(edges) > _SL_MAX_EDGES or len(nodes) > _SL_MAX_NODES:
         raise SBOMLineageError("lineage collection exceeds its bound")
-    checked_documents = [_sl_validate_document(document) for document in documents]
+    if raw_documents is None:
+        checked_documents = [_sl_validate_document(document) for document in documents]
+    else:
+        if not isinstance(raw_documents, (list, tuple)) or len(raw_documents) != len(documents) or len(raw_documents) > _SL_MAX_DOCUMENTS:
+            raise SBOMLineageError("raw_documents must match lineage documents within its bound")
+        checked_documents = [_sl_rebind_document(document, raw) for document, raw in zip(documents, raw_documents)]
     component_map: dict[str, list[tuple[str, Mapping[str, Any]]]] = {}
     for document in checked_documents:
         for component in document["components"]:
@@ -46075,9 +46221,9 @@ def _sl_loaded_lineage(lineage: Mapping[str, Any]) -> dict[str, Any]:
     return dict(lineage)
 
 
-def verify_sbom_lineage(lineage: Mapping[str, Any]) -> dict[str, Any]:
+def verify_sbom_lineage(lineage: Mapping[str, Any], raw_documents: Any | None = None) -> dict[str, Any]:
     try:
-        loaded = _sl_loaded_lineage(lineage)
+        loaded = _sl_loaded_lineage(lineage, raw_documents=raw_documents)
     except (SBOMLineageError, TypeError, ValueError) as exc:
         return {"valid": False, "error": str(exc)}
     return {"valid": True, "schema_version": loaded["schema_version"], "lineage_digest": loaded["lineage_digest"], "node_count": len(loaded.get("nodes", [])), "edge_count": len(loaded.get("edges", []))}
@@ -46118,9 +46264,9 @@ def _sl_path_confidence(path: list[Mapping[str, Any]]) -> str:
     return "high"
 
 
-def query_sbom_lineage(lineage: Mapping[str, Any], query: str, *, limit: int = 32) -> dict[str, Any]:
+def query_sbom_lineage(lineage: Mapping[str, Any], query: str, *, limit: int = 32, raw_documents: Any | None = None) -> dict[str, Any]:
     """Find impacted artifact nodes and return every traversed evidence edge."""
-    loaded = _sl_loaded_lineage(lineage)
+    loaded = _sl_loaded_lineage(lineage, raw_documents=raw_documents)
     limit = _sl_limit(limit, "limit")
     query_text = _sl_strict_text(query, "query", limit=512)
     assert query_text is not None
@@ -46213,6 +46359,7 @@ def query_sbom_lineage(lineage: Mapping[str, Any], query: str, *, limit: int = 3
         "lineage_nodes": loaded["nodes"],
         "lineage_edges": loaded["edges"],
         "query": query_text,
+        "limit": limit,
         "matched_nodes": matches,
         "impacted_artifacts": impacted,
         "status": status,
@@ -46223,8 +46370,8 @@ def query_sbom_lineage(lineage: Mapping[str, Any], query: str, *, limit: int = 3
     return unsigned
 
 
-def _sl_validate_query_result(query_result: Mapping[str, Any], authoritative_lineage: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    required = {"schema_version", "lineage_digest", "lineage_nodes", "lineage_edges", "query", "matched_nodes", "impacted_artifacts", "status", "coverage", "claims", "query_digest"}
+def _sl_validate_query_result(query_result: Mapping[str, Any], authoritative_lineage: Mapping[str, Any] | None = None, raw_documents: Any | None = None) -> dict[str, Any]:
+    required = {"schema_version", "lineage_digest", "lineage_nodes", "lineage_edges", "query", "limit", "matched_nodes", "impacted_artifacts", "status", "coverage", "claims", "query_digest"}
     if not isinstance(query_result, Mapping) or set(query_result) != required or query_result.get("schema_version") != _SL_QUERY_SCHEMA:
         raise SBOMLineageError("unsupported query schema")
     supplied = query_result.get("query_digest")
@@ -46241,12 +46388,21 @@ def _sl_validate_query_result(query_result: Mapping[str, Any], authoritative_lin
         raise SBOMLineageError("query authoritative lineage exceeds its bound")
     authority = _SL_LINEAGE_PROVENANCE.get(lineage_digest)
     if authoritative_lineage is not None:
-        loaded_authority = _sl_loaded_lineage(authoritative_lineage)
+        loaded_authority = _sl_loaded_lineage(authoritative_lineage, raw_documents=raw_documents)
         if lineage_digest != loaded_authority["lineage_digest"]:
             raise SBOMLineageError("query result lineage digest does not match the authoritative lineage")
-        authority = (_sl_json(loaded_authority["nodes"]), _sl_json(loaded_authority["edges"]))
-    if authority is None or authority != (_sl_json(lineage_nodes), _sl_json(lineage_edges)):
+        authority = (
+            _sl_json(loaded_authority),
+            _sl_json(loaded_authority["nodes"]),
+            _sl_json(loaded_authority["edges"]),
+        )
+    if authority is None or authority[1:] != (_sl_json(lineage_nodes), _sl_json(lineage_edges)):
         raise SBOMLineageError("query result is not bound to the authoritative lineage digest and nodes/edges")
+    if authoritative_lineage is None:
+        try:
+            authoritative_lineage = json.loads(authority[0])
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise SBOMLineageError("authoritative lineage receipt is malformed") from exc
     authority_node_ids: set[str] = set()
     for node in lineage_nodes:
         if not isinstance(node, Mapping):
@@ -46273,6 +46429,7 @@ def _sl_validate_query_result(query_result: Mapping[str, Any], authoritative_lin
         authority_edges.append(checked_edge)
     query = _sl_strict_text(query_result.get("query"), "query", limit=512)
     assert query is not None
+    limit = _sl_limit(query_result.get("limit"), "query.limit")
     matched_nodes = _sl_string_list(query_result.get("matched_nodes"), "matched_nodes", maximum=_SL_MAX_QUERY_MATCHES)
     for node_id in matched_nodes:
         _sl_id(node_id, "matched_node")
@@ -46357,15 +46514,44 @@ def _sl_validate_query_result(query_result: Mapping[str, Any], authoritative_lin
         raise SBOMLineageError("query claims are inconsistent with coverage")
     if status != expected_status:
         raise SBOMLineageError("query status is inconsistent with coverage")
+    assert authoritative_lineage is not None
+    expected_result = query_sbom_lineage(
+        authoritative_lineage, query, limit=limit, raw_documents=raw_documents,
+    )
+    for field in (
+        "lineage_digest", "lineage_nodes", "lineage_edges", "query", "limit", "matched_nodes",
+        "impacted_artifacts", "status", "coverage", "claims", "query_digest",
+    ):
+        if query_result.get(field) != expected_result.get(field):
+            raise SBOMLineageError(f"query field {field} is inconsistent with authoritative recomputation")
     return dict(query_result)
 
 
-def verify_sbom_lineage_query(query_result: Mapping[str, Any], authoritative_lineage: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def verify_sbom_lineage_query(query_result: Mapping[str, Any], authoritative_lineage: Mapping[str, Any] | None = None, raw_documents: Any | None = None) -> dict[str, Any]:
     try:
-        checked = _sl_validate_query_result(query_result, authoritative_lineage)
+        checked = _sl_validate_query_result(query_result, authoritative_lineage, raw_documents)
     except (SBOMLineageError, TypeError, ValueError) as exc:
         return {"valid": False, "error": str(exc)}
     return {"valid": True, "schema_version": checked["schema_version"], "query_digest": checked["query_digest"], "expected_digest": checked["query_digest"]}
+
+
+def _sl_cli_bounded_paths(value: Any, field: str, *, required: bool = False) -> list[str] | None:
+    if value is None:
+        if required:
+            raise SBOMLineageError(f"{field} is required")
+        return None
+    if not isinstance(value, (list, tuple)):
+        raise SBOMLineageError(f"{field} must be a list")
+    if not value:
+        raise SBOMLineageError(f"{field} must not be empty")
+    if len(value) > _SL_MAX_DOCUMENTS:
+        raise SBOMLineageError(f"{field} exceeds {_SL_MAX_DOCUMENTS} documents")
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item:
+            raise SBOMLineageError(f"{field} paths must be strings")
+        result.append(item)
+    return result
 
 
 def cmd_sbom(args: Any, cfg: Mapping[str, Any] | None = None) -> int:
@@ -46376,17 +46562,18 @@ def cmd_sbom(args: Any, cfg: Mapping[str, Any] | None = None) -> int:
         if command == "ingest":
             document = ingest_sbom_document(Path(args.document), source_ref=getattr(args, "source_ref", ""))
         elif command == "merge":
+            document_paths = _sl_cli_bounded_paths(getattr(args, "documents", None), "documents", required=True)
+            raw_document_paths = _sl_cli_bounded_paths(getattr(args, "raw_documents", None), "raw_documents")
+            if raw_document_paths is not None and len(raw_document_paths) != len(document_paths or []):
+                raise SBOMLineageError("raw_documents must contain one raw source per document")
             documents = []
-            for path in args.documents:
+            for path in document_paths or []:
                 payload, raw_bytes = _sl_load_json_bounded(Path(path), allow_non_json=True)
                 documents.append(payload if isinstance(payload, Mapping) and payload.get("schema_version") == _SL_SCHEMA else ingest_sbom_document(raw_bytes, source_ref=f"file:{path}"))
-            raw_documents = getattr(args, "raw_documents", None)
             raw_inputs = None
-            if raw_documents is not None:
-                if not isinstance(raw_documents, (list, tuple)) or len(raw_documents) != len(documents):
-                    raise SBOMLineageError("raw_documents must contain one raw source per document")
+            if raw_document_paths is not None:
                 raw_inputs = []
-                for raw_path in raw_documents:
+                for raw_path in raw_document_paths:
                     _, raw_bytes = _sl_load_json_bounded(Path(raw_path), allow_non_json=True)
                     raw_inputs.append(raw_bytes)
             if getattr(args, "edges", None):
@@ -46397,10 +46584,19 @@ def cmd_sbom(args: Any, cfg: Mapping[str, Any] | None = None) -> int:
                 edges = []
             document = build_sbom_lineage(documents, edges=edges, raw_documents=raw_inputs)
         elif command == "query":
+            raw_document_paths = _sl_cli_bounded_paths(getattr(args, "raw_documents", None), "raw_documents")
             lineage, _ = _sl_load_json_bounded(Path(args.lineage))
             if not isinstance(lineage, Mapping):
                 raise SBOMLineageError("lineage JSON root must be an object")
-            document = query_sbom_lineage(lineage, args.component, limit=getattr(args, "limit", 32))
+            raw_inputs = None
+            if raw_document_paths is not None:
+                lineage_documents = lineage.get("documents")
+                if not isinstance(lineage_documents, list) or len(raw_document_paths) != len(lineage_documents):
+                    raise SBOMLineageError("raw_documents must contain one raw source per lineage document")
+                raw_inputs = [_sl_load_json_bounded(Path(path), allow_non_json=True)[1] for path in raw_document_paths]
+            document = query_sbom_lineage(
+                lineage, args.component, limit=getattr(args, "limit", 32), raw_documents=raw_inputs,
+            )
         else:
             raise SBOMLineageError("command must be ingest, merge, or query")
         serialized = json.dumps(document, indent=2, sort_keys=True) + "\n"
@@ -46413,7 +46609,10 @@ def cmd_sbom(args: Any, cfg: Mapping[str, Any] | None = None) -> int:
             print(f"sbom {command} -> {output}\n{digest_key}: {document[digest_key]}")
         return 0
     except (OSError, TypeError, ValueError, SBOMLineageError) as exc:
-        print(f"sbom: {exc}")
+        if getattr(args, "json", False):
+            print(json.dumps({"command": getattr(args, "sbom_command", ""), "error": str(exc), "valid": False}, sort_keys=True))
+        else:
+            print(f"sbom: {exc}")
         return 1
 # ───────────────────── Prompt-size forensics (#606) ──────────────────────────
 #
@@ -47270,7 +47469,7 @@ def main():
     p_sbom_ingest.add_argument("--json", action="store_true", help="Print machine-readable JSON")
     p_sbom_merge = sbom_sub.add_parser("merge", help="Build a queryable lineage graph from normalized SBOM documents")
     p_sbom_merge.add_argument("documents", nargs="+", help="SBOM document paths")
-    p_sbom_merge.add_argument("--raw-documents", nargs="+", default=None, dest="raw_documents", help="Raw source paths corresponding to normalized documents")
+    p_sbom_merge.add_argument("--raw-documents", nargs="+", default=None, dest="raw_documents", help="Raw source paths corresponding to normalized documents; required for persisted normalized inputs")
     p_sbom_merge.add_argument("--edges", default=None, help="Optional JSON file of source/build/artifact/deployment edges")
     p_sbom_merge.add_argument("--output", "-o", default=None, help="Write the lineage graph to a JSON file")
     p_sbom_merge.add_argument("--json", action="store_true", help="Print machine-readable JSON")
@@ -47278,6 +47477,7 @@ def main():
     p_sbom_query.add_argument("lineage", help="Lineage graph JSON path")
     p_sbom_query.add_argument("component", help="Component name, version, purl, or vulnerability reference")
     p_sbom_query.add_argument("--limit", type=int, default=32, help="Maximum impacted artifacts")
+    p_sbom_query.add_argument("--raw-documents", nargs="+", default=None, dest="raw_documents", help="Raw source paths corresponding to lineage documents; required across processes")
     p_sbom_query.add_argument("--output", "-o", default=None, help="Write the query result to a JSON file")
     p_sbom_query.add_argument("--json", action="store_true", help="Print machine-readable JSON")
 
