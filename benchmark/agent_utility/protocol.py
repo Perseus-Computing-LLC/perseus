@@ -199,6 +199,17 @@ def _digest_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _portable_bytes(data: bytes) -> bytes:
+    """Normalize checkout line endings for cross-platform fixture identity."""
+    if b"\x00" in data:
+        return data
+    return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+
+
+def _portable_digest_file(path: Path) -> str:
+    return sha256_bytes(_portable_bytes(path.read_bytes()))
+
+
 def _snapshot_entries(root: Path) -> dict[str, dict[str, Any]]:
     """Capture files, directories, symlinks, types, and permission bits without following links."""
     root = root.resolve()
@@ -226,9 +237,12 @@ def _snapshot_entries(root: Path) -> dict[str, dict[str, Any]]:
                     entries[rel] = {"kind": "directory", "mode": mode}
                     visit(Path(entry.path), rel)
                 elif stat.S_ISREG(info.st_mode):
+                    raw_digest = _digest_file(Path(entry.path))
+                    portable = _portable_bytes(Path(entry.path).read_bytes())
                     entries[rel] = {
                         "kind": "file", "mode": mode, "bytes": info.st_size,
-                        "sha256": _digest_file(Path(entry.path)),
+                        "sha256": raw_digest, "portable_bytes": len(portable),
+                        "portable_sha256": sha256_bytes(portable),
                     }
                 else:
                     entries[rel] = {"kind": "other", "mode": mode}
@@ -249,10 +263,13 @@ def snapshot_tree(root: str | os.PathLike[str] | Mapping[str, Mapping[str, Any]]
 def tree_digest(root: str | os.PathLike[str] | Mapping[str, Mapping[str, Any]]) -> str:
     """Digest portable source bytes/types; permission bits stay in mutation audits."""
     entries = snapshot_tree(root)
-    portable = {
-        path: {key: item for key, item in entry.items() if key != "mode"}
-        for path, entry in entries.items()
-    }
+    portable = {}
+    for path, entry in entries.items():
+        normalized = {key: item for key, item in entry.items() if key not in {"mode", "bytes", "sha256"}}
+        if entry.get("kind") == "file" and "portable_sha256" not in normalized:
+            normalized["portable_bytes"] = entry.get("bytes")
+            normalized["portable_sha256"] = entry.get("sha256")
+        portable[path] = normalized
     return sha256_value({"entries": portable})
 
 
@@ -260,7 +277,7 @@ def _digest_path(path: Path) -> str:
     if path.is_dir() and not path.is_symlink():
         return tree_digest(path)
     if path.is_file() and not path.is_symlink():
-        return _digest_file(path)
+        return _portable_digest_file(path)
     raise ManifestError(f"fixture path is missing or unsupported: {path.name}")
 
 
@@ -383,7 +400,7 @@ def _validate_manifest_shape(manifest: Any, *, base_dir: Path | None) -> dict[st
             target.relative_to(base_dir.resolve())
         except ValueError as exc:
             raise ManifestError("verifier.path escapes fixture root") from exc
-        if not target.is_file() or _digest_file(target) != verifier_norm["digest"]:
+        if not target.is_file() or _portable_digest_file(target) != verifier_norm["digest"]:
             raise ManifestError("verifier.digest does not match runner-owned verifier bytes")
 
     fixtures = _validate_fixture_map(value["fixtures"], base_dir=base_dir)
