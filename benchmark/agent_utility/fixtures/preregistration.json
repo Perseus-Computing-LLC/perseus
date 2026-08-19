@@ -90,7 +90,7 @@
     "max_output_tokens": 2048,
     "max_turns": 4
   },
-  "manifest_digest": "d0d20c1e513ae1d592d32bcc02722f57b824a53700a51ea229be4719a2f2aedd",
+  "manifest_digest": "bfd4c10dc9756c2c285369e19ec69345f8401b0bfce2b312fd6b488cc7cceef7",
   "model": {
     "name": "offline-synthetic-agent",
     "provider": "fixture",
@@ -110,7 +110,7 @@
     "materialization": "gitless",
     "repository": "fixture://perseus-agent-utility-project",
     "snapshot_path": "source",
-    "tree_digest": "8a7b2f6f953538678758e76ff530e7b6ac724eb19f7ec3be8d3ff4cc50c67723"
+    "tree_digest": "10f89d2d574f2aecad8359f7a0dec101559aa9992fe10d3fd188ec662fb95364"
   },
   "spend_fence": {
     "credential_identity": "dedicated-agent-utility-synthetic-key",

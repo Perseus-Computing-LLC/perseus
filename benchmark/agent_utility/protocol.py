@@ -247,7 +247,13 @@ def snapshot_tree(root: str | os.PathLike[str] | Mapping[str, Mapping[str, Any]]
 
 
 def tree_digest(root: str | os.PathLike[str] | Mapping[str, Mapping[str, Any]]) -> str:
-    return sha256_value({"entries": snapshot_tree(root)})
+    """Digest portable source bytes/types; permission bits stay in mutation audits."""
+    entries = snapshot_tree(root)
+    portable = {
+        path: {key: item for key, item in entry.items() if key != "mode"}
+        for path, entry in entries.items()
+    }
+    return sha256_value({"entries": portable})
 
 
 def _digest_path(path: Path) -> str:
