@@ -132,8 +132,10 @@ Example offline commands:
 
 ```bash
 perseus sbom ingest build.spdx.json --output normalized.json
-perseus sbom merge normalized.json --edges pipeline-edges.json --output lineage.json
-perseus sbom query lineage.json CVE-2021-44228 --json
+# Persisted normalized documents must be rebound to their raw source at merge.
+perseus sbom merge normalized.json --raw-documents build.spdx.json --edges pipeline-edges.json --output lineage.json
+# Persisted lineage must be rebound again at query in a new process.
+perseus sbom query lineage.json CVE-2021-44228 --raw-documents build.spdx.json --json
 ```
 
 The core path requires no cloud service. Deterministic JSON/XML fixtures and
