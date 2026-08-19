@@ -1,0 +1,2 @@
+def answer() -> str:
+    return "fixture"
