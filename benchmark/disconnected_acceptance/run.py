@@ -102,6 +102,7 @@ _OFFLINE_SECCOMP_SYSCALLS = (
 _OFFLINE_AUDIT_ARCH_X86_64 = 0xC000003E
 _OFFLINE_X32_SYSCALL_BIT = 0x40000000
 _LANDLOCK_CREATE_RULESET = 444
+_LANDLOCK_CREATE_RULESET_VERSION = 1
 _LANDLOCK_ADD_RULE = 445
 _LANDLOCK_RESTRICT_SELF = 446
 _LANDLOCK_RULE_PATH_BENEATH = 1
@@ -177,10 +178,8 @@ def _landlock_supported() -> bool:
         import ctypes
         libc = ctypes.CDLL(None, use_errno=True)
         libc.syscall.restype = ctypes.c_long
-        result = libc.syscall(_LANDLOCK_CREATE_RULESET, 0, None, 0, 0)
-        if result >= 1:
-            return True
-        return ctypes.get_errno() not in {errno.ENOSYS, errno.EINVAL}
+        result = libc.syscall(_LANDLOCK_CREATE_RULESET, None, 0, _LANDLOCK_CREATE_RULESET_VERSION)
+        return result >= 1
     except (AttributeError, OSError, TypeError, ValueError):
         return False
 
@@ -192,14 +191,14 @@ def _install_landlock_write_sandbox(allowed_roots: tuple[Path, ...] | list[Path]
     import ctypes
 
     class _RulesetAttr(ctypes.Structure):
-        _fields_ = [("handled_access_fs", ctypes.c_uint64), ("handled_access_net", ctypes.c_uint64)]
+        _fields_ = [("handled_access_fs", ctypes.c_uint64)]
 
     class _PathBeneath(ctypes.Structure):
         _fields_ = [("allowed_access", ctypes.c_uint64), ("parent_fd", ctypes.c_int), ("padding", ctypes.c_uint32)]
 
     libc = ctypes.CDLL(None, use_errno=True)
     libc.syscall.restype = ctypes.c_long
-    attr = _RulesetAttr(_LANDLOCK_ACCESS_FS_WRITE, 0)
+    attr = _RulesetAttr(_LANDLOCK_ACCESS_FS_WRITE)
     ruleset_fd = libc.syscall(
         _LANDLOCK_CREATE_RULESET,
         ctypes.byref(attr),
@@ -878,7 +877,10 @@ class _AggregateResourceBudget:
         self.memory_limit = float(memory_mb)
         self.disk_limit = int(disk_bytes)
         self.baseline_disk = _monitor_size(roots)
-        self.baseline_filesystems = _filesystem_free_bytes()
+        try:
+            self.baseline_filesystems = _filesystem_free_bytes()
+        except (OSError, TypeError, ValueError, AcceptanceError):
+            self.baseline_filesystems = _FilesystemSnapshot({}, complete=False)
         self.filesystem_observation_failed = not _filesystem_observation_complete(self.baseline_filesystems)
         self.cpu_seconds = 0.0
         self.peak_rss_mb = 0.0
