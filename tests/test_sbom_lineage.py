@@ -187,6 +187,7 @@ def test_untrusted_normalized_documents_and_conflicting_duplicate_ids_fail_close
     with pytest.raises(perseus.SBOMLineageError, match="digest"):
         perseus.build_sbom_lineage([tampered])
     alternate = json.loads(_load("spdx-app.json"))
+    alternate["SPDXID"] = "SPDXRef-DOCUMENT-ALTERNATE"
     alternate["packages"][0]["name"] = "different-component"
     alternate_document = perseus.ingest_sbom_document(alternate, source_ref="artifact:alternate")
     with pytest.raises(perseus.SBOMLineageError, match="duplicate component ID"):
@@ -348,7 +349,13 @@ def test_all_collection_caps_are_recorded_and_downgrade_coverage():
     assert "externalRefs" in document["coverage"]["truncated"]
     assert document["coverage"]["state"] == "partial"
 
-    lineage = perseus.build_sbom_lineage([document] * 65, edges=[])
+    documents = []
+    for index in range(65):
+        unique_payload = json.loads(json.dumps(payload))
+        unique_payload["SPDXID"] = f"SPDXRef-DOCUMENT-{index}"
+        unique_payload["relationships"][0]["spdxElementId"] = f"SPDXRef-DOCUMENT-{index}"
+        documents.append(perseus.ingest_sbom_document(unique_payload, source_ref=f"artifact:cap-{index}"))
+    lineage = perseus.build_sbom_lineage(documents, edges=[])
     assert "documents" in lineage["coverage"]["truncated"]
     assert lineage["coverage"]["state"] != "complete"
 
@@ -1061,3 +1068,193 @@ def test_duplicate_json_object_keys_are_rejected_before_projection():
     raw = b'{"bomFormat":"CycloneDX","bomFormat":"SPDX","specVersion":"1.5"}'
     with pytest.raises(perseus.SBOMLineageError, match="duplicate"):
         perseus.ingest_sbom_document(raw)
+
+
+def test_percent_decoded_git_style_userinfo_is_not_persisted():
+    payload = json.loads(_load("cyclonedx-app.json"))
+    component = payload["components"][0]
+    component["purl"] = "pkg:generic/example@1?repository_url=git%3Aalice%3Apw%40host%3Arepo"
+    component["externalReferences"] = [{
+        "type": "website",
+        "url": "git%3Aalice%3Apw%40host%3Arepo",
+    }]
+    document = perseus.ingest_sbom_document(payload, source_ref="build:alice%3Apw%40host:repo")
+    serialized = json.dumps(document, sort_keys=True)
+    for marker in ("alice", "pw", "host", "repo"):
+        assert marker not in serialized
+    assert document["source_ref"].startswith("sha256:")
+
+
+def test_public_errors_do_not_echo_untrusted_version_or_filesystem_exception(tmp_path, monkeypatch):
+    payload = json.loads(_load("spdx-app.json"))
+    payload["spdxVersion"] = "SPDX-9.9-UNTRUSTED_VERSION"
+    with pytest.raises(perseus.SBOMLineageError) as version_error:
+        perseus.ingest_sbom_document(payload)
+    assert "UNTRUSTED_VERSION" not in str(version_error.value)
+
+    path = tmp_path / "input.json"
+    path.write_bytes(b"{}")
+    monkeypatch.setattr(perseus._sl_os, "open", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("UNTRUSTED_FILESYSTEM_DETAIL")))
+    with pytest.raises(perseus.SBOMLineageError) as filesystem_error:
+        perseus._sl_read_bounded(path)
+    assert "UNTRUSTED_FILESYSTEM_DETAIL" not in str(filesystem_error.value)
+    assert str(filesystem_error.value) == "could not open SBOM safely"
+
+
+def test_cli_error_serialization_does_not_echo_paths_or_untrusted_version(tmp_path, capsys):
+    missing_args = type("Args", (), {
+        "sbom_command": "ingest", "document": str(tmp_path / "PATH_SECRET_INPUT.json"),
+        "source_ref": "", "output": None, "json": True,
+    })()
+    assert perseus.cmd_sbom(missing_args, {}) == 1
+    missing_output = capsys.readouterr().out
+    assert "PATH_SECRET_INPUT" not in missing_output
+    assert "filesystem" in missing_output or "open" in missing_output
+
+    payload = json.loads(_load("spdx-app.json"))
+    payload["spdxVersion"] = "SPDX-9.9-CLI_UNTRUSTED_VERSION"
+    source = tmp_path / "bad-version.json"
+    source.write_text(json.dumps(payload), encoding="utf-8")
+    version_args = type("Args", (), {
+        "sbom_command": "ingest", "document": str(source), "source_ref": "",
+        "output": None, "json": True,
+    })()
+    assert perseus.cmd_sbom(version_args, {}) == 1
+    version_output = capsys.readouterr().out
+    assert "CLI_UNTRUSTED_VERSION" not in version_output
+    assert "version" in version_output
+
+
+def test_load_json_bounded_caps_all_in_memory_byte_buffers_and_rejects_text():
+    oversized = b"{" + b" " * perseus._SL_MAX_INPUT_BYTES + b"}"
+    for source in (oversized, bytearray(oversized), memoryview(oversized)):
+        with pytest.raises(perseus.SBOMLineageError, match="bytes"):
+            perseus._sl_load_json_bounded(source)
+    with pytest.raises(perseus.SBOMLineageError, match="bytes"):
+        perseus._sl_load_json_bounded("{}")
+
+
+def test_conflicting_json_format_discriminators_are_rejected():
+    payload = json.loads(_load("cyclonedx-app.json"))
+    payload["spdxVersion"] = "SPDX-2.3"
+    payload["SPDXID"] = "SPDXRef-DOCUMENT"
+    with pytest.raises(perseus.SBOMLineageError, match="format"):
+        perseus.ingest_sbom_document(payload)
+
+
+def test_xml_singleton_conflicts_and_multiple_rdf_documents_fail():
+    xml = _load("spdx-app.xml").decode("utf-8")
+    conflicting = xml.replace(
+        "<spdxVersion>SPDX-2.3</spdxVersion>",
+        "<spdxVersion>SPDX-2.3</spdxVersion><spdxVersion>SPDX-2.2</spdxVersion>",
+    )
+    with pytest.raises(perseus.SBOMLineageError, match="singleton|conflict|version"):
+        perseus.ingest_sbom_document(conflicting)
+
+    rdf = _load("spdx-rdf.xml").decode("utf-8")
+    start = rdf.index("  <spdx:SpdxDocument")
+    end = rdf.index("  </spdx:SpdxDocument>") + len("  </spdx:SpdxDocument>")
+    node = rdf[start:end]
+    multiple = rdf.replace("</rdf:RDF>", node + "\n</rdf:RDF>")
+    with pytest.raises(perseus.SBOMLineageError, match="SpdxDocument|RDF|multiple"):
+        perseus.ingest_sbom_document(multiple)
+
+
+def test_distinct_component_refs_with_one_purl_are_rejected_as_ambiguous():
+    payload = json.loads(_load("cyclonedx-app.json"))
+    first = payload["components"][0]
+    shared_purl = "pkg:generic/shared-component@1"
+    first["purl"] = shared_purl
+    first["bom-ref"] = "pkg:generic/first-component@1"
+    second = json.loads(json.dumps(first))
+    second["bom-ref"] = "pkg:generic/second-component@1"
+    second["name"] = "second-component"
+    payload["components"].append(second)
+    with pytest.raises(perseus.SBOMLineageError, match="ambiguous|alias|identifier"):
+        perseus.ingest_sbom_document(payload)
+
+
+def test_supplier_shape_and_aggregate_output_are_bounded_at_ingestion():
+    payload = json.loads(_load("cyclonedx-app.json"))
+    payload["components"][0]["supplier"] = ["A" * 300, "B" * 300]
+    with pytest.raises(perseus.SBOMLineageError, match="supplier|bound"):
+        perseus.ingest_sbom_document(payload)
+
+    malformed = json.loads(_load("cyclonedx-app.json"))
+    malformed["components"][0]["supplier"] = {"name": 123}
+    with pytest.raises(perseus.SBOMLineageError, match="supplier|string"):
+        perseus.ingest_sbom_document(malformed)
+
+
+def test_cli_ingest_validates_normalized_document_before_success(tmp_path, capsys):
+    payload = json.loads(_load("cyclonedx-app.json"))
+    payload["components"][0]["supplier"] = ["A" * 300, "B" * 300]
+    source = tmp_path / "supplier.json"
+    output = tmp_path / "normalized.json"
+    source.write_text(json.dumps(payload), encoding="utf-8")
+    args = type("Args", (), {
+        "sbom_command": "ingest", "document": str(source), "source_ref": "",
+        "output": str(output), "json": True,
+    })()
+    assert perseus.cmd_sbom(args, {}) == 1
+    assert not output.exists()
+    failure = json.loads(capsys.readouterr().out)
+    assert failure["valid"] is False
+    assert "supplier" in failure["error"]
+
+
+def test_cli_ingest_rejects_a_malformed_normalized_return_before_writing(tmp_path, monkeypatch, capsys):
+    valid = perseus.ingest_sbom_document(_load("cyclonedx-app.json"), source_ref="artifact:cli-validation")
+    invalid = json.loads(json.dumps(valid))
+    invalid["components"][0]["supplier"] = "A" * 513
+    monkeypatch.setattr(perseus, "ingest_sbom_document", lambda *args, **kwargs: invalid)
+    output = tmp_path / "invalid-normalized.json"
+    args = type("Args", (), {
+        "sbom_command": "ingest", "document": "ignored-input", "source_ref": "",
+        "output": str(output), "json": True,
+    })()
+    assert perseus.cmd_sbom(args, {}) == 1
+    assert not output.exists()
+    failure = json.loads(capsys.readouterr().out)
+    assert failure["valid"] is False
+    assert "digest" in failure["error"] or "bound" in failure["error"]
+
+
+def test_duplicate_document_ids_and_document_component_collisions_fail_closed():
+    first = perseus.ingest_sbom_document(_load("cyclonedx-app.json"), source_ref="artifact:first")
+    second = perseus.ingest_sbom_document(_load("cyclonedx-app.json"), source_ref="artifact:second")
+    with pytest.raises(perseus.SBOMLineageError, match="document"):
+        perseus.build_sbom_lineage([first, second], edges=[])
+
+    collision_payload = json.loads(_load("cyclonedx-app.json"))
+    collision_payload["serialNumber"] = collision_payload["components"][0]["bom-ref"]
+    with pytest.raises(perseus.SBOMLineageError, match="document|component|collision"):
+        perseus.ingest_sbom_document(collision_payload)
+
+
+def test_known_spdx_document_nodes_preserve_complete_native_relationship_coverage():
+    document = perseus.ingest_sbom_document(_load("spdx-app.json"), source_ref="artifact:document-node")
+    assert document["coverage"]["state"] == "complete"
+    lineage = perseus.build_sbom_lineage([document], edges=[])
+    document_node = next(node for node in lineage["nodes"] if node["node_id"] == document["document_id"])
+    assert document_node["kind"] == "document"
+    assert document_node["coverage"]["state"] == "complete"
+    assert lineage["coverage"]["state"] == "complete"
+    assert perseus.verify_sbom_lineage(lineage)["valid"] is True
+
+
+def test_known_cyclonedx_document_endpoint_remains_bound_and_complete():
+    payload = json.loads(_load("cyclonedx-app.json"))
+    document_id = "urn:uuid:document-level-native"
+    payload["serialNumber"] = document_id
+    payload["metadata"]["name"] = "document-level-native"
+    component_ref = payload["components"][0]["purl"]
+    payload["dependencies"] = [{"ref": document_id, "dependsOn": [component_ref]}]
+    document = perseus.ingest_sbom_document(payload, source_ref="artifact:cdx-document-node")
+    assert document["coverage"]["state"] == "complete"
+    assert document["relationships"][0]["from"] == document_id
+    lineage = perseus.build_sbom_lineage([document], edges=[])
+    assert lineage["coverage"]["state"] == "complete"
+    node = next(item for item in lineage["nodes"] if item["node_id"] == document_id)
+    assert node["kind"] == "document"
+    assert perseus.verify_sbom_lineage(lineage)["valid"] is True
