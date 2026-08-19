@@ -197,8 +197,9 @@ def test_mutation_audit_covers_symlink_retarget_and_allows_declared_output(tmp_p
     assert allowed["off_target"] == []
 
 
-def _case(manifest_obj, arm_id, pair_id="pair-1", cohort_id="cohort-a"):
+def _case(manifest_obj, arm_id, pair_id="pair-1", cohort_id=None):
     key = protocol.build_comparability_key(manifest_obj)
+    cohort_id = cohort_id or manifest_obj["challenge"]["cohort_id"]
     return {
         "case_id": f"{pair_id}-{arm_id}",
         "pair_id": pair_id,
@@ -210,13 +211,13 @@ def _case(manifest_obj, arm_id, pair_id="pair-1", cohort_id="cohort-a"):
         "comparability_key": key,
         "capability": {"status": "available"},
         "delivery": protocol.make_delivery_receipt(
-            "run", arm_id, delivered=arm_id == "treatment",
+            "synthetic-run-0001", arm_id, delivered=arm_id == "treatment",
             fixture_id=(manifest_obj["fixtures"]["memory"]["id"] if arm_id == "treatment" else None),
             fixture_digest=(manifest_obj["fixtures"]["memory"]["digest"] if arm_id == "treatment" else None),
         ),
-        "observable_use": protocol.make_observable_use_receipt("run", arm_id, marker_observed=False),
+        "observable_use": protocol.make_observable_use_receipt("synthetic-run-0001", arm_id, marker_observed=False),
         "outcome": protocol.make_outcome_receipt(
-            "run", arm_id, correctness=1.0,
+            "synthetic-run-0001", arm_id, correctness=1.0,
             mutation_audit={"valid": True, "off_target": []},
         ),
     }
@@ -276,6 +277,8 @@ def test_result_contract_retains_excluded_runs_and_requires_reason():
     result["cases"][0]["exclusion_reasons"] = ["off_target_mutation"]
     result["accepted_count"] = 1
     result["excluded_count"] = 1
+    result["paired_deltas"] = protocol.derive_paired_deltas(result)
+    result["report"] = protocol._report_projection(result)
     result["result_digest"] = protocol.sha256_value({key: result[key] for key in result if key != "result_digest"})
     assert protocol.validate_result(result, loaded)["excluded_count"] == 1
 
@@ -283,7 +286,7 @@ def test_result_contract_retains_excluded_runs_and_requires_reason():
 def test_off_target_mutation_zeroes_and_retains_excluded_attempt():
     loaded = manifest()
     outcome = protocol.make_outcome_receipt(
-        "run", "treatment", correctness=1.0,
+        "synthetic-run-0001", "treatment", correctness=1.0,
         mutation_audit={"valid": False, "off_target": [{"path": "outside.txt", "kind": "changed"}]},
     )
     assert outcome["status"] == "invalidated"
@@ -297,8 +300,76 @@ def test_off_target_mutation_zeroes_and_retains_excluded_attempt():
     case["outcome"] = outcome
     result["accepted_count"] = 1
     result["excluded_count"] = 1
+    result["paired_deltas"] = protocol.derive_paired_deltas(result)
+    result["report"] = protocol._report_projection(result)
     result["result_digest"] = protocol.sha256_value({key: result[key] for key in result if key != "result_digest"})
     assert protocol.validate_result(result, loaded)["excluded_count"] == 1
+
+
+def _reseal_result(result):
+    result["result_digest"] = protocol.sha256_value(
+        {key: result[key] for key in result if key != "result_digest"}
+    )
+    return result
+
+
+def test_result_validation_rejects_duplicate_roles_and_unbound_case_identity():
+    loaded = manifest()
+    duplicate = _valid_result()
+    extra = copy.deepcopy(duplicate["cases"][1])
+    extra["case_id"] = "pair-1-treatment-duplicate"
+    duplicate["cases"].append(extra)
+    duplicate["accepted_count"] = 3
+    duplicate["excluded_count"] = 0
+    with pytest.raises(protocol.ResultValidationError, match="exactly control and treatment"):
+        protocol.validate_result(_reseal_result(duplicate), loaded)
+
+    unbound = _valid_result()
+    unbound["cases"][0]["cohort_id"] = "other-cohort"
+    with pytest.raises(protocol.ResultValidationError, match="cohort"):
+        protocol.validate_result(_reseal_result(unbound), loaded)
+
+
+def test_result_validation_recomputes_deltas_report_and_receipt_bindings():
+    loaded = manifest()
+    changed_delta = _valid_result()
+    changed_delta["paired_deltas"] = [{"cohort_id": "forged", "mean_delta": 99.0}]
+    with pytest.raises(protocol.ResultValidationError, match="paired_deltas"):
+        protocol.validate_result(_reseal_result(changed_delta), loaded)
+
+    changed_report = _valid_result()
+    changed_report["report"]["observed"]["case_count"] = 999
+    with pytest.raises(protocol.ResultValidationError, match="report"):
+        protocol.validate_result(_reseal_result(changed_report), loaded)
+
+    bad_delivery = _valid_result()
+    bad_delivery["cases"][1]["delivery"]["fixture_id"] = None
+    with pytest.raises(protocol.ResultValidationError, match="delivery"):
+        protocol.validate_result(_reseal_result(bad_delivery), loaded)
+
+    contradictory_audit = _valid_result()
+    audit = contradictory_audit["cases"][0]["outcome"]["workspace"]["mutation_audit"]
+    audit["off_target"] = [{"path": "outside.txt", "kind": "changed"}]
+    with pytest.raises(protocol.ResultValidationError, match="off-target"):
+        protocol.validate_result(_reseal_result(contradictory_audit), loaded)
+
+
+def test_public_evidence_verification_rejects_unsanitized_resealed_private_fields():
+    private = {"raw_prompt": "PRIVATE", "accepted_count": 1}
+    forged = {
+        "schema_version": protocol.PUBLIC_EVIDENCE_SCHEMA_VERSION,
+        "evidence": private,
+        "evidence_digest": protocol.sha256_value(private),
+    }
+    assert protocol.verify_public_evidence(forged) is False
+
+
+def test_manifest_rejects_unknown_nested_instrumentation_field():
+    loaded = manifest()
+    changed = copy.deepcopy(loaded)
+    changed["arms"][0]["instrumentation"]["private_trace"] = True
+    with pytest.raises(protocol.ManifestError, match="unknown field"):
+        protocol.validate_manifest(changed)
 
 
 def test_report_keeps_cohorts_separate_and_labels_small_samples_exploratory():
