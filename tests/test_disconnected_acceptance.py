@@ -1490,6 +1490,57 @@ def test_report_validation_rejects_recommitted_mutated_resource_limits(tmp_path)
         harness._validate_report_commitments(mutated, expected_fixture=fixture)
 
 
+def test_report_validation_rejects_recommitted_raw_network_attempt(tmp_path):
+    report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
+    mutated = json.loads(json.dumps(report))
+    raw_attempt = {
+        "operation": "raw-operation",
+        "destination": "SENSITIVE_NETWORK_DESTINATION",
+        "outcome": "blocked",
+    }
+    child_report = {
+        "active": True,
+        "policy": "deny_all_non_loopback",
+        "attempts": [],
+        "attempts_truncated": False,
+        "blocked_attempts": 0,
+        "allowed_local_attempts": 0,
+    }
+    mutated["network"] = {
+        "policy": "deny_all",
+        "attempts": [raw_attempt],
+        "child_attempts": [],
+        "children": {"forged-child": child_report},
+        "child_guards": {
+            "forged-child": {
+                "enforced": True,
+                "boundary": "seccomp",
+                "report_present": True,
+                "telemetry": "parent_derived",
+            },
+        },
+        "attempts_truncated": False,
+        "expected_blocked": [raw_attempt],
+        "unexpected_attempts": [],
+        "child_probe": {
+            "status": "passed",
+            "exit_code": 0,
+            "report": {
+                "blocked": True,
+                "destination": "sha256:" + "0" * 64,
+                "report": {**child_report, "attempts": [raw_attempt], "blocked_attempts": 1},
+            },
+        },
+        "status": "passed",
+    }
+    mutated["report_commitment"] = harness._sha({
+        key: mutated[key]
+        for key in harness._REPORT_CORE_KEYS
+    })
+    with pytest.raises(harness.AcceptanceError, match="network"):
+        harness._validate_report_commitments(mutated)
+
+
 def test_report_validation_rejects_recommitted_status_contract_forgery(tmp_path):
     report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
     mutated = json.loads(json.dumps(report))

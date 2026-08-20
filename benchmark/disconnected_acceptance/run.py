@@ -956,34 +956,100 @@ def _validate_report_flow_semantics(flow: Mapping[str, Any]) -> None:
                 raise AcceptanceError(f"flow {name} negative result has no bounded reason")
 
 
+_OFFLINE_PUBLIC_REPORT_KEYS = frozenset({
+    "active", "policy", "attempts", "attempts_truncated", "blocked_attempts", "allowed_local_attempts",
+})
+_EVIDENCE_TOKEN_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+def _validate_public_offline_report(value: Any, *, label: str) -> None:
+    if not isinstance(value, Mapping) or set(value) != _OFFLINE_PUBLIC_REPORT_KEYS:
+        raise AcceptanceError(f"{label} offline report shape is invalid")
+    if value.get("active") is not True or value.get("policy") != "deny_all_non_loopback":
+        raise AcceptanceError(f"{label} offline report policy is invalid")
+    attempts = value.get("attempts")
+    if not isinstance(attempts, list) or len(attempts) > _MAX_OFFLINE_ATTEMPTS:
+        raise AcceptanceError(f"{label} offline attempts are invalid")
+    if not isinstance(value.get("attempts_truncated"), bool):
+        raise AcceptanceError(f"{label} offline truncation is invalid")
+    for attempt in attempts:
+        if not isinstance(attempt, Mapping) or set(attempt) != {"operation", "destination", "outcome"}:
+            raise AcceptanceError(f"{label} offline attempt shape is invalid")
+        if (
+            not isinstance(attempt.get("operation"), str)
+            or not _EVIDENCE_TOKEN_RE.fullmatch(attempt["operation"])
+            or not isinstance(attempt.get("destination"), str)
+            or not _EVIDENCE_TOKEN_RE.fullmatch(attempt["destination"])
+            or attempt.get("outcome") not in _ALLOWED_PROBE_OUTCOMES
+        ):
+            raise AcceptanceError(f"{label} offline attempt values are invalid")
+    counters = ("blocked_attempts", "allowed_local_attempts")
+    if any(type(value.get(key)) is not int or value[key] < 0 or value[key] > _MAX_OFFLINE_ATTEMPTS for key in counters):
+        raise AcceptanceError(f"{label} offline counters are invalid")
+    blocked = sum(item["outcome"] == "blocked" for item in attempts)
+    allowed_local = sum(item["outcome"] == "allowed_local" for item in attempts)
+    if value["blocked_attempts"] < blocked or value["allowed_local_attempts"] < allowed_local:
+        raise AcceptanceError(f"{label} offline counters are inconsistent")
+    if not value["attempts_truncated"] and (value["blocked_attempts"] != blocked or value["allowed_local_attempts"] != allowed_local):
+        raise AcceptanceError(f"{label} offline counters are inconsistent")
+
+
 def _validate_report_network_semantics(network: Mapping[str, Any]) -> None:
     status = network.get("status")
     if not isinstance(status, str) or status not in _ALLOWED_REPORT_STATUSES:
         raise AcceptanceError("network status is invalid")
     if status != "passed":
         return
+    if network.get("policy") != "deny_all":
+        raise AcceptanceError("network policy is invalid")
     if network.get("attempts_truncated") is not False or not isinstance(network.get("attempts"), list):
         raise AcceptanceError("network passed with incomplete attempts")
-    if network.get("unexpected_attempts") not in ([], None):
-        raise AcceptanceError("network passed with unexpected attempts")
     probe = network.get("child_probe")
-    if not isinstance(probe, Mapping) or probe.get("status") != "passed" or probe.get("exit_code") != 0:
+    if (
+        not isinstance(probe, Mapping)
+        or set(probe) != {"status", "exit_code", "report"}
+        or probe.get("status") != "passed"
+        or probe.get("exit_code") != 0
+    ):
         raise AcceptanceError("network passed without a successful probe")
+    probe_envelope = probe.get("report")
+    if (
+        not isinstance(probe_envelope, Mapping)
+        or set(probe_envelope) != {"blocked", "destination", "report"}
+        or probe_envelope.get("blocked") is not True
+        or not isinstance(probe_envelope.get("destination"), str)
+        or not _EVIDENCE_TOKEN_RE.fullmatch(probe_envelope["destination"])
+    ):
+        raise AcceptanceError("network probe envelope is invalid")
+    probe_report = probe_envelope.get("report")
+    if not isinstance(probe_report, Mapping):
+        raise AcceptanceError("network probe report is invalid")
+    _validate_public_offline_report(probe_report, label="network probe")
+    if network["attempts"] != probe_report["attempts"]:
+        raise AcceptanceError("network attempts are not probe-bound")
+    expected_blocked = [item for item in probe_report["attempts"] if item["outcome"] == "blocked"]
+    if network.get("expected_blocked") != expected_blocked or network.get("unexpected_attempts") != []:
+        raise AcceptanceError("network attempt classification is invalid")
     guards = network.get("child_guards")
     reports = network.get("children")
-    if not isinstance(guards, Mapping) or not guards or not isinstance(reports, Mapping) or not reports:
-        raise AcceptanceError("network passed without child evidence")
-    if any(
-        not isinstance(guard, Mapping)
-        or guard.get("enforced") is not True
-        or guard.get("boundary") != "seccomp"
-        or guard.get("report_present") is not True
-        or guard.get("telemetry") != "parent_derived"
-        for guard in guards.values()
-    ):
-        raise AcceptanceError("network passed without enforced child guards")
-    if any(not isinstance(report, Mapping) or report.get("active") is not True or report.get("attempts_truncated") is not False for report in reports.values()):
-        raise AcceptanceError("network passed with invalid child reports")
+    if not isinstance(guards, Mapping) or not guards or not isinstance(reports, Mapping) or not reports or set(guards) != set(reports):
+        raise AcceptanceError("network passed without paired child evidence")
+    child_attempts: list[dict[str, Any]] = []
+    for name, report in reports.items():
+        _validate_public_offline_report(report, label=f"network child {name}")
+        child_attempts.extend(report["attempts"])
+    if network.get("child_attempts") != child_attempts:
+        raise AcceptanceError("network child attempts are not report-bound")
+    for name, guard in guards.items():
+        if (
+            not isinstance(guard, Mapping)
+            or set(guard) != {"enforced", "boundary", "report_present", "telemetry"}
+            or guard.get("enforced") is not True
+            or guard.get("boundary") != "seccomp"
+            or guard.get("report_present") is not True
+            or guard.get("telemetry") != "parent_derived"
+        ):
+            raise AcceptanceError(f"network child guard {name} is invalid")
 
 
 def _validate_report_claims(report: Mapping[str, Any], flow: Mapping[str, Any], network: Mapping[str, Any]) -> None:
