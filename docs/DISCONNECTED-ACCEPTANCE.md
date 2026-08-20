@@ -54,8 +54,9 @@ The harness also:
   and surfaces any unverified or surviving process as a failure; non-Linux POSIX
   cleanup refuses to signal a process group without a creation-time identity
   primitive;
-- requires a bounded, nonce-bound offline report for Python children. Reports
-  are read by the parent with no-follow, owner, size, item, and counter checks;
+- requires a bounded, parent-nonce-bound offline report for Python children. Each
+  report/completion frame carries the parent-generated nonce; reports are read
+  by the parent with no-follow, owner, size, item, and counter checks;
   child overwrites and `os._exit` cannot forge an accepted report;
 - denies non-loopback traffic in the runtime policy. The inherited seccomp
   layer is intentionally stricter and denies network syscalls in bounded

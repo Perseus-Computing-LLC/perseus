@@ -8,6 +8,7 @@ import os
 import socket
 import subprocess
 import shlex
+import signal
 import sys
 import time
 from pathlib import Path
@@ -714,6 +715,7 @@ def test_workload_query_and_restart_count_are_exercised(tmp_path, monkeypatch):
             "output_sha256": "x",
             "stable_output_bytes": 1,
             "output_truncated": False,
+            "resource_limits": dict(kwargs["resource_limits"]),
             "offline_report": {
                 "active": True,
                 "policy": "deny_all_non_loopback",
@@ -848,6 +850,7 @@ def test_offline_guard_rejects_uncontainable_non_python_child(tmp_path):
     )
     assert result["status"] == "blocked"
     assert result["offline_sandbox"] == "seccomp"
+    assert result["offline_report"] is None
 
 
 def test_offline_policy_cannot_be_disabled_by_explicit_false(tmp_path):
@@ -915,6 +918,7 @@ def test_seccomp_contains_nested_python_s_descendant(tmp_path, monkeypatch):
     )
     assert result["status"] == "blocked"
     assert result["offline_sandbox"] == "seccomp"
+    assert result["offline_report"] is None
 
 
     _enable_test_only_disk_guard(monkeypatch)
@@ -1183,6 +1187,24 @@ def test_cleanup_refuses_pid_reuse_or_unverified_pgid_signal(monkeypatch):
     ) is False
 
 
+def test_owned_descendant_with_verified_start_time_can_change_pgid(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        harness,
+        "_process_identity",
+        lambda _pid: {"pid": 424242, "state": "S", "ppid": 1, "pgid": 999, "start_time": 1},
+    )
+    monkeypatch.setattr(harness.os, "kill", lambda pid, sig: calls.append((pid, sig)))
+    identity = {
+        "pid": 424242,
+        "pgid": 424242,
+        "start_time": 1,
+        "owned_by_ancestry": 1,
+    }
+    assert harness._signal_owned(identity, signal.SIGTERM, None, trusted_pgid=424242) is True
+    assert calls == [(424242, signal.SIGTERM)]
+
+
 @pytest.mark.parametrize("bad", [float("nan"), float("inf"), True, 0, -1, "1", None, []])
 def test_child_resource_bounds_reject_malformed_values_before_spawn(monkeypatch, tmp_path, bad):
     def fail_if_spawned(*_args, **_kwargs):
@@ -1241,6 +1263,7 @@ def test_nested_non_python_launcher_cannot_hide_zero_attempt_network_failure(tmp
     )
     assert result["status"] == "blocked"
     assert result["offline_sandbox"] == "seccomp"
+    assert result["offline_report"] is None
 
 
 def test_offline_guard_setup_failure_returns_bounded_blocked_result(tmp_path, monkeypatch):
@@ -1594,6 +1617,84 @@ def test_report_validation_rejects_recommitted_raw_network_attempt(tmp_path):
         harness._validate_report_commitments(mutated)
 
 
+def _valid_passed_network_for_test(*, attempts=None, probe_attempts=None, child_report=None, probe_blocked=True):
+    if attempts is None:
+        attempts = [{"operation": "sha256:" + "1" * 64, "destination": "sha256:" + "2" * 64, "outcome": "blocked"}]
+    if probe_attempts is None:
+        probe_attempts = list(attempts)
+    if child_report is None:
+        child_report = {
+            "active": True,
+            "policy": "deny_all_non_loopback",
+            "attempts": [],
+            "attempts_truncated": False,
+            "blocked_attempts": 0,
+            "allowed_local_attempts": 0,
+        }
+    probe_report = {
+        "active": True,
+        "policy": "deny_all_non_loopback",
+        "attempts": probe_attempts,
+        "attempts_truncated": False,
+        "blocked_attempts": sum(item["outcome"] == "blocked" for item in probe_attempts),
+        "allowed_local_attempts": sum(item["outcome"] == "allowed_local" for item in probe_attempts),
+    }
+    return {
+        "policy": "deny_all",
+        "attempts": attempts,
+        "child_attempts": [],
+        "children": {"child": child_report},
+        "child_guards": {
+            "child": {
+                "enforced": True,
+                "boundary": "seccomp",
+                "report_present": True,
+                "telemetry": "parent_derived",
+            },
+        },
+        "attempts_truncated": False,
+        "expected_blocked": [item for item in attempts if item["outcome"] == "blocked"],
+        "unexpected_attempts": [item for item in attempts if item["outcome"] not in {"blocked", "allowed_local"}],
+        "child_probe": {
+            "status": "passed",
+            "exit_code": 0,
+            "report": {
+                "blocked": probe_blocked,
+                "destination": "sha256:" + "3" * 64,
+                "report": probe_report,
+            },
+        },
+        "status": "passed",
+    }
+
+
+def test_passed_network_requires_an_actual_blocked_probe_attempt():
+    network = _valid_passed_network_for_test(attempts=[], probe_attempts=[], probe_blocked=True)
+    with pytest.raises(harness.AcceptanceError, match="network"):
+        harness._validate_report_network_semantics(network)
+
+
+def test_deny_all_network_rejects_allowed_local_attempts():
+    attempt = {"operation": "sha256:" + "1" * 64, "destination": "sha256:" + "2" * 64, "outcome": "allowed_local"}
+    network = _valid_passed_network_for_test(attempts=[attempt], probe_attempts=[attempt], probe_blocked=False)
+    with pytest.raises(harness.AcceptanceError, match="network"):
+        harness._validate_report_network_semantics(network)
+
+
+def test_passed_network_requires_untruncated_child_reports():
+    child_report = {
+        "active": True,
+        "policy": "deny_all_non_loopback",
+        "attempts": [],
+        "attempts_truncated": True,
+        "blocked_attempts": 0,
+        "allowed_local_attempts": 0,
+    }
+    network = _valid_passed_network_for_test(child_report=child_report)
+    with pytest.raises(harness.AcceptanceError, match="network"):
+        harness._validate_report_network_semantics(network)
+
+
 def test_aggregate_status_rejects_inconclusive_required_cell():
     flow = {
         "required": {"status": "timeout", "reason": "child_timeout"},
@@ -1609,6 +1710,81 @@ def test_aggregate_status_rejects_inconclusive_required_cell():
     }
     with pytest.raises(harness.AcceptanceError, match="aggregate status"):
         harness._validate_report_status(report, flow, network)
+
+
+def test_aggregate_status_rejects_incomplete_resource_observation():
+    report = {
+        "status": "passed",
+        "platform": {"status": "passed"},
+        "upgrade": {"status": "passed"},
+        "rollback": {"status": "passed"},
+        "negative_results": [],
+        "resource_envelope": {
+            "aggregate_children": {"status": "filesystem_observation_unavailable"},
+        },
+    }
+    with pytest.raises(harness.AcceptanceError, match="aggregate status"):
+        harness._validate_report_status(report, {}, {"status": "passed"})
+
+
+def test_resource_validation_binds_passed_flow_limits(tmp_path):
+    report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
+    fixture = harness._load_fixture(ROOT / "benchmark" / "disconnected_acceptance" / "fixture.json")
+    flow = json.loads(json.dumps(report["flow"]))
+    flow["perseus_render"]["resource_limits"]["cpu_seconds"] += 1
+    with pytest.raises(harness.AcceptanceError, match="fixture-bound"):
+        harness._validate_report_resource_semantics(
+            report["resource_contract"],
+            report["resource_envelope"],
+            flow,
+            expected_limits=fixture["platform"]["resource_limits"],
+        )
+
+
+def test_resource_validation_requires_limits_for_passed_flow(tmp_path):
+    report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
+    fixture = harness._load_fixture(ROOT / "benchmark" / "disconnected_acceptance" / "fixture.json")
+    flow = json.loads(json.dumps(report["flow"]))
+    del flow["perseus_render"]["resource_limits"]
+    flow["perseus_render"]["status"] = "passed"
+    with pytest.raises(harness.AcceptanceError, match="fixture-bound|resource limits"):
+        harness._validate_report_resource_semantics(
+            report["resource_contract"],
+            report["resource_envelope"],
+            flow,
+            expected_limits=fixture["platform"]["resource_limits"],
+        )
+
+
+def test_backup_restore_rejects_boolean_render_exit_code(tmp_path):
+    offline_report = {
+        "active": True,
+        "policy": "deny_all_non_loopback",
+        "attempts": [],
+        "attempts_truncated": False,
+        "blocked_attempts": 0,
+        "allowed_local_attempts": 0,
+    }
+    flow = {
+        "backup_restore": {
+            "status": "passed",
+            "digest_match": True,
+            "post_digest_match": True,
+            "render": {
+                "status": "passed",
+                "exit_code": False,
+                "offline_report": offline_report,
+                "offline_guard": {
+                    "enforced": True,
+                    "boundary": "seccomp",
+                    "report_present": True,
+                    "telemetry": "parent_derived",
+                },
+            },
+        },
+    }
+    with pytest.raises(harness.AcceptanceError, match="backup restore"):
+        harness._validate_report_flow_semantics(flow)
 
 
 def test_network_nonpassed_status_still_rejects_raw_attempt_metadata():
@@ -1742,7 +1918,7 @@ def test_fixture_rejects_unbounded_public_identifier(tmp_path):
         harness._load_fixture(fixture_path)
 
 
-def test_child_cannot_forge_parent_offline_report_from_sitecustomize(tmp_path):
+def test_legacy_file_protocol_cannot_forge_parent_offline_report(tmp_path):
     runtime = tmp_path / "runtime.py"
     runtime.write_text(
         "def activate_offline_mode(): pass\n"
@@ -1753,6 +1929,7 @@ def test_child_cannot_forge_parent_offline_report_from_sitecustomize(tmp_path):
         "def deactivate_offline_mode(): pass\n",
         encoding="utf-8",
     )
+    legacy_path = tmp_path / "legacy-report.json"
     forged = {
         "active": True,
         "policy": "deny_all_non_loopback",
@@ -1762,10 +1939,8 @@ def test_child_cannot_forge_parent_offline_report_from_sitecustomize(tmp_path):
         "allowed_local_attempts": 0,
     }
     code = (
-        "import json,os,sitecustomize; "
-        "value=" + repr(forged) + "; "
-        "value['guard_token']=sitecustomize._guard_token; "
-        "open(sitecustomize._report_path, 'w').write(json.dumps(value)); "
+        "import json,os; "
+        f"open({str(legacy_path)!r}, 'w').write(json.dumps({forged!r})); "
         "os._exit(0)"
     )
     result = harness._run_bounded_child(
@@ -1776,7 +1951,8 @@ def test_child_cannot_forge_parent_offline_report_from_sitecustomize(tmp_path):
         offline_required=True,
     )
     assert result["status"] == "blocked"
-    assert result["offline_report"]["attempts"] == []
+    assert result["offline_report"] is None
+    assert "forged" not in json.dumps(result)
 
 
 def test_forged_pipe_report_cannot_become_authoritative(tmp_path):
@@ -1813,6 +1989,40 @@ def test_forged_pipe_report_cannot_become_authoritative(tmp_path):
     assert result["status"] == "blocked"
     assert result.get("reason") == "offline_report_invalid"
     assert "SENSITIVE_MARKER" not in json.dumps(result)
+
+
+def test_offline_report_requires_parent_nonce_in_each_frame():
+    pid = os.getpid()
+    identity = harness._process_identity(pid)
+    assert identity is not None
+    expected_report = harness._parent_derived_offline_report([sys.executable, "-c", "print('ok')"])
+    read_fd, write_fd = os.pipe()
+    frames = [
+        {"kind": "report", "value": expected_report},
+        {
+            "kind": "complete",
+            "value": {"pid": pid, "start_time": identity["start_time"], "sandbox_violation": False},
+        },
+    ]
+    raw = b"".join(
+        len(json.dumps(frame, sort_keys=True, separators=(",", ":")).encode()).to_bytes(4, "big")
+        + json.dumps(frame, sort_keys=True, separators=(",", ":")).encode()
+        for frame in frames
+    )
+    try:
+        os.write(write_fd, raw)
+    finally:
+        os.close(write_fd)
+    try:
+        assert harness._read_offline_report(
+            read_fd,
+            "parent-nonce",
+            expected_pid=pid,
+            expected_start_time=identity["start_time"],
+            expected_report=expected_report,
+        ) is None
+    finally:
+        os.close(read_fd)
 
 
 def test_offline_reader_output_is_not_authoritative(tmp_path, monkeypatch):
