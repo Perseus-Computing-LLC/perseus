@@ -9,6 +9,7 @@ those references.
 from __future__ import annotations
 
 import hashlib
+import ipaddress as _sl_ipaddress
 import json
 import math
 import os as _sl_os
@@ -34,7 +35,7 @@ _SL_SPDX_VERSION_RE = re.compile(r"^SPDX-(\d+\.\d+)$")
 _SL_CDX_NAMESPACE_RE = re.compile(r"bom-(1\.\d+)\.xsd")
 _SL_PUBLIC_SOURCE_RE = re.compile(r"^(?:file|artifact|vault|ledger|build|deployment):[A-Za-z0-9][A-Za-z0-9_.:/#@+%~\-]{0,255}$")
 _SL_SENSITIVE_REFERENCE_RE = re.compile(r"(?i)(?:bearer(?:\s+|\s*:)|basic(?:\s+|\s*:)|password\s*=|passwd\s*=|secret\s*=|token\s*=|api[_-]?key\s*[/=:]|credential\s*=|authorization\s*[/=:])")
-_SL_PRIVATE_LOCATOR_RE = re.compile(r"(?i)(?:^|[/?:=&_.-])(private|home|user|local|raw)(?:[/?:=&_.-]|$)")
+_SL_PRIVATE_LOCATOR_RE = re.compile(r"(?i)(?:^|[/?:=&_.-])(private|home|user|local|raw|internal|intranet|corp|localhost)(?:[/?:=&_.-]|$)")
 _SL_PRIVACY_MARKER_RE = re.compile(r"(?i)(?:^|[/?:=&_.-])(api[_-]?key|authorization|password|passwd|secret|token|credential)(?:[/?:=&_.-]|$)")
 _SL_PUBLIC_PURL_QUERY_KEYS = frozenset({"classifier", "extension", "type", "repository_url"})
 _SL_REFERENCE_TYPES = frozenset({
@@ -112,7 +113,7 @@ class _SLBoundedReceiptCache(OrderedDict[str, Any]):
             self.__delitem__(key)
         entry_size = self._size(value)
         if entry_size > self._max_bytes:
-            return
+            raise SBOMLineageError("provenance receipt exceeds its byte bound")
         super().__setitem__(key, value)
         self._entry_bytes[key] = entry_size
         self._total_bytes += entry_size
@@ -207,6 +208,39 @@ def _sl_decoded_variants(value: str) -> list[str]:
     return candidates
 
 
+def _sl_nonpublic_host(host: str) -> bool:
+    normalized = host.strip().strip("[]").rstrip(".").casefold()
+    if not normalized:
+        return False
+    try:
+        return not _sl_ipaddress.ip_address(normalized).is_global
+    except ValueError:
+        return normalized in {"localhost", "localhost.localdomain"} or normalized.endswith(
+            (".invalid", ".local", ".internal", ".intranet", ".lan", ".home", ".test"),
+        )
+
+
+def _sl_authority_host(authority: str) -> str:
+    host = authority.rsplit("@", 1)[-1].strip()
+    if host.startswith("[") and "]" in host:
+        return host[1:host.index("]")]
+    if host.count(":") == 1:
+        return host.rsplit(":", 1)[0]
+    return host
+
+
+def _sl_locator_has_nonpublic_host(value: str) -> bool:
+    for match in re.finditer(r"(?i)[a-z][a-z0-9+.-]*://([^/?#]*)", value):
+        if _sl_nonpublic_host(_sl_authority_host(match.group(1))):
+            return True
+    opaque = re.match(r"(?i)^[a-z][a-z0-9+.-]*:([^/?#]*)", value)
+    if opaque:
+        scheme = value.split(":", 1)[0].casefold()
+        if scheme != "pkg" and _sl_nonpublic_host(_sl_authority_host(opaque.group(1))):
+            return True
+    return False
+
+
 def _sl_userinfo_locator(value: str) -> bool:
     """Detect URI and git-style userinfo without treating version ``@`` as auth."""
     for match in re.finditer(r"(?i)[a-z][a-z0-9+.-]*://([^/?#]*)", value):
@@ -223,11 +257,21 @@ def _sl_userinfo_locator(value: str) -> bool:
             return True
         prefix = value[:at]
         namespace_end = prefix.find(":")
+        scheme = prefix[:namespace_end].casefold() if namespace_end >= 0 else ""
         if (
             namespace_end >= 0
             and ":" in prefix[namespace_end + 1:]
             and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,253}", suffix)
             and not re.fullmatch(r"\d+(?:\.\d+){1,3}", suffix)
+        ):
+            return True
+        opaque_body = prefix[namespace_end + 1:] if namespace_end >= 0 else ""
+        if (
+            namespace_end >= 0
+            and scheme != "pkg"
+            and "/" not in opaque_body
+            and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,253}", suffix)
+            and not re.fullmatch(r"\d+(?:\.\d+){0,3}", suffix)
         ):
             return True
     return False
@@ -243,13 +287,23 @@ def _sl_private_locator(value: str) -> bool:
         or _SL_PRIVATE_LOCATOR_RE.search(decoded)
         or _SL_PRIVACY_MARKER_RE.search(decoded)
         or _sl_userinfo_locator(decoded)
+        or _sl_locator_has_nonpublic_host(decoded)
     ):
         return True
     if "?" in decoded:
         query = decoded.split("?", 1)[1].split("#", 1)[0]
         for pair in query.split("&"):
-            key = pair.split("=", 1)[0].casefold()
-            if key and key not in _SL_PUBLIC_PURL_QUERY_KEYS:
+            raw_key, _, raw_value = pair.partition("=")
+            key = unquote(raw_key).casefold()
+            query_value = unquote(raw_value)
+            if lowered.startswith("pkg:"):
+                if key and key not in _SL_PUBLIC_PURL_QUERY_KEYS:
+                    return True
+            if (
+                _SL_PRIVATE_LOCATOR_RE.search(query_value)
+                or _SL_PRIVACY_MARKER_RE.search(query_value)
+                or _sl_locator_has_nonpublic_host(query_value)
+            ):
                 return True
     return False
 
@@ -634,6 +688,20 @@ def _sl_properties(value: Any, *, truncated: list[str] | None = None) -> list[di
     return result
 
 
+def _sl_xml_properties(component: Any, *, truncated: list[str] | None = None) -> list[dict[str, Any]]:
+    container = _sl_single_child(component, "properties")
+    if container is None:
+        return []
+    nodes = _sl_children(container, "property")
+    if len(nodes) > _SL_MAX_PROPERTIES:
+        _sl_truncated(truncated, "properties")
+    raw_properties = [
+        {"name": node.attrib.get("name", ""), "value": node.text or ""}
+        for node in nodes[:_SL_MAX_PROPERTIES]
+    ]
+    return _sl_properties(raw_properties, truncated=truncated)
+
+
 def _sl_bind_component_alias(component_id_map: dict[str, str], alias: str, normalized_id: str) -> None:
     if _sl_node_kind(alias) == "document":
         return
@@ -659,6 +727,19 @@ def _sl_component_alias_map(documents: list[Mapping[str, Any]]) -> dict[str, str
     return aliases
 
 
+def _sl_resolve_component_alias(value: str, aliases: Mapping[str, str]) -> str:
+    candidates = _sl_decoded_variants(value)
+    try:
+        candidates.append(_sl_safe_locator(value, "lineage endpoint"))
+    except SBOMLineageError:
+        pass
+    for candidate in candidates:
+        resolved = aliases.get(candidate)
+        if resolved is not None:
+            return resolved
+    return value
+
+
 def _sl_resolve_external_edge_aliases(edges: list[Any], aliases: Mapping[str, str]) -> list[Any]:
     resolved: list[Any] = []
     for raw in edges:
@@ -670,9 +751,11 @@ def _sl_resolve_external_edge_aliases(edges: list[Any], aliases: Mapping[str, st
             if key in raw:
                 item[key] = raw[key]
         for primary, fallback in (("from", "source"), ("to", "target")):
+            if primary in item and fallback in item and item[primary] != item[fallback]:
+                raise SBOMLineageError("conflicting relationship endpoint aliases")
             key = primary if primary in item else fallback if fallback in item else None
             if key is not None and isinstance(item.get(key), str):
-                item[key] = aliases.get(item[key], item[key])
+                item[key] = _sl_resolve_component_alias(item[key], aliases)
         resolved.append(item)
     return resolved
 
@@ -1212,6 +1295,7 @@ def _sl_cdx_xml_component(raw: Any, *, truncated: list[str] | None = None, compo
                 _sl_xml_text(ref, "type", default="other"), locator,
                 truncated=component_truncated,
             ))
+    refs.extend(_sl_xml_properties(raw, truncated=component_truncated))
     licenses = []
     license_container = _sl_single_child(raw, "licenses")
     if license_container is not None:
@@ -1366,14 +1450,71 @@ def _sl_validate_json_values(value: Any) -> None:
             stack.extend(current)
 
 
-def _sl_bounded_byteslike(source: bytes | bytearray | memoryview) -> bytes:
-    size = source.nbytes if isinstance(source, memoryview) else len(source)
-    if size > _SL_MAX_INPUT_BYTES:
+def _sl_preflight_json_size(value: Any, *, total: int = 0, active: set[int] | None = None) -> int:
+    """Reject obviously oversized JSON sources before the encoder copies them."""
+    active = set() if active is None else active
+    if isinstance(value, str):
+        total += str.__len__(value) + 2
+    elif isinstance(value, Mapping):
+        marker = id(value)
+        if marker in active:
+            raise SBOMLineageError("SBOM JSON contains a cycle")
+        active.add(marker)
+        total += 2
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise SBOMLineageError("SBOM JSON object keys must be strings")
+            total += str.__len__(key) + 3
+            total = _sl_preflight_json_size(item, total=total, active=active)
+            if total > _SL_MAX_INPUT_BYTES:
+                raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
+        active.remove(marker)
+    elif isinstance(value, (list, tuple)):
+        marker = id(value)
+        if marker in active:
+            raise SBOMLineageError("SBOM JSON contains a cycle")
+        active.add(marker)
+        total += 2
+        for item in value:
+            total = _sl_preflight_json_size(item, total=total, active=active)
+            if total > _SL_MAX_INPUT_BYTES:
+                raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
+        active.remove(marker)
+    elif value is None or isinstance(value, bool):
+        total += 4
+    elif isinstance(value, (int, float)):
+        total += 1
+    if total > _SL_MAX_INPUT_BYTES:
         raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
+    return total
+
+
+def _sl_bounded_text_bytes(source: str) -> bytes:
+    if str.__len__(source) > _SL_MAX_INPUT_BYTES:
+        raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
+    result = bytearray()
+    for offset in range(0, str.__len__(source), 64 * 1024):
+        chunk = str.__getitem__(source, slice(offset, offset + 64 * 1024)).encode("utf-8")
+        if len(result) + len(chunk) > _SL_MAX_INPUT_BYTES:
+            raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
+        result.extend(chunk)
+    return bytes(result)
+
+
+def _sl_bounded_byteslike(source: bytes | bytearray | memoryview) -> bytes:
+    view: memoryview | None = None
     try:
-        raw_bytes = source if isinstance(source, bytes) else bytes(source)
+        view = memoryview(source)
+        if view.nbytes > _SL_MAX_INPUT_BYTES:
+            raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
+        raw_bytes = bytes(view)
+    except SBOMLineageError:
+        raise
     except (BufferError, OverflowError, TypeError, ValueError):
         raise SBOMLineageError("SBOM bytes-like input is invalid") from None
+    finally:
+        if view is not None:
+            view.release()
     if len(raw_bytes) > _SL_MAX_INPUT_BYTES:
         raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
     return raw_bytes
@@ -1411,6 +1552,24 @@ def _sl_load_json_bounded(source: Path | bytes | bytearray | memoryview, *, allo
 def _sl_parse_xml_bounded(raw_bytes: bytes) -> Any:
     if re.search(rb"<!\s*(?:DOCTYPE|ENTITY)\b", raw_bytes, re.IGNORECASE):
         raise SBOMLineageError("SBOM XML DTD and entity declarations are not allowed")
+    encoded_candidates: list[str] = []
+    if raw_bytes.startswith((b"\xff\xfe", b"\xfe\xff")):
+        try:
+            encoded_candidates.append(raw_bytes.decode("utf-16"))
+        except UnicodeDecodeError:
+            pass
+    elif raw_bytes.startswith(b"<\x00"):
+        try:
+            encoded_candidates.append(raw_bytes.decode("utf-16-le"))
+        except UnicodeDecodeError:
+            pass
+    elif raw_bytes.startswith(b"\x00<"):
+        try:
+            encoded_candidates.append(raw_bytes.decode("utf-16-be"))
+        except UnicodeDecodeError:
+            pass
+    if any(re.search(r"<!\s*(?:DOCTYPE|ENTITY)\b", text, re.IGNORECASE) for text in encoded_candidates):
+        raise SBOMLineageError("SBOM XML DTD and entity declarations are not allowed")
     parser = _sl_et.XMLPullParser(events=("start", "end"))
     count = 0
     depth = 0
@@ -1443,18 +1602,21 @@ def _sl_parse_xml_bounded(raw_bytes: bytes) -> Any:
 def _sl_payload(document: Any) -> tuple[Any, bytes]:
     if isinstance(document, Path):
         return _sl_payload(_sl_read_bounded(document))
-    if isinstance(document, (bytes, bytearray, memoryview)):
+    elif isinstance(document, (bytes, bytearray, memoryview)):
         raw_bytes = _sl_bounded_byteslike(document)
     elif isinstance(document, Mapping):
         try:
+            _sl_preflight_json_size(document)
             raw_bytes = _sl_json(document).encode("utf-8")
+        except SBOMLineageError:
+            raise
         except (TypeError, ValueError) as exc:
             raise SBOMLineageError("SBOM mapping is not canonical JSON") from exc
     elif isinstance(document, str):
         possible_path = Path(document)
         if "\n" not in document and possible_path.exists():
             return _sl_payload(possible_path)
-        raw_bytes = document.encode("utf-8")
+        raw_bytes = _sl_bounded_text_bytes(document)
     else:
         raise SBOMLineageError("SBOM input must be bytes, text, path, or object")
     if len(raw_bytes) > _SL_MAX_INPUT_BYTES:
@@ -1851,6 +2013,13 @@ def _sl_bounded_external_edges(edges: Any) -> list[Any]:
     return result
 
 
+def _sl_account_input_bytes(total: int, raw_bytes: bytes) -> int:
+    total += len(raw_bytes)
+    if total > _SL_MAX_CLI_TOTAL_BYTES:
+        raise SBOMLineageError("SBOM input exceeds the aggregate byte bound")
+    return total
+
+
 def _sl_lineage_edges(edges: Any, *, truncated: list[str] | None = None) -> list[dict[str, Any]]:
     if edges is None:
         return []
@@ -1907,7 +2076,12 @@ def build_sbom_lineage(documents: Any, *, edges: Any = None, raw_documents: Any 
     if raw_documents is not None:
         if not isinstance(raw_documents, (list, tuple)) or len(raw_documents) != len(documents) or len(raw_documents) > _SL_MAX_DOCUMENTS:
             raise SBOMLineageError("raw_documents must match the document list within its bound")
-        rebound_raw = list(raw_documents)
+        rebound_raw = []
+        raw_total = 0
+        for raw_document in raw_documents:
+            _, raw_bytes = _sl_payload(raw_document)
+            raw_total = _sl_account_input_bytes(raw_total, raw_bytes)
+            rebound_raw.append(raw_bytes)
     truncated: list[str] = []
     if len(documents) > _SL_MAX_DOCUMENTS:
         truncated.append("documents")
@@ -2565,17 +2739,21 @@ def cmd_sbom(args: Any, cfg: Mapping[str, Any] | None = None) -> int:
                 ("edges", [edge_path] if edge_path is not None else None),
             ))
             documents = []
+            actual_input_bytes = 0
             for path in document_paths or []:
                 payload, raw_bytes = _sl_load_json_bounded(Path(path), allow_non_json=True)
+                actual_input_bytes = _sl_account_input_bytes(actual_input_bytes, raw_bytes)
                 documents.append(payload if isinstance(payload, Mapping) and payload.get("schema_version") == _SL_SCHEMA else ingest_sbom_document(raw_bytes, source_ref=f"file:{path}"))
             raw_inputs = None
             if raw_document_paths is not None:
                 raw_inputs = []
                 for raw_path in raw_document_paths:
                     _, raw_bytes = _sl_load_json_bounded(Path(raw_path), allow_non_json=True)
+                    actual_input_bytes = _sl_account_input_bytes(actual_input_bytes, raw_bytes)
                     raw_inputs.append(raw_bytes)
             if edge_path is not None:
-                edges, _ = _sl_load_json_bounded(Path(edge_path))
+                edges, edge_bytes = _sl_load_json_bounded(Path(edge_path))
+                actual_input_bytes = _sl_account_input_bytes(actual_input_bytes, edge_bytes)
                 if not isinstance(edges, list):
                     raise SBOMLineageError("lineage edges JSON must be a list")
             else:
@@ -2586,7 +2764,9 @@ def cmd_sbom(args: Any, cfg: Mapping[str, Any] | None = None) -> int:
             raw_document_paths = _sl_cli_bounded_paths(getattr(args, "raw_documents", None), "raw_documents")
             lineage_path = _sl_cli_checked_path(getattr(args, "lineage", None), "lineage")
             _sl_cli_preflight_paths((("lineage", [lineage_path]), ("raw_documents", raw_document_paths)))
-            lineage, _ = _sl_load_json_bounded(Path(lineage_path))
+            actual_input_bytes = 0
+            lineage, lineage_bytes = _sl_load_json_bounded(Path(lineage_path))
+            actual_input_bytes = _sl_account_input_bytes(actual_input_bytes, lineage_bytes)
             if not isinstance(lineage, Mapping):
                 raise SBOMLineageError("lineage JSON root must be an object")
             raw_inputs = None
@@ -2594,7 +2774,11 @@ def cmd_sbom(args: Any, cfg: Mapping[str, Any] | None = None) -> int:
                 lineage_documents = lineage.get("documents")
                 if not isinstance(lineage_documents, list) or len(raw_document_paths) != len(lineage_documents):
                     raise SBOMLineageError("raw_documents must contain one raw source per lineage document")
-                raw_inputs = [_sl_load_json_bounded(Path(path), allow_non_json=True)[1] for path in raw_document_paths]
+                raw_inputs = []
+                for path in raw_document_paths:
+                    _, raw_bytes = _sl_load_json_bounded(Path(path), allow_non_json=True)
+                    actual_input_bytes = _sl_account_input_bytes(actual_input_bytes, raw_bytes)
+                    raw_inputs.append(raw_bytes)
             document = query_sbom_lineage(
                 lineage, args.component, limit=getattr(args, "limit", 32), raw_documents=raw_inputs,
             )
