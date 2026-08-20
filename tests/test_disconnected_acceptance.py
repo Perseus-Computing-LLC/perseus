@@ -162,6 +162,7 @@ def test_in_process_cli_restores_offline_environment_and_monkeypatches(monkeypat
     original_connect = socket.socket.connect
     monkeypatch.setenv("PERSEUS_OFFLINE", "caller-value")
     monkeypatch.setattr(sys, "argv", ["perseus", "--offline", "render", str(source)])
+    monkeypatch.setattr(perseus, "install_inherited_seccomp", lambda: None)
     try:
         perseus.main()
         observed = (socket.socket.connect, os.environ.get("PERSEUS_OFFLINE"), perseus._OFF_ACTIVE)
@@ -169,6 +170,15 @@ def test_in_process_cli_restores_offline_environment_and_monkeypatches(monkeypat
         if getattr(perseus, "_OFF_ACTIVE", False):
             perseus.deactivate_offline_mode()
     assert observed == (original_connect, "caller-value", False)
+
+
+def test_console_entrypoint_installs_inherited_seccomp_for_offline(monkeypatch):
+    calls = []
+    monkeypatch.setattr(sys, "argv", ["perseus", "--offline"])
+    monkeypatch.setattr(perseus, "install_inherited_seccomp", lambda: calls.append(True))
+    monkeypatch.setattr(perseus, "_main_impl", lambda: 0)
+    assert perseus.main() == 0
+    assert calls == [True]
 
 
 def test_resource_limit_setup_failure_is_fail_closed(monkeypatch):
@@ -697,10 +707,31 @@ def test_workload_query_and_restart_count_are_exercised(tmp_path, monkeypatch):
 
     def fake_render(*args, **kwargs):
         calls.append((args, kwargs))
-        return {"attempt": kwargs["attempt"], "status": "passed", "exit_code": 0, "output_sha256": "x", "stable_output_bytes": 1, "output_truncated": False}
+        return {
+            "attempt": kwargs["attempt"],
+            "status": "passed",
+            "exit_code": 0,
+            "output_sha256": "x",
+            "stable_output_bytes": 1,
+            "output_truncated": False,
+            "offline_report": {
+                "active": True,
+                "policy": "deny_all_non_loopback",
+                "attempts": [],
+                "attempts_truncated": False,
+                "blocked_attempts": 0,
+                "allowed_local_attempts": 0,
+            },
+            "offline_guard": {
+                "enforced": True,
+                "boundary": "seccomp",
+                "report_present": True,
+                "telemetry": "parent_derived",
+            },
+        }
 
     monkeypatch.setattr(harness, "_run_render", fake_render)
-    monkeypatch.setattr(harness, "_run_bounded_child", lambda *args, **kwargs: {"status": "passed", "exit_code": 0, "stdout": json.dumps({"blocked": True, "destination": "x", "report": {"active": True, "policy": "deny_all_non_loopback", "attempts": [{"operation": "probe", "destination": "x", "outcome": "blocked"}], "attempts_truncated": False, "blocked_attempts": 1, "allowed_local_attempts": 0}}), "stderr": "", "stdout_prefix_bytes": 1, "stderr_prefix_bytes": 0, "stdout_truncated": False, "stderr_truncated": False, "child_cpu_seconds_observed": 0.0, "child_peak_rss_mb_observed": 0.0, "offline_report": {"active": True, "policy": "deny_all_non_loopback", "attempts": [], "attempts_truncated": False, "blocked_attempts": 0, "allowed_local_attempts": 0}})
+    monkeypatch.setattr(harness, "_run_bounded_child", lambda *args, **kwargs: {"status": "passed", "exit_code": 0, "stdout": json.dumps({"blocked": True, "destination": "x", "report": {"active": True, "policy": "deny_all_non_loopback", "attempts": [{"operation": "probe", "destination": "x", "outcome": "blocked"}], "attempts_truncated": False, "blocked_attempts": 1, "allowed_local_attempts": 0}}), "stderr": "", "stdout_prefix_bytes": 1, "stderr_prefix_bytes": 0, "stdout_truncated": False, "stderr_truncated": False, "child_cpu_seconds_observed": 0.0, "child_peak_rss_mb_observed": 0.0, "offline_report": {"active": True, "policy": "deny_all_non_loopback", "attempts": [], "attempts_truncated": False, "blocked_attempts": 0, "allowed_local_attempts": 0}, "offline_sandbox": "seccomp", "offline_guard": {"enforced": True, "boundary": "seccomp", "report_present": True, "telemetry": "parent_derived"}})
     fixture_path = tmp_path / "fixture.json"
     fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
     report = harness.run_acceptance(ROOT, fixture_path=fixture_path, output_dir=tmp_path / "out")
@@ -1028,6 +1059,28 @@ def test_detached_descendant_cannot_escape_after_leader_exit(tmp_path):
     assert not marker.exists()
 
 
+def test_reparented_descendant_is_owned_by_linux_subreaper(monkeypatch):
+    reparented_pid = 424243
+    snapshot = {
+        reparented_pid: {
+            "pid": reparented_pid,
+            "state": "S",
+            "ppid": os.getpid(),
+            "pgid": reparented_pid,
+            "start_time": 99,
+        },
+    }
+    monkeypatch.setattr(harness, "_process_snapshot", lambda: snapshot)
+    known = {}
+    result = harness._owned_processes(
+        424242,
+        {os.getpid(): {"pid": os.getpid(), "ppid": 1, "pgid": os.getpid(), "start_time": 1}},
+        known,
+        None,
+    )
+    assert result[reparented_pid]["owned_by_reparented"] == 1
+
+
 def test_non_linux_cleanup_without_tree_primitive_fails_closed(monkeypatch):
     class FakeProcess:
         pid = 424242
@@ -1079,7 +1132,7 @@ def test_windows_cleanup_fails_closed_without_job_object(monkeypatch):
     assert calls == []
 
 
-def test_non_linux_posix_cleanup_kills_owned_process_group(monkeypatch):
+def test_non_linux_posix_cleanup_fails_closed_without_identity_primitive(monkeypatch):
     calls = []
 
     class FakeProcess:
@@ -1104,8 +1157,8 @@ def test_non_linux_posix_cleanup_kills_owned_process_group(monkeypatch):
         {"pid": 424242, "pgid": 424242, "start_time": 424242},
         {},
         "run-token",
-    ) is True
-    assert [pgid for pgid, _sig in calls] == [424242, 424242]
+    ) is False
+    assert calls == []
 
 
 def test_cleanup_refuses_pid_reuse_or_unverified_pgid_signal(monkeypatch):
@@ -1437,7 +1490,7 @@ def test_report_validation_rejects_recommitted_raw_resource_mutation(tmp_path):
         if isinstance(value, dict)
     }
     mutated["flow_projection_commitment"] = harness._sha(mutated["flow_commitment"])
-    with pytest.raises(harness.AcceptanceError, match="commitment|resource"):
+    with pytest.raises(harness.AcceptanceError, match="commitment|resource|observations"):
         harness._validate_report_commitments(mutated)
 
 
@@ -1541,6 +1594,68 @@ def test_report_validation_rejects_recommitted_raw_network_attempt(tmp_path):
         harness._validate_report_commitments(mutated)
 
 
+def test_aggregate_status_rejects_inconclusive_required_cell():
+    flow = {
+        "required": {"status": "timeout", "reason": "child_timeout"},
+        "available": {"status": "passed"},
+    }
+    network = {"status": "passed"}
+    report = {
+        "status": "passed",
+        "platform": {"status": "passed"},
+        "upgrade": {"status": "passed"},
+        "rollback": {"status": "passed"},
+        "negative_results": [],
+    }
+    with pytest.raises(harness.AcceptanceError, match="aggregate status"):
+        harness._validate_report_status(report, flow, network)
+
+
+def test_network_nonpassed_status_still_rejects_raw_attempt_metadata():
+    with pytest.raises(harness.AcceptanceError, match="network"):
+        harness._validate_report_network_semantics({
+            "status": "timeout",
+            "policy": "deny_all",
+            "attempts": [{"operation": "raw", "destination": "secret.example", "outcome": "blocked"}],
+            "attempts_truncated": False,
+            "expected_blocked": [],
+            "unexpected_attempts": [],
+            "child_attempts": [],
+            "children": {},
+            "child_guards": {},
+            "child_probe": {"status": "timeout", "exit_code": None, "report": None},
+        })
+
+
+def test_passed_flow_requires_parent_derived_offline_guard_and_report():
+    with pytest.raises(harness.AcceptanceError, match="offline (guard|report)"):
+        harness._validate_report_flow_semantics({
+            "render": {"status": "passed", "exit_code": 0},
+        })
+
+
+def test_resource_validation_requires_complete_fixture_bound_observations():
+    limits = {"cpu_seconds": 3, "memory_mb": 4, "disk_mb": 5}
+    envelope = {
+        "cpu_seconds_observed": 0.1,
+        "peak_rss_mb_observed": 0.2,
+        "disk_growth_bytes_observed": 3,
+    }
+    with pytest.raises(harness.AcceptanceError, match="resource"):
+        harness._validate_report_resource_semantics(
+            {"limits": limits}, envelope, {}, expected_limits=limits
+        )
+
+
+def test_report_serializes_public_flow_projection_only(tmp_path):
+    report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
+    serialized = (tmp_path / "evidence" / "report.json").read_text(encoding="utf-8")
+    assert "stdout" not in report["flow"]
+    assert "stderr" not in report["flow"]
+    assert "stdout" not in serialized
+    assert "stderr" not in serialized
+
+
 def test_report_validation_rejects_recommitted_status_contract_forgery(tmp_path):
     report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
     mutated = json.loads(json.dumps(report))
@@ -1569,7 +1684,7 @@ def test_report_validation_rejects_recommitted_status_contract_forgery(tmp_path)
         "manifest_commitment", "workload_digest", "workload_query_digest",
     )
     mutated["report_commitment"] = harness._sha({key: mutated[key] for key in report_core_keys})
-    with pytest.raises(harness.AcceptanceError, match="status|commitment|stable|evidence|zero exit"):
+    with pytest.raises(harness.AcceptanceError, match="status|commitment|stable|evidence|zero exit|offline"):
         harness._validate_report_commitments(mutated)
 
 

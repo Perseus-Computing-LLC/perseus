@@ -46,11 +46,14 @@ pre-exec failures, missing telemetry, and cleanup failures block the child;
 
 The harness also:
 
-- owns a new session/process group and records PID, PGID, start time, ancestry,
-  and a per-run ownership marker;
+- owns a new session/process group, enables the Linux child subreaper, and records
+  PID, PGID, start time, ancestry, and a per-run ownership marker; reparented
+  descendants are collected even after a fast leader exit or environment clear;
 - performs unconditional TERM-then-KILL cleanup even after successful leader
   exit, verifies identity/current PGID before each signal, reaps descendants,
-  and surfaces any unverified or surviving process as a failure;
+  and surfaces any unverified or surviving process as a failure; non-Linux POSIX
+  cleanup refuses to signal a process group without a creation-time identity
+  primitive;
 - requires a bounded, nonce-bound offline report for Python children. Reports
   are read by the parent with no-follow, owner, size, item, and counter checks;
   child overwrites and `os._exit` cannot forge an accepted report;

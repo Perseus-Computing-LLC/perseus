@@ -30,6 +30,7 @@ _OFF_SECCOMP_SYSCALLS = (
     40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53,
     102, 275, 276, 278, 288, 299, 307, 425, 426, 427,
 )
+_OFF_SECCOMP_INSTALLED = False
 _OFF_AUDIT_ARCH_X86_64 = 0xC000003E
 _OFF_X32_SYSCALL_BIT = 0x40000000
 _OFF_SENSITIVE_RE = _off_re.compile(
@@ -44,6 +45,9 @@ class OfflineNetworkError(ConnectionError):
 
 def install_inherited_seccomp() -> None:
     """Install an inherited fail-closed network filter for direct CLI use."""
+    global _OFF_SECCOMP_INSTALLED
+    if _OFF_SECCOMP_INSTALLED:
+        return
     if not _off_os.name == "posix" or not _off_sys.platform.startswith("linux") or _off_os.uname().machine.casefold() not in {"x86_64", "amd64"}:
         raise RuntimeError("offline_seccomp_unavailable")
     import ctypes as _off_ctypes
@@ -73,6 +77,7 @@ def install_inherited_seccomp() -> None:
     libc.prctl.restype = _off_ctypes.c_int
     if libc.prctl(38, 1, 0, 0, 0) != 0 or libc.prctl(22, 2, _off_ctypes.addressof(program), 0, 0) != 0:
         raise RuntimeError("offline_seccomp_unavailable")
+    _OFF_SECCOMP_INSTALLED = True
 
 
 def _off_host(value: Any) -> str:

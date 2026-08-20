@@ -513,6 +513,9 @@ _UNAVAILABLE_REASONS = frozenset({
     "filesystem_sandbox_unavailable",
     "offline_guard_unavailable",
     "offline_sandbox_unavailable",
+    "restart_count_zero",
+    "rollback_bundle_undeclared",
+    "upgrade_bundle_undeclared",
 })
 
 
@@ -809,22 +812,24 @@ _PUBLIC_NUMERIC_KEYS = frozenset({
     "startup_ms_observed", "wall_seconds_observed",
 })
 _PUBLIC_BOOLEAN_KEYS = frozenset({
-    "active", "attempts_truncated", "digest_match", "enforced", "log_truncated",
-    "output_truncated", "post_digest_match", "report_present", "restored",
+    "active", "attempts_truncated", "cleanup_failed", "digest_match", "enforced", "log_truncated",
+    "output_truncated", "post_digest_match", "report_present", "restored", "stderr_truncated",
 })
 _PUBLIC_ENUM_VALUES = {
     "boundary": frozenset({"seccomp"}),
     "offline_sandbox": frozenset({"seccomp"}),
     "policy": frozenset({"deny_all", "deny_all_non_loopback"}),
-    "render_status": frozenset({"passed", "blocked", "failed", "unavailable", "not_run", "timeout", "resource_limit"}),
-    "status": frozenset({"passed", "blocked", "failed", "unavailable", "not_run", "timeout", "resource_limit"}),
-    "telemetry": frozenset({"parent_owned"}),
+    "render_status": frozenset({"passed", "blocked", "failed", "unavailable", "not_run", "timeout", "resource_limit", "partial"}),
+    "status": frozenset({"passed", "blocked", "failed", "unavailable", "not_run", "timeout", "resource_limit", "partial"}),
+    "telemetry": frozenset({"parent_derived", "unavailable"}),
 }
 
 
 def _public_scalar(value: Any, key: str | None) -> Any:
     if value is None:
         return None
+    if isinstance(value, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", value):
+        return value
     if key in _PUBLIC_BOOLEAN_KEYS and type(value) is bool:
         return value
     if key in _PUBLIC_NUMERIC_KEYS and type(value) in {int, float}:
@@ -834,6 +839,8 @@ def _public_scalar(value: Any, key: str | None) -> Any:
         except (OverflowError, TypeError, ValueError):
             pass
     if key in _PUBLIC_DIGEST_KEYS and isinstance(value, str) and re.fullmatch(r"[0-9a-fA-F]{64}", value):
+        return value
+    if key == "reason" and isinstance(value, str) and _REASON_CODE_RE.fullmatch(value):
         return value
     if key == "attempt" and isinstance(value, str) and (value in {"initial", "restore"} or re.fullmatch(r"restart-[1-9][0-9]*", value)):
         return value
@@ -880,12 +887,46 @@ def _validate_report_resource_semantics(
             "peak_rss_mb_observed": float(limits["memory_mb"]),
             "disk_growth_bytes_observed": float(limits["disk_mb"]) * 1024 * 1024,
         }
+        child_limits = {
+            "cpu_seconds": int(math.ceil(float(limits["cpu_seconds"]))),
+            "address_space_bytes": int(math.ceil(float(limits["memory_mb"]) * 1024 * 1024)),
+            "file_bytes": int(math.ceil(float(limits["disk_mb"]) * 1024 * 1024)),
+        }
     except (KeyError, OverflowError, TypeError, ValueError):
         raise AcceptanceError("resource limits are invalid") from None
     if any(not math.isfinite(value) or value <= 0 for value in ceilings.values()):
         raise AcceptanceError("resource limits are invalid")
+    required_contract = {
+        "limits", "enforced_child_limits", "aggregate_disk_limit_bytes",
+        "aggregate_resource_observed", "measurement_status",
+        "resource_observations_commitment", "volatile_observations",
+    }
+    if not required_contract.issubset(resource_contract):
+        raise AcceptanceError("resource contract observations are incomplete")
+    if resource_contract.get("enforced_child_limits") != child_limits:
+        raise AcceptanceError("resource child limits are not fixture-bound")
+    if resource_contract.get("aggregate_disk_limit_bytes") != child_limits["file_bytes"]:
+        raise AcceptanceError("aggregate disk limit is not fixture-bound")
+    if resource_contract.get("measurement_status") != "observed_with_host_metrics":
+        raise AcceptanceError("resource measurement status is invalid")
+    if set(resource_contract.get("volatile_observations", ())) != {
+        "child_cpu_seconds_observed", "child_peak_rss_mb_observed",
+        "cpu_seconds_observed", "peak_rss_mb_observed", "wall_seconds_observed",
+    }:
+        raise AcceptanceError("resource volatile observations are incomplete")
 
-    def check_mapping(value: Mapping[str, Any], *, prefix: str) -> None:
+    required_envelope = {
+        "cpu_seconds_observed", "peak_rss_mb_observed", "disk_growth_bytes_observed",
+        "wall_seconds_observed", "measurement_status", "aggregate_children",
+    }
+    if not required_envelope.issubset(resource_envelope):
+        raise AcceptanceError("resource envelope observations are incomplete")
+    if resource_envelope.get("measurement_status") != "observed_with_host_metrics":
+        raise AcceptanceError("resource envelope measurement status is invalid")
+
+    def check_mapping(value: Mapping[str, Any], *, prefix: str, require_observations: bool = True) -> None:
+        if require_observations and not all(key in value for key in ceilings):
+            raise AcceptanceError(f"{prefix}observations are incomplete")
         for key, ceiling in ceilings.items():
             if key not in value:
                 continue
@@ -903,15 +944,23 @@ def _validate_report_resource_semantics(
                 raise AcceptanceError(f"{prefix}{key} exceeds resource ceiling")
 
     check_mapping(resource_envelope, prefix="resource envelope ")
+    wall_seconds = resource_envelope.get("wall_seconds_observed")
+    if type(wall_seconds) is bool or not isinstance(wall_seconds, (int, float)) or not math.isfinite(float(wall_seconds)) or wall_seconds < 0:
+        raise AcceptanceError("resource envelope wall observation is invalid")
     aggregate = resource_envelope.get("aggregate_children")
-    if isinstance(aggregate, Mapping):
-        check_mapping(aggregate, prefix="aggregate resource ")
-    elif aggregate is not None:
-        raise AcceptanceError("aggregate resource envelope is invalid")
+    if not isinstance(aggregate, Mapping):
+        raise AcceptanceError("aggregate resource envelope is incomplete")
+    if aggregate.get("status") not in {"within_limit", "resource_limit", "filesystem_observation_unavailable"}:
+        raise AcceptanceError("aggregate resource status is invalid")
+    check_mapping(aggregate, prefix="aggregate resource ")
+    if resource_contract.get("aggregate_resource_observed") != dict(aggregate):
+        raise AcceptanceError("aggregate resource observation is not bound")
+
     for name, cell in flow.items():
         if not isinstance(cell, Mapping):
             raise AcceptanceError("flow resource envelope is invalid")
-        check_mapping(cell, prefix=f"flow {name} ")
+        if any(key in cell for key in ceilings):
+            check_mapping(cell, prefix=f"flow {name} ")
 
 
 _ALLOWED_REPORT_STATUSES = frozenset({
@@ -926,22 +975,46 @@ def _validate_report_flow_semantics(flow: Mapping[str, Any]) -> None:
         status = cell.get("status")
         if not isinstance(status, str) or status not in _ALLOWED_REPORT_STATUSES:
             raise AcceptanceError(f"flow {name} status is invalid")
+        guard = cell.get("offline_guard")
+        offline_report = cell.get("offline_report")
+        if name == "backup_restore" and isinstance(cell.get("render"), Mapping):
+            render = cell["render"]
+            guard = render.get("offline_guard")
+            offline_report = render.get("offline_report")
+        if isinstance(offline_report, Mapping):
+            _validate_public_offline_report(
+                offline_report,
+                label=f"flow {name}",
+                require_active=status == "passed",
+            )
+        elif status == "passed":
+            raise AcceptanceError(f"flow {name} passed without offline report")
+        if status == "passed":
+            if not isinstance(guard, Mapping) or set(guard) != {"enforced", "boundary", "report_present", "telemetry"}:
+                raise AcceptanceError(f"flow {name} offline guard is invalid")
+            if (
+                guard.get("enforced") is not True
+                or guard.get("boundary") != "seccomp"
+                or guard.get("report_present") is not True
+                or guard.get("telemetry") != "parent_derived"
+            ):
+                raise AcceptanceError(f"flow {name} passed without enforced offline guard")
+            if not isinstance(offline_report, Mapping):
+                raise AcceptanceError(f"flow {name} passed without offline report")
+        elif guard is not None:
+            if not isinstance(guard, Mapping) or not set(guard).issubset({"enforced", "boundary", "report_present", "telemetry"}):
+                raise AcceptanceError(f"flow {name} offline guard is invalid")
+            if type(guard.get("enforced")) is not bool or type(guard.get("report_present")) is not bool:
+                raise AcceptanceError(f"flow {name} offline guard is invalid")
+            if guard.get("boundary") not in {None, "seccomp"}:
+                raise AcceptanceError(f"flow {name} offline guard is invalid")
+            if "telemetry" in guard and guard.get("telemetry") not in {"parent_derived", "unavailable"}:
+                raise AcceptanceError(f"flow {name} offline guard is invalid")
         if status == "passed":
             if name != "backup_restore" and (type(cell.get("exit_code")) is not int or cell.get("exit_code") != 0):
                 raise AcceptanceError(f"flow {name} passed without zero exit")
             if any(cell.get(key) is True for key in ("output_truncated", "stderr_truncated", "cleanup_failed")):
                 raise AcceptanceError(f"flow {name} passed with incomplete evidence")
-            guard = cell.get("offline_guard")
-            if guard is not None:
-                if not isinstance(guard, Mapping):
-                    raise AcceptanceError(f"flow {name} offline guard is invalid")
-                if (
-                    guard.get("enforced") is not True
-                    or guard.get("boundary") != "seccomp"
-                    or guard.get("report_present") is not True
-                    or guard.get("telemetry") != "parent_derived"
-                ):
-                    raise AcceptanceError(f"flow {name} passed without enforced offline guard")
             if name == "backup_restore" and (
                 cell.get("digest_match") is not True
                 or cell.get("post_digest_match") is not True
@@ -962,10 +1035,12 @@ _OFFLINE_PUBLIC_REPORT_KEYS = frozenset({
 _EVIDENCE_TOKEN_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
-def _validate_public_offline_report(value: Any, *, label: str) -> None:
+def _validate_public_offline_report(value: Any, *, label: str, require_active: bool = True) -> None:
     if not isinstance(value, Mapping) or set(value) != _OFFLINE_PUBLIC_REPORT_KEYS:
         raise AcceptanceError(f"{label} offline report shape is invalid")
-    if value.get("active") is not True or value.get("policy") != "deny_all_non_loopback":
+    if type(value.get("active")) is not bool or (require_active and value.get("active") is not True):
+        raise AcceptanceError(f"{label} offline report activity is invalid")
+    if value.get("policy") != "deny_all_non_loopback":
         raise AcceptanceError(f"{label} offline report policy is invalid")
     attempts = value.get("attempts")
     if not isinstance(attempts, list) or len(attempts) > _MAX_OFFLINE_ATTEMPTS:
@@ -998,58 +1073,117 @@ def _validate_report_network_semantics(network: Mapping[str, Any]) -> None:
     status = network.get("status")
     if not isinstance(status, str) or status not in _ALLOWED_REPORT_STATUSES:
         raise AcceptanceError("network status is invalid")
-    if status != "passed":
-        return
     if network.get("policy") != "deny_all":
         raise AcceptanceError("network policy is invalid")
-    if network.get("attempts_truncated") is not False or not isinstance(network.get("attempts"), list):
-        raise AcceptanceError("network passed with incomplete attempts")
-    probe = network.get("child_probe")
-    if (
-        not isinstance(probe, Mapping)
-        or set(probe) != {"status", "exit_code", "report"}
-        or probe.get("status") != "passed"
-        or probe.get("exit_code") != 0
-    ):
-        raise AcceptanceError("network passed without a successful probe")
-    probe_envelope = probe.get("report")
-    if (
-        not isinstance(probe_envelope, Mapping)
-        or set(probe_envelope) != {"blocked", "destination", "report"}
-        or probe_envelope.get("blocked") is not True
-        or not isinstance(probe_envelope.get("destination"), str)
-        or not _EVIDENCE_TOKEN_RE.fullmatch(probe_envelope["destination"])
-    ):
-        raise AcceptanceError("network probe envelope is invalid")
-    probe_report = probe_envelope.get("report")
-    if not isinstance(probe_report, Mapping):
-        raise AcceptanceError("network probe report is invalid")
-    _validate_public_offline_report(probe_report, label="network probe")
-    if network["attempts"] != probe_report["attempts"]:
-        raise AcceptanceError("network attempts are not probe-bound")
-    expected_blocked = [item for item in probe_report["attempts"] if item["outcome"] == "blocked"]
-    if network.get("expected_blocked") != expected_blocked or network.get("unexpected_attempts") != []:
+    attempts = network.get("attempts")
+    if not isinstance(attempts, list) or len(attempts) > _MAX_OFFLINE_ATTEMPTS:
+        raise AcceptanceError("network attempts are invalid")
+    for item in attempts:
+        if not isinstance(item, Mapping) or set(item) != {"operation", "destination", "outcome"}:
+            raise AcceptanceError("network attempt shape is invalid")
+        if (
+            not isinstance(item.get("operation"), str)
+            or not _EVIDENCE_TOKEN_RE.fullmatch(item["operation"])
+            or not isinstance(item.get("destination"), str)
+            or not _EVIDENCE_TOKEN_RE.fullmatch(item["destination"])
+            or item.get("outcome") not in _ALLOWED_PROBE_OUTCOMES
+        ):
+            raise AcceptanceError("network attempt metadata is invalid")
+    if not isinstance(network.get("attempts_truncated"), bool):
+        raise AcceptanceError("network truncation is invalid")
+
+    def validate_attempt_list(value: Any, *, label: str) -> None:
+        if not isinstance(value, list) or len(value) > _MAX_OFFLINE_ATTEMPTS:
+            raise AcceptanceError(f"{label} attempts are invalid")
+        for item in value:
+            if not isinstance(item, Mapping) or set(item) != {"operation", "destination", "outcome"}:
+                raise AcceptanceError(f"{label} attempt shape is invalid")
+            if (
+                not isinstance(item.get("operation"), str)
+                or not _EVIDENCE_TOKEN_RE.fullmatch(item["operation"])
+                or not isinstance(item.get("destination"), str)
+                or not _EVIDENCE_TOKEN_RE.fullmatch(item["destination"])
+                or item.get("outcome") not in _ALLOWED_PROBE_OUTCOMES
+            ):
+                raise AcceptanceError(f"{label} attempt metadata is invalid")
+
+    expected_blocked = network.get("expected_blocked")
+    unexpected_attempts = network.get("unexpected_attempts")
+    validate_attempt_list(expected_blocked, label="network expected")
+    validate_attempt_list(unexpected_attempts, label="network unexpected")
+    if not network.get("attempts_truncated") and expected_blocked != [item for item in attempts if item["outcome"] == "blocked"]:
         raise AcceptanceError("network attempt classification is invalid")
+
+    children = network.get("children")
     guards = network.get("child_guards")
-    reports = network.get("children")
-    if not isinstance(guards, Mapping) or not guards or not isinstance(reports, Mapping) or not reports or set(guards) != set(reports):
-        raise AcceptanceError("network passed without paired child evidence")
+    if not isinstance(children, Mapping) or not isinstance(guards, Mapping):
+        raise AcceptanceError("network child evidence is invalid")
+    if not set(guards).issuperset(set(children)):
+        raise AcceptanceError("network child guard pairing is invalid")
     child_attempts: list[dict[str, Any]] = []
-    for name, report in reports.items():
-        _validate_public_offline_report(report, label=f"network child {name}")
+    for name, report in children.items():
+        _validate_public_offline_report(report, label=f"network child {name}", require_active=status == "passed")
         child_attempts.extend(report["attempts"])
     if network.get("child_attempts") != child_attempts:
         raise AcceptanceError("network child attempts are not report-bound")
     for name, guard in guards.items():
-        if (
-            not isinstance(guard, Mapping)
-            or set(guard) != {"enforced", "boundary", "report_present", "telemetry"}
-            or guard.get("enforced") is not True
-            or guard.get("boundary") != "seccomp"
-            or guard.get("report_present") is not True
-            or guard.get("telemetry") != "parent_derived"
-        ):
+        if not isinstance(guard, Mapping) or not set(guard).issubset({"enforced", "boundary", "report_present", "telemetry"}):
             raise AcceptanceError(f"network child guard {name} is invalid")
+        if type(guard.get("enforced")) is not bool or type(guard.get("report_present")) is not bool:
+            raise AcceptanceError(f"network child guard {name} is invalid")
+        if guard.get("boundary") not in {None, "seccomp"}:
+            raise AcceptanceError(f"network child guard {name} is invalid")
+        if "telemetry" in guard and guard.get("telemetry") not in {"parent_derived", "unavailable"}:
+            raise AcceptanceError(f"network child guard {name} is invalid")
+
+    probe = network.get("child_probe")
+    if not isinstance(probe, Mapping) or set(probe) != {"status", "exit_code", "report"}:
+        raise AcceptanceError("network child probe is invalid")
+    probe_status = probe.get("status")
+    if probe_status not in _ALLOWED_REPORT_STATUSES:
+        raise AcceptanceError("network child probe status is invalid")
+    if probe.get("exit_code") is not None and type(probe.get("exit_code")) is not int:
+        raise AcceptanceError("network child probe exit code is invalid")
+    probe_envelope = probe.get("report")
+    if probe_envelope is not None:
+        if (
+            not isinstance(probe_envelope, Mapping)
+            or set(probe_envelope) != {"blocked", "destination", "report"}
+            or type(probe_envelope.get("blocked")) is not bool
+            or not isinstance(probe_envelope.get("destination"), str)
+            or not _EVIDENCE_TOKEN_RE.fullmatch(probe_envelope["destination"])
+        ):
+            raise AcceptanceError("network probe envelope is invalid")
+        probe_report = probe_envelope.get("report")
+        _validate_public_offline_report(
+            probe_report,
+            label="network probe",
+            require_active=status == "passed",
+        )
+        if attempts != probe_report["attempts"]:
+            raise AcceptanceError("network attempts are not probe-bound")
+
+    if status == "passed":
+        if network.get("attempts_truncated") is not False:
+            raise AcceptanceError("network passed with incomplete attempts")
+        if (
+            probe_status != "passed"
+            or probe.get("exit_code") != 0
+            or not isinstance(probe_envelope, Mapping)
+            or probe_envelope.get("blocked") is not True
+            or not children
+            or not guards
+            or set(children) != set(guards)
+        ):
+            raise AcceptanceError("network passed without complete child evidence")
+        for name, guard in guards.items():
+            if (
+                guard.get("enforced") is not True
+                or guard.get("boundary") != "seccomp"
+                or guard.get("report_present") is not True
+                or guard.get("telemetry") != "parent_derived"
+            ):
+                raise AcceptanceError(f"network child guard {name} is invalid")
 
 
 def _validate_report_claims(report: Mapping[str, Any], flow: Mapping[str, Any], network: Mapping[str, Any]) -> None:
@@ -1116,7 +1250,7 @@ def _validate_report_status(report: Mapping[str, Any], flow: Mapping[str, Any], 
     ]
     hard_failures = [
         value for value in sources
-        if value.get("status") in {"failed", "blocked"} and value not in unavailable
+        if value.get("status") in {"failed", "blocked", "timeout", "resource_limit", "not_run", "partial"} and value not in unavailable
     ]
     negative_results = report.get("negative_results")
     if not isinstance(negative_results, list):
@@ -1762,12 +1896,17 @@ def _owned_processes(
     known: dict[int, dict[str, int]],
     run_token: str | None,
 ) -> dict[int, dict[str, int]]:
-    """Collect only new descendants or processes carrying this run marker."""
+    """Collect new descendants, reparented subreaper children, or run-token processes."""
     snapshot = _process_snapshot()
     children: dict[int, list[int]] = {}
     for pid, identity in snapshot.items():
         children.setdefault(identity["ppid"], []).append(pid)
-    pending = [leader_pid]
+    reparented = {
+        pid
+        for pid, identity in snapshot.items()
+        if pid not in baseline and identity.get("ppid") == os.getpid()
+    }
+    pending = [leader_pid, *reparented]
     descendants: set[int] = set()
     while pending:
         parent = pending.pop()
@@ -1775,16 +1914,19 @@ def _owned_processes(
             if child not in descendants:
                 descendants.add(child)
                 pending.append(child)
-    for pid in descendants:
+    for pid in descendants | reparented:
         identity = snapshot.get(pid)
         if identity is not None and pid not in baseline:
             owned = dict(identity)
-            owned["owned_by_ancestry"] = 1
+            if pid in reparented:
+                owned["owned_by_reparented"] = 1
+            else:
+                owned["owned_by_ancestry"] = 1
             known[pid] = owned
     for pid, identity in snapshot.items():
         if pid not in baseline and _process_has_run_token(pid, run_token):
-            owned = dict(identity)
-            owned["owned_by_ancestry"] = known.get(pid, {}).get("owned_by_ancestry", 0)
+            owned = dict(known.get(pid, {}))
+            owned.update(identity)
             owned["owned_by_token"] = 1
             known[pid] = owned
     return known
@@ -1801,7 +1943,7 @@ def _identity_alive(identity: Mapping[str, int], run_token: str | None) -> tuple
         return False, True
     if current["state"] == "Z":
         return False, True
-    if identity.get("owned_by_ancestry") != 1 and identity.get("owned_by_token") != 1 and run_token is not None and not _process_has_run_token(identity["pid"], run_token):
+    if identity.get("owned_by_ancestry") != 1 and identity.get("owned_by_reparented") != 1 and identity.get("owned_by_token") != 1 and run_token is not None and not _process_has_run_token(identity["pid"], run_token):
         return True, False
     return True, True
 
@@ -1819,6 +1961,7 @@ def _signal_owned(
     if (
         trusted_pgid != current["pgid"]
         and identity.get("owned_by_ancestry") != 1
+        and identity.get("owned_by_reparented") != 1
         and identity.get("owned_by_token") != 1
         and run_token is not None
         and not _process_has_run_token(identity["pid"], run_token)
@@ -1849,32 +1992,10 @@ def _terminate_process_group(
         # never issue PID-only taskkill against a potentially reused PID.
         return False
     if os.name == "posix" and not sys.platform.startswith("linux"):
-        if (
-            leader_identity is None
-            or leader_identity.get("pid") != process.pid
-            or leader_identity.get("pgid") != process.pid
-        ):
-            return False
-        cleanup_ok = True
-        try:
-            for sig, wait_time in ((signal.SIGTERM, 0.25), (signal.SIGKILL, 1.0)):
-                try:
-                    os.killpg(process.pid, sig)
-                except ProcessLookupError:
-                    pass
-                except (PermissionError, OSError):
-                    cleanup_ok = False
-                try:
-                    process.wait(timeout=wait_time)
-                except subprocess.TimeoutExpired:
-                    pass
-                except (OSError, subprocess.SubprocessError):
-                    cleanup_ok = False
-            if process.poll() is None:
-                cleanup_ok = False
-        except (AttributeError, TypeError, ValueError):
-            cleanup_ok = False
-        return cleanup_ok
+        # This path has no portable creation-time PID/PGID identity primitive.
+        # Never signal a potentially reused process group; callers must report
+        # cleanup failure and fail closed.
+        return False
     if not sys.platform.startswith("linux"):
         return False
     cleanup_ok = leader_identity is not None
@@ -1889,6 +2010,7 @@ def _terminate_process_group(
             cleanup_ok = False
         return cleanup_ok
     for sig, wait_time in ((signal.SIGTERM, 0.25), (signal.SIGKILL, 1.0)):
+        _owned_processes(leader_pid, baseline_snapshot, known, run_token)
         group_pgid: int | None = None
         leader_verified = False
         if leader_identity is not None:
@@ -1928,6 +2050,10 @@ def _terminate_process_group(
             current_leader["start_time"] == leader_identity["start_time"]
             and current_leader["pgid"] == leader_identity["pgid"]
         ):
+            _owned_processes(leader_pid, baseline_snapshot, known, run_token)
+        elif current_leader is None:
+            # A Linux subreaper adopts detached descendants after the leader
+            # exits; collect those reparented children before the final KILL.
             _owned_processes(leader_pid, baseline_snapshot, known, run_token)
         elif current_leader is not None:
             cleanup_ok = False
@@ -2236,7 +2362,7 @@ def _run_bounded_child(
             guard_verified = False
         finally:
             os.close(guard_read_fd)
-    leader_identity = _process_identity(process.pid) if sys.platform.startswith("linux") else {"pid": process.pid, "start_time": process.pid, "pgid": process.pid}
+    leader_identity = _process_identity(process.pid) if sys.platform.startswith("linux") else None
     known: dict[int, dict[str, int]] = {}
     captured: dict[str, Any] = {}
     peak_rss_bytes = _read_process_peak_rss_bytes(process.pid)
@@ -3459,7 +3585,7 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
     hard_failures = [
         item for item in failed_cells
         if isinstance(item, Mapping)
-        and item.get("status") in {"failed", "blocked"}
+        and item.get("status") in {"failed", "blocked", "timeout", "resource_limit", "not_run", "partial"}
         and item not in unavailable_cells
     ]
     status = (
@@ -3549,7 +3675,7 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
     })
     report = {
         **report_core,
-        "flow": flow,
+        "flow": flow_commitment,
         "resource_envelope": resource_envelope,
         "manifest_commitment": manifest_commitment,
         "report_commitment": report_commitment,

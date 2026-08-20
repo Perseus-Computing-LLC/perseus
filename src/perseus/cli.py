@@ -925,6 +925,12 @@ def _main_impl():
 
 def main():
     """Run the CLI while restoring offline hooks for in-process callers."""
+    if "--offline" in sys.argv:
+        try:
+            install_inherited_seccomp()
+        except BaseException:
+            print("PERSEUS OFFLINE BLOCKED: offline_seccomp_unavailable", file=sys.stderr)
+            return 125
     was_active = offline_mode_active()
     try:
         return _main_impl()

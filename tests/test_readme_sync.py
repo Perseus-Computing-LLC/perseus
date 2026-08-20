@@ -58,11 +58,13 @@ def test_readme_prose_tool_surface_matches_table():
     assert default_rows, "README MCP tool table is empty"
 
 
-def test_readme_test_count_comment_roughly_current():
-    """The test-count comment may not drift more than 5% (or 40 tests) from
-    the actual grep-based count. Recount with:
+def test_readme_test_count_comment_matches_current():
+    """The test-count comment must match the exact grep-based count.
+
+    Recount with:
         grep -rE '^\\s*def test_' tests/ | wc -l
-    and update the <!-- test-count: N --> comment in README.md."""
+    and update the <!-- test-count: N --> comment in README.md.
+    """
     readme = (_ROOT / "README.md").read_text(encoding="utf-8")
     m = re.search(r"<!-- test-count: (\d+)", readme)
     assert m, "README test-count comment missing"
@@ -72,8 +74,7 @@ def test_readme_test_count_comment_roughly_current():
     for fp in (_ROOT / "tests").glob("*.py"):
         actual += len(re.findall(r"^\s*def test_", fp.read_text(encoding="utf-8"),
                                  flags=re.M))
-    tolerance = max(40, int(actual * 0.05))
-    assert abs(actual - documented) <= tolerance, (
-        f"README test-count comment ({documented}) has drifted from the "
-        f"actual count ({actual}) — update the comment"
+    assert actual == documented, (
+        f"README test-count comment ({documented}) does not match the "
+        f"exact count ({actual}) — update the comment"
     )
