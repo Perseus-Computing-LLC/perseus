@@ -26,6 +26,7 @@ _SL_LINEAGE_SCHEMA = "perseus-software-lineage/v1"
 _SL_QUERY_SCHEMA = "perseus-software-lineage-query/v1"
 _SL_FORMATS = frozenset({"SPDX", "CycloneDX"})
 _SL_SPDX_XML_NAMESPACE = "http://spdx.org/rdf/terms#"
+_SL_RDF_XML_NAMESPACE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 _SL_CDX_XML_NAMESPACES = frozenset(f"http://cyclonedx.org/schema/bom-{version}.xsd" for version in ("1.4", "1.5", "1.6"))
 _SL_SPDX_VERSIONS = frozenset({"2.2", "2.3"})
 _SL_CDX_VERSIONS = frozenset({"1.4", "1.5", "1.6"})
@@ -577,6 +578,16 @@ def _sl_validate_spdx_xml_namespace(root: Any) -> None:
         namespace = _sl_xml_namespace(element)
         if namespace and namespace != _SL_SPDX_XML_NAMESPACE:
             raise SBOMLineageError("SPDX XML namespace is not authoritative")
+
+
+def _sl_validate_spdx_rdf_xml_namespace(root: Any) -> None:
+    if _sl_xml_namespace(root) != _SL_RDF_XML_NAMESPACE:
+        raise SBOMLineageError("RDF XML namespace is not authoritative")
+    allowed = {_SL_SPDX_XML_NAMESPACE, _SL_RDF_XML_NAMESPACE}
+    for element in root.iter():
+        namespace = _sl_xml_namespace(element)
+        if namespace and namespace not in allowed:
+            raise SBOMLineageError("RDF XML namespace is not authoritative")
 
 
 def _sl_xml_value(element: Any, *names: str, default: str = "") -> str:
@@ -1824,13 +1835,12 @@ def ingest_sbom_document(document: Any, *, source_ref: str = "") -> dict[str, An
     _sl_validate_xml_discriminators(value)
     root_name = _sl_local(value).casefold()
     if root_name == "spdxdocument":
-        root_namespace = _sl_xml_namespace(value)
-        if root_namespace and root_namespace != _SL_SPDX_XML_NAMESPACE:
-            raise SBOMLineageError("SPDX XML namespace is not authoritative")
+        _sl_validate_spdx_xml_namespace(value)
         if _sl_descendants(value, "Package") or _sl_descendants(value, "Relationship") and not _sl_children(value, "package"):
             return _sl_spdx_rdf_xml(value, raw_bytes, normalized_source)
         return _sl_spdx_xml(value, raw_bytes, normalized_source)
     if root_name == "rdf" and _sl_descendants(value, "SpdxDocument"):
+        _sl_validate_spdx_rdf_xml_namespace(value)
         return _sl_spdx_rdf_xml(value, raw_bytes, normalized_source)
     if root_name == "bom":
         return _sl_parse_cdx_xml(value, raw_bytes, normalized_source)

@@ -1978,6 +1978,26 @@ def test_rdf_parent_about_conflicting_child_spdxid_fails_closed():
         perseus._sl_spdx_rdf_xml(root, b"<raw/>", "artifact:rdf-conflict")
 
 
+def test_spdx_xml_rejects_foreign_child_namespace_before_rdf_selection():
+    xml = _load("spdx-app.xml").replace(
+        b"<package>", b'<evil:package xmlns:evil="https://attacker.example/schema">',
+    ).replace(b"</package>", b"</evil:package>")
+    with pytest.raises(perseus.SBOMLineageError, match="namespace"):
+        perseus.ingest_sbom_document(xml)
+
+
+def test_spdx_rdf_rejects_foreign_and_case_variant_spdx_namespaces():
+    for namespace in (
+        b"HTTP://SPDX.ORG/RDF/TERMS#",
+        b"https://attacker.example/spdx.org/rdf/terms#",
+    ):
+        xml = _load("spdx-rdf.xml").replace(
+            b"http://spdx.org/rdf/terms#", namespace,
+        )
+        with pytest.raises(perseus.SBOMLineageError, match="namespace"):
+            perseus.ingest_sbom_document(xml)
+
+
 def test_spdx_xml_rejects_case_variant_namespace():
     xml = _load("spdx-app.xml").replace(
         b"http://spdx.org/rdf/terms#", b"HTTP://SPDX.ORG/RDF/TERMS#",
