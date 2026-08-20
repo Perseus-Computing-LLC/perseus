@@ -1149,13 +1149,16 @@ def test_bounded_reader_requests_binary_mode_for_cross_platform_hashes(tmp_path,
     path = tmp_path / "binary.json"
     path.write_bytes(b"{\"value\":1}\r\n")
     binary_flag = getattr(perseus._sl_os, "O_BINARY", 0x8000)
+    actual_binary_flag = getattr(os, "O_BINARY", None)
     observed = []
     real_open = perseus._sl_os.open
     monkeypatch.setattr(perseus._sl_os, "O_BINARY", binary_flag, raising=False)
 
     def checked_open(file_path, flags):
         observed.append(flags)
-        return real_open(file_path, flags & ~binary_flag)
+        if actual_binary_flag is None:
+            flags &= ~binary_flag
+        return real_open(file_path, flags)
 
     monkeypatch.setattr(perseus._sl_os, "open", checked_open)
     assert perseus._sl_read_bounded(path) == b"{\"value\":1}\r\n"
