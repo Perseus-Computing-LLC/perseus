@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "9be87a5"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "aea92ff-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -44999,7 +44999,7 @@ def _sl_validate_xml_discriminators(root: Any) -> None:
     families: set[str] = set()
     for element in root.iter():
         local = _sl_local(element).casefold()
-        namespace = _sl_xml_namespace(element).casefold()
+        namespace = _sl_xml_namespace(element)
         if local in spdx_markers or namespace == _SL_SPDX_XML_NAMESPACE:
             families.add("SPDX")
         if local in cdx_markers or namespace in _SL_CDX_XML_NAMESPACES:
@@ -45011,7 +45011,7 @@ def _sl_validate_xml_discriminators(root: Any) -> None:
 def _sl_validate_spdx_xml_namespace(root: Any) -> None:
     for element in root.iter():
         namespace = _sl_xml_namespace(element)
-        if namespace and namespace.casefold() != _SL_SPDX_XML_NAMESPACE:
+        if namespace and namespace != _SL_SPDX_XML_NAMESPACE:
             raise SBOMLineageError("SPDX XML namespace is not authoritative")
 
 
@@ -46260,6 +46260,9 @@ def ingest_sbom_document(document: Any, *, source_ref: str = "") -> dict[str, An
     _sl_validate_xml_discriminators(value)
     root_name = _sl_local(value).casefold()
     if root_name == "spdxdocument":
+        root_namespace = _sl_xml_namespace(value)
+        if root_namespace and root_namespace != _SL_SPDX_XML_NAMESPACE:
+            raise SBOMLineageError("SPDX XML namespace is not authoritative")
         if _sl_descendants(value, "Package") or _sl_descendants(value, "Relationship") and not _sl_children(value, "package"):
             return _sl_spdx_rdf_xml(value, raw_bytes, normalized_source)
         return _sl_spdx_xml(value, raw_bytes, normalized_source)
