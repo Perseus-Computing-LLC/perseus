@@ -1600,6 +1600,20 @@ def _sl_snapshot_json(
     raise SBOMLineageError("SBOM JSON contains an unsupported value")
 
 
+def _sl_snapshot_mapping(value: Any, field: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise SBOMLineageError(f"{field} must be an object")
+    try:
+        snapshot, _ = _sl_snapshot_json(value)
+    except SBOMLineageError:
+        raise
+    except Exception:
+        raise SBOMLineageError(f"{field} is not bounded canonical JSON") from None
+    if not isinstance(snapshot, dict):
+        raise SBOMLineageError(f"{field} must be an object")
+    return snapshot
+
+
 def _sl_preflight_json_size(value: Any, *, total: int = 0, active: set[int] | None = None) -> int:
     """Compatibility wrapper returning the exact size of a bounded JSON snapshot."""
     _, size = _sl_snapshot_json(value, active=active)
@@ -1938,6 +1952,8 @@ def _sl_validate_component(component: Any) -> dict[str, Any]:
 
 
 def _sl_validate_relationship(relationship: Any, *, field: str = "relationship") -> dict[str, Any]:
+    if isinstance(relationship, Mapping):
+        relationship = _sl_snapshot_mapping(relationship, field)
     _sl_require_keys(relationship, {"from", "to", "type", "confidence", "coverage"}, {"evidence_refs"}, field)
     source = _sl_strict_text(relationship.get("from"), f"{field}.from", limit=256)
     target = _sl_strict_text(relationship.get("to"), f"{field}.to", limit=256)
@@ -2012,6 +2028,8 @@ def _sl_expected_document_coverage(document_id: str, fmt: str, document_name: st
 
 
 def _sl_validate_document(document: Mapping[str, Any], *, raw_bytes: bytes | None = None) -> dict[str, Any]:
+    if isinstance(document, Mapping):
+        document = _sl_snapshot_mapping(document, "normalized SBOM document")
     required = {
         "schema_version", "format", "spec_version", "document_id", "document_name",
         "document_sha256", "source_ref", "created_at", "supplier", "components",
@@ -2102,7 +2120,7 @@ def _sl_rebind_document(document: Mapping[str, Any], raw_document: Any) -> dict[
 def verify_sbom_document(document: Mapping[str, Any], raw_document: Any | None = None) -> dict[str, Any]:
     try:
         checked = _sl_validate_document(document) if raw_document is None else _sl_rebind_document(document, raw_document)
-    except (SBOMLineageError, TypeError, ValueError) as exc:
+    except Exception as exc:
         return {"valid": False, "error": _sl_public_error(exc)}
     return {"valid": True, "schema_version": checked["schema_version"], "ingestion_digest": checked["ingestion_digest"], "component_count": len(checked["components"]), "relationship_count": len(checked["relationships"])}
 
@@ -2131,7 +2149,7 @@ def _sl_bounded_external_edges(edges: Any) -> list[Any]:
                 raise SBOMLineageError("lineage edges exceed their bound")
             if not isinstance(raw, Mapping):
                 raise SBOMLineageError("lineage edges must contain objects")
-            result.append(raw)
+            result.append(_sl_snapshot_mapping(raw, "lineage edge"))
     except SBOMLineageError:
         raise
     except Exception:
@@ -2213,6 +2231,8 @@ def build_sbom_lineage(documents: Any, *, edges: Any = None, raw_documents: Any 
         truncated.append("documents")
     normalized = []
     for index, document in enumerate(documents[:_SL_MAX_DOCUMENTS]):
+        if isinstance(document, Mapping):
+            document = _sl_snapshot_mapping(document, "SBOM document")
         if isinstance(document, Mapping) and document.get("schema_version") == _SL_SCHEMA:
             if rebound_raw is None:
                 normalized.append(_sl_validate_document(document))
@@ -2385,6 +2405,7 @@ def _sl_loaded_lineage(
     raw_documents: Any | None = None,
     edges: Any | None = None,
 ) -> dict[str, Any]:
+    lineage = _sl_snapshot_mapping(lineage, "lineage")
     edge_input = edges
     required = {"schema_version", "documents", "nodes", "edges", "coverage", "lineage_digest"}
     if not isinstance(lineage, Mapping) or set(lineage) != required or lineage.get("schema_version") != _SL_LINEAGE_SCHEMA:
@@ -2484,7 +2505,7 @@ def verify_sbom_lineage(
 ) -> dict[str, Any]:
     try:
         loaded = _sl_loaded_lineage(lineage, raw_documents=raw_documents, edges=edges)
-    except (SBOMLineageError, TypeError, ValueError) as exc:
+    except Exception as exc:
         return {"valid": False, "error": _sl_public_error(exc)}
     return {"valid": True, "schema_version": loaded["schema_version"], "lineage_digest": loaded["lineage_digest"], "node_count": len(loaded.get("nodes", [])), "edge_count": len(loaded.get("edges", []))}
 
@@ -2640,6 +2661,7 @@ def _sl_validate_query_result(
     raw_documents: Any | None = None,
     edges: Any | None = None,
 ) -> dict[str, Any]:
+    query_result = _sl_snapshot_mapping(query_result, "query result")
     required = {"schema_version", "lineage_digest", "lineage_nodes", "lineage_edges", "query", "limit", "matched_nodes", "impacted_artifacts", "status", "coverage", "claims", "query_digest"}
     if not isinstance(query_result, Mapping) or set(query_result) != required or query_result.get("schema_version") != _SL_QUERY_SCHEMA:
         raise SBOMLineageError("unsupported query schema")
@@ -2828,7 +2850,7 @@ def verify_sbom_lineage_query(
 ) -> dict[str, Any]:
     try:
         checked = _sl_validate_query_result(query_result, authoritative_lineage, raw_documents, edges)
-    except (SBOMLineageError, TypeError, ValueError) as exc:
+    except Exception as exc:
         return {"valid": False, "error": _sl_public_error(exc)}
     return {"valid": True, "schema_version": checked["schema_version"], "query_digest": checked["query_digest"], "expected_digest": checked["query_digest"]}
 

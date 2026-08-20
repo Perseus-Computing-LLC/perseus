@@ -970,7 +970,16 @@ def test_documented_cli_workflow_rebinds_raw_sources_across_processes(tmp_path):
     normalized_path = tmp_path / "normalized.json"
     lineage_path = tmp_path / "lineage.json"
     query_path = tmp_path / "query.json"
+    edges_path = tmp_path / "pipeline-edges.json"
     raw_path.write_bytes(_load("spdx-app.json"))
+    edges_path.write_text(json.dumps([{
+        "from": "SPDXRef-Log4j",
+        "to": "artifact:pipeline-image",
+        "type": "generates",
+        "confidence": "high",
+        "coverage": "complete",
+        "evidence_refs": ["ledger:pipeline-001"],
+    }]), encoding="utf-8")
     cli = [sys.executable, str(ROOT / "perseus.py"), "sbom"]
 
     ingest = subprocess.run(
@@ -980,7 +989,7 @@ def test_documented_cli_workflow_rebinds_raw_sources_across_processes(tmp_path):
     assert ingest.returncode == 0, ingest.stdout + ingest.stderr
 
     merge = subprocess.run(
-        cli + ["merge", str(normalized_path), "--raw-documents", str(raw_path), "--output", str(lineage_path), "--json"],
+        cli + ["merge", str(normalized_path), "--raw-documents", str(raw_path), "--edges", str(edges_path), "--output", str(lineage_path), "--json"],
         capture_output=True, text=True, check=False,
     )
     assert merge.returncode == 0, merge.stdout + merge.stderr
@@ -993,16 +1002,17 @@ def test_documented_cli_workflow_rebinds_raw_sources_across_processes(tmp_path):
     assert json.loads(without_raw.stdout)["valid"] is False
 
     query = subprocess.run(
-        cli + ["query", str(lineage_path), "CVE-2021-44228", "--raw-documents", str(raw_path), "--output", str(query_path), "--json"],
+        cli + ["query", str(lineage_path), "CVE-2021-44228", "--raw-documents", str(raw_path), "--edges", str(edges_path), "--output", str(query_path), "--json"],
         capture_output=True, text=True, check=False,
     )
     assert query.returncode == 0, query.stdout + query.stderr
     assert json.loads(query_path.read_text(encoding="utf-8"))["query"] == "CVE-2021-44228"
+    assert any(item["artifact_id"] == "artifact:pipeline-image" for item in json.loads(query_path.read_text(encoding="utf-8"))["impacted_artifacts"])
 
     verify = subprocess.run([
         sys.executable, "-c",
-        "import json,sys,perseus; raw=open(sys.argv[3],'rb').read(); lineage=json.load(open(sys.argv[1])); query=json.load(open(sys.argv[2])); print(json.dumps([perseus.verify_sbom_lineage(lineage, raw_documents=[raw]), perseus.verify_sbom_lineage_query(query, lineage, [raw])]))",
-        str(lineage_path), str(query_path), str(raw_path),
+        "import json,sys,perseus; raw=open(sys.argv[3],'rb').read(); lineage=json.load(open(sys.argv[1])); query=json.load(open(sys.argv[2])); edges=json.load(open(sys.argv[4])); print(json.dumps([perseus.verify_sbom_lineage(lineage, raw_documents=[raw], edges=edges), perseus.verify_sbom_lineage_query(query, lineage, [raw], edges=edges)]))",
+        str(lineage_path), str(query_path), str(raw_path), str(edges_path),
     ], capture_output=True, text=True, check=False, cwd=str(ROOT))
     assert verify.returncode == 0, verify.stdout + verify.stderr
     checks = json.loads(verify.stdout)
@@ -1792,6 +1802,54 @@ def test_hostile_mapping_exceptions_are_bounded_domain_errors():
 
     with pytest.raises(perseus.SBOMLineageError, match="mapping|canonical|bounded"):
         perseus._sl_payload(ExplodingMapping())
+
+
+@pytest.mark.parametrize("error_type", [RuntimeError, RecursionError])
+def test_hostile_mapping_edge_is_bounded_domain_error(error_type):
+    from collections.abc import Mapping
+
+    class ExplodingEdge(Mapping):
+        def __getitem__(self, key):
+            raise error_type("RAW-MAPPING-SENTINEL")
+
+        def __iter__(self):
+            return iter(("from",))
+
+        def __len__(self):
+            return 1
+
+        def items(self):
+            raise error_type("RAW-MAPPING-SENTINEL")
+
+    document = perseus.ingest_sbom_document(_load("spdx-app.json"), source_ref="artifact:hostile-edge")
+    with pytest.raises(perseus.SBOMLineageError) as exc_info:
+        perseus.build_sbom_lineage([document], edges=[ExplodingEdge()])
+    assert "RAW-MAPPING-SENTINEL" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("error_type", [RuntimeError, RecursionError])
+def test_hostile_normalized_document_mapping_is_bounded_domain_error(error_type):
+    from collections.abc import Mapping
+
+    class ExplodingDocument(Mapping):
+        def __getitem__(self, key):
+            raise error_type("RAW-MAPPING-SENTINEL")
+
+        def __iter__(self):
+            return iter(("schema_version",))
+
+        def __len__(self):
+            return 1
+
+        def items(self):
+            raise error_type("RAW-MAPPING-SENTINEL")
+
+    with pytest.raises(perseus.SBOMLineageError) as exc_info:
+        perseus.build_sbom_lineage([ExplodingDocument()])
+    assert "RAW-MAPPING-SENTINEL" not in str(exc_info.value)
+    result = perseus.verify_sbom_document(ExplodingDocument())
+    assert result["valid"] is False
+    assert "RAW-MAPPING-SENTINEL" not in json.dumps(result)
 
 
 def test_bare_private_ip_in_non_purl_query_is_not_persisted():
