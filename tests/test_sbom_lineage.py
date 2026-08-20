@@ -1852,6 +1852,58 @@ def test_hostile_normalized_document_mapping_is_bounded_domain_error(error_type)
     assert "RAW-MAPPING-SENTINEL" not in json.dumps(result)
 
 
+def test_hostile_raw_mapping_errors_are_not_echoed_at_rebinding_boundaries():
+    from collections.abc import Mapping
+
+    class ExplodingRaw(Mapping):
+        def __getitem__(self, key):
+            raise perseus.SBOMLineageError("RAW-ARTIFACT-SENTINEL")
+
+        def __iter__(self):
+            return iter(("spdxVersion",))
+
+        def __len__(self):
+            return 1
+
+        def items(self):
+            raise perseus.SBOMLineageError("RAW-ARTIFACT-SENTINEL")
+
+    raw = _load("spdx-app.json")
+    document = perseus.ingest_sbom_document(raw, source_ref="artifact:raw-boundary")
+    lineage = perseus.build_sbom_lineage([document], edges=[], raw_documents=[raw])
+    query = perseus.query_sbom_lineage(lineage, "CVE-2021-44228")
+    with pytest.raises(perseus.SBOMLineageError) as exc_info:
+        perseus.build_sbom_lineage([document], edges=[], raw_documents=[ExplodingRaw()])
+    assert "RAW-ARTIFACT-SENTINEL" not in str(exc_info.value)
+    for result in (
+        perseus.verify_sbom_document(document, raw_document=ExplodingRaw()),
+        perseus.verify_sbom_lineage(lineage, raw_documents=[ExplodingRaw()]),
+        perseus.verify_sbom_lineage_query(query, lineage, [ExplodingRaw()]),
+    ):
+        assert result["valid"] is False
+        assert "RAW-ARTIFACT-SENTINEL" not in json.dumps(result)
+
+
+def test_hostile_edge_sequence_errors_are_not_echoed():
+    class ExplodingEdges(list):
+        def __len__(self):
+            raise perseus.SBOMLineageError("RAW-LIST-SENTINEL")
+
+    raw = _load("spdx-app.json")
+    document = perseus.ingest_sbom_document(raw, source_ref="artifact:sequence-boundary")
+    lineage = perseus.build_sbom_lineage([document], edges=[], raw_documents=[raw])
+    query = perseus.query_sbom_lineage(lineage, "CVE-2021-44228")
+    with pytest.raises(perseus.SBOMLineageError) as exc_info:
+        perseus.build_sbom_lineage([document], edges=ExplodingEdges())
+    assert "RAW-LIST-SENTINEL" not in str(exc_info.value)
+    for result in (
+        perseus.verify_sbom_lineage(lineage, raw_documents=[raw], edges=ExplodingEdges()),
+        perseus.verify_sbom_lineage_query(query, lineage, [raw], edges=ExplodingEdges()),
+    ):
+        assert result["valid"] is False
+        assert "RAW-LIST-SENTINEL" not in json.dumps(result)
+
+
 def test_attacker_domain_errors_are_not_echoed_by_public_boundaries():
     from collections.abc import Mapping
 

@@ -1552,7 +1552,22 @@ def _sl_snapshot_json(
         snapshot: dict[str, Any] = {}
         size = 2
         try:
-            for index, (key, item) in enumerate(value.items()):
+            try:
+                item_iterator = iter(value.items())
+            except Exception:
+                raise SBOMLineageError("SBOM mapping is not bounded canonical JSON") from None
+            index = 0
+            while True:
+                try:
+                    pair = next(item_iterator)
+                except StopIteration:
+                    break
+                except Exception:
+                    raise SBOMLineageError("SBOM mapping is not bounded canonical JSON") from None
+                try:
+                    key, item = pair
+                except Exception:
+                    raise SBOMLineageError("SBOM mapping is not bounded canonical JSON") from None
                 if not isinstance(key, str):
                     raise SBOMLineageError("SBOM JSON object keys must be strings")
                 key_text = str.__str__(key)
@@ -1563,6 +1578,7 @@ def _sl_snapshot_json(
                 if size > _SL_MAX_INPUT_BYTES:
                     raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
                 snapshot[key_text] = child
+                index += 1
         finally:
             active.remove(marker)
         return snapshot, size
@@ -1605,6 +1621,8 @@ def _sl_snapshot_mapping(value: Any, field: str) -> dict[str, Any]:
         raise SBOMLineageError(f"{field} must be an object")
     try:
         snapshot, _ = _sl_snapshot_json(value)
+    except SBOMLineageError:
+        raise
     except Exception:
         raise SBOMLineageError(f"{field} is not bounded canonical JSON") from None
     if not isinstance(snapshot, dict):
@@ -1742,8 +1760,8 @@ def _sl_payload(document: Any) -> tuple[Any, bytes]:
             raw_bytes = _sl_json(snapshot).encode("utf-8")
         except SBOMLineageError:
             raise
-        except Exception as exc:
-            raise SBOMLineageError("SBOM mapping is not bounded canonical JSON") from exc
+        except Exception:
+            raise SBOMLineageError("SBOM mapping is not bounded canonical JSON") from None
     elif isinstance(document, str):
         bounded_text = _sl_bounded_text_bytes(document)
         possible_path = Path(document)
@@ -2128,30 +2146,34 @@ def _sl_bounded_external_edges(edges: Any) -> list[Any]:
         return []
     if isinstance(edges, (list, tuple)):
         try:
-            if len(edges) > _SL_MAX_EDGES:
-                raise SBOMLineageError("lineage edges exceed their bound")
-        except SBOMLineageError:
-            raise
+            edge_count = len(edges)
         except Exception:
             raise SBOMLineageError("lineage edge collection is invalid") from None
+        if edge_count > _SL_MAX_EDGES:
+            raise SBOMLineageError("lineage edges exceed their bound")
     if isinstance(edges, (str, bytes, bytearray, memoryview, Mapping)):
         raise SBOMLineageError("lineage edges must be a bounded collection")
     try:
         iterator = iter(edges)
     except Exception:
         raise SBOMLineageError("lineage edge collection is invalid") from None
-    result: list[Any] = []
+    raw_items: list[Any] = []
+    too_many = False
     try:
         for index, raw in enumerate(iterator):
             if index >= _SL_MAX_EDGES:
-                raise SBOMLineageError("lineage edges exceed their bound")
-            if not isinstance(raw, Mapping):
-                raise SBOMLineageError("lineage edges must contain objects")
-            result.append(_sl_snapshot_mapping(raw, "lineage edge"))
-    except SBOMLineageError:
-        raise
+                too_many = True
+                break
+            raw_items.append(raw)
     except Exception:
         raise SBOMLineageError("lineage edge collection is invalid") from None
+    if too_many:
+        raise SBOMLineageError("lineage edges exceed their bound")
+    result: list[Any] = []
+    for raw in raw_items:
+        if not isinstance(raw, Mapping):
+            raise SBOMLineageError("lineage edges must contain objects")
+        result.append(_sl_snapshot_mapping(raw, "lineage edge"))
     return result
 
 
