@@ -1,0 +1,40 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:perseus-build-json-001",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-08-19T12:00:00Z",
+    "authors": [{"name": "Perseus Computing LLC"}],
+    "component": {
+      "type": "application",
+      "bom-ref": "pkg:generic/perseus-service@1.0.26",
+      "name": "perseus-service",
+      "version": "1.0.26",
+      "supplier": {"name": "Perseus Computing LLC"},
+      "purl": "pkg:generic/perseus-service@1.0.26"
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.0",
+      "group": "org.apache.logging.log4j",
+      "name": "log4j-core",
+      "version": "2.17.0",
+      "supplier": {"name": "Apache Software Foundation"},
+      "purl": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.0",
+      "licenses": [{"license": {"id": "Apache-2.0"}}],
+      "externalReferences": [
+        {"type": "advisories", "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-44228"},
+        {"type": "vulnerability", "url": "cve:CVE-2021-44228"}
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "pkg:generic/perseus-service@1.0.26",
+      "dependsOn": ["pkg:maven/org.apache.logging.log4j/log4j-core@2.17.0"]
+    }
+  ]
+}
