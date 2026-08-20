@@ -171,6 +171,7 @@ def main():
     p_sbom_query.add_argument("component", help="Component name, version, purl, or vulnerability reference")
     p_sbom_query.add_argument("--limit", type=int, default=32, help="Maximum impacted artifacts")
     p_sbom_query.add_argument("--raw-documents", nargs="+", default=None, dest="raw_documents", help="Raw source paths corresponding to lineage documents; required across processes")
+    p_sbom_query.add_argument("--edges", default=None, help="Optional JSON file containing the authoritative external edges used to build the lineage")
     p_sbom_query.add_argument("--output", "-o", default=None, help="Write the query result to a JSON file")
     p_sbom_query.add_argument("--json", action="store_true", help="Print machine-readable JSON")
 

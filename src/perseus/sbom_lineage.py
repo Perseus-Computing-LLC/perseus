@@ -245,10 +245,13 @@ def _sl_query_value_has_nonpublic_host(value: str) -> bool:
     candidate = value.strip()
     if _sl_nonpublic_host(candidate):
         return True
-    return any(
-        _sl_nonpublic_host(match.group(0))
-        for match in re.finditer(r"(?<![A-Za-z0-9])(?:\d{1,3}\.){3}\d{1,3}(?![A-Za-z0-9])", candidate)
-    )
+    for token in re.split(r"[\s/?#=&;,()\[\]{}\"']+", candidate):
+        token = token.strip(".")
+        if not token or (":" not in token and not re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", token)):
+            continue
+        if _sl_nonpublic_host(token):
+            return True
+    return False
 
 
 def _sl_userinfo_locator(value: str) -> bool:
@@ -1727,7 +1730,7 @@ def _sl_payload(document: Any) -> tuple[Any, bytes]:
             raw_bytes = _sl_json(snapshot).encode("utf-8")
         except SBOMLineageError:
             raise
-        except (TypeError, ValueError, RecursionError) as exc:
+        except Exception as exc:
             raise SBOMLineageError("SBOM mapping is not bounded canonical JSON") from exc
     elif isinstance(document, str):
         bounded_text = _sl_bounded_text_bytes(document)
@@ -2376,7 +2379,13 @@ def _sl_validate_lineage_node(
     return node_id
 
 
-def _sl_loaded_lineage(lineage: Mapping[str, Any], *, raw_documents: Any | None = None) -> dict[str, Any]:
+def _sl_loaded_lineage(
+    lineage: Mapping[str, Any],
+    *,
+    raw_documents: Any | None = None,
+    edges: Any | None = None,
+) -> dict[str, Any]:
+    edge_input = edges
     required = {"schema_version", "documents", "nodes", "edges", "coverage", "lineage_digest"}
     if not isinstance(lineage, Mapping) or set(lineage) != required or lineage.get("schema_version") != _SL_LINEAGE_SCHEMA:
         raise SBOMLineageError("unsupported software-lineage schema")
@@ -2401,7 +2410,7 @@ def _sl_loaded_lineage(lineage: Mapping[str, Any], *, raw_documents: Any | None 
         if not isinstance(raw_documents, (list, tuple)) or len(raw_documents) != len(documents) or len(raw_documents) > _SL_MAX_DOCUMENTS:
             raise SBOMLineageError("raw_documents must match lineage documents within its bound")
         checked_documents = [_sl_rebind_document(document, raw) for document, raw in zip(documents, raw_documents)]
-        authoritative = build_sbom_lineage(checked_documents, edges=None)
+        authoritative = build_sbom_lineage(checked_documents, edges=edge_input)
         if lineage.get("nodes") != authoritative.get("nodes") or lineage.get("edges") != authoritative.get("edges"):
             raise SBOMLineageError("lineage graph is not bound to raw documents")
     document_map: dict[str, Mapping[str, Any]] = {}
@@ -2467,9 +2476,14 @@ def _sl_loaded_lineage(lineage: Mapping[str, Any], *, raw_documents: Any | None 
     return dict(lineage)
 
 
-def verify_sbom_lineage(lineage: Mapping[str, Any], raw_documents: Any | None = None) -> dict[str, Any]:
+def verify_sbom_lineage(
+    lineage: Mapping[str, Any],
+    raw_documents: Any | None = None,
+    *,
+    edges: Any | None = None,
+) -> dict[str, Any]:
     try:
-        loaded = _sl_loaded_lineage(lineage, raw_documents=raw_documents)
+        loaded = _sl_loaded_lineage(lineage, raw_documents=raw_documents, edges=edges)
     except (SBOMLineageError, TypeError, ValueError) as exc:
         return {"valid": False, "error": _sl_public_error(exc)}
     return {"valid": True, "schema_version": loaded["schema_version"], "lineage_digest": loaded["lineage_digest"], "node_count": len(loaded.get("nodes", [])), "edge_count": len(loaded.get("edges", []))}
@@ -2510,9 +2524,16 @@ def _sl_path_confidence(path: list[Mapping[str, Any]]) -> str:
     return "high"
 
 
-def query_sbom_lineage(lineage: Mapping[str, Any], query: str, *, limit: int = 32, raw_documents: Any | None = None) -> dict[str, Any]:
+def query_sbom_lineage(
+    lineage: Mapping[str, Any],
+    query: str,
+    *,
+    limit: int = 32,
+    raw_documents: Any | None = None,
+    edges: Any | None = None,
+) -> dict[str, Any]:
     """Find impacted artifact nodes and return every traversed evidence edge."""
-    loaded = _sl_loaded_lineage(lineage, raw_documents=raw_documents)
+    loaded = _sl_loaded_lineage(lineage, raw_documents=raw_documents, edges=edges)
     limit = _sl_limit(limit, "limit")
     query_text = _sl_strict_text(query, "query", limit=512)
     assert query_text is not None
@@ -2613,7 +2634,12 @@ def query_sbom_lineage(lineage: Mapping[str, Any], query: str, *, limit: int = 3
     return unsigned
 
 
-def _sl_validate_query_result(query_result: Mapping[str, Any], authoritative_lineage: Mapping[str, Any] | None = None, raw_documents: Any | None = None) -> dict[str, Any]:
+def _sl_validate_query_result(
+    query_result: Mapping[str, Any],
+    authoritative_lineage: Mapping[str, Any] | None = None,
+    raw_documents: Any | None = None,
+    edges: Any | None = None,
+) -> dict[str, Any]:
     required = {"schema_version", "lineage_digest", "lineage_nodes", "lineage_edges", "query", "limit", "matched_nodes", "impacted_artifacts", "status", "coverage", "claims", "query_digest"}
     if not isinstance(query_result, Mapping) or set(query_result) != required or query_result.get("schema_version") != _SL_QUERY_SCHEMA:
         raise SBOMLineageError("unsupported query schema")
@@ -2631,7 +2657,7 @@ def _sl_validate_query_result(query_result: Mapping[str, Any], authoritative_lin
         raise SBOMLineageError("query authoritative lineage exceeds its bound")
     authority = _SL_LINEAGE_PROVENANCE.get(lineage_digest)
     if authoritative_lineage is not None:
-        loaded_authority = _sl_loaded_lineage(authoritative_lineage, raw_documents=raw_documents)
+        loaded_authority = _sl_loaded_lineage(authoritative_lineage, raw_documents=raw_documents, edges=edges)
         if lineage_digest != loaded_authority["lineage_digest"]:
             raise SBOMLineageError("query result lineage digest does not match the authoritative lineage")
         authority = (
@@ -2782,7 +2808,7 @@ def _sl_validate_query_result(query_result: Mapping[str, Any], authoritative_lin
         raise SBOMLineageError("query status is inconsistent with coverage")
     assert authoritative_lineage is not None
     expected_result = query_sbom_lineage(
-        authoritative_lineage, query, limit=limit, raw_documents=raw_documents,
+        authoritative_lineage, query, limit=limit, raw_documents=raw_documents, edges=edges,
     )
     for field in (
         "lineage_digest", "lineage_nodes", "lineage_edges", "query", "limit", "matched_nodes",
@@ -2793,9 +2819,15 @@ def _sl_validate_query_result(query_result: Mapping[str, Any], authoritative_lin
     return dict(query_result)
 
 
-def verify_sbom_lineage_query(query_result: Mapping[str, Any], authoritative_lineage: Mapping[str, Any] | None = None, raw_documents: Any | None = None) -> dict[str, Any]:
+def verify_sbom_lineage_query(
+    query_result: Mapping[str, Any],
+    authoritative_lineage: Mapping[str, Any] | None = None,
+    raw_documents: Any | None = None,
+    *,
+    edges: Any | None = None,
+) -> dict[str, Any]:
     try:
-        checked = _sl_validate_query_result(query_result, authoritative_lineage, raw_documents)
+        checked = _sl_validate_query_result(query_result, authoritative_lineage, raw_documents, edges)
     except (SBOMLineageError, TypeError, ValueError) as exc:
         return {"valid": False, "error": _sl_public_error(exc)}
     return {"valid": True, "schema_version": checked["schema_version"], "query_digest": checked["query_digest"], "expected_digest": checked["query_digest"]}
@@ -2890,11 +2922,16 @@ def cmd_sbom(args: Any, cfg: Mapping[str, Any] | None = None) -> int:
             else:
                 edges = []
             document = build_sbom_lineage(documents, edges=edges, raw_documents=raw_inputs)
-            _sl_loaded_lineage(document, raw_documents=raw_inputs)
+            _sl_loaded_lineage(document, raw_documents=raw_inputs, edges=edges)
         elif command == "query":
             raw_document_paths = _sl_cli_bounded_paths(getattr(args, "raw_documents", None), "raw_documents")
             lineage_path = _sl_cli_checked_path(getattr(args, "lineage", None), "lineage")
-            _sl_cli_preflight_paths((("lineage", [lineage_path]), ("raw_documents", raw_document_paths)))
+            edge_path = _sl_cli_checked_path(getattr(args, "edges", None), "edges") if getattr(args, "edges", None) else None
+            _sl_cli_preflight_paths((
+                ("lineage", [lineage_path]),
+                ("raw_documents", raw_document_paths),
+                ("edges", [edge_path] if edge_path is not None else None),
+            ))
             actual_input_bytes = 0
             lineage, lineage_bytes = _sl_load_json_bounded(Path(lineage_path))
             actual_input_bytes = _sl_account_input_bytes(actual_input_bytes, lineage_bytes)
@@ -2910,10 +2947,16 @@ def cmd_sbom(args: Any, cfg: Mapping[str, Any] | None = None) -> int:
                     _, raw_bytes = _sl_load_json_bounded(Path(path), allow_non_json=True)
                     actual_input_bytes = _sl_account_input_bytes(actual_input_bytes, raw_bytes)
                     raw_inputs.append(raw_bytes)
+            edges = None
+            if edge_path is not None:
+                edges, edge_bytes = _sl_load_json_bounded(Path(edge_path))
+                actual_input_bytes = _sl_account_input_bytes(actual_input_bytes, edge_bytes)
+                if not isinstance(edges, list):
+                    raise SBOMLineageError("lineage edges JSON must be a list")
             document = query_sbom_lineage(
-                lineage, args.component, limit=getattr(args, "limit", 32), raw_documents=raw_inputs,
+                lineage, args.component, limit=getattr(args, "limit", 32), raw_documents=raw_inputs, edges=edges,
             )
-            _sl_validate_query_result(document, lineage, raw_inputs)
+            _sl_validate_query_result(document, lineage, raw_inputs, edges)
         else:
             raise SBOMLineageError("command must be ingest, merge, or query")
         serialized = json.dumps(document, indent=2, sort_keys=True) + "\n"

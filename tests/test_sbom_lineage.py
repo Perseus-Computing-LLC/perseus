@@ -732,6 +732,23 @@ def test_raw_documents_reject_recommitted_forged_graph_edges():
     assert "graph" in result["error"] or "edge" in result["error"]
 
 
+def test_raw_rebinding_accepts_authoritative_external_edges_when_supplied():
+    raw = _load("spdx-app.json")
+    document = perseus.ingest_sbom_document(raw, source_ref="artifact:raw-edge-receipt")
+    component_id = document["components"][0]["component_id"]
+    edges = [{
+        "from": component_id,
+        "to": "artifact:external-receipt",
+        "type": "generates",
+        "confidence": "high",
+        "coverage": "complete",
+        "evidence_refs": ["ledger:external-receipt"],
+    }]
+    lineage = perseus.build_sbom_lineage([document], edges=edges, raw_documents=[raw])
+    assert perseus.verify_sbom_lineage(lineage, raw_documents=[raw])["valid"] is False
+    assert perseus.verify_sbom_lineage(lineage, raw_documents=[raw], edges=edges)["valid"] is True
+
+
 def test_cli_merge_rebinds_normalized_documents_with_raw_documents(tmp_path, capsys):
     raw = _load("spdx-app.json")
     raw_path = tmp_path / "raw.json"
@@ -1757,6 +1774,26 @@ def test_deep_mapping_is_rejected_as_bounded_sbom_error():
         perseus._sl_payload(value)
 
 
+def test_hostile_mapping_exceptions_are_bounded_domain_errors():
+    from collections.abc import Mapping
+
+    class ExplodingMapping(Mapping):
+        def __getitem__(self, key):
+            raise RuntimeError("RAW-MAPPING-SENTINEL")
+
+        def __iter__(self):
+            return iter(("bomFormat",))
+
+        def __len__(self):
+            return 1
+
+        def items(self):
+            raise RuntimeError("RAW-MAPPING-SENTINEL")
+
+    with pytest.raises(perseus.SBOMLineageError, match="mapping|canonical|bounded"):
+        perseus._sl_payload(ExplodingMapping())
+
+
 def test_bare_private_ip_in_non_purl_query_is_not_persisted():
     payload = json.loads(_load("cyclonedx-app.json"))
     payload["components"][0]["externalReferences"] = [
@@ -1882,3 +1919,15 @@ def test_bare_private_ip_in_non_purl_path_is_not_persisted():
     ]
     document = perseus.ingest_sbom_document(payload)
     assert "10.0.0.1" not in json.dumps(document, sort_keys=True)
+
+
+def test_bare_private_ipv6_literals_in_non_purl_paths_are_not_persisted():
+    payload = json.loads(_load("cyclonedx-app.json"))
+    payload["components"][0]["externalReferences"] = [
+        {"type": "website", "url": "https://public.example/path/::1"},
+        {"type": "website", "url": "https://public.example/path/%3A%3A1"},
+    ]
+    document = perseus.ingest_sbom_document(payload)
+    serialized = json.dumps(document, sort_keys=True)
+    assert "::1" not in serialized
+    assert "%3A%3A1" not in serialized
