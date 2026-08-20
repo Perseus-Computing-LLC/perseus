@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:spdx="http://spdx.org/rdf/terms#">
+  <spdx:SpdxDocument rdf:about="https://perseus.example/sbom/rdf-001">
+    <spdx:spdxVersion>SPDX-2.3</spdx:spdxVersion>
+    <spdx:SPDXID>SPDXRef-DOCUMENT</spdx:SPDXID>
+    <spdx:name>perseus-rdf-build</spdx:name>
+    <spdx:creationInfo>
+      <spdx:created>2026-08-19T12:00:00Z</spdx:created>
+      <spdx:creator>Organization: Perseus Computing LLC</spdx:creator>
+    </spdx:creationInfo>
+    <spdx:package rdf:about="#SPDXRef-App">
+      <spdx:SPDXID>SPDXRef-App</spdx:SPDXID>
+      <spdx:name>perseus-service</spdx:name>
+      <spdx:versionInfo>1.0.26</spdx:versionInfo>
+      <spdx:supplier>Organization: Perseus Computing LLC</spdx:supplier>
+    </spdx:package>
+    <spdx:package rdf:about="#SPDXRef-Log4j">
+      <spdx:SPDXID>SPDXRef-Log4j</spdx:SPDXID>
+      <spdx:name>log4j-core</spdx:name>
+      <spdx:versionInfo>2.17.0</spdx:versionInfo>
+      <spdx:supplier>Organization: Apache Software Foundation</spdx:supplier>
+      <spdx:externalRef>
+        <spdx:referenceCategory>PACKAGE-MANAGER</spdx:referenceCategory>
+        <spdx:referenceType>purl</spdx:referenceType>
+        <spdx:referenceLocator>pkg:maven/org.apache.logging.log4j/log4j-core@2.17.0</spdx:referenceLocator>
+      </spdx:externalRef>
+    </spdx:package>
+    <spdx:relationship>
+      <spdx:spdxElementId rdf:resource="#SPDXRef-DOCUMENT" />
+      <spdx:relationshipType>DESCRIBES</spdx:relationshipType>
+      <spdx:relatedSpdxElement rdf:resource="#SPDXRef-App" />
+    </spdx:relationship>
+    <spdx:relationship>
+      <spdx:spdxElementId rdf:resource="#SPDXRef-App" />
+      <spdx:relationshipType>DEPENDS_ON</spdx:relationshipType>
+      <spdx:relatedSpdxElement rdf:resource="#SPDXRef-Log4j" />
+    </spdx:relationship>
+  </spdx:SpdxDocument>
+</rdf:RDF>

@@ -152,6 +152,29 @@ def main():
     p_artifact.add_argument("--output", "-o", default=None, help="Write the artifact to a file")
     p_artifact.add_argument("--json", action="store_true", help="Write JSON to stdout even when --output is used")
 
+    # sbom/lineage (#995) — offline software supply-chain ingestion and query
+    p_sbom = sub.add_parser("sbom", help="Ingest SPDX/CycloneDX documents and query software lineage")
+    sbom_sub = p_sbom.add_subparsers(dest="sbom_command", required=True)
+    p_sbom_ingest = sbom_sub.add_parser("ingest", help="Normalize one SPDX or CycloneDX JSON/XML document")
+    p_sbom_ingest.add_argument("document", help="SBOM document path")
+    p_sbom_ingest.add_argument("--source-ref", default="", dest="source_ref", help="Visibility-safe source reference")
+    p_sbom_ingest.add_argument("--output", "-o", default=None, help="Write the normalized document to a JSON file")
+    p_sbom_ingest.add_argument("--json", action="store_true", help="Print machine-readable JSON")
+    p_sbom_merge = sbom_sub.add_parser("merge", help="Build a queryable lineage graph from normalized SBOM documents")
+    p_sbom_merge.add_argument("documents", nargs="+", help="SBOM document paths")
+    p_sbom_merge.add_argument("--raw-documents", nargs="+", default=None, dest="raw_documents", help="Raw source paths corresponding to normalized documents; required for persisted normalized inputs")
+    p_sbom_merge.add_argument("--edges", default=None, help="Optional JSON file of source/build/artifact/deployment edges")
+    p_sbom_merge.add_argument("--output", "-o", default=None, help="Write the lineage graph to a JSON file")
+    p_sbom_merge.add_argument("--json", action="store_true", help="Print machine-readable JSON")
+    p_sbom_query = sbom_sub.add_parser("query", help="Query a lineage graph for an impacted component/artifact")
+    p_sbom_query.add_argument("lineage", help="Lineage graph JSON path")
+    p_sbom_query.add_argument("component", help="Component name, version, purl, or vulnerability reference")
+    p_sbom_query.add_argument("--limit", type=int, default=32, help="Maximum impacted artifacts")
+    p_sbom_query.add_argument("--raw-documents", nargs="+", default=None, dest="raw_documents", help="Raw source paths corresponding to lineage documents; required across processes")
+    p_sbom_query.add_argument("--edges", default=None, help="Optional JSON file containing the authoritative external edges used to build the lineage")
+    p_sbom_query.add_argument("--output", "-o", default=None, help="Write the query result to a JSON file")
+    p_sbom_query.add_argument("--json", action="store_true", help="Print machine-readable JSON")
+
     # memory-efficiency (#929) — deterministic citation-ready telemetry artifact
     p_memory_efficiency = sub.add_parser("memory-efficiency", help="Emit the offline Vault memory-injection efficiency report")
     p_memory_efficiency.add_argument("--output", "-o", default=None, help="Write the JSON report to a file")
@@ -769,6 +792,8 @@ def main():
         return cmd_code_map(args, cfg)
     elif args.command == "context-artifact":
         return cmd_context_artifact(args, cfg)
+    elif args.command == "sbom":
+        return cmd_sbom(args, cfg)
     elif args.command == "memory-efficiency":
         return cmd_memory_efficiency(args, cfg)
     elif args.command == "watch":

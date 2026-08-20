@@ -1,0 +1,57 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "perseus-build",
+  "documentNamespace": "https://perseus.example/sbom/perseus-build-001",
+  "creationInfo": {
+    "created": "2026-08-19T12:00:00Z",
+    "creators": ["Organization: Perseus Computing LLC"]
+  },
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Log4j",
+      "name": "log4j-core",
+      "versionInfo": "2.17.0",
+      "supplier": "Organization: Apache Software Foundation",
+      "licenseConcluded": "Apache-2.0",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.0"
+        },
+        {
+          "referenceCategory": "SECURITY",
+          "referenceType": "cve",
+          "referenceLocator": "CVE-2021-44228"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-App",
+      "name": "perseus-service",
+      "versionInfo": "1.0.26",
+      "supplier": "Organization: Perseus Computing LLC",
+      "licenseConcluded": "MIT",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:generic/perseus-service@1.0.26"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-App"
+    },
+    {
+      "spdxElementId": "SPDXRef-App",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-Log4j"
+    }
+  ]
+}
