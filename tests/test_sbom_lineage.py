@@ -1690,3 +1690,128 @@ def test_oversized_lineage_receipts_fail_closed_instead_of_being_dropped():
     finally:
         perseus._SL_LINEAGE_PROVENANCE._max_bytes = previous
         perseus._SL_LINEAGE_PROVENANCE.clear()
+
+
+def test_adversarial_mapping_is_snapshotted_before_serialization(monkeypatch):
+    monkeypatch.setattr(perseus, "_SL_MAX_INPUT_BYTES", 64)
+
+    class MutatingMapping(dict):
+        def __init__(self):
+            super().__init__({"bomFormat": "CycloneDX"})
+            self.first = True
+
+        def items(self):
+            if self.first:
+                self.first = False
+                dict.__setitem__(self, "ignored", "x" * 512)
+                return [("bomFormat", "CycloneDX")]
+            return dict.items(self)
+
+    seen_types = []
+    original_json = perseus._sl_json
+
+    def tracked(value):
+        seen_types.append(type(value))
+        return original_json(value)
+
+    monkeypatch.setattr(perseus, "_sl_json", tracked)
+    value, raw_bytes = perseus._sl_payload(MutatingMapping())
+    assert value == {"bomFormat": "CycloneDX"}
+    assert b"ignored" not in raw_bytes
+    assert MutatingMapping not in seen_types
+
+
+def test_bare_private_ip_in_non_purl_query_is_not_persisted():
+    payload = json.loads(_load("cyclonedx-app.json"))
+    payload["components"][0]["externalReferences"] = [
+        {"type": "website", "url": "https://public.example/?host=10.0.0.1"},
+    ]
+    document = perseus.ingest_sbom_document(payload)
+    assert "10.0.0.1" not in json.dumps(document, sort_keys=True)
+
+
+def test_rdf_conflicting_identity_attributes_fail_closed():
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(
+        '<root xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+        '<endpoint rdf:resource="#A" id="B"/></root>'
+    )
+    with pytest.raises(perseus.SBOMLineageError, match="identity|conflict"):
+        perseus._sl_xml_scalar(root, ("endpoint",))
+
+
+def test_cyclonedx_supplier_uses_authors_or_component_supplier_without_raising():
+    empty = {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.5",
+        "metadata": {},
+        "components": [],
+    }
+    assert perseus.ingest_sbom_document(empty)["supplier"] is None
+
+    payload = {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.5",
+        "metadata": {
+            "component": {
+                "bom-ref": "component:meta",
+                "name": "component-name",
+                "type": "library",
+                "supplier": {"name": "supplier-name"},
+            },
+        },
+        "components": [],
+    }
+    assert perseus.ingest_sbom_document(payload)["supplier"] == "supplier-name"
+
+    xml = (
+        '<bom xmlns="http://cyclonedx.org/schema/bom-1.5.xsd" version="1">'
+        '<metadata><component bom-ref="component:meta" type="library">'
+        '<name>component-name</name><supplier><name>supplier-name</name></supplier>'
+        '</component></metadata></bom>'
+    )
+    assert perseus.ingest_sbom_document(xml)["supplier"] == "supplier-name"
+
+
+def test_source_ref_rejects_non_string_custom_equality():
+    class PretendsEmpty:
+        def __eq__(self, other):
+            return other == ""
+
+    with pytest.raises(perseus.SBOMLineageError, match="source_ref"):
+        perseus.ingest_sbom_document(_load("spdx-app.json"), source_ref=PretendsEmpty())
+
+
+def test_direct_query_rejects_unhashable_coverage_values_as_domain_error():
+    raw = _load("spdx-app.json")
+    document = perseus.ingest_sbom_document(raw, source_ref="artifact:unhashable-coverage")
+    lineage = perseus.build_sbom_lineage([document], edges=_lineage_edges())
+    forged = json.loads(json.dumps(lineage))
+    forged["edges"][0]["confidence"] = []
+    unsigned = dict(forged)
+    unsigned.pop("lineage_digest", None)
+    forged["lineage_digest"] = perseus._sl_sha(unsigned)
+    with pytest.raises(perseus.SBOMLineageError, match="confidence|coverage|invalid"):
+        perseus.query_sbom_lineage(forged, "CVE-2021-44228", raw_documents=[raw])
+
+
+def test_oversized_text_is_bounded_before_path_detection(monkeypatch):
+    monkeypatch.setattr(perseus, "_SL_MAX_INPUT_BYTES", 16)
+
+    class NoExistsPath(type(Path())):
+        def exists(self, *, follow_symlinks=True):
+            raise AssertionError("filesystem path detection ran before text bounds")
+
+    monkeypatch.setattr(perseus, "Path", NoExistsPath)
+    with pytest.raises(perseus.SBOMLineageError, match="bytes"):
+        perseus._sl_payload("x" * 32)
+
+
+def test_cyclonedx_xml_namespace_must_be_the_official_schema_namespace():
+    xml = _load("cyclonedx-app.xml").decode("utf-8").replace(
+        "http://cyclonedx.org/schema/bom-1.5.xsd",
+        "https://attacker.example/schema/bom-1.5.xsd",
+    )
+    with pytest.raises(perseus.SBOMLineageError, match="namespace"):
+        perseus.ingest_sbom_document(xml)

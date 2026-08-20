@@ -241,6 +241,16 @@ def _sl_locator_has_nonpublic_host(value: str) -> bool:
     return False
 
 
+def _sl_query_value_has_nonpublic_host(value: str) -> bool:
+    candidate = value.strip()
+    if _sl_nonpublic_host(candidate):
+        return True
+    return any(
+        _sl_nonpublic_host(match.group(0))
+        for match in re.finditer(r"(?<![A-Za-z0-9])(?:\\d{1,3}\\.){3}\\d{1,3}(?![A-Za-z0-9])", candidate)
+    )
+
+
 def _sl_userinfo_locator(value: str) -> bool:
     """Detect URI and git-style userinfo without treating version ``@`` as auth."""
     for match in re.finditer(r"(?i)[a-z][a-z0-9+.-]*://([^/?#]*)", value):
@@ -302,7 +312,7 @@ def _sl_private_locator(value: str) -> bool:
             if (
                 _SL_PRIVATE_LOCATOR_RE.search(query_value)
                 or _SL_PRIVACY_MARKER_RE.search(query_value)
-                or _sl_locator_has_nonpublic_host(query_value)
+                or _sl_query_value_has_nonpublic_host(query_value)
             ):
                 return True
     return False
@@ -392,10 +402,10 @@ def _sl_safe_locator(value: Any, field: str) -> str:
 
 
 def _sl_safe_source_ref(value: Any, raw_bytes: bytes) -> str:
-    if value == "":
-        return f"sha256:{hashlib.sha256(raw_bytes).hexdigest()}"
     if not isinstance(value, str):
         raise SBOMLineageError("source_ref must be a string")
+    if value == "":
+        return f"sha256:{hashlib.sha256(raw_bytes).hexdigest()}"
     text = _sl_text(value, "source_ref", required=True, limit=512)
     raw_digest = hashlib.sha256(raw_bytes).hexdigest()
     if text.startswith("sha256:source-ref:"):
@@ -504,12 +514,17 @@ def _sl_xml_scalar(element: Any, names: tuple[str, ...], *, default: str = "") -
         if _sl_local(child).casefold() not in wanted:
             continue
         text = (child.text or "").strip() if child.text else ""
-        scalar = text
-        for key, value in child.attrib.items():
-            if key.rsplit("}", 1)[-1].casefold() in {"resource", "about", "id"} and value:
-                scalar = str(value).lstrip("#")
-                break
-        values.append(scalar)
+        identity_values = [
+            str(value).lstrip("#")
+            for key, value in child.attrib.items()
+            if key.rsplit("}", 1)[-1].casefold() in {"resource", "about", "id"} and value
+        ]
+        if len(set(identity_values)) > 1:
+            raise SBOMLineageError("XML identity attributes conflict")
+        identity = identity_values[0] if identity_values else ""
+        if identity and text and identity != text:
+            raise SBOMLineageError("XML identity attribute conflicts with element text")
+        values.append(identity or text)
     if len(values) > 1:
         raise SBOMLineageError("XML singleton element is duplicated")
     return values[0] if values else default
@@ -1121,7 +1136,12 @@ def _sl_parse_cdx_json(value: Mapping[str, Any], raw_bytes: bytes, source_ref: s
     creators = metadata.get("authors", [])
     if not isinstance(creators, list):
         raise SBOMLineageError("metadata.authors must be a list")
-    supplier = _sl_supplier(creators if creators else (metadata_component or {}))
+    if creators:
+        supplier = _sl_supplier(creators)
+    elif isinstance(metadata_component, Mapping):
+        supplier = _sl_supplier(metadata_component.get("supplier"))
+    else:
+        supplier = ""
     if "serialNumber" in value:
         document_id = _sl_id(value.get("serialNumber"), "serialNumber")
     else:
@@ -1323,6 +1343,9 @@ def _sl_parse_cdx_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str,
     if not match:
         raise SBOMLineageError("CycloneDX XML namespace must declare a supported version")
     version = _sl_validate_cdx_version(match.group(1))
+    expected_namespace = f"http://cyclonedx.org/schema/bom-{version}.xsd"
+    if namespace.casefold() != expected_namespace:
+        raise SBOMLineageError("CycloneDX XML namespace is not authoritative")
     metadata = _sl_single_child(root, "metadata")
     metadata_component = _sl_single_child(metadata, "component") if metadata is not None else None
     raw_components = []
@@ -1367,10 +1390,12 @@ def _sl_parse_cdx_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str,
     timestamp = _sl_xml_text(metadata, "timestamp") if metadata is not None else ""
     authors = _sl_single_child(metadata, "authors") if metadata is not None else None
     author_nodes = _sl_children(authors, "author") if authors is not None else []
-    author = _sl_supplier([_sl_xml_text(item, "name") for item in author_nodes]) if author_nodes else ""
+    component_supplier_node = _sl_single_child(metadata_component, "supplier") if metadata_component is not None else None
+    component_supplier = _sl_xml_text(component_supplier_node, "name") if component_supplier_node is not None else ""
+    document_supplier = _sl_supplier([_sl_xml_text(item, "name") for item in author_nodes]) if author_nodes else _sl_supplier(component_supplier)
     return _sl_finalize_document(
         fmt="CycloneDX", spec_version=version, document_id=document_id,
-        document_name=_sl_xml_text(metadata, "name") if metadata is not None else "", created_at=timestamp, supplier=author,
+        document_name=_sl_xml_text(metadata, "name") if metadata is not None else "", created_at=timestamp, supplier=document_supplier,
         components=components, relationships=relationships, raw_bytes=raw_bytes, source_ref=source_ref, truncated=truncated,
         metadata_component_id=components[0]["component_id"] if metadata_component is not None else "",
     )
@@ -1467,46 +1492,75 @@ def _sl_json_string_size(value: str) -> int:
     return size
 
 
-def _sl_preflight_json_size(value: Any, *, total: int = 0, active: set[int] | None = None) -> int:
-    """Reject obviously oversized JSON sources before the encoder copies them."""
+def _sl_snapshot_json(value: Any, *, active: set[int] | None = None) -> tuple[Any, int]:
+    """Snapshot one JSON-compatible value while accounting for its exact JSON size."""
     active = set() if active is None else active
     if isinstance(value, str):
-        total += _sl_json_string_size(value)
-    elif isinstance(value, Mapping):
+        text = str.__str__(value)
+        size = _sl_json_string_size(text)
+        if size > _SL_MAX_INPUT_BYTES:
+            raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
+        return text, size
+    if isinstance(value, Mapping):
         marker = id(value)
         if marker in active:
             raise SBOMLineageError("SBOM JSON contains a cycle")
         active.add(marker)
-        total += 2
-        for index, (key, item) in enumerate(value.items()):
-            if not isinstance(key, str):
-                raise SBOMLineageError("SBOM JSON object keys must be strings")
-            total += (1 if index else 0) + _sl_json_string_size(key) + 1
-            total = _sl_preflight_json_size(item, total=total, active=active)
-            if total > _SL_MAX_INPUT_BYTES:
-                raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
-        active.remove(marker)
-    elif isinstance(value, (list, tuple)):
-        marker = id(value)
-        if marker in active:
-            raise SBOMLineageError("SBOM JSON contains a cycle")
-        active.add(marker)
-        total += 2
-        for index, item in enumerate(value):
-            total += 1 if index else 0
-            total = _sl_preflight_json_size(item, total=total, active=active)
-            if total > _SL_MAX_INPUT_BYTES:
-                raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
-        active.remove(marker)
-    elif value is None:
-        total += 4
-    elif isinstance(value, bool):
-        total += 4 if value else 5
-    elif isinstance(value, (int, float)):
+        snapshot: dict[str, Any] = {}
+        size = 2
         try:
-            total += len(str(value))
+            for index, (key, item) in enumerate(value.items()):
+                if not isinstance(key, str):
+                    raise SBOMLineageError("SBOM JSON object keys must be strings")
+                key_text = str.__str__(key)
+                if key_text in snapshot:
+                    raise SBOMLineageError("duplicate JSON object key")
+                child, child_size = _sl_snapshot_json(item, active=active)
+                size += (1 if index else 0) + _sl_json_string_size(key_text) + 1 + child_size
+                if size > _SL_MAX_INPUT_BYTES:
+                    raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
+                snapshot[key_text] = child
+        finally:
+            active.remove(marker)
+        return snapshot, size
+    if isinstance(value, (list, tuple)):
+        marker = id(value)
+        if marker in active:
+            raise SBOMLineageError("SBOM JSON contains a cycle")
+        active.add(marker)
+        snapshot_list: list[Any] = []
+        size = 2
+        try:
+            for index, item in enumerate(value):
+                child, child_size = _sl_snapshot_json(item, active=active)
+                size += (1 if index else 0) + child_size
+                if size > _SL_MAX_INPUT_BYTES:
+                    raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
+                snapshot_list.append(child)
+        finally:
+            active.remove(marker)
+        return snapshot_list, size
+    if value is None:
+        return None, 4
+    if isinstance(value, bool):
+        return value, 4 if value else 5
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and not math.isfinite(value):
+            raise SBOMLineageError("non-finite JSON number is not allowed")
+        try:
+            size = len(str(value))
         except (ValueError, OverflowError):
             raise SBOMLineageError("SBOM JSON number is invalid") from None
+        if size > _SL_MAX_INPUT_BYTES:
+            raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
+        return value, size
+    raise SBOMLineageError("SBOM JSON contains an unsupported value")
+
+
+def _sl_preflight_json_size(value: Any, *, total: int = 0, active: set[int] | None = None) -> int:
+    """Compatibility wrapper returning the exact size of a bounded JSON snapshot."""
+    _, size = _sl_snapshot_json(value, active=active)
+    total += size
     if total > _SL_MAX_INPUT_BYTES:
         raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
     return total
@@ -1629,17 +1683,18 @@ def _sl_payload(document: Any) -> tuple[Any, bytes]:
         raw_bytes = _sl_bounded_byteslike(document)
     elif isinstance(document, Mapping):
         try:
-            _sl_preflight_json_size(document)
-            raw_bytes = _sl_json(document).encode("utf-8")
+            snapshot, _ = _sl_snapshot_json(document)
+            raw_bytes = _sl_json(snapshot).encode("utf-8")
         except SBOMLineageError:
             raise
         except (TypeError, ValueError) as exc:
             raise SBOMLineageError("SBOM mapping is not canonical JSON") from exc
     elif isinstance(document, str):
+        bounded_text = _sl_bounded_text_bytes(document)
         possible_path = Path(document)
         if "\n" not in document and possible_path.exists():
             return _sl_payload(possible_path)
-        raw_bytes = _sl_bounded_text_bytes(document)
+        raw_bytes = bounded_text
     else:
         raise SBOMLineageError("SBOM input must be bytes, text, path, or object")
     if len(raw_bytes) > _SL_MAX_INPUT_BYTES:
@@ -1857,7 +1912,12 @@ def _sl_validate_relationship(relationship: Any, *, field: str = "relationship")
         raise SBOMLineageError(f"{field} direction is not allowed")
     if rel_type != rel_type.casefold().replace(" ", "_"):
         raise SBOMLineageError(f"{field}.type is not normalized")
-    if confidence not in _SL_CONFIDENCE or coverage not in _SL_COVERAGE:
+    if (
+        not isinstance(confidence, str)
+        or not isinstance(coverage, str)
+        or confidence not in _SL_CONFIDENCE
+        or coverage not in _SL_COVERAGE
+    ):
         raise SBOMLineageError(f"{field} confidence or coverage is invalid")
     result: dict[str, Any] = {
         "from": source, "to": target, "type": rel_type,
@@ -1970,7 +2030,7 @@ def _sl_validate_document(document: Mapping[str, Any], *, raw_bytes: bytes | Non
     _sl_reject_unbound_document_edges(checked_relationships, document_id)
     coverage = document.get("coverage")
     _sl_require_keys(coverage, {"state", "unknown", "component_count", "relationship_count", "truncated", "dangling_relationships"}, set(), "document.coverage")
-    if coverage.get("state") not in _SL_COVERAGE:
+    if not isinstance(coverage.get("state"), str) or coverage.get("state") not in _SL_COVERAGE:
         raise SBOMLineageError("document.coverage.state is invalid")
     _sl_string_list(coverage.get("unknown"), "document.coverage.unknown", maximum=64)
     truncated = _sl_string_list(coverage.get("truncated"), "document.coverage.truncated", maximum=64)
@@ -2209,7 +2269,7 @@ def build_sbom_lineage(documents: Any, *, edges: Any = None, raw_documents: Any 
 def _sl_validate_node_coverage(value: Any, *, component: bool, document: bool = False, expected: Mapping[str, Any] | None = None) -> dict[str, Any]:
     _sl_require_keys(value, {"state", "unknown", "truncated"}, set(), "node.coverage")
     state = value.get("state")
-    if state not in _SL_COVERAGE:
+    if not isinstance(state, str) or state not in _SL_COVERAGE:
         raise SBOMLineageError("node.coverage.state is invalid")
     unknown = _sl_string_list(value.get("unknown"), "node.coverage.unknown", maximum=32)
     truncated = _sl_string_list(value.get("truncated"), "node.coverage.truncated", maximum=32)
@@ -2347,7 +2407,7 @@ def _sl_loaded_lineage(lineage: Mapping[str, Any], *, raw_documents: Any | None 
     coverage = lineage.get("coverage")
     _sl_require_keys(coverage, {"state", "unknown", "truncated"}, set(), "lineage.coverage")
     state = coverage.get("state")
-    if state not in _SL_COVERAGE:
+    if not isinstance(state, str) or state not in _SL_COVERAGE:
         raise SBOMLineageError("lineage.coverage.state is invalid")
     unknown = _sl_string_list(coverage.get("unknown"), "lineage.coverage.unknown", maximum=32)
     truncated = _sl_string_list(coverage.get("truncated"), "lineage.coverage.truncated", maximum=64)
@@ -2631,7 +2691,12 @@ def _sl_validate_query_result(query_result: Mapping[str, Any], authoritative_lin
             raise SBOMLineageError("query path does not terminate at its artifact")
         coverage = item.get("coverage")
         confidence = item.get("confidence")
-        if coverage not in _SL_COVERAGE or confidence not in _SL_CONFIDENCE:
+        if (
+            not isinstance(coverage, str)
+            or not isinstance(confidence, str)
+            or coverage not in _SL_COVERAGE
+            or confidence not in _SL_CONFIDENCE
+        ):
             raise SBOMLineageError("query path result confidence or coverage is invalid")
         expected_path_state = _sl_path_state(checked_path)
         expected_path_confidence = _sl_path_confidence(checked_path)
@@ -2645,7 +2710,7 @@ def _sl_validate_query_result(query_result: Mapping[str, Any], authoritative_lin
     coverage = query_result.get("coverage")
     _sl_require_keys(coverage, {"state", "path_states", "unknown", "truncated"}, set(), "query.coverage")
     coverage_state = coverage.get("state")
-    if coverage_state not in _SL_COVERAGE:
+    if not isinstance(coverage_state, str) or coverage_state not in _SL_COVERAGE:
         raise SBOMLineageError("query.coverage.state is invalid")
     declared_path_states = _sl_string_list(coverage.get("path_states"), "query.coverage.path_states", maximum=3)
     if declared_path_states != sorted(set(path_states)):
