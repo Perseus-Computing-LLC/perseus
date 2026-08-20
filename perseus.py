@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "92889c8"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "9bfe78a-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -44683,7 +44683,7 @@ def _sl_query_value_has_nonpublic_host(value: str) -> bool:
         return True
     return any(
         _sl_nonpublic_host(match.group(0))
-        for match in re.finditer(r"(?<![A-Za-z0-9])(?:\\d{1,3}\\.){3}\\d{1,3}(?![A-Za-z0-9])", candidate)
+        for match in re.finditer(r"(?<![A-Za-z0-9])(?:\d{1,3}\.){3}\d{1,3}(?![A-Za-z0-9])", candidate)
     )
 
 
@@ -44734,6 +44734,7 @@ def _sl_private_locator(value: str) -> bool:
         or _SL_PRIVACY_MARKER_RE.search(decoded)
         or _sl_userinfo_locator(decoded)
         or _sl_locator_has_nonpublic_host(decoded)
+        or (not lowered.startswith("pkg:") and _sl_query_value_has_nonpublic_host(decoded))
     ):
         return True
     if "?" in decoded:

@@ -1815,3 +1815,12 @@ def test_cyclonedx_xml_namespace_must_be_the_official_schema_namespace():
     )
     with pytest.raises(perseus.SBOMLineageError, match="namespace"):
         perseus.ingest_sbom_document(xml)
+
+
+def test_bare_private_ip_in_non_purl_path_is_not_persisted():
+    payload = json.loads(_load("cyclonedx-app.json"))
+    payload["components"][0]["externalReferences"] = [
+        {"type": "website", "url": "https://public.example/path/10.0.0.1"},
+    ]
+    document = perseus.ingest_sbom_document(payload)
+    assert "10.0.0.1" not in json.dumps(document, sort_keys=True)

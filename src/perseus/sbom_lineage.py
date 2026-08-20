@@ -247,7 +247,7 @@ def _sl_query_value_has_nonpublic_host(value: str) -> bool:
         return True
     return any(
         _sl_nonpublic_host(match.group(0))
-        for match in re.finditer(r"(?<![A-Za-z0-9])(?:\\d{1,3}\\.){3}\\d{1,3}(?![A-Za-z0-9])", candidate)
+        for match in re.finditer(r"(?<![A-Za-z0-9])(?:\d{1,3}\.){3}\d{1,3}(?![A-Za-z0-9])", candidate)
     )
 
 
@@ -298,6 +298,7 @@ def _sl_private_locator(value: str) -> bool:
         or _SL_PRIVACY_MARKER_RE.search(decoded)
         or _sl_userinfo_locator(decoded)
         or _sl_locator_has_nonpublic_host(decoded)
+        or (not lowered.startswith("pkg:") and _sl_query_value_has_nonpublic_host(decoded))
     ):
         return True
     if "?" in decoded:
