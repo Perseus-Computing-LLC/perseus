@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SpdxDocument xmlns="http://spdx.org/rdf/terms#">
+  <spdxVersion>SPDX-2.3</spdxVersion>
+  <SPDXID>SPDXRef-DOCUMENT</SPDXID>
+  <name>perseus-build-xml</name>
+  <documentNamespace>https://perseus.example/sbom/perseus-build-xml-001</documentNamespace>
+  <creationInfo>
+    <created>2026-08-19T12:00:00Z</created>
+    <creator>Organization: Perseus Computing LLC</creator>
+  </creationInfo>
+  <package>
+    <SPDXID>SPDXRef-Log4j</SPDXID>
+    <name>log4j-core</name>
+    <versionInfo>2.17.0</versionInfo>
+    <supplier>Organization: Apache Software Foundation</supplier>
+    <licenseConcluded>Apache-2.0</licenseConcluded>
+    <externalRef>
+      <referenceCategory>PACKAGE-MANAGER</referenceCategory>
+      <referenceType>purl</referenceType>
+      <referenceLocator>pkg:maven/org.apache.logging.log4j/log4j-core@2.17.0</referenceLocator>
+    </externalRef>
+  </package>
+  <relationship>
+    <spdxElementId>SPDXRef-App</spdxElementId>
+    <relationshipType>DEPENDS_ON</relationshipType>
+    <relatedSpdxElement>SPDXRef-Log4j</relatedSpdxElement>
+  </relationship>
+</SpdxDocument>

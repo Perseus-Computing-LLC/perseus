@@ -105,6 +105,7 @@ MODULE_ORDER = [
 
 
     "src/perseus/code_graph.py",         # ← #921: optional symbol/dependency-aware context provider
+    "src/perseus/sbom_lineage.py",       # ← #995: SPDX/CycloneDX software lineage
     "src/perseus/promptsize.py",        # ← #606: perseus prompt-size + @budget forensics (depends on renderer, compress, serve helpers)
     "src/perseus/cli.py",  # includes _bind_registry() call before dispatch
 ]
