@@ -495,6 +495,15 @@ def _bounded_reason(value: Any, default: str = "contract_invalid") -> str:
     return default
 
 
+_UNAVAILABLE_REASONS = frozenset({
+    "child_containment_unavailable",
+    "filesystem_observation_unavailable",
+    "filesystem_sandbox_unavailable",
+    "offline_guard_unavailable",
+    "offline_sandbox_unavailable",
+})
+
+
 def _negative_result_reason(value: Mapping[str, Any] | Any) -> str:
     """Normalize negative cells without ever assigning a success reason."""
     status = value.get("status") if isinstance(value, Mapping) else None
@@ -733,24 +742,72 @@ def _stable_projection(value: Any) -> Any:
     return value
 
 
-def _public_projection(value: Any) -> Any:
+_PUBLIC_DIGEST_KEYS = frozenset({
+    "artifact_sha256", "backup_digest", "binding_sha256", "output_sha256",
+    "post_restore_digest", "query_sha256", "render_output_sha256",
+    "render_query_sha256", "resource_observations_commitment", "restored_digest",
+    "workload_digest",
+})
+_PUBLIC_NUMERIC_KEYS = frozenset({
+    "address_space_bytes", "allowed_local_attempts", "blocked_attempts",
+    "child_cpu_seconds_observed", "child_peak_rss_mb_observed", "cpu_seconds",
+    "cpu_seconds_observed", "disk_growth_bytes_observed", "exit_code", "file_bytes",
+    "log_bytes", "operation_child_cpu_seconds_observed", "operation_child_peak_rss_mb_observed",
+    "output_bytes", "peak_rss_mb_observed", "restart_count", "stable_output_bytes",
+    "startup_ms_observed", "wall_seconds_observed",
+})
+_PUBLIC_BOOLEAN_KEYS = frozenset({
+    "active", "attempts_truncated", "digest_match", "enforced", "log_truncated",
+    "output_truncated", "post_digest_match", "report_present", "restored",
+})
+_PUBLIC_ENUM_VALUES = {
+    "boundary": frozenset({"seccomp"}),
+    "offline_sandbox": frozenset({"seccomp"}),
+    "policy": frozenset({"deny_all", "deny_all_non_loopback"}),
+    "render_status": frozenset({"passed", "blocked", "failed", "unavailable", "not_run", "timeout", "resource_limit"}),
+    "status": frozenset({"passed", "blocked", "failed", "unavailable", "not_run", "timeout", "resource_limit"}),
+    "telemetry": frozenset({"parent_owned"}),
+}
+
+
+def _public_scalar(value: Any, key: str | None) -> Any:
+    if value is None:
+        return None
+    if key in _PUBLIC_BOOLEAN_KEYS and type(value) is bool:
+        return value
+    if key in _PUBLIC_NUMERIC_KEYS and type(value) in {int, float}:
+        try:
+            if math.isfinite(float(value)):
+                return value
+        except (OverflowError, TypeError, ValueError):
+            pass
+    if key in _PUBLIC_DIGEST_KEYS and isinstance(value, str) and re.fullmatch(r"[0-9a-fA-F]{64}", value):
+        return value
+    if key == "attempt" and isinstance(value, str) and (value in {"initial", "restore"} or re.fullmatch(r"restart-[1-9][0-9]*", value)):
+        return value
+    if key in _PUBLIC_ENUM_VALUES and isinstance(value, str) and value in _PUBLIC_ENUM_VALUES[key]:
+        return value
+    return _evidence_token(value)
+
+
+def _public_projection(value: Any, *, key: str | None = None) -> Any:
     """Project the exact public flow fields used by the release decision."""
     if isinstance(value, Mapping):
         projected: dict[str, Any] = {}
-        for key, item in value.items():
-            if key == "reason":
+        for item_key, item in value.items():
+            if item_key == "reason":
                 if item is not None:
-                    projected[key] = _bounded_reason(item)
+                    projected[item_key] = _bounded_reason(item)
                 continue
-            if key in {"stdout", "stderr", "argv", "command"}:
+            if item_key in {"stdout", "stderr", "argv", "command"}:
                 continue
-            projected[key] = _public_projection(item)
+            projected[item_key] = _public_projection(item, key=item_key)
         if value.get("status") in {"blocked", "failed", "unavailable", "not_run", "timeout", "resource_limit"}:
             projected["reason"] = _negative_result_reason(value)
         return projected
     if isinstance(value, list):
-        return [_public_projection(item) for item in value]
-    return value
+        return [_public_projection(item, key=key) for item in value]
+    return _public_scalar(value, key)
 
 
 def _validate_report_commitments(report: Mapping[str, Any]) -> None:
@@ -758,16 +815,38 @@ def _validate_report_commitments(report: Mapping[str, Any]) -> None:
     if not isinstance(report, Mapping) or not isinstance(report.get("flow"), Mapping):
         raise AcceptanceError("flow commitment is unavailable")
     flow = report["flow"]
+    if any(not isinstance(value, Mapping) for value in flow.values()):
+        raise AcceptanceError("flow commitment shape mismatch")
     expected_projection = {
         key: _public_projection(value)
         for key, value in flow.items()
-        if isinstance(value, Mapping)
     }
     if report.get("flow_commitment") != expected_projection:
         raise AcceptanceError("flow commitment mismatch")
     expected_digest = report.get("flow_projection_commitment")
     if not isinstance(expected_digest, str) or expected_digest != _sha(expected_projection):
         raise AcceptanceError("flow commitment digest mismatch")
+    resource_contract = report.get("resource_contract")
+    resource_envelope = report.get("resource_envelope")
+    if not isinstance(resource_contract, Mapping) or not isinstance(resource_envelope, Mapping):
+        raise AcceptanceError("resource commitment is unavailable")
+    expected_resource_commitment = _sha({
+        "resource_envelope": resource_envelope,
+        "flow": expected_projection,
+    })
+    if resource_contract.get("resource_observations_commitment") != expected_resource_commitment:
+        raise AcceptanceError("resource commitment mismatch")
+    report_core_keys = (
+        "schema_version", "status", "fixture_id", "platform", "artifacts",
+        "flow_commitment", "flow_projection_commitment", "network", "resource_contract",
+        "resource_envelope", "upgrade", "rollback", "negative_results", "claims",
+        "manifest_commitment", "workload_digest", "workload_query_digest",
+    )
+    if any(key not in report for key in report_core_keys):
+        raise AcceptanceError("report commitment is unavailable")
+    expected_report_commitment = _sha({key: report[key] for key in report_core_keys})
+    if report.get("report_commitment") != expected_report_commitment:
+        raise AcceptanceError("report commitment mismatch")
 
 
 def _bounded_reader(stream: Any, limit: int, result: dict[str, Any], key: str) -> None:
@@ -1373,6 +1452,22 @@ def _terminate_process_group(
     baseline: Mapping[int, Mapping[str, int]] | None = None,
 ) -> bool:
     """Terminate/reap only verified new processes and their current PGID."""
+    if sys.platform.startswith("win") or os.name == "nt":
+        if leader_identity is None or leader_identity.get("pid") != process.pid:
+            return False
+        try:
+            result = subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True,
+                timeout=1.0,
+                check=False,
+            )
+            if result.returncode != 0:
+                return False
+            process.wait(timeout=1.0)
+            return process.poll() is not None
+        except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired, ValueError):
+            return False
     if not sys.platform.startswith("linux"):
         # No verified descendant/tree-kill primitive is implemented on other
         # platforms; leader-only termination must never be reported as clean.
@@ -1575,7 +1670,7 @@ def _run_bounded_child(
     expected_offline_report = _parent_derived_offline_report(argv) if require_offline else None
     disk_sandbox_requested = disk_limit is not None or aggregate_budget is not None
     landlock_available = _landlock_supported() if disk_sandbox_requested else False
-    if disk_sandbox_requested and _python_startup_bypasses_sitecustomize(argv) and not landlock_available:
+    if disk_sandbox_requested and not landlock_available:
         return _blocked_child_result(limits, reason="filesystem_sandbox_unavailable")
     if require_offline and not sys.platform.startswith("linux"):
         raise AcceptanceError("offline_sandbox_unavailable")
@@ -2359,8 +2454,11 @@ def _run_render(
             post_digest = None
     elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
     output = result["stdout"].encode("utf-8", errors="replace")
+    child_reason = result.get("reason")
     status = "passed" if result["status"] == "passed" and result["exit_code"] == 0 and "@date" not in result["stdout"] and not result["stdout_truncated"] and not result["stderr_truncated"] and result.get("offline_sandbox") == "seccomp" else "failed"
     if post_digest != expected or staged_digest != expected or not staged_ok:
+        status = "blocked"
+    elif result["status"] == "blocked" and child_reason in _UNAVAILABLE_REASONS:
         status = "blocked"
     result_value = {
         "attempt": attempt,
@@ -2383,7 +2481,13 @@ def _run_render(
         "artifact_sha256": expected,
     }
     if status == "blocked":
-        result_value["reason"] = "perseus_artifact_changed_or_guard_unavailable" if post_digest != expected or staged_digest != expected else "perseus_offline_guard_unavailable"
+        result_value["reason"] = (
+            child_reason
+            if child_reason in _UNAVAILABLE_REASONS
+            else "perseus_artifact_changed_or_guard_unavailable"
+            if post_digest != expected or staged_digest != expected
+            else "perseus_offline_guard_unavailable"
+        )
     elif status == "failed":
         result_value["reason"] = "render_child_failed"
     return result_value
@@ -2638,7 +2742,13 @@ def _run_workload_query(
     ):
         value["status"] = "passed"
     else:
-        value["reason"] = "offline_report_invalid" if result.get("offline_report") is None else "child_spawn_failed"
+        value["reason"] = (
+            result.get("reason")
+            if result.get("reason") in _UNAVAILABLE_REASONS
+            else "offline_report_invalid"
+            if result.get("offline_report") is None
+            else "child_spawn_failed"
+        )
     return value
 
 
@@ -2754,9 +2864,10 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
         "restart_count": restart_count,
     }
     restore_passed = restore_error is None and digest_match and post_digest_match and restore.get("status") == "passed"
+    restore_unavailable = restore.get("reason") in _UNAVAILABLE_REASONS
     flow["backup_restore"] = {
-        "status": "passed" if restore_passed else "failed",
-        "reason": "operation_completed" if restore_passed else "restore_state_mismatch" if restore_error is None else restore_error,
+        "status": "passed" if restore_passed else "unavailable" if restore_unavailable else "failed",
+        "reason": "operation_completed" if restore_passed else restore.get("reason") if restore_unavailable else "restore_state_mismatch" if restore_error is None else restore_error,
         "backup_digest": backup_digest,
         "restored_digest": restored_digest,
         "digest_match": digest_match,
@@ -2865,6 +2976,13 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
         report.get("active") is True and report.get("attempts_truncated") is False
         for report in child_reports.values()
     ) if child_reports else False
+    network_status = (
+        "passed"
+        if blocked and not unexpected and not network_probe.get("attempts_truncated", False) and guards_enforced and reports_bounded
+        else "unavailable"
+        if probe.get("reason") in _UNAVAILABLE_REASONS
+        else "failed"
+    )
     network = {
         "policy": "deny_all",
         "attempts": network_probe["attempts"],
@@ -2875,7 +2993,7 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
         "expected_blocked": blocked,
         "unexpected_attempts": unexpected,
         "child_probe": {"status": probe.get("status"), "exit_code": probe.get("exit_code"), "report": probe_result},
-        "status": "passed" if blocked and not unexpected and not network_probe.get("attempts_truncated", False) and guards_enforced and reports_bounded else "failed",
+        "status": network_status,
     }
     resource_envelope = _validate_resource_envelope(_resource_envelope(before_cpu, before_rss, before_disk, out, started), fixture)
     resource_envelope["aggregate_children"] = aggregate_budget.report()
@@ -2893,7 +3011,24 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
         "ato_il5_il6": "not_claimed",
     }
     failed_cells = [value for value in flow.values() if isinstance(value, Mapping)] + [network, upgrade, rollback]
-    status = "failed" if platform_check["status"] != "passed" or any(item.get("status") in {"failed", "blocked"} for item in failed_cells) else "partial" if any(item["status"] in {"unavailable", "not_run"} for item in negative_results) else "passed"
+    unavailable_cells = [
+        item for item in failed_cells
+        if isinstance(item, Mapping)
+        and (item.get("status") == "unavailable" or item.get("reason") in _UNAVAILABLE_REASONS)
+    ]
+    hard_failures = [
+        item for item in failed_cells
+        if isinstance(item, Mapping)
+        and item.get("status") in {"failed", "blocked"}
+        and item not in unavailable_cells
+    ]
+    status = (
+        "failed"
+        if platform_check["status"] != "passed" or hard_failures
+        else "partial"
+        if unavailable_cells or any(item["status"] in {"unavailable", "not_run"} for item in negative_results)
+        else "passed"
+    )
     workload_digest = _sha(fixture["workload"])
     workload_query_digest = _sha(workload_query)
     manifest_core = {

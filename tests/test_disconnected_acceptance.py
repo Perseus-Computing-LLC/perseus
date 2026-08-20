@@ -26,6 +26,12 @@ harness = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(harness)
 
 
+def _enable_test_only_disk_guard(monkeypatch):
+    """Exercise accounting/report semantics without claiming host Landlock support."""
+    monkeypatch.setattr(harness, "_landlock_supported", lambda: True)
+    monkeypatch.setattr(harness, "_install_landlock_write_sandbox", lambda _roots: None)
+
+
 def test_offline_guard_blocks_dns_and_records_bounded_attempt():
     perseus.deactivate_offline_mode()
     perseus.activate_offline_mode()
@@ -77,7 +83,8 @@ def test_offline_guard_covers_send_and_name_service_variants():
         perseus.deactivate_offline_mode()
 
 
-def test_disconnected_harness_emits_claim_bounded_machine_report(tmp_path):
+def test_disconnected_harness_emits_claim_bounded_machine_report(tmp_path, monkeypatch):
+    _enable_test_only_disk_guard(monkeypatch)
     report = harness.run_acceptance(ROOT, output_dir=tmp_path)
     assert report["schema_version"] == "perseus-disconnected-report/v1"
     assert report["status"] == "partial"
@@ -731,6 +738,7 @@ def test_operation_receipt_must_bind_action_version_digest_query_and_persistence
 
 
 def test_restore_requires_post_restore_state_binding(tmp_path, monkeypatch):
+    _enable_test_only_disk_guard(monkeypatch)
     real_render = harness._run_render
 
     def render_and_mutate(*args, **kwargs):
@@ -831,7 +839,7 @@ def test_guard_cleanup_failure_is_blocked(tmp_path, monkeypatch):
     assert result["cleanup_failed"] is True
 
 
-def test_seccomp_contains_nested_python_s_descendant(tmp_path):
+def test_seccomp_contains_nested_python_s_descendant(tmp_path, monkeypatch):
     nested = "import socket; socket.socket()"
     command = [
         "/bin/sh",
@@ -849,6 +857,7 @@ def test_seccomp_contains_nested_python_s_descendant(tmp_path):
     assert result["offline_sandbox"] == "seccomp"
 
 
+    _enable_test_only_disk_guard(monkeypatch)
     code = "open('workspace-write', 'wb').write(b'x' * 4096)"
     result = harness._run_bounded_child(
         [sys.executable, "-c", code],
@@ -926,6 +935,7 @@ def test_child_offline_report_is_sanitized_and_not_authoritative(tmp_path):
 
 
 def test_render_binds_execution_to_manifest_digest(tmp_path, monkeypatch):
+    _enable_test_only_disk_guard(monkeypatch)
     state = tmp_path / "state"
     state.mkdir()
     real_secure = harness._secure_file_bytes
@@ -985,6 +995,36 @@ def test_non_linux_cleanup_without_tree_primitive_fails_closed(monkeypatch):
         {},
         "run-token",
     ) is False
+
+
+def test_windows_cleanup_uses_owned_taskkill_tree(monkeypatch):
+    calls = []
+
+    class FakeProcess:
+        pid = 424242
+        returncode = None
+
+        def wait(self, timeout=None):
+            self.returncode = 0
+            return 0
+
+        def poll(self):
+            return self.returncode
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return type("Result", (), {"returncode": 0})()
+
+    monkeypatch.setattr(harness.os, "name", "nt")
+    monkeypatch.setattr(harness.sys, "platform", "win32")
+    monkeypatch.setattr(harness.subprocess, "run", fake_run)
+    assert harness._terminate_process_group(
+        FakeProcess(),
+        {"pid": 424242, "start_time": 424242},
+        {},
+        "run-token",
+    ) is True
+    assert calls and calls[0][0] == ["taskkill", "/PID", "424242", "/T", "/F"]
 
 
 def test_cleanup_refuses_pid_reuse_or_unverified_pgid_signal(monkeypatch):
@@ -1083,7 +1123,8 @@ def test_offline_guard_setup_failure_returns_bounded_blocked_result(tmp_path, mo
     assert "/private/secret" not in json.dumps(result)
 
 
-def test_disk_limit_includes_child_cwd_even_when_not_declared_separately(tmp_path):
+def test_disk_limit_includes_child_cwd_even_when_not_declared_separately(tmp_path, monkeypatch):
+    _enable_test_only_disk_guard(monkeypatch)
     code = "open('cwd-write', 'wb').write(b'x' * 4096)"
     result = harness._run_bounded_child(
         [sys.executable, "-c", code],
@@ -1122,7 +1163,8 @@ def test_new_filesystem_device_blocks_aggregate_observation(tmp_path, monkeypatc
     assert result["reason"] == "filesystem_observation_unavailable"
 
 
-def test_aggregate_resource_budget_charges_persistent_child_workspace_growth(tmp_path):
+def test_aggregate_resource_budget_charges_persistent_child_workspace_growth(tmp_path, monkeypatch):
+    _enable_test_only_disk_guard(monkeypatch)
     budget = harness._AggregateResourceBudget((tmp_path,), cpu_seconds=30, memory_mb=512, disk_bytes=1024)
     first = harness._run_bounded_child(
         [sys.executable, "-c", "open('first-write', 'wb').write(b'x' * 800)"],
@@ -1242,7 +1284,8 @@ def test_incomplete_runtime_manifest_returns_bounded_acceptance_error(tmp_path, 
         harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
 
 
-def test_workload_query_has_an_executed_and_bound_flow_cell(tmp_path):
+def test_workload_query_has_an_executed_and_bound_flow_cell(tmp_path, monkeypatch):
+    _enable_test_only_disk_guard(monkeypatch)
     report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
     query_cell = report["flow"]["workload_query"]
     assert query_cell["status"] == "passed"
@@ -1270,7 +1313,8 @@ def test_restore_binding_includes_restored_state_digest(tmp_path):
     assert restored["result_binding"]["restored_digest"] == restored["restored_digest"]
 
 
-def test_flow_commitment_binds_complete_publication_projection(tmp_path):
+def test_flow_commitment_binds_complete_publication_projection(tmp_path, monkeypatch):
+    _enable_test_only_disk_guard(monkeypatch)
     report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
     render = report["flow_commitment"]["perseus_render"]
     assert render["offline_report"]
@@ -1284,9 +1328,34 @@ def test_flow_commitment_binds_complete_publication_projection(tmp_path):
 def test_report_validation_rejects_mutated_raw_flow(tmp_path):
     report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
     mutated = json.loads(json.dumps(report))
-    mutated["flow"]["perseus_render"]["status"] = "failed"
+    original_status = mutated["flow"]["perseus_render"]["status"]
+    mutated["flow"]["perseus_render"]["status"] = "passed" if original_status != "passed" else "failed"
     with pytest.raises(harness.AcceptanceError, match="flow commitment"):
         harness._validate_report_commitments(mutated)
+
+
+def test_report_validation_rejects_recommitted_raw_resource_mutation(tmp_path):
+    report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
+    mutated = json.loads(json.dumps(report))
+    mutated["flow"]["perseus_render"]["cpu_seconds_observed"] = 999
+    mutated["flow"]["perseus_render"]["raw_flow"] = "SENSITIVE_FLOW_PAYLOAD"
+    mutated["flow_commitment"] = {
+        key: harness._public_projection(value)
+        for key, value in mutated["flow"].items()
+        if isinstance(value, dict)
+    }
+    mutated["flow_projection_commitment"] = harness._sha(mutated["flow_commitment"])
+    with pytest.raises(harness.AcceptanceError, match="commitment"):
+        harness._validate_report_commitments(mutated)
+
+
+def test_public_projection_hashes_unknown_scalar_payload():
+    payload = "SENSITIVE_FLOW_PAYLOAD"
+    projected = harness._public_projection({"status": "passed", "raw_flow": payload})
+    assert projected["status"] == "passed"
+    assert projected["raw_flow"].startswith("sha256:")
+    assert projected["raw_flow"] != payload
+    assert payload not in json.dumps(projected, sort_keys=True)
 
 
 def test_negative_result_missing_reason_never_normalizes_success():
@@ -1460,6 +1529,31 @@ def test_python_s_cannot_bypass_filesystem_containment(tmp_path):
     assert not escaped.exists()
 
 
+def test_landlock_unavailable_blocks_native_ctypes_write(tmp_path, monkeypatch):
+    allowed = tmp_path / "allowed"
+    escape = tmp_path / "escape"
+    allowed.mkdir()
+    escape.mkdir()
+    escaped = escape / "outside.bin"
+    code = (
+        "import ctypes, os; "
+        f"fd=ctypes.CDLL(None).open({str(escaped).encode()!r}, os.O_WRONLY|os.O_CREAT|os.O_TRUNC, 0o600); "
+        "os.write(fd, b'escape'); os.close(fd)"
+    )
+    monkeypatch.setattr(harness, "_landlock_supported", lambda: False)
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", code],
+        cwd=allowed,
+        timeout=5,
+        env=dict(os.environ),
+        monitor_dirs=(allowed,),
+        disk_limit_bytes=1024,
+    )
+    assert result["status"] == "blocked"
+    assert result["reason"] == "filesystem_sandbox_unavailable"
+    assert not escaped.exists()
+
+
 def test_filesystem_guard_validates_link_destination(tmp_path):
     allowed = tmp_path / "allowed"
     escape = tmp_path / "escape"
@@ -1498,7 +1592,8 @@ def test_bounded_reader_stops_an_unbounded_output_stream(tmp_path):
     assert elapsed < 3
 
 
-def test_disk_budget_charges_writes_outside_declared_roots(tmp_path):
+def test_disk_budget_charges_writes_outside_declared_roots(tmp_path, monkeypatch):
+    _enable_test_only_disk_guard(monkeypatch)
     workspace = tmp_path / "workspace"
     declared = tmp_path / "declared"
     escape = tmp_path / "escape"
