@@ -704,6 +704,34 @@ def test_rebinding_accepts_an_already_sanitized_source_reference():
     assert perseus.verify_sbom_lineage(lineage)["valid"] is True
 
 
+def test_raw_documents_reject_recommitted_forged_graph_edges():
+    raw = _load("spdx-app.json")
+    document = perseus.ingest_sbom_document(raw, source_ref="artifact:raw-graph")
+    lineage = perseus.build_sbom_lineage([document], edges=[], raw_documents=[raw])
+    forged = json.loads(json.dumps(lineage))
+    component_id = document["components"][0]["component_id"]
+    forged["nodes"].append({
+        "node_id": "artifact:forged",
+        "kind": "artifact",
+        "coverage": {"state": "partial", "unknown": ["node_metadata"], "truncated": []},
+    })
+    forged["edges"].append({
+        "from": component_id,
+        "to": "artifact:forged",
+        "type": "generates",
+        "confidence": "high",
+        "coverage": "complete",
+        "evidence_refs": ["ledger:forged"],
+    })
+    forged["coverage"] = {"state": "partial", "unknown": ["external_lineage"], "truncated": []}
+    unsigned = dict(forged)
+    unsigned.pop("lineage_digest", None)
+    forged["lineage_digest"] = perseus._sl_sha(unsigned)
+    result = perseus.verify_sbom_lineage(forged, raw_documents=[raw])
+    assert result["valid"] is False
+    assert "graph" in result["error"] or "edge" in result["error"]
+
+
 def test_cli_merge_rebinds_normalized_documents_with_raw_documents(tmp_path, capsys):
     raw = _load("spdx-app.json")
     raw_path = tmp_path / "raw.json"
@@ -1721,6 +1749,14 @@ def test_adversarial_mapping_is_snapshotted_before_serialization(monkeypatch):
     assert MutatingMapping not in seen_types
 
 
+def test_deep_mapping_is_rejected_as_bounded_sbom_error():
+    value = {"leaf": 0}
+    for _ in range(2000):
+        value = {"nested": value}
+    with pytest.raises(perseus.SBOMLineageError, match="nesting|depth"):
+        perseus._sl_payload(value)
+
+
 def test_bare_private_ip_in_non_purl_query_is_not_persisted():
     payload = json.loads(_load("cyclonedx-app.json"))
     payload["components"][0]["externalReferences"] = [
@@ -1741,7 +1777,29 @@ def test_rdf_conflicting_identity_attributes_fail_closed():
         perseus._sl_xml_scalar(root, ("endpoint",))
 
 
-def test_cyclonedx_supplier_uses_authors_or_component_supplier_without_raising():
+def test_rdf_parent_about_conflicting_child_spdxid_fails_closed():
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(
+        '<SpdxDocument xmlns="http://spdx.org/rdf/terms#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" rdf:about="#A">'
+        '<spdxVersion>SPDX-2.3</spdxVersion><SPDXID>SPDXRef-DOCUMENT-B</SPDXID>'
+        '<creationInfo><created>2024-01-01T00:00:00Z</created></creationInfo></SpdxDocument>'
+    )
+    with pytest.raises(perseus.SBOMLineageError, match="identity|conflict"):
+        perseus._sl_spdx_rdf_xml(root, b"<raw/>", "artifact:rdf-conflict")
+
+
+def test_cyclonedx_xml_rejects_attacker_namespace_child():
+    xml = (
+        '<bom xmlns="http://cyclonedx.org/schema/bom-1.5.xsd" '
+        'xmlns:evil="https://attacker.example/schema" version="1">'
+        '<components><evil:component><name>evil</name></evil:component></components>'
+        '</bom>'
+    )
+    with pytest.raises(perseus.SBOMLineageError, match="namespace"):
+        perseus.ingest_sbom_document(xml)
+
+
     empty = {
         "bomFormat": "CycloneDX",
         "specVersion": "1.5",
@@ -1792,7 +1850,7 @@ def test_direct_query_rejects_unhashable_coverage_values_as_domain_error():
     unsigned = dict(forged)
     unsigned.pop("lineage_digest", None)
     forged["lineage_digest"] = perseus._sl_sha(unsigned)
-    with pytest.raises(perseus.SBOMLineageError, match="confidence|coverage|invalid"):
+    with pytest.raises(perseus.SBOMLineageError, match="confidence|coverage|invalid|graph|edge"):
         perseus.query_sbom_lineage(forged, "CVE-2021-44228", raw_documents=[raw])
 
 

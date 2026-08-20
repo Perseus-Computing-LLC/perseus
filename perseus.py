@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "9bfe78a-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "b030075-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -45007,6 +45007,37 @@ def _sl_xml_value(element: Any, *names: str, default: str = "") -> str:
     return _sl_xml_scalar(element, tuple(names), default=default)
 
 
+def _sl_xml_identity(element: Any, *names: str, default: str = "") -> str:
+    """Resolve RDF identity while rejecting parent/child disagreement."""
+    parent_values = [
+        str(value).lstrip("#")
+        for key, value in getattr(element, "attrib", {}).items()
+        if (
+            str(key).rsplit("}", 1)[-1].casefold() in {"resource", "about", "id"}
+            and value
+            and (str(value).startswith("#") or "://" not in str(value))
+        )
+    ]
+    if len(set(parent_values)) > 1:
+        raise SBOMLineageError("XML identity attributes conflict")
+    parent = parent_values[0] if parent_values else ""
+    child = _sl_xml_value(element, *names, default=default)
+    if parent and child and parent != child.lstrip("#"):
+        raise SBOMLineageError("XML parent and child identities conflict")
+    return child or parent or default
+
+
+def _sl_xml_namespace(element: Any) -> str:
+    tag = str(getattr(element, "tag", ""))
+    return tag[1:].split("}", 1)[0] if tag.startswith("{") and "}" in tag else ""
+
+
+def _sl_validate_cdx_namespace(root: Any, expected: str) -> None:
+    for element in root.iter():
+        if _sl_xml_namespace(element) != expected:
+            raise SBOMLineageError("CycloneDX XML element namespace is not authoritative")
+
+
 def _sl_descendants(root: Any, *names: str) -> list[Any]:
     wanted = {name.casefold() for name in names}
     return [element for element in root.iter() if _sl_local(element).casefold() in wanted]
@@ -45614,7 +45645,7 @@ def _sl_spdx_rdf_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str, 
         raise SBOMLineageError("multiple RDF SpdxDocument nodes are not allowed")
     document = documents[0] if documents else root
     version = _sl_validate_spdx_version(_sl_xml_value(document, "spdxVersion"))
-    raw_document_id = _sl_xml_value(document, "SPDXID", "spdxid")
+    raw_document_id = _sl_xml_identity(document, "SPDXID", "spdxid")
     if not raw_document_id:
         raw_document_id = next((str(value).lstrip("#") for key, value in document.attrib.items() if str(key).rsplit("}", 1)[-1].casefold() == "about"), "")
     document_id = _sl_spdx_document_id(raw_document_id)
@@ -45650,7 +45681,7 @@ def _sl_spdx_rdf_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str, 
             if ref_type.casefold() == "purl":
                 identifiers.append(item["locator"])
         truncated.extend(item for item in component_truncated if item not in truncated)
-        component_id = _sl_xml_value(raw, "SPDXID", "spdxid")
+        component_id = _sl_xml_identity(raw, "SPDXID", "spdxid")
         if not component_id:
             component_id = next((str(value).lstrip("#") for key, value in raw.attrib.items() if str(key).rsplit("}", 1)[-1].casefold() == "about"), "")
         components.append(_sl_component(
@@ -45776,13 +45807,14 @@ def _sl_cdx_xml_component(raw: Any, *, truncated: list[str] | None = None, compo
 
 def _sl_parse_cdx_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str, Any]:
     namespace = root.tag.split("}", 1)[0].lstrip("{") if "}" in root.tag else ""
-    match = _SL_CDX_NAMESPACE_RE.search(namespace)
+    match = re.fullmatch(r"http://cyclonedx\.org/schema/bom-(1\.\d+)\.xsd", namespace)
     if not match:
         raise SBOMLineageError("CycloneDX XML namespace must declare a supported version")
     version = _sl_validate_cdx_version(match.group(1))
     expected_namespace = f"http://cyclonedx.org/schema/bom-{version}.xsd"
-    if namespace.casefold() != expected_namespace:
+    if namespace != expected_namespace:
         raise SBOMLineageError("CycloneDX XML namespace is not authoritative")
+    _sl_validate_cdx_namespace(root, expected_namespace)
     metadata = _sl_single_child(root, "metadata")
     metadata_component = _sl_single_child(metadata, "component") if metadata is not None else None
     raw_components = []
@@ -45929,8 +45961,15 @@ def _sl_json_string_size(value: str) -> int:
     return size
 
 
-def _sl_snapshot_json(value: Any, *, active: set[int] | None = None) -> tuple[Any, int]:
+def _sl_snapshot_json(
+    value: Any,
+    *,
+    active: set[int] | None = None,
+    depth: int = 0,
+) -> tuple[Any, int]:
     """Snapshot one JSON-compatible value while accounting for its exact JSON size."""
+    if type(depth) is not int or depth > _SL_MAX_JSON_DEPTH:
+        raise SBOMLineageError("SBOM JSON nesting is too deep")
     active = set() if active is None else active
     if isinstance(value, str):
         text = str.__str__(value)
@@ -45952,7 +45991,7 @@ def _sl_snapshot_json(value: Any, *, active: set[int] | None = None) -> tuple[An
                 key_text = str.__str__(key)
                 if key_text in snapshot:
                     raise SBOMLineageError("duplicate JSON object key")
-                child, child_size = _sl_snapshot_json(item, active=active)
+                child, child_size = _sl_snapshot_json(item, active=active, depth=depth + 1)
                 size += (1 if index else 0) + _sl_json_string_size(key_text) + 1 + child_size
                 if size > _SL_MAX_INPUT_BYTES:
                     raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
@@ -45969,7 +46008,7 @@ def _sl_snapshot_json(value: Any, *, active: set[int] | None = None) -> tuple[An
         size = 2
         try:
             for index, item in enumerate(value):
-                child, child_size = _sl_snapshot_json(item, active=active)
+                child, child_size = _sl_snapshot_json(item, active=active, depth=depth + 1)
                 size += (1 if index else 0) + child_size
                 if size > _SL_MAX_INPUT_BYTES:
                     raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
@@ -46124,8 +46163,8 @@ def _sl_payload(document: Any) -> tuple[Any, bytes]:
             raw_bytes = _sl_json(snapshot).encode("utf-8")
         except SBOMLineageError:
             raise
-        except (TypeError, ValueError) as exc:
-            raise SBOMLineageError("SBOM mapping is not canonical JSON") from exc
+        except (TypeError, ValueError, RecursionError) as exc:
+            raise SBOMLineageError("SBOM mapping is not bounded canonical JSON") from exc
     elif isinstance(document, str):
         bounded_text = _sl_bounded_text_bytes(document)
         possible_path = Path(document)
@@ -46798,6 +46837,9 @@ def _sl_loaded_lineage(lineage: Mapping[str, Any], *, raw_documents: Any | None 
         if not isinstance(raw_documents, (list, tuple)) or len(raw_documents) != len(documents) or len(raw_documents) > _SL_MAX_DOCUMENTS:
             raise SBOMLineageError("raw_documents must match lineage documents within its bound")
         checked_documents = [_sl_rebind_document(document, raw) for document, raw in zip(documents, raw_documents)]
+        authoritative = build_sbom_lineage(checked_documents, edges=None)
+        if lineage.get("nodes") != authoritative.get("nodes") or lineage.get("edges") != authoritative.get("edges"):
+            raise SBOMLineageError("lineage graph is not bound to raw documents")
     document_map: dict[str, Mapping[str, Any]] = {}
     component_map: dict[str, list[tuple[str, Mapping[str, Any]]]] = {}
     component_ids_all: set[str] = set()
