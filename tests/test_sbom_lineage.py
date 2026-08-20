@@ -1852,6 +1852,48 @@ def test_hostile_normalized_document_mapping_is_bounded_domain_error(error_type)
     assert "RAW-MAPPING-SENTINEL" not in json.dumps(result)
 
 
+def test_attacker_domain_errors_are_not_echoed_by_public_boundaries():
+    from collections.abc import Mapping
+
+    class ExplodingMapping(Mapping):
+        def __getitem__(self, key):
+            raise perseus.SBOMLineageError("RAW-DOMAIN-SENTINEL")
+
+        def __iter__(self):
+            return iter(("schema_version",))
+
+        def __len__(self):
+            return 1
+
+        def items(self):
+            raise perseus.SBOMLineageError("RAW-DOMAIN-SENTINEL")
+
+    with pytest.raises(perseus.SBOMLineageError) as exc_info:
+        perseus.build_sbom_lineage([ExplodingMapping()])
+    assert "RAW-DOMAIN-SENTINEL" not in str(exc_info.value)
+    for result in (
+        perseus.verify_sbom_document(ExplodingMapping()),
+        perseus.verify_sbom_lineage(ExplodingMapping()),
+        perseus.verify_sbom_lineage_query(ExplodingMapping()),
+    ):
+        assert result["valid"] is False
+        assert "RAW-DOMAIN-SENTINEL" not in json.dumps(result)
+
+
+def test_malformed_normalized_format_is_a_bounded_domain_error():
+    raw = _load("spdx-app.json")
+    document = perseus.ingest_sbom_document(raw, source_ref="artifact:malformed-format")
+    document["format"] = []
+    unsigned = dict(document)
+    unsigned.pop("ingestion_digest")
+    document["ingestion_digest"] = perseus._sl_ingestion_sha(unsigned, raw)
+    with pytest.raises(perseus.SBOMLineageError, match="format"):
+        perseus.build_sbom_lineage([document], raw_documents=[raw])
+    result = perseus.verify_sbom_document(document, raw_document=raw)
+    assert result["valid"] is False
+    assert "TypeError" not in json.dumps(result)
+
+
 def test_bare_private_ip_in_non_purl_query_is_not_persisted():
     payload = json.loads(_load("cyclonedx-app.json"))
     payload["components"][0]["externalReferences"] = [

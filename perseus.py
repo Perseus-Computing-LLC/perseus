@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "d49a638"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "c7f40fd-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -45457,7 +45457,7 @@ def _sl_reject_unbound_document_edges(relationships: list[Any], document_id: str
 
 
 def _sl_finalize_document(*, fmt: str, spec_version: str, document_id: str, document_name: str, created_at: str, supplier: str, components: list[dict[str, Any]], relationships: list[dict[str, Any]], raw_bytes: bytes, source_ref: str, truncated: list[str] | None = None, metadata_component_id: str = "") -> dict[str, Any]:
-    if fmt not in _SL_FORMATS:
+    if not isinstance(fmt, str) or fmt not in _SL_FORMATS:
         raise SBOMLineageError("unsupported SBOM format")
     if _sl_node_kind(document_id) != "document":
         raise SBOMLineageError("document ID must use the document namespace")
@@ -46041,8 +46041,6 @@ def _sl_snapshot_mapping(value: Any, field: str) -> dict[str, Any]:
         raise SBOMLineageError(f"{field} must be an object")
     try:
         snapshot, _ = _sl_snapshot_json(value)
-    except SBOMLineageError:
-        raise
     except Exception:
         raise SBOMLineageError(f"{field} is not bounded canonical JSON") from None
     if not isinstance(snapshot, dict):
@@ -46487,7 +46485,7 @@ def _sl_validate_document(document: Mapping[str, Any], *, raw_bytes: bytes | Non
         if provenance is None or provenance != (unsigned.get("document_sha256"), _sl_json(document)):
             raise SBOMLineageError("normalized SBOM is not bound to raw ingestion bytes/source digest")
     fmt = document.get("format")
-    if fmt not in _SL_FORMATS:
+    if not isinstance(fmt, str) or fmt not in _SL_FORMATS:
         raise SBOMLineageError("normalized SBOM format is invalid")
     spec_version = document.get("spec_version")
     if not isinstance(spec_version, str):
