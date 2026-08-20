@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "62a9fad"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "7919d4f-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -45900,7 +45900,7 @@ def _sl_read_bounded(path: Path) -> bytes:
         initial = _sl_os.lstat(path)
         if not _sl_stat.S_ISREG(initial.st_mode):
             raise SBOMLineageError("SBOM input must be a regular file")
-        flags = _sl_os.O_RDONLY | getattr(_sl_os, "O_CLOEXEC", 0) | getattr(_sl_os, "O_NOFOLLOW", 0) | getattr(_sl_os, "O_NONBLOCK", 0)
+        flags = _sl_os.O_RDONLY | getattr(_sl_os, "O_BINARY", 0) | getattr(_sl_os, "O_CLOEXEC", 0) | getattr(_sl_os, "O_NOFOLLOW", 0) | getattr(_sl_os, "O_NONBLOCK", 0)
         fd = _sl_os.open(path, flags)
     except SBOMLineageError:
         raise

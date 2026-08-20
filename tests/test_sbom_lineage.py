@@ -1145,7 +1145,26 @@ def test_bounded_reader_uses_a_descriptor_not_path_read_bytes(tmp_path, monkeypa
     assert perseus._sl_read_bounded(path) == b"{}"
 
 
+def test_bounded_reader_requests_binary_mode_for_cross_platform_hashes(tmp_path, monkeypatch):
+    path = tmp_path / "binary.json"
+    path.write_bytes(b"{\"value\":1}\r\n")
+    binary_flag = getattr(perseus._sl_os, "O_BINARY", 0x8000)
+    observed = []
+    real_open = perseus._sl_os.open
+    monkeypatch.setattr(perseus._sl_os, "O_BINARY", binary_flag, raising=False)
+
+    def checked_open(file_path, flags):
+        observed.append(flags)
+        return real_open(file_path, flags & ~binary_flag)
+
+    monkeypatch.setattr(perseus._sl_os, "open", checked_open)
+    assert perseus._sl_read_bounded(path) == b"{\"value\":1}\r\n"
+    assert observed and observed[0] & binary_flag
+
+
 def test_bounded_reader_rejects_non_regular_inputs_before_opening(tmp_path, monkeypatch):
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("named pipes are not available on this platform")
     path = tmp_path / "special"
     os.mkfifo(path)
     monkeypatch.setattr(Path, "read_bytes", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("special file was opened")))
@@ -1700,7 +1719,7 @@ def test_cyclonedx_xml_properties_are_retained_in_complete_coverage():
         "      <properties><property name=\"vex\">CVE-XML-PROPERTY</property></properties>\n"
         "      <licenses><license><id>Apache-2.0</id></license></licenses>"
     )
-    xml = _load("cyclonedx-app.xml").decode("utf-8").replace(
+    xml = _load("cyclonedx-app.xml").decode("utf-8").replace("\r\n", "\n").replace(
         "<timestamp>2026-08-19T12:00:00Z</timestamp>",
         "<timestamp>2026-08-19T12:00:00Z</timestamp><name>perseus-build-xml</name>",
     )

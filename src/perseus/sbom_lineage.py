@@ -1464,7 +1464,7 @@ def _sl_read_bounded(path: Path) -> bytes:
         initial = _sl_os.lstat(path)
         if not _sl_stat.S_ISREG(initial.st_mode):
             raise SBOMLineageError("SBOM input must be a regular file")
-        flags = _sl_os.O_RDONLY | getattr(_sl_os, "O_CLOEXEC", 0) | getattr(_sl_os, "O_NOFOLLOW", 0) | getattr(_sl_os, "O_NONBLOCK", 0)
+        flags = _sl_os.O_RDONLY | getattr(_sl_os, "O_BINARY", 0) | getattr(_sl_os, "O_CLOEXEC", 0) | getattr(_sl_os, "O_NOFOLLOW", 0) | getattr(_sl_os, "O_NONBLOCK", 0)
         fd = _sl_os.open(path, flags)
     except SBOMLineageError:
         raise
