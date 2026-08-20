@@ -1466,6 +1466,30 @@ def test_report_validation_rejects_recommitted_semantic_resource_forgery(tmp_pat
         harness._validate_report_commitments(mutated)
 
 
+def test_report_validation_rejects_recommitted_mutated_resource_limits(tmp_path):
+    report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
+    mutated = json.loads(json.dumps(report))
+    mutated["resource_contract"]["limits"]["cpu_seconds"] = 999999
+    mutated["resource_envelope"]["cpu_seconds_observed"] = 999998.0
+    flow_projection = {
+        key: harness._public_projection(value)
+        for key, value in mutated["flow"].items()
+    }
+    mutated["flow_commitment"] = flow_projection
+    mutated["flow_projection_commitment"] = harness._sha(flow_projection)
+    mutated["resource_contract"]["resource_observations_commitment"] = harness._sha({
+        "resource_envelope": mutated["resource_envelope"],
+        "flow": flow_projection,
+    })
+    mutated["report_commitment"] = harness._sha({
+        key: mutated[key]
+        for key in harness._REPORT_CORE_KEYS
+    })
+    fixture = harness._load_fixture(ROOT / "benchmark" / "disconnected_acceptance" / "fixture.json")
+    with pytest.raises(harness.AcceptanceError, match="fixture-bound"):
+        harness._validate_report_commitments(mutated, expected_fixture=fixture)
+
+
 def test_report_validation_rejects_recommitted_status_contract_forgery(tmp_path):
     report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
     mutated = json.loads(json.dumps(report))

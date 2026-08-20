@@ -866,10 +866,14 @@ def _validate_report_resource_semantics(
     resource_contract: Mapping[str, Any],
     resource_envelope: Mapping[str, Any],
     flow: Mapping[str, Any],
+    *,
+    expected_limits: Mapping[str, Any] | None = None,
 ) -> None:
     limits = resource_contract.get("limits")
     if not isinstance(limits, Mapping):
         raise AcceptanceError("resource limits are unavailable")
+    if expected_limits is not None and dict(limits) != dict(expected_limits):
+        raise AcceptanceError("resource limits are not fixture-bound")
     try:
         ceilings = {
             "cpu_seconds_observed": float(limits["cpu_seconds"]),
@@ -1062,7 +1066,11 @@ def _validate_report_status(report: Mapping[str, Any], flow: Mapping[str, Any], 
         raise AcceptanceError("aggregate status does not match observed cells")
 
 
-def _validate_report_commitments(report: Mapping[str, Any]) -> None:
+def _validate_report_commitments(
+    report: Mapping[str, Any],
+    *,
+    expected_fixture: Mapping[str, Any] | None = None,
+) -> None:
     """Recompute public flow evidence before a report is accepted or written."""
     if not isinstance(report, Mapping) or not isinstance(report.get("flow"), Mapping):
         raise AcceptanceError("flow commitment is unavailable")
@@ -1100,7 +1108,18 @@ def _validate_report_commitments(report: Mapping[str, Any]) -> None:
     resource_envelope = report.get("resource_envelope")
     if not isinstance(resource_contract, Mapping) or not isinstance(resource_envelope, Mapping):
         raise AcceptanceError("resource commitment is unavailable")
-    _validate_report_resource_semantics(resource_contract, resource_envelope, flow)
+    expected_limits = None
+    if expected_fixture is not None:
+        fixture_platform = expected_fixture.get("platform")
+        if not isinstance(fixture_platform, Mapping) or not isinstance(fixture_platform.get("resource_limits"), Mapping):
+            raise AcceptanceError("expected fixture resource limits are unavailable")
+        expected_limits = fixture_platform["resource_limits"]
+    _validate_report_resource_semantics(
+        resource_contract,
+        resource_envelope,
+        flow,
+        expected_limits=expected_limits,
+    )
     expected_resource_commitment = _sha({
         "resource_envelope": resource_envelope,
         "flow": expected_projection,
@@ -3471,7 +3490,7 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
         "stable_report_commitment": stable_report_commitment,
         "evidence_digest": evidence_digest,
     }
-    _validate_report_commitments(report)
+    _validate_report_commitments(report, expected_fixture=fixture)
     manifest = {**manifest_core, "manifest_commitment": manifest_commitment, "report_commitment": report_commitment, "stable_report_commitment": stable_report_commitment}
     try:
         manifest_bytes = (_json(manifest) + "\n").encode("utf-8")
