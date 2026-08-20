@@ -33,6 +33,10 @@ def _enable_test_only_disk_guard(monkeypatch):
     monkeypatch.setattr(harness, "_install_landlock_write_sandbox", lambda _roots: None)
 
 
+def _fixture():
+    return harness._load_fixture(ROOT / "benchmark" / "disconnected_acceptance" / "fixture.json")
+
+
 def test_offline_guard_blocks_dns_and_records_bounded_attempt():
     perseus.deactivate_offline_mode()
     perseus.activate_offline_mode()
@@ -962,42 +966,6 @@ def test_adapter_requires_bound_machine_receipt(tmp_path):
     assert checked["reason"] == "adapter_operation_receipt_invalid"
 
 
-def test_child_offline_report_is_sanitized_and_not_authoritative(tmp_path):
-    bundle = tmp_path / "upgrade.json"
-    bundle.write_text("upgrade-v1", encoding="utf-8")
-    digest = harness._sha_bytes(bundle.read_bytes())
-    receipt = {
-        "schema_version": "perseus-disconnected-operation/v1",
-        "action": "upgrade",
-        "version": "v1",
-        "artifact_sha256": digest,
-        "query_sha256": harness._sha(""),
-        "result": "passed",
-        "persisted_state": {"path": "state.json", "sha256": harness._sha_bytes(b"persisted")},
-    }
-    forged_report = {
-        "active": True,
-        "policy": "deny_all_non_loopback",
-        "attempts": [{"operation": "SENSITIVE_MARKER", "destination": "SENSITIVE_MARKER", "outcome": "blocked"}],
-        "attempts_truncated": False,
-        "blocked_attempts": 1,
-        "allowed_local_attempts": 0,
-    }
-    code = (
-        "import json,os; "
-        f"open(os.environ['PERSEUS_OFFLINE_REPORT'], 'w').write({json.dumps(forged_report)!r}); "
-        f"print({json.dumps(receipt, sort_keys=True)!r}, flush=True); os._exit(0)"
-    )
-    checked = harness._check_bundle(
-        tmp_path,
-        {"path": "upgrade.json", "version": "v1", "sha256": digest, "command": [sys.executable, "-c", code]},
-        "upgrade",
-        execute=True,
-    )
-    assert checked["status"] == "blocked"
-    assert "SENSITIVE_MARKER" not in json.dumps(checked)
-
-
 def test_render_binds_execution_to_manifest_digest(tmp_path, monkeypatch):
     _enable_test_only_disk_guard(monkeypatch)
     state = tmp_path / "state"
@@ -1063,7 +1031,7 @@ def test_detached_descendant_cannot_escape_after_leader_exit(tmp_path):
     assert not marker.exists()
 
 
-def test_reparented_descendant_is_owned_by_linux_subreaper(monkeypatch):
+def test_reparented_descendant_without_independent_proof_is_unowned(monkeypatch):
     reparented_pid = 424243
     snapshot = {
         reparented_pid: {
@@ -1082,7 +1050,7 @@ def test_reparented_descendant_is_owned_by_linux_subreaper(monkeypatch):
         known,
         None,
     )
-    assert result[reparented_pid]["owned_by_reparented"] == 1
+    assert reparented_pid not in result
 
 
 def test_non_linux_cleanup_without_tree_primitive_fails_closed(monkeypatch):
@@ -1187,7 +1155,7 @@ def test_cleanup_refuses_pid_reuse_or_unverified_pgid_signal(monkeypatch):
     ) is False
 
 
-def test_owned_descendant_with_verified_start_time_can_change_pgid(monkeypatch):
+def test_owned_descendant_requires_current_ancestry_or_token_before_pgid_change(monkeypatch):
     calls = []
     monkeypatch.setattr(
         harness,
@@ -1201,7 +1169,28 @@ def test_owned_descendant_with_verified_start_time_can_change_pgid(monkeypatch):
         "start_time": 1,
         "owned_by_ancestry": 1,
     }
-    assert harness._signal_owned(identity, signal.SIGTERM, None, trusted_pgid=424242) is True
+    assert harness._signal_owned(identity, signal.SIGTERM, None, trusted_pgid=424242) is False
+    assert calls == []
+
+
+def test_owned_descendant_with_current_ancestry_can_change_pgid(monkeypatch):
+    calls = []
+    identities = {
+        424242: {"pid": 424242, "state": "S", "ppid": 424241, "pgid": 999, "start_time": 1},
+        424241: {"pid": 424241, "state": "S", "ppid": 1, "pgid": 424241, "start_time": 2},
+    }
+    monkeypatch.setattr(harness, "_process_identity", identities.get)
+    monkeypatch.setattr(harness.os, "kill", lambda pid, sig: calls.append((pid, sig)))
+    identity = {
+        "pid": 424242,
+        "pgid": 424242,
+        "start_time": 1,
+        "owned_by_ancestry": 1,
+        "ownership_root_pid": 424241,
+        "ownership_root_start_time": 2,
+    }
+    leader = {"pid": 424241, "start_time": 2}
+    assert harness._signal_owned(identity, signal.SIGTERM, None, trusted_pgid=424242, leader_identity=leader) is True
     assert calls == [(424242, signal.SIGTERM)]
 
 
@@ -1493,13 +1482,90 @@ def test_flow_commitment_binds_complete_publication_projection(tmp_path, monkeyp
     assert report["resource_contract"]["resource_observations_commitment"]
 
 
+def _recommit_report_for_test(report):
+    manifest_core = {
+        "fixture_id": report["fixture_id"],
+        "workload_digest": report["workload_digest"],
+        "artifacts": report["artifacts"],
+        "claims_ceiling": report["claims_ceiling"],
+        "upgrade": report["upgrade"],
+        "rollback": report["rollback"],
+    }
+    report["manifest_commitment"] = harness._sha(manifest_core)
+    report["report_commitment"] = harness._sha({key: report[key] for key in harness._REPORT_CORE_KEYS})
+    stable_flow = {key: harness._stable_projection(value) for key, value in report["flow"].items()}
+    stable_core = {key: report[key] for key in harness._REPORT_CORE_KEYS}
+    stable_core["flow_commitment"] = stable_flow
+    stable_core["flow_projection_commitment"] = harness._sha(stable_flow)
+    stable_core.pop("resource_envelope", None)
+    stable_resource = dict(harness._stable_projection(stable_core["resource_contract"]))
+    stable_resource.pop("resource_observations_commitment", None)
+    stable_core["resource_contract"] = stable_resource
+    report["stable_report_commitment"] = harness._sha(stable_core)
+    report["evidence_digest"] = harness._sha({
+        "manifest_commitment": report["manifest_commitment"],
+        "stable_report_commitment": report["stable_report_commitment"],
+        "workload_digest": report["workload_digest"],
+        "workload_query_digest": report["workload_query_digest"],
+        "artifacts": report["artifacts"],
+        "flow": harness._stable_projection(report["flow"]),
+        "backup_digest": report["flow"].get("backup_restore", {}).get("backup_digest"),
+        "network": harness._stable_projection(report["network"]),
+        "claims_ceiling": report["claims_ceiling"],
+        "claims": report["claims"],
+        "upgrade": harness._stable_projection(report["upgrade"]),
+        "rollback": harness._stable_projection(report["rollback"]),
+        "negative_results": report["negative_results"],
+    })
+
+
+def test_report_commitment_requires_fixture_binding(tmp_path):
+    report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
+    with pytest.raises(harness.AcceptanceError, match="expected fixture"):
+        harness._validate_report_commitments(report)
+
+
+def test_report_validator_requires_exact_network_flow_projection(tmp_path, monkeypatch):
+    _enable_test_only_disk_guard(monkeypatch)
+    report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
+    mutated = json.loads(json.dumps(report))
+    removable = next(
+        name for name, cell in mutated["flow"].items()
+        if isinstance(cell, dict) and cell.get("status") == "passed" and name in mutated["network"]["children"]
+    )
+    mutated["network"]["children"].pop(removable)
+    mutated["network"]["child_guards"].pop(removable)
+    mutated["network"]["child_attempts"] = [
+        attempt
+        for child in mutated["network"]["children"].values()
+        for attempt in child["attempts"]
+    ]
+    _recommit_report_for_test(mutated)
+    fixture = harness._load_fixture(ROOT / "benchmark" / "disconnected_acceptance" / "fixture.json")
+    with pytest.raises(harness.AcceptanceError, match="network child projection"):
+        harness._validate_report_commitments(mutated, expected_fixture=fixture)
+
+
+def test_report_validator_rejects_minimal_recommitted_passed_operation(tmp_path):
+    report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
+    mutated = json.loads(json.dumps(report))
+    mutated["upgrade"] = {"status": "passed", "checked": True}
+    for item in mutated["negative_results"]:
+        if item["cell"] == "upgrade":
+            item.update(status="passed", reason="operation_completed")
+    _recommit_report_for_test(mutated)
+    fixture = harness._load_fixture(ROOT / "benchmark" / "disconnected_acceptance" / "fixture.json")
+    with pytest.raises(harness.AcceptanceError, match="upgrade operation"):
+        harness._validate_report_commitments(mutated, expected_fixture=fixture)
+
+
 def test_report_validation_rejects_mutated_raw_flow(tmp_path):
     report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
     mutated = json.loads(json.dumps(report))
     original_status = mutated["flow"]["perseus_render"]["status"]
     mutated["flow"]["perseus_render"]["status"] = "passed" if original_status != "passed" else "failed"
     with pytest.raises(harness.AcceptanceError, match="flow commitment"):
-        harness._validate_report_commitments(mutated)
+        harness._validate_report_commitments(mutated, expected_fixture=_fixture())
 
 
 def test_report_validation_rejects_recommitted_raw_resource_mutation(tmp_path):
@@ -1514,7 +1580,7 @@ def test_report_validation_rejects_recommitted_raw_resource_mutation(tmp_path):
     }
     mutated["flow_projection_commitment"] = harness._sha(mutated["flow_commitment"])
     with pytest.raises(harness.AcceptanceError, match="commitment|resource|observations"):
-        harness._validate_report_commitments(mutated)
+        harness._validate_report_commitments(mutated, expected_fixture=_fixture())
 
 
 def test_report_validation_rejects_recommitted_semantic_resource_forgery(tmp_path):
@@ -1539,7 +1605,7 @@ def test_report_validation_rejects_recommitted_semantic_resource_forgery(tmp_pat
     )
     mutated["report_commitment"] = harness._sha({key: mutated[key] for key in report_core_keys})
     with pytest.raises(harness.AcceptanceError, match="resource|report"):
-        harness._validate_report_commitments(mutated)
+        harness._validate_report_commitments(mutated, expected_fixture=_fixture())
 
 
 def test_report_validation_rejects_recommitted_mutated_resource_limits(tmp_path):
@@ -1614,7 +1680,7 @@ def test_report_validation_rejects_recommitted_raw_network_attempt(tmp_path):
         for key in harness._REPORT_CORE_KEYS
     })
     with pytest.raises(harness.AcceptanceError, match="network"):
-        harness._validate_report_commitments(mutated)
+        harness._validate_report_commitments(mutated, expected_fixture=_fixture())
 
 
 def _valid_passed_network_for_test(*, attempts=None, probe_attempts=None, child_report=None, probe_blocked=True):
@@ -1861,7 +1927,7 @@ def test_report_validation_rejects_recommitted_status_contract_forgery(tmp_path)
     )
     mutated["report_commitment"] = harness._sha({key: mutated[key] for key in report_core_keys})
     with pytest.raises(harness.AcceptanceError, match="status|commitment|stable|evidence|zero exit|offline"):
-        harness._validate_report_commitments(mutated)
+        harness._validate_report_commitments(mutated, expected_fixture=_fixture())
 
 
 def test_report_validation_rejects_recommitted_aggregate_status_forgery(tmp_path):
@@ -1873,7 +1939,7 @@ def test_report_validation_rejects_recommitted_aggregate_status_forgery(tmp_path
         for key in harness._REPORT_CORE_KEYS
     })
     with pytest.raises(harness.AcceptanceError, match="aggregate status"):
-        harness._validate_report_commitments(mutated)
+        harness._validate_report_commitments(mutated, expected_fixture=_fixture())
 
 
 def test_public_projection_hashes_unknown_scalar_payload():
@@ -1916,43 +1982,6 @@ def test_fixture_rejects_unbounded_public_identifier(tmp_path):
     fixture_path.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(harness.AcceptanceError):
         harness._load_fixture(fixture_path)
-
-
-def test_legacy_file_protocol_cannot_forge_parent_offline_report(tmp_path):
-    runtime = tmp_path / "runtime.py"
-    runtime.write_text(
-        "def activate_offline_mode(): pass\n"
-        "def offline_network_report(): return {"
-        "'active': True, 'policy': 'deny_all_non_loopback', 'attempts': [], "
-        "'attempts_truncated': False, 'blocked_attempts': 0, "
-        "'allowed_local_attempts': 0}\n"
-        "def deactivate_offline_mode(): pass\n",
-        encoding="utf-8",
-    )
-    legacy_path = tmp_path / "legacy-report.json"
-    forged = {
-        "active": True,
-        "policy": "deny_all_non_loopback",
-        "attempts": [{"operation": "forged", "destination": "forged", "outcome": "blocked"}],
-        "attempts_truncated": False,
-        "blocked_attempts": 1,
-        "allowed_local_attempts": 0,
-    }
-    code = (
-        "import json,os; "
-        f"open({str(legacy_path)!r}, 'w').write(json.dumps({forged!r})); "
-        "os._exit(0)"
-    )
-    result = harness._run_bounded_child(
-        [sys.executable, "-c", code],
-        cwd=tmp_path,
-        timeout=5,
-        env={"PERSEUS_OFFLINE": "1", "PERSEUS_OFFLINE_RUNTIME": str(runtime)},
-        offline_required=True,
-    )
-    assert result["status"] == "blocked"
-    assert result["offline_report"] is None
-    assert "forged" not in json.dumps(result)
 
 
 def test_forged_pipe_report_cannot_become_authoritative(tmp_path):
@@ -2071,10 +2100,15 @@ def test_report_reader_deadline_handles_descendant_holding_write_fd():
         os.close(write_fd)
         os._exit(0)
     os.close(write_fd)
+    identity = harness._process_identity(child)
+    assert identity is not None
     started = time.monotonic()
     try:
         result = harness._read_offline_report(
             read_fd,
+            expected_token="0" * 32,
+            expected_pid=child,
+            expected_start_time=identity["start_time"],
             expected_report=harness._parent_derived_offline_report([sys.executable, "-c", "pass"]),
         )
         elapsed = time.monotonic() - started
@@ -2099,7 +2133,7 @@ def test_cleanup_does_not_signal_descendants_after_leader_pid_reuse(monkeypatch)
     baseline = {111: {"pid": 111, "state": "S", "ppid": 1, "pgid": 111, "start_time": 10}}
     unrelated = {"pid": 900, "state": "S", "ppid": 1, "pgid": 900, "start_time": 20, "owned_by_ancestry": 1}
 
-    def discover(_leader_pid, received_baseline, known, _run_token):
+    def discover(_leader_pid, received_baseline, known, _run_token, _token_fd=None):
         if received_baseline != baseline:
             known[unrelated["pid"]] = dict(unrelated)
         return known

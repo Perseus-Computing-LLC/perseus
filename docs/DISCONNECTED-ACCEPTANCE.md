@@ -47,17 +47,20 @@ pre-exec failures, missing telemetry, and cleanup failures block the child;
 The harness also:
 
 - owns a new session/process group, enables the Linux child subreaper, and records
-  PID, PGID, start time, ancestry, and a per-run ownership marker; reparented
-  descendants are collected even after a fast leader exit or environment clear;
+  PID, PGID, start time, and a per-run ownership proof. A descendant may be
+  signaled only while its current ancestry still reaches the recorded leader or
+  while it retains the inherited per-run token descriptor; a reparented-only or
+  PID-reused process is unowned and cleanup fails closed;
 - performs unconditional TERM-then-KILL cleanup even after successful leader
   exit, verifies identity/current PGID before each signal, reaps descendants,
   and surfaces any unverified or surviving process as a failure; non-Linux POSIX
   cleanup refuses to signal a process group without a creation-time identity
   primitive;
 - requires a bounded, parent-nonce-bound offline report for Python children. Each
-  report/completion frame carries the parent-generated nonce; reports are read
-  by the parent with no-follow, owner, size, item, and counter checks;
-  child overwrites and `os._exit` cannot forge an accepted report;
+  report/completion frame carries the parent-generated nonce; the parent checks
+  frame size, ordering, child PID/start time, report shape, and counters on the
+  inherited pipe. File-protocol and child-authored report bytes are not used as
+  authority; child overwrites and `os._exit` cannot forge an accepted report;
 - denies non-loopback traffic in the runtime policy. The inherited seccomp
   layer is intentionally stricter and denies network syscalls in bounded
   children, including loopback/Unix traffic; this conservative child boundary

@@ -1306,17 +1306,196 @@ def _validate_report_status(report: Mapping[str, Any], flow: Mapping[str, Any], 
         raise AcceptanceError("aggregate status does not match observed cells")
 
 
+def _validate_operation_receipt_fields(
+    receipt: Any,
+    *,
+    label: str,
+    bundle: Mapping[str, Any],
+    query: str,
+) -> dict[str, Any]:
+    if not isinstance(receipt, Mapping) or set(receipt) != _OPERATION_RECEIPT_KEYS:
+        raise AcceptanceError(f"{label} operation receipt is invalid")
+    if (
+        receipt.get("schema_version") != _OPERATION_SCHEMA
+        or receipt.get("action") != label
+        or receipt.get("version") != bundle.get("version")
+        or receipt.get("artifact_sha256") != str(bundle.get("sha256", "")).lower()
+        or receipt.get("query_sha256") != _sha(query)
+        or receipt.get("result") != "passed"
+    ):
+        raise AcceptanceError(f"{label} operation receipt is not bound")
+    persisted = receipt.get("persisted_state")
+    if not isinstance(persisted, Mapping) or set(persisted) != _PERSISTED_STATE_KEYS:
+        raise AcceptanceError(f"{label} persisted state receipt is invalid")
+    if (
+        persisted.get("path") != _OPERATION_STATE_PATH
+        or not isinstance(persisted.get("sha256"), str)
+        or not re.fullmatch(r"[0-9a-f]{64}", persisted["sha256"])
+    ):
+        raise AcceptanceError(f"{label} persisted state receipt is invalid")
+    return dict(receipt)
+
+
+def _validate_report_operation_semantics(
+    value: Any,
+    *,
+    label: str,
+    expected_bundle: Mapping[str, Any] | None,
+    query: str,
+    expected_resource_limits: Mapping[str, int],
+) -> None:
+    if not isinstance(value, Mapping):
+        raise AcceptanceError(f"{label} operation cell is invalid")
+    if expected_bundle is None:
+        if value != {"status": "not_run", "reason": f"{label}_bundle_undeclared", "checked": False}:
+            raise AcceptanceError(f"{label} operation is not fixture-bound")
+        return
+    try:
+        _validate_bundle_spec(expected_bundle, label)
+    except AcceptanceError:
+        raise AcceptanceError(f"{label} operation fixture is invalid") from None
+    status = value.get("status")
+    if status != "passed":
+        if status not in _ALLOWED_REPORT_STATUSES - {"passed"}:
+            raise AcceptanceError(f"{label} operation status is invalid")
+        if type(value.get("checked")) is not bool or value.get("checked") is True:
+            raise AcceptanceError(f"{label} negative operation is invalid")
+        reason = value.get("reason")
+        if not isinstance(reason, str) or not _REASON_CODE_RE.fullmatch(reason):
+            raise AcceptanceError(f"{label} negative operation reason is invalid")
+        return
+    required = {
+        "status", "checked", "version", "sha256", "operation_executed", "operation_exit_code",
+        "operation_output_truncated", "operation_child_cpu_seconds_observed",
+        "operation_child_peak_rss_mb_observed", "operation_resource_limits", "offline_sandbox",
+        "offline_report", "offline_guard", "aggregate_resource", "operation_artifact_sha256",
+        "operation_query_sha256", "operation_receipt", "operation_receipt_sha256",
+        "operation_receipt_persisted", "operation_persisted_state_sha256",
+    }
+    if set(value) != required:
+        raise AcceptanceError(f"{label} passed operation evidence is incomplete")
+    expected_digest = str(expected_bundle.get("sha256", "")).lower()
+    if (
+        type(value.get("checked")) is not bool
+        or value.get("checked") is not True
+        or value.get("version") != expected_bundle.get("version")
+        or value.get("sha256") != expected_digest
+        or value.get("operation_executed") is not True
+        or type(value.get("operation_exit_code")) is not int
+        or value.get("operation_exit_code") != 0
+        or type(value.get("operation_output_truncated")) is not bool
+        or value.get("operation_output_truncated") is not False
+        or value.get("offline_sandbox") != "seccomp"
+        or value.get("operation_resource_limits") != dict(expected_resource_limits)
+        or value.get("operation_artifact_sha256") != expected_digest
+        or value.get("operation_query_sha256") != _sha(query)
+        or value.get("operation_receipt_persisted") is not True
+    ):
+        raise AcceptanceError(f"{label} passed operation evidence is not bound")
+    for key in ("operation_child_cpu_seconds_observed", "operation_child_peak_rss_mb_observed"):
+        observed = value.get(key)
+        if type(observed) is bool or not isinstance(observed, (int, float)) or not math.isfinite(float(observed)) or observed < 0:
+            raise AcceptanceError(f"{label} operation resource evidence is invalid")
+    guard = value.get("offline_guard")
+    if (
+        not isinstance(guard, Mapping)
+        or set(guard) != {"enforced", "boundary", "report_present", "telemetry"}
+        or guard.get("enforced") is not True
+        or guard.get("boundary") != "seccomp"
+        or guard.get("report_present") is not True
+        or guard.get("telemetry") != "parent_derived"
+    ):
+        raise AcceptanceError(f"{label} operation offline guard is invalid")
+    report = value.get("offline_report")
+    if not isinstance(report, Mapping):
+        raise AcceptanceError(f"{label} operation report is invalid")
+    _validate_public_offline_report(report, label=f"{label} operation", require_active=True)
+    if report.get("attempts_truncated") is not False:
+        raise AcceptanceError(f"{label} operation report is incomplete")
+    aggregate = value.get("aggregate_resource")
+    if not isinstance(aggregate, Mapping) or set(aggregate) != {
+        "cpu_seconds_observed", "peak_rss_mb_observed", "disk_growth_bytes_observed", "status"
+    } or aggregate.get("status") != "within_limit":
+        raise AcceptanceError(f"{label} operation aggregate resource evidence is invalid")
+    for key in ("cpu_seconds_observed", "peak_rss_mb_observed", "disk_growth_bytes_observed"):
+        observed = aggregate.get(key)
+        if type(observed) is bool or not isinstance(observed, (int, float)) or not math.isfinite(float(observed)) or observed < 0:
+            raise AcceptanceError(f"{label} operation aggregate resource evidence is invalid")
+    receipt = _validate_operation_receipt_fields(
+        value.get("operation_receipt"), label=label, bundle=expected_bundle, query=query
+    )
+    if (
+        value.get("operation_receipt_sha256") != _sha(receipt)
+        or value.get("operation_persisted_state_sha256") != receipt["persisted_state"]["sha256"]
+    ):
+        raise AcceptanceError(f"{label} operation receipt commitment is invalid")
+
+
+def _expected_network_child_evidence(
+    flow: Mapping[str, Any],
+    upgrade: Mapping[str, Any],
+    rollback: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    reports: dict[str, Any] = {}
+    guards: dict[str, Any] = {}
+    sources: list[tuple[str, Any]] = list(flow.items()) + [("upgrade", upgrade), ("rollback", rollback)]
+    for name, cell in sources:
+        source = cell
+        if name == "backup_restore" and isinstance(cell, Mapping) and isinstance(cell.get("render"), Mapping):
+            source = cell["render"]
+        if not isinstance(source, Mapping):
+            continue
+        if isinstance(source.get("offline_report"), Mapping):
+            reports[name] = source["offline_report"]
+        if isinstance(source.get("offline_guard"), Mapping):
+            guards[name] = source["offline_guard"]
+    return reports, guards
+
+
+def _validate_report_network_projection(
+    network: Mapping[str, Any],
+    flow: Mapping[str, Any],
+    upgrade: Mapping[str, Any],
+    rollback: Mapping[str, Any],
+) -> None:
+    expected_reports, expected_guards = _expected_network_child_evidence(flow, upgrade, rollback)
+    if network.get("children") != expected_reports or network.get("child_guards") != expected_guards:
+        raise AcceptanceError("network child projection is not flow-bound")
+
+
 def _validate_report_commitments(
     report: Mapping[str, Any],
     *,
     expected_fixture: Mapping[str, Any] | None = None,
 ) -> None:
     """Recompute public flow evidence before a report is accepted or written."""
+    if not isinstance(expected_fixture, Mapping):
+        raise AcceptanceError("expected fixture is required for report validation")
     if not isinstance(report, Mapping) or not isinstance(report.get("flow"), Mapping):
         raise AcceptanceError("flow commitment is unavailable")
     flow = report["flow"]
     if any(not isinstance(value, Mapping) for value in flow.values()):
         raise AcceptanceError("flow commitment shape mismatch")
+    workload = expected_fixture.get("workload")
+    platform = expected_fixture.get("platform")
+    if not isinstance(workload, Mapping) or not isinstance(platform, Mapping):
+        raise AcceptanceError("expected fixture is invalid")
+    try:
+        restart_count = workload["restart_count"]
+        expected_flow_keys = {"workload_query", "perseus_render", "vault", "ledger", "backup_restore"}
+        expected_flow_keys.update(
+            {"restart_recovery"}
+            if restart_count == 0
+            else {f"restart_recovery_{index}" for index in range(1, restart_count + 1)}
+        )
+    except (KeyError, TypeError, ValueError):
+        raise AcceptanceError("expected fixture workload is invalid") from None
+    if set(flow) != expected_flow_keys:
+        raise AcceptanceError("flow commitment cell set is not fixture-bound")
+    if report.get("fixture_id") != expected_fixture.get("fixture_id"):
+        raise AcceptanceError("report fixture binding is invalid")
+    if report.get("workload_digest") != _sha(workload) or report.get("workload_query_digest") != _sha(workload.get("query")):
+        raise AcceptanceError("report workload binding is invalid")
     expected_projection = {
         key: _public_projection(value)
         for key, value in flow.items()
@@ -1327,10 +1506,30 @@ def _validate_report_commitments(
     if not isinstance(expected_digest, str) or expected_digest != _sha(expected_projection):
         raise AcceptanceError("flow commitment digest mismatch")
     _validate_report_flow_semantics(flow)
+    child_limits = {
+        "cpu_seconds": int(math.ceil(float(platform["resource_limits"]["cpu_seconds"]))),
+        "address_space_bytes": int(math.ceil(float(platform["resource_limits"]["memory_mb"]) * 1024 * 1024)),
+        "file_bytes": int(math.ceil(float(platform["resource_limits"]["disk_mb"]) * 1024 * 1024)),
+    }
+    _validate_report_operation_semantics(
+        report.get("upgrade"),
+        label="upgrade",
+        expected_bundle=workload.get("upgrade_bundle"),
+        query=workload["query"],
+        expected_resource_limits=child_limits,
+    )
+    _validate_report_operation_semantics(
+        report.get("rollback"),
+        label="rollback",
+        expected_bundle=workload.get("rollback_bundle"),
+        query=workload["query"],
+        expected_resource_limits=child_limits,
+    )
     network = report.get("network")
     if not isinstance(network, Mapping):
         raise AcceptanceError("network commitment is unavailable")
     _validate_report_network_semantics(network)
+    _validate_report_network_projection(network, flow, report["upgrade"], report["rollback"])
     _validate_report_claims(report, flow, network)
     _validate_report_negative_results(report, flow)
     manifest_core = {
@@ -1927,14 +2126,65 @@ def _process_snapshot() -> dict[int, dict[str, int]]:
     return result
 
 
-def _process_has_run_token(pid: int, token: str | None) -> bool:
+def _process_has_run_token(pid: int, token: str | None, token_fd: int | None = None) -> bool:
     if not isinstance(token, str) or not token or not sys.platform.startswith("linux"):
         return False
+    marker = f"PERSEUS_ACCEPTANCE_RUN_ID={token}".encode("ascii")
     try:
-        marker = f"PERSEUS_ACCEPTANCE_RUN_ID={token}".encode("ascii")
-        return marker in (Path("/proc") / str(int(pid)) / "environ").read_bytes()[: 64 * 1024].split(b"\0")
+        if marker in (Path("/proc") / str(int(pid)) / "environ").read_bytes()[: 64 * 1024].split(b"\0"):
+            return True
+    except (OSError, TypeError, ValueError):
+        pass
+    if type(token_fd) is not int or token_fd < 0:
+        return False
+    try:
+        inherited = (Path("/proc") / str(int(pid)) / "fd" / str(token_fd)).read_bytes()
+        return marker in inherited[: 256]
     except (OSError, TypeError, ValueError):
         return False
+
+
+def _current_ancestry_contains(pid: int, root_pid: int, root_start_time: int) -> bool:
+    """Prove a live PID remains below the recorded leader, without markers."""
+    if type(pid) is not int or type(root_pid) is not int or type(root_start_time) is not int:
+        return False
+    seen: set[int] = set()
+    current_pid = pid
+    for _ in range(256):
+        if current_pid in seen or current_pid <= 0:
+            return False
+        seen.add(current_pid)
+        current = _process_identity(current_pid)
+        if current is None:
+            return False
+        if current["pid"] == root_pid:
+            return current["start_time"] == root_start_time
+        parent_pid = current.get("ppid")
+        if type(parent_pid) is not int or parent_pid <= 0 or parent_pid == current_pid:
+            return False
+        current_pid = parent_pid
+    return False
+
+
+def _ownership_verified(
+    identity: Mapping[str, int],
+    *,
+    leader_identity: Mapping[str, int] | None,
+    run_token: str | None,
+    token_fd: int | None,
+) -> bool:
+    root_pid = identity.get("ownership_root_pid")
+    root_start_time = identity.get("ownership_root_start_time")
+    if isinstance(leader_identity, Mapping):
+        root_pid = leader_identity.get("pid")
+        root_start_time = leader_identity.get("start_time")
+    if (
+        type(root_pid) is int
+        and type(root_start_time) is int
+        and _current_ancestry_contains(identity["pid"], root_pid, root_start_time)
+    ):
+        return True
+    return _process_has_run_token(identity["pid"], run_token, token_fd)
 
 
 def _owned_processes(
@@ -1942,6 +2192,7 @@ def _owned_processes(
     baseline: Mapping[int, Mapping[str, int]],
     known: dict[int, dict[str, int]],
     run_token: str | None,
+    token_fd: int | None = None,
 ) -> dict[int, dict[str, int]]:
     """Collect new descendants, reparented subreaper children, or run-token processes."""
     snapshot = _process_snapshot()
@@ -1951,7 +2202,9 @@ def _owned_processes(
     reparented = {
         pid
         for pid, identity in snapshot.items()
-        if pid not in baseline and identity.get("ppid") == os.getpid()
+        if pid not in baseline
+        and identity.get("ppid") == os.getpid()
+        and _process_has_run_token(pid, run_token, token_fd)
     }
     pending = [leader_pid, *reparented]
     descendants: set[int] = set()
@@ -1966,12 +2219,16 @@ def _owned_processes(
         if identity is not None and pid not in baseline:
             owned = dict(identity)
             if pid in reparented:
-                owned["owned_by_reparented"] = 1
+                owned["owned_by_token"] = 1
             else:
                 owned["owned_by_ancestry"] = 1
+                leader = snapshot.get(leader_pid)
+                if isinstance(leader, Mapping):
+                    owned["ownership_root_pid"] = leader_pid
+                    owned["ownership_root_start_time"] = leader["start_time"]
             known[pid] = owned
     for pid, identity in snapshot.items():
-        if pid not in baseline and _process_has_run_token(pid, run_token):
+        if pid not in baseline and _process_has_run_token(pid, run_token, token_fd):
             owned = dict(known.get(pid, {}))
             owned.update(identity)
             owned["owned_by_token"] = 1
@@ -1979,7 +2236,13 @@ def _owned_processes(
     return known
 
 
-def _identity_alive(identity: Mapping[str, int], run_token: str | None) -> tuple[bool, bool]:
+def _identity_alive(
+    identity: Mapping[str, int],
+    run_token: str | None,
+    *,
+    leader_identity: Mapping[str, int] | None = None,
+    token_fd: int | None = None,
+) -> tuple[bool, bool]:
     """Return (alive, ownership_verified) for a PID/start-time boundary."""
     current = _process_identity(identity["pid"])
     if current is None:
@@ -1990,13 +2253,22 @@ def _identity_alive(identity: Mapping[str, int], run_token: str | None) -> tuple
         return False, True
     if current["state"] == "Z":
         return False, True
-    if identity.get("owned_by_ancestry") != 1 and identity.get("owned_by_reparented") != 1 and identity.get("owned_by_token") != 1 and run_token is not None and not _process_has_run_token(identity["pid"], run_token):
-        return True, False
-    return True, True
+    return True, _ownership_verified(
+        identity,
+        leader_identity=leader_identity,
+        run_token=run_token,
+        token_fd=token_fd,
+    )
 
 
 def _signal_owned(
-    identity: Mapping[str, int], sig: signal.Signals, run_token: str | None, trusted_pgid: int | None = None
+    identity: Mapping[str, int],
+    sig: signal.Signals,
+    run_token: str | None,
+    trusted_pgid: int | None = None,
+    *,
+    leader_identity: Mapping[str, int] | None = None,
+    token_fd: int | None = None,
 ) -> bool:
     current = _process_identity(identity["pid"])
     if current is None:
@@ -2005,13 +2277,12 @@ def _signal_owned(
         return True
     if current["state"] == "Z":
         return True
-    ownership_verified = any(
-        identity.get(key) == 1
-        for key in ("owned_by_ancestry", "owned_by_reparented", "owned_by_token")
-    )
-    if not ownership_verified and run_token is not None:
-        ownership_verified = _process_has_run_token(identity["pid"], run_token)
-    if not ownership_verified:
+    if not _ownership_verified(
+        identity,
+        leader_identity=leader_identity,
+        run_token=run_token,
+        token_fd=token_fd,
+    ):
         return False
     # The verified start time proves this is the same process even if it
     # created a new session or changed PGID after discovery.  Signal the PID
@@ -2032,6 +2303,7 @@ def _terminate_process_group(
     run_token: str | None,
     *,
     baseline: Mapping[int, Mapping[str, int]] | None = None,
+    token_fd: int | None = None,
 ) -> bool:
     """Terminate/reap only verified new processes and their current PGID."""
     if sys.platform.startswith("win") or os.name == "nt":
@@ -2057,7 +2329,7 @@ def _terminate_process_group(
             cleanup_ok = False
         return cleanup_ok
     for sig, wait_time in ((signal.SIGTERM, 0.25), (signal.SIGKILL, 1.0)):
-        _owned_processes(leader_pid, baseline_snapshot, known, run_token)
+        _owned_processes(leader_pid, baseline_snapshot, known, run_token, token_fd)
         group_pgid: int | None = None
         leader_verified = False
         if leader_identity is not None:
@@ -2072,7 +2344,7 @@ def _terminate_process_group(
             else:
                 leader_verified = True
                 group_pgid = current_leader["pgid"]
-                _owned_processes(leader_pid, baseline_snapshot, known, run_token)
+                _owned_processes(leader_pid, baseline_snapshot, known, run_token, token_fd)
         if group_pgid is not None and leader_verified:
             try:
                 os.killpg(group_pgid, sig)
@@ -2081,8 +2353,20 @@ def _terminate_process_group(
             except (PermissionError, OSError):
                 cleanup_ok = False
         for identity in list(known.values()):
-            if identity["pid"] != leader_pid and not _signal_owned(identity, sig, run_token, group_pgid):
-                alive, ownership = _identity_alive(identity, run_token)
+            if identity["pid"] != leader_pid and not _signal_owned(
+                identity,
+                sig,
+                run_token,
+                group_pgid,
+                leader_identity=leader_identity,
+                token_fd=token_fd,
+            ):
+                alive, ownership = _identity_alive(
+                    identity,
+                    run_token,
+                    leader_identity=leader_identity,
+                    token_fd=token_fd,
+                )
                 if alive and not ownership:
                     cleanup_ok = False
         try:
@@ -2097,21 +2381,32 @@ def _terminate_process_group(
             current_leader["start_time"] == leader_identity["start_time"]
             and current_leader["pgid"] == leader_identity["pgid"]
         ):
-            _owned_processes(leader_pid, baseline_snapshot, known, run_token)
+            _owned_processes(leader_pid, baseline_snapshot, known, run_token, token_fd)
         elif current_leader is None:
             # A Linux subreaper adopts detached descendants after the leader
             # exits; collect those reparented children before the final KILL.
-            _owned_processes(leader_pid, baseline_snapshot, known, run_token)
+            _owned_processes(leader_pid, baseline_snapshot, known, run_token, token_fd)
         elif current_leader is not None:
             cleanup_ok = False
     deadline = time.monotonic() + 1.0
     while time.monotonic() < deadline:
         alive_owned = []
         for identity in list(known.values()):
-            alive, ownership = _identity_alive(identity, run_token)
+            alive, ownership = _identity_alive(
+                identity,
+                run_token,
+                leader_identity=leader_identity,
+                token_fd=token_fd,
+            )
             if alive and ownership:
                 alive_owned.append(identity)
-                if not _signal_owned(identity, signal.SIGKILL, run_token):
+                if not _signal_owned(
+                    identity,
+                    signal.SIGKILL,
+                    run_token,
+                    leader_identity=leader_identity,
+                    token_fd=token_fd,
+                ):
                     cleanup_ok = False
             elif alive and not ownership:
                 cleanup_ok = False
@@ -2126,7 +2421,12 @@ def _terminate_process_group(
             break
         time.sleep(0.01)
     for identity in list(known.values()):
-        alive, ownership = _identity_alive(identity, run_token)
+        alive, ownership = _identity_alive(
+            identity,
+            run_token,
+            leader_identity=leader_identity,
+            token_fd=token_fd,
+        )
         if alive and ownership:
             cleanup_ok = False
         elif alive and not ownership:
@@ -2276,12 +2576,39 @@ def _run_bounded_child(
     child_env["PERSEUS_ACCEPTANCE_RUN_ID"] = run_token
     guard_dir: Path | None = None
     report_read_fd = report_write_fd = -1
+    token_fd = -1
+    if sys.platform.startswith("linux"):
+        try:
+            if hasattr(os, "memfd_create"):
+                token_fd = os.memfd_create(
+                    "perseus-acceptance-token",
+                    os.MFD_CLOEXEC if hasattr(os, "MFD_CLOEXEC") else 0,
+                )
+            else:
+                token_fd, token_path = tempfile.mkstemp(prefix=".perseus-token-", dir=str(cwd))
+                os.unlink(token_path)
+            os.write(token_fd, f"PERSEUS_ACCEPTANCE_RUN_ID={run_token}".encode("ascii"))
+            os.lseek(token_fd, 0, os.SEEK_SET)
+            os.set_inheritable(token_fd, True)
+            child_env["PERSEUS_ACCEPTANCE_TOKEN_FD"] = str(token_fd)
+        except (AttributeError, OSError, TypeError, ValueError):
+            if token_fd >= 0:
+                try:
+                    os.close(token_fd)
+                except OSError:
+                    pass
+            return _blocked_child_result(limits, reason="child_containment_unavailable")
     if require_offline:
         try:
             child_env, guard_dir, report_read_fd, report_write_fd = _prepare_offline_guard(
                 argv, Path(cwd), child_env, allowed_roots=write_roots
             )
         except (OSError, TypeError, ValueError, AcceptanceError):
+            if token_fd >= 0:
+                try:
+                    os.close(token_fd)
+                except OSError:
+                    pass
             return _blocked_child_result(limits, reason="offline_guard_unavailable")
     elif disk_sandbox_requested:
         if not _is_python_argv(argv):
@@ -2289,6 +2616,11 @@ def _run_bounded_child(
         try:
             child_env, guard_dir = _prepare_filesystem_guard(argv, Path(cwd), child_env, write_roots)
         except (OSError, TypeError, ValueError, AcceptanceError):
+            if token_fd >= 0:
+                try:
+                    os.close(token_fd)
+                except OSError:
+                    pass
             return _blocked_child_result(limits, reason="filesystem_sandbox_unavailable")
     kwargs: dict[str, Any] = {
         "cwd": str(cwd),
@@ -2302,16 +2634,20 @@ def _run_bounded_child(
         kwargs["start_new_session"] = True
         try:
             resource_limiter = _child_resource_limiter(limits)
+            pass_fds: list[int] = []
+            if token_fd >= 0:
+                pass_fds.append(token_fd)
             if require_offline:
                 guard_read_fd, guard_write_fd = os.pipe()
                 os.set_inheritable(guard_write_fd, True)
-                pass_fds = [guard_write_fd]
+                pass_fds.append(guard_write_fd)
                 if report_write_fd >= 0:
                     os.set_inheritable(report_write_fd, True)
                     pass_fds.append(report_write_fd)
+            if pass_fds:
                 kwargs["pass_fds"] = tuple(pass_fds)
         except (OSError, subprocess.SubprocessError, TypeError, ValueError, AcceptanceError):
-            for fd in (guard_read_fd, guard_write_fd, report_read_fd, report_write_fd):
+            for fd in (token_fd, guard_read_fd, guard_write_fd, report_read_fd, report_write_fd):
                 if fd >= 0:
                     try:
                         os.close(fd)
@@ -2338,7 +2674,7 @@ def _run_bounded_child(
         kwargs["preexec_fn"] = _child_setup
     subreaper_ready = _ensure_child_subreaper() if sys.platform.startswith("linux") else False
     if sys.platform.startswith("linux") and not subreaper_ready:
-        for fd in (guard_read_fd, guard_write_fd, report_read_fd, report_write_fd):
+        for fd in (token_fd, guard_read_fd, guard_write_fd, report_read_fd, report_write_fd):
             if fd >= 0:
                 try:
                     os.close(fd)
@@ -2357,7 +2693,7 @@ def _run_bounded_child(
     if disk_sandbox_requested and (
         filesystem_observation_failed or not _filesystem_observation_complete(before_filesystems)
     ):
-        for fd in (guard_read_fd, guard_write_fd, report_read_fd, report_write_fd):
+        for fd in (token_fd, guard_read_fd, guard_write_fd, report_read_fd, report_write_fd):
             if fd >= 0:
                 try:
                     os.close(fd)
@@ -2377,7 +2713,7 @@ def _run_bounded_child(
     try:
         process = subprocess.Popen(argv, **kwargs)
     except (OSError, subprocess.SubprocessError, ValueError):
-        for fd in (guard_read_fd, report_read_fd):
+        for fd in (token_fd, guard_read_fd, report_read_fd):
             if fd >= 0:
                 try:
                     os.close(fd)
@@ -2443,7 +2779,7 @@ def _run_bounded_child(
     try:
         while True:
             if subreaper_ready:
-                _owned_processes(process.pid, baseline, known, run_token)
+                _owned_processes(process.pid, baseline, known, run_token, token_fd)
             peak_rss_bytes = max(peak_rss_bytes, _read_process_peak_rss_bytes(process.pid))
             max_disk_growth = max(max_disk_growth, max(0, _monitor_size(monitor_roots) - before_disk))
             if not _observe_filesystem_growth():
@@ -2467,11 +2803,23 @@ def _run_bounded_child(
     finally:
         try:
             cleanup_ok = _terminate_process_group(
-                process, leader_identity, known, run_token, baseline=baseline
+                process,
+                leader_identity,
+                known,
+                run_token,
+                baseline=baseline,
+                token_fd=token_fd,
             )
             cleanup_failed = not cleanup_ok
         except (OSError, subprocess.SubprocessError, ValueError):
             cleanup_failed = True
+        finally:
+            if token_fd >= 0:
+                try:
+                    os.close(token_fd)
+                except OSError:
+                    cleanup_failed = True
+                token_fd = -1
     if process.returncode is None:
         try:
             process.wait(timeout=1.0)
@@ -2860,6 +3208,9 @@ def _check_bundle(
             "version": spec["version"],
             "sha256": actual,
             "operation_executed": False,
+            "operation_artifact_sha256": actual,
+            "operation_query_sha256": _sha(query_value),
+            "operation_resource_limits": _validate_child_limits(resource_limits),
         }
         if not execute:
             return result
@@ -2941,6 +3292,7 @@ def _check_bundle(
                     result.update({
                         "status": "passed",
                         "checked": True,
+                        "operation_receipt": receipt,
                         "operation_receipt_sha256": _sha(receipt),
                         "operation_receipt_persisted": True,
                         "operation_persisted_state_sha256": receipt["persisted_state"]["sha256"],
@@ -3571,16 +3923,32 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
     blocked = [item for item in network_probe["attempts"] if item["outcome"] == "blocked"]
     unexpected = [item for item in network_probe["attempts"] if item["outcome"] not in {"blocked", "allowed_local"}]
     child_reports = {
-        key: value["offline_report"]
+        key: (
+            value["render"]["offline_report"]
+            if key == "backup_restore" and isinstance(value.get("render"), Mapping)
+            else value["offline_report"]
+        )
         for key, value in flow.items()
-        if isinstance(value, Mapping) and isinstance(value.get("offline_report"), Mapping)
+        if isinstance(value, Mapping)
+        and (
+            isinstance(value.get("offline_report"), Mapping)
+            or (key == "backup_restore" and isinstance(value.get("render"), Mapping) and isinstance(value["render"].get("offline_report"), Mapping))
+        )
     }
     child_guards = {
-        key: value["offline_guard"]
+        key: (
+            value["render"]["offline_guard"]
+            if key == "backup_restore" and isinstance(value.get("render"), Mapping)
+            else value["offline_guard"]
+        )
         for key, value in flow.items()
-        if isinstance(value, Mapping) and isinstance(value.get("offline_guard"), Mapping)
+        if isinstance(value, Mapping)
+        and (
+            isinstance(value.get("offline_guard"), Mapping)
+            or (key == "backup_restore" and isinstance(value.get("render"), Mapping) and isinstance(value["render"].get("offline_guard"), Mapping))
+        )
     }
-    for key, value in (("upgrade", upgrade), ("rollback", rollback), ("probe", probe)):
+    for key, value in (("upgrade", upgrade), ("rollback", rollback)):
         if isinstance(value, Mapping) and isinstance(value.get("offline_report"), Mapping):
             child_reports[key] = value["offline_report"]
         if isinstance(value, Mapping) and isinstance(value.get("offline_guard"), Mapping):
