@@ -25,6 +25,8 @@ _SL_SCHEMA = "perseus-sbom/v1"
 _SL_LINEAGE_SCHEMA = "perseus-software-lineage/v1"
 _SL_QUERY_SCHEMA = "perseus-software-lineage-query/v1"
 _SL_FORMATS = frozenset({"SPDX", "CycloneDX"})
+_SL_SPDX_XML_NAMESPACE = "http://spdx.org/rdf/terms#"
+_SL_CDX_XML_NAMESPACES = frozenset(f"http://cyclonedx.org/schema/bom-{version}.xsd" for version in ("1.4", "1.5", "1.6"))
 _SL_SPDX_VERSIONS = frozenset({"2.2", "2.3"})
 _SL_CDX_VERSIONS = frozenset({"1.4", "1.5", "1.6"})
 _SL_CONFIDENCE = frozenset({"high", "medium", "low", "unknown"})
@@ -561,13 +563,20 @@ def _sl_validate_xml_discriminators(root: Any) -> None:
     families: set[str] = set()
     for element in root.iter():
         local = _sl_local(element).casefold()
-        namespace = str(getattr(element, "tag", "")).split("}", 1)[0].casefold()
-        if local in spdx_markers or "spdx.org" in namespace:
+        namespace = _sl_xml_namespace(element).casefold()
+        if local in spdx_markers or namespace == _SL_SPDX_XML_NAMESPACE:
             families.add("SPDX")
-        if local in cdx_markers or "cyclonedx.org" in namespace:
+        if local in cdx_markers or namespace in _SL_CDX_XML_NAMESPACES:
             families.add("CycloneDX")
     if len(families) > 1:
         raise SBOMLineageError("conflicting XML SBOM format markers")
+
+
+def _sl_validate_spdx_xml_namespace(root: Any) -> None:
+    for element in root.iter():
+        namespace = _sl_xml_namespace(element)
+        if namespace and namespace.casefold() != _SL_SPDX_XML_NAMESPACE:
+            raise SBOMLineageError("SPDX XML namespace is not authoritative")
 
 
 def _sl_xml_value(element: Any, *names: str, default: str = "") -> str:
@@ -1278,6 +1287,7 @@ def _sl_spdx_rdf_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str, 
 
 
 def _sl_spdx_xml(root: Any, raw_bytes: bytes, source_ref: str) -> dict[str, Any]:
+    _sl_validate_spdx_xml_namespace(root)
     version = _sl_validate_spdx_version(_sl_xml_text(root, "spdxVersion"))
     document_id = _sl_spdx_document_id(_sl_xml_text(root, "SPDXID"))
     creation = _sl_single_child(root, "creationInfo")

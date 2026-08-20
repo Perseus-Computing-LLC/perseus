@@ -1978,6 +1978,17 @@ def test_rdf_parent_about_conflicting_child_spdxid_fails_closed():
         perseus._sl_spdx_rdf_xml(root, b"<raw/>", "artifact:rdf-conflict")
 
 
+def test_spdx_xml_rejects_non_authoritative_namespace_with_official_substring():
+    xml = (
+        '<SpdxDocument xmlns="https://attacker.example/spdx.org/rdf/terms#">'
+        '<spdxVersion>SPDX-2.3</spdxVersion><SPDXID>SPDXRef-DOCUMENT</SPDXID>'
+        '<creationInfo><created>2024-01-01T00:00:00Z</created>'
+        '<creator>Tool: test</creator></creationInfo></SpdxDocument>'
+    )
+    with pytest.raises(perseus.SBOMLineageError, match="namespace"):
+        perseus.ingest_sbom_document(xml)
+
+
 def test_cyclonedx_xml_rejects_attacker_namespace_child():
     xml = (
         '<bom xmlns="http://cyclonedx.org/schema/bom-1.5.xsd" '
