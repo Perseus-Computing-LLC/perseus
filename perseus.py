@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.26"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "605246f"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "6109831-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -45886,21 +45886,38 @@ def _sl_validate_json_values(value: Any) -> None:
             stack.extend(current)
 
 
+def _sl_json_string_size(value: str) -> int:
+    size = 2
+    for index in range(str.__len__(value)):
+        codepoint = ord(str.__getitem__(value, index))
+        if codepoint in (0x22, 0x5C):
+            size += 2
+        elif codepoint <= 0x1F:
+            size += 2 if codepoint in (0x08, 0x09, 0x0A, 0x0C, 0x0D) else 6
+        elif 0x20 <= codepoint <= 0x7E:
+            size += 1
+        elif codepoint > 0xFFFF:
+            size += 12
+        else:
+            size += 6
+    return size
+
+
 def _sl_preflight_json_size(value: Any, *, total: int = 0, active: set[int] | None = None) -> int:
     """Reject obviously oversized JSON sources before the encoder copies them."""
     active = set() if active is None else active
     if isinstance(value, str):
-        total += str.__len__(value) + 2
+        total += _sl_json_string_size(value)
     elif isinstance(value, Mapping):
         marker = id(value)
         if marker in active:
             raise SBOMLineageError("SBOM JSON contains a cycle")
         active.add(marker)
         total += 2
-        for key, item in value.items():
+        for index, (key, item) in enumerate(value.items()):
             if not isinstance(key, str):
                 raise SBOMLineageError("SBOM JSON object keys must be strings")
-            total += str.__len__(key) + 3
+            total += (1 if index else 0) + _sl_json_string_size(key) + 1
             total = _sl_preflight_json_size(item, total=total, active=active)
             if total > _SL_MAX_INPUT_BYTES:
                 raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
@@ -45911,15 +45928,21 @@ def _sl_preflight_json_size(value: Any, *, total: int = 0, active: set[int] | No
             raise SBOMLineageError("SBOM JSON contains a cycle")
         active.add(marker)
         total += 2
-        for item in value:
+        for index, item in enumerate(value):
+            total += 1 if index else 0
             total = _sl_preflight_json_size(item, total=total, active=active)
             if total > _SL_MAX_INPUT_BYTES:
                 raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
         active.remove(marker)
-    elif value is None or isinstance(value, bool):
+    elif value is None:
         total += 4
+    elif isinstance(value, bool):
+        total += 4 if value else 5
     elif isinstance(value, (int, float)):
-        total += 1
+        try:
+            total += len(str(value))
+        except (ValueError, OverflowError):
+            raise SBOMLineageError("SBOM JSON number is invalid") from None
     if total > _SL_MAX_INPUT_BYTES:
         raise SBOMLineageError(f"SBOM input exceeds {_SL_MAX_INPUT_BYTES} bytes")
     return total

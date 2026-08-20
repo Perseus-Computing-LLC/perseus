@@ -1569,6 +1569,9 @@ def test_mapping_and_text_input_bounds_are_checked_before_serialization(monkeypa
     with pytest.raises(perseus.SBOMLineageError, match="bytes"):
         perseus._sl_payload({"bomFormat": "CycloneDX", "ignored": "x" * 32})
     assert called == []
+    with pytest.raises(perseus.SBOMLineageError, match="bytes"):
+        perseus._sl_payload({"x": "\\" * 8})
+    assert len(called) == 0
 
     class ExplodingText(str):
         def encode(self, *args, **kwargs):
