@@ -52,6 +52,7 @@ _OPERATION_RECEIPT_KEYS = frozenset({
     "schema_version", "action", "version", "artifact_sha256", "query_sha256", "result", "persisted_state",
 })
 _PERSISTED_STATE_KEYS = frozenset({"path", "sha256"})
+_OPERATION_STATE_PATH = "state.json"
 _CLAIMS_CEILING = {
     "local_offline_capable": "observed_only",
     "iron_bank_submitted": "not_claimed",
@@ -59,18 +60,29 @@ _CLAIMS_CEILING = {
     "customer_platform_deployable": "not_established",
     "ato_il5_il6": "not_claimed",
 }
+_REPORT_CORE_KEYS = (
+    "schema_version", "status", "fixture_id", "platform", "artifacts",
+    "flow_commitment", "flow_projection_commitment", "network", "resource_contract",
+    "resource_envelope", "upgrade", "rollback", "negative_results", "claims",
+    "claims_ceiling", "manifest_commitment", "workload_digest", "workload_query_digest",
+)
 _CHILD_LIMITS = {"cpu_seconds": 30, "address_space_bytes": 512 * 1024 * 1024, "file_bytes": 16 * 1024 * 1024}
 _MAX_CHILD_OUTPUT_BYTES = 64 * 1024
 _MAX_CHILD_ERROR_BYTES = 64 * 1024
 _MAX_PARENT_FILE_BYTES = 16 * 1024 * 1024
 _MAX_PARENT_TOTAL_BYTES = 64 * 1024 * 1024
 _MAX_OFFLINE_REPORT_BYTES = 64 * 1024
+_MAX_REPORT_BYTES = 4 * 1024 * 1024
 _OFFLINE_REPORT_READ_TIMEOUT_SECONDS = 0.5
 _MAX_OFFLINE_ATTEMPTS = 256
 _MAX_FIXTURE_CPU_SECONDS = 300
 _MAX_FIXTURE_MEMORY_MB = 4096
 _MAX_FIXTURE_DISK_MB = 4096
 _MAX_FIXTURE_RESTART_COUNT = 32
+_MAX_FIXTURE_BYTES = 1024 * 1024
+_MAX_FIXTURE_ID_BYTES = 128
+_MAX_FIXTURE_TEXT_BYTES = 4096
+_MAX_FIXTURE_PATH_BYTES = 512
 _REASON_CODE_RE = re.compile(r"^[a-z][a-z0-9_]{0,95}$")
 _ALLOWED_PROBE_OUTCOMES = frozenset({"blocked", "allowed_local"})
 _OFFLINE_SECCOMP_SYSCALLS = (
@@ -544,18 +556,32 @@ def _validate_disk_limit(value: Any) -> int:
 
 def _load_fixture(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"), parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise AcceptanceError(f"fixture could not be loaded: {exc}") from exc
+        raw = path.read_bytes()
+        if len(raw) > _MAX_FIXTURE_BYTES:
+            raise AcceptanceError("fixture_too_large")
+        value = json.loads(raw.decode("utf-8"), parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
+    except AcceptanceError:
+        raise
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        raise AcceptanceError("fixture_load_failed") from None
     if not isinstance(value, Mapping) or set(value) != _REQUIRED_FIXTURE_KEYS or value.get("schema_version") != _SCHEMA:
         raise AcceptanceError("fixture shape or schema is invalid")
     fixture_id = value.get("fixture_id")
-    if not isinstance(fixture_id, str) or not fixture_id.strip():
-        raise AcceptanceError("fixture_id must be a non-empty string")
+    if (
+        not isinstance(fixture_id, str)
+        or not fixture_id.strip()
+        or len(fixture_id.encode("utf-8")) > _MAX_FIXTURE_ID_BYTES
+    ):
+        raise AcceptanceError("fixture_id must be a bounded non-empty string")
     platform = value.get("platform")
     if not isinstance(platform, Mapping) or set(platform) != _PLATFORM_KEYS:
         raise AcceptanceError("fixture platform shape is invalid")
-    if not all(isinstance(platform.get(key), str) and platform[key].strip() for key in ("os", "python")) or platform.get("network_policy") != "deny_all":
+    if not all(
+        isinstance(platform.get(key), str)
+        and platform[key].strip()
+        and len(platform[key].encode("utf-8")) <= _MAX_FIXTURE_TEXT_BYTES
+        for key in ("os", "python")
+    ) or platform.get("network_policy") != "deny_all":
         raise AcceptanceError("fixture must declare deny_all network policy")
     limits = platform.get("resource_limits")
     if not isinstance(limits, Mapping) or set(limits) != _RESOURCE_LIMIT_KEYS:
@@ -571,7 +597,14 @@ def _load_fixture(path: Path) -> dict[str, Any]:
     workload = value.get("workload")
     if not isinstance(workload, Mapping) or set(workload) != _WORKLOAD_KEYS:
         raise AcceptanceError("fixture workload shape is invalid")
-    if not isinstance(workload.get("source"), str) or not workload["source"].strip() or not isinstance(workload.get("query"), str) or not workload["query"].strip():
+    if (
+        not isinstance(workload.get("source"), str)
+        or not workload["source"].strip()
+        or len(workload["source"].encode("utf-8")) > _MAX_FIXTURE_TEXT_BYTES
+        or not isinstance(workload.get("query"), str)
+        or not workload["query"].strip()
+        or len(workload["query"].encode("utf-8")) > _MAX_FIXTURE_TEXT_BYTES
+    ):
         raise AcceptanceError("fixture workload source and query are required")
     if (
         type(workload.get("restart_count")) is not int
@@ -592,20 +625,39 @@ def _load_fixture(path: Path) -> dict[str, Any]:
     for artifact in artifacts:
         if not isinstance(artifact, Mapping) or not {"name", "path", "required", "sbom"}.issubset(set(artifact)) or set(artifact) - _ARTIFACT_KEYS:
             raise AcceptanceError("artifact manifest entries are invalid")
-        if not isinstance(artifact.get("name"), str) or not artifact["name"].strip() or artifact["name"] in names:
+        if (
+            not isinstance(artifact.get("name"), str)
+            or not artifact["name"].strip()
+            or len(artifact["name"].encode("utf-8")) > _MAX_FIXTURE_TEXT_BYTES
+            or artifact["name"] in names
+        ):
             raise AcceptanceError("artifact names must be unique non-empty strings")
         if not isinstance(artifact.get("path"), str) or not artifact["path"].strip():
             raise AcceptanceError("artifact path must be a string")
         rel = Path(artifact["path"])
-        if not rel.parts or rel == Path(".") or rel.is_absolute() or ".." in rel.parts or str(rel) in paths:
+        if (
+            len(artifact["path"].encode("utf-8")) > _MAX_FIXTURE_PATH_BYTES
+            or not rel.parts
+            or rel == Path(".")
+            or rel.is_absolute()
+            or ".." in rel.parts
+            or str(rel) in paths
+        ):
             raise AcceptanceError("artifact paths must be safe and unique")
         if not isinstance(artifact.get("required", False), bool):
             raise AcceptanceError("artifact required must be boolean")
-        if artifact.get("sbom") is not None and not isinstance(artifact.get("sbom"), str):
-            raise AcceptanceError("artifact sbom path must be a string or null")
+        if artifact.get("sbom") is not None and (
+            not isinstance(artifact.get("sbom"), str)
+            or len(artifact["sbom"].encode("utf-8")) > _MAX_FIXTURE_PATH_BYTES
+        ):
+            raise AcceptanceError("artifact sbom path must be a bounded string or null")
         if "command" in artifact:
             _validate_command(artifact["command"], f"{artifact['name']} adapter")
-        if "version" in artifact and (not isinstance(artifact["version"], str) or not artifact["version"].strip()):
+        if "version" in artifact and (
+            not isinstance(artifact["version"], str)
+            or not artifact["version"].strip()
+            or len(artifact["version"].encode("utf-8")) > _MAX_FIXTURE_TEXT_BYTES
+        ):
             raise AcceptanceError("artifact version must be a non-empty string")
         names.add(artifact["name"])
         paths.add(str(rel))
@@ -810,6 +862,206 @@ def _public_projection(value: Any, *, key: str | None = None) -> Any:
     return _public_scalar(value, key)
 
 
+def _validate_report_resource_semantics(
+    resource_contract: Mapping[str, Any],
+    resource_envelope: Mapping[str, Any],
+    flow: Mapping[str, Any],
+) -> None:
+    limits = resource_contract.get("limits")
+    if not isinstance(limits, Mapping):
+        raise AcceptanceError("resource limits are unavailable")
+    try:
+        ceilings = {
+            "cpu_seconds_observed": float(limits["cpu_seconds"]),
+            "peak_rss_mb_observed": float(limits["memory_mb"]),
+            "disk_growth_bytes_observed": float(limits["disk_mb"]) * 1024 * 1024,
+        }
+    except (KeyError, OverflowError, TypeError, ValueError):
+        raise AcceptanceError("resource limits are invalid") from None
+    if any(not math.isfinite(value) or value <= 0 for value in ceilings.values()):
+        raise AcceptanceError("resource limits are invalid")
+
+    def check_mapping(value: Mapping[str, Any], *, prefix: str) -> None:
+        for key, ceiling in ceilings.items():
+            if key not in value:
+                continue
+            observed = value[key]
+            try:
+                valid = (
+                    type(observed) is not bool
+                    and isinstance(observed, (int, float))
+                    and math.isfinite(float(observed))
+                    and 0 <= float(observed) <= ceiling
+                )
+            except (OverflowError, TypeError, ValueError):
+                valid = False
+            if not valid:
+                raise AcceptanceError(f"{prefix}{key} exceeds resource ceiling")
+
+    check_mapping(resource_envelope, prefix="resource envelope ")
+    aggregate = resource_envelope.get("aggregate_children")
+    if isinstance(aggregate, Mapping):
+        check_mapping(aggregate, prefix="aggregate resource ")
+    elif aggregate is not None:
+        raise AcceptanceError("aggregate resource envelope is invalid")
+    for name, cell in flow.items():
+        if not isinstance(cell, Mapping):
+            raise AcceptanceError("flow resource envelope is invalid")
+        check_mapping(cell, prefix=f"flow {name} ")
+
+
+_ALLOWED_REPORT_STATUSES = frozenset({
+    "passed", "failed", "blocked", "unavailable", "not_run", "timeout", "resource_limit", "partial",
+})
+
+
+def _validate_report_flow_semantics(flow: Mapping[str, Any]) -> None:
+    for name, cell in flow.items():
+        if not isinstance(cell, Mapping):
+            raise AcceptanceError("flow commitment shape mismatch")
+        status = cell.get("status")
+        if not isinstance(status, str) or status not in _ALLOWED_REPORT_STATUSES:
+            raise AcceptanceError(f"flow {name} status is invalid")
+        if status == "passed":
+            if name != "backup_restore" and (type(cell.get("exit_code")) is not int or cell.get("exit_code") != 0):
+                raise AcceptanceError(f"flow {name} passed without zero exit")
+            if any(cell.get(key) is True for key in ("output_truncated", "stderr_truncated", "cleanup_failed")):
+                raise AcceptanceError(f"flow {name} passed with incomplete evidence")
+            guard = cell.get("offline_guard")
+            if guard is not None:
+                if not isinstance(guard, Mapping):
+                    raise AcceptanceError(f"flow {name} offline guard is invalid")
+                if (
+                    guard.get("enforced") is not True
+                    or guard.get("boundary") != "seccomp"
+                    or guard.get("report_present") is not True
+                    or guard.get("telemetry") != "parent_derived"
+                ):
+                    raise AcceptanceError(f"flow {name} passed without enforced offline guard")
+            if name == "backup_restore" and (
+                cell.get("digest_match") is not True
+                or cell.get("post_digest_match") is not True
+                or not isinstance(cell.get("render"), Mapping)
+                or cell["render"].get("status") != "passed"
+                or cell["render"].get("exit_code") != 0
+            ):
+                raise AcceptanceError("backup restore passed without bound render")
+        else:
+            reason = cell.get("reason")
+            if not isinstance(reason, str) or not _REASON_CODE_RE.fullmatch(reason):
+                raise AcceptanceError(f"flow {name} negative result has no bounded reason")
+
+
+def _validate_report_network_semantics(network: Mapping[str, Any]) -> None:
+    status = network.get("status")
+    if not isinstance(status, str) or status not in _ALLOWED_REPORT_STATUSES:
+        raise AcceptanceError("network status is invalid")
+    if status != "passed":
+        return
+    if network.get("attempts_truncated") is not False or not isinstance(network.get("attempts"), list):
+        raise AcceptanceError("network passed with incomplete attempts")
+    if network.get("unexpected_attempts") not in ([], None):
+        raise AcceptanceError("network passed with unexpected attempts")
+    probe = network.get("child_probe")
+    if not isinstance(probe, Mapping) or probe.get("status") != "passed" or probe.get("exit_code") != 0:
+        raise AcceptanceError("network passed without a successful probe")
+    guards = network.get("child_guards")
+    reports = network.get("children")
+    if not isinstance(guards, Mapping) or not guards or not isinstance(reports, Mapping) or not reports:
+        raise AcceptanceError("network passed without child evidence")
+    if any(
+        not isinstance(guard, Mapping)
+        or guard.get("enforced") is not True
+        or guard.get("boundary") != "seccomp"
+        or guard.get("report_present") is not True
+        or guard.get("telemetry") != "parent_derived"
+        for guard in guards.values()
+    ):
+        raise AcceptanceError("network passed without enforced child guards")
+    if any(not isinstance(report, Mapping) or report.get("active") is not True or report.get("attempts_truncated") is not False for report in reports.values()):
+        raise AcceptanceError("network passed with invalid child reports")
+
+
+def _validate_report_claims(report: Mapping[str, Any], flow: Mapping[str, Any], network: Mapping[str, Any]) -> None:
+    if report.get("claims_ceiling") != _CLAIMS_CEILING:
+        raise AcceptanceError("claims ceiling mismatch")
+    claims = report.get("claims")
+    if not isinstance(claims, Mapping) or set(claims) != set(_CLAIMS_CEILING):
+        raise AcceptanceError("claims shape mismatch")
+    platform = report.get("platform")
+    render = flow.get("perseus_render")
+    local_state = (
+        isinstance(platform, Mapping)
+        and platform.get("status") == "passed"
+        and isinstance(render, Mapping)
+        and render.get("status") == "passed"
+        and network.get("status") == "passed"
+    )
+    expected = dict(_CLAIMS_CEILING)
+    expected["local_offline_capable"] = "observed" if local_state else "not_established"
+    if dict(claims) != expected:
+        raise AcceptanceError("claims do not match observed semantic state")
+
+
+def _validate_report_negative_results(report: Mapping[str, Any], flow: Mapping[str, Any]) -> None:
+    values = report.get("negative_results")
+    if not isinstance(values, list) or len(values) != 4:
+        raise AcceptanceError("negative-results envelope is invalid")
+    sources = {
+        "vault": flow.get("vault"),
+        "ledger": flow.get("ledger"),
+        "upgrade": report.get("upgrade"),
+        "rollback": report.get("rollback"),
+    }
+    seen: set[str] = set()
+    for item in values:
+        if not isinstance(item, Mapping) or set(item) != {"cell", "status", "reason"}:
+            raise AcceptanceError("negative-results entry is invalid")
+        cell = item.get("cell")
+        if not isinstance(cell, str) or cell in seen:
+            raise AcceptanceError("negative-results binding is invalid")
+        source = sources.get(cell)
+        if not isinstance(source, Mapping):
+            raise AcceptanceError("negative-results binding is invalid")
+        if item.get("status") != source.get("status") or item.get("reason") != _negative_result_reason(source):
+            raise AcceptanceError("negative-results binding mismatch")
+        seen.add(cell)
+    if seen != set(sources):
+        raise AcceptanceError("negative-results coverage is incomplete")
+
+
+def _validate_report_status(report: Mapping[str, Any], flow: Mapping[str, Any], network: Mapping[str, Any]) -> None:
+    platform = report.get("platform")
+    if not isinstance(platform, Mapping):
+        raise AcceptanceError("platform status is unavailable")
+    sources = [value for value in flow.values() if isinstance(value, Mapping)] + [network]
+    for name in ("upgrade", "rollback"):
+        value = report.get(name)
+        if not isinstance(value, Mapping):
+            raise AcceptanceError("aggregate status source is unavailable")
+        sources.append(value)
+    unavailable = [
+        value for value in sources
+        if value.get("status") == "unavailable" or value.get("reason") in _UNAVAILABLE_REASONS
+    ]
+    hard_failures = [
+        value for value in sources
+        if value.get("status") in {"failed", "blocked"} and value not in unavailable
+    ]
+    negative_results = report.get("negative_results")
+    if not isinstance(negative_results, list):
+        raise AcceptanceError("aggregate negative results are unavailable")
+    expected_status = (
+        "failed"
+        if platform.get("status") != "passed" or hard_failures
+        else "partial"
+        if unavailable or any(item.get("status") in {"unavailable", "not_run"} for item in negative_results if isinstance(item, Mapping))
+        else "passed"
+    )
+    if report.get("status") != expected_status:
+        raise AcceptanceError("aggregate status does not match observed cells")
+
+
 def _validate_report_commitments(report: Mapping[str, Any]) -> None:
     """Recompute public flow evidence before a report is accepted or written."""
     if not isinstance(report, Mapping) or not isinstance(report.get("flow"), Mapping):
@@ -826,27 +1078,71 @@ def _validate_report_commitments(report: Mapping[str, Any]) -> None:
     expected_digest = report.get("flow_projection_commitment")
     if not isinstance(expected_digest, str) or expected_digest != _sha(expected_projection):
         raise AcceptanceError("flow commitment digest mismatch")
+    _validate_report_flow_semantics(flow)
+    network = report.get("network")
+    if not isinstance(network, Mapping):
+        raise AcceptanceError("network commitment is unavailable")
+    _validate_report_network_semantics(network)
+    _validate_report_status(report, flow, network)
+    _validate_report_claims(report, flow, network)
+    _validate_report_negative_results(report, flow)
+    manifest_core = {
+        "fixture_id": report.get("fixture_id"),
+        "workload_digest": report.get("workload_digest"),
+        "artifacts": report.get("artifacts"),
+        "claims_ceiling": report.get("claims_ceiling"),
+        "upgrade": report.get("upgrade"),
+        "rollback": report.get("rollback"),
+    }
+    if report.get("manifest_commitment") != _sha(manifest_core):
+        raise AcceptanceError("manifest commitment mismatch")
     resource_contract = report.get("resource_contract")
     resource_envelope = report.get("resource_envelope")
     if not isinstance(resource_contract, Mapping) or not isinstance(resource_envelope, Mapping):
         raise AcceptanceError("resource commitment is unavailable")
+    _validate_report_resource_semantics(resource_contract, resource_envelope, flow)
     expected_resource_commitment = _sha({
         "resource_envelope": resource_envelope,
         "flow": expected_projection,
     })
     if resource_contract.get("resource_observations_commitment") != expected_resource_commitment:
         raise AcceptanceError("resource commitment mismatch")
-    report_core_keys = (
-        "schema_version", "status", "fixture_id", "platform", "artifacts",
-        "flow_commitment", "flow_projection_commitment", "network", "resource_contract",
-        "resource_envelope", "upgrade", "rollback", "negative_results", "claims",
-        "manifest_commitment", "workload_digest", "workload_query_digest",
-    )
-    if any(key not in report for key in report_core_keys):
+    if any(key not in report for key in _REPORT_CORE_KEYS):
         raise AcceptanceError("report commitment is unavailable")
-    expected_report_commitment = _sha({key: report[key] for key in report_core_keys})
+    expected_report_commitment = _sha({key: report[key] for key in _REPORT_CORE_KEYS})
     if report.get("report_commitment") != expected_report_commitment:
         raise AcceptanceError("report commitment mismatch")
+    stable_flow_commitment = {key: _stable_projection(value) for key, value in expected_projection.items()}
+    stable_report_core = {key: report[key] for key in _REPORT_CORE_KEYS}
+    stable_report_core["flow_commitment"] = stable_flow_commitment
+    stable_report_core["flow_projection_commitment"] = _sha(stable_flow_commitment)
+    stable_report_core.pop("resource_envelope", None)
+    stable_resource_contract = _stable_projection(stable_report_core["resource_contract"])
+    if not isinstance(stable_resource_contract, Mapping):
+        raise AcceptanceError("stable resource commitment is invalid")
+    stable_resource_contract = dict(stable_resource_contract)
+    stable_resource_contract.pop("resource_observations_commitment", None)
+    stable_report_core["resource_contract"] = stable_resource_contract
+    expected_stable_report_commitment = _sha(stable_report_core)
+    if report.get("stable_report_commitment") != expected_stable_report_commitment:
+        raise AcceptanceError("stable report commitment mismatch")
+    expected_evidence_digest = _sha({
+        "manifest_commitment": report.get("manifest_commitment"),
+        "stable_report_commitment": expected_stable_report_commitment,
+        "workload_digest": report.get("workload_digest"),
+        "workload_query_digest": report.get("workload_query_digest"),
+        "artifacts": report.get("artifacts"),
+        "flow": _stable_projection(expected_projection),
+        "backup_digest": flow.get("backup_restore", {}).get("backup_digest"),
+        "network": _stable_projection(network),
+        "claims_ceiling": report.get("claims_ceiling"),
+        "claims": report.get("claims"),
+        "upgrade": _stable_projection(report.get("upgrade")),
+        "rollback": _stable_projection(report.get("rollback")),
+        "negative_results": report.get("negative_results"),
+    })
+    if report.get("evidence_digest") != expected_evidence_digest:
+        raise AcceptanceError("evidence digest mismatch")
 
 
 def _bounded_reader(stream: Any, limit: int, result: dict[str, Any], key: str) -> None:
@@ -882,9 +1178,9 @@ def _validate_child_timeout(timeout: Any) -> float:
 def _monitor_size(roots: tuple[Path, ...] | list[Path] | None) -> int:
     if not roots:
         return 0
+    candidates = {Path(raw).resolve() for raw in roots}
     unique: list[Path] = []
-    for raw in roots:
-        root = Path(raw).resolve()
+    for root in sorted(candidates, key=lambda path: (len(path.parts), str(path))):
         if any(root == existing or existing in root.parents for existing in unique):
             continue
         unique.append(root)
@@ -1173,7 +1469,7 @@ def _prepare_offline_guard(
             "        _value = _module.offline_network_report()\n"
             "        _module.deactivate_offline_mode()\n"
             "        if _write_frame('report', _value):\n"
-            "            _write_frame('complete', {})\n"
+            "            _write_frame('complete', {'pid': os.getpid(), 'start_time': _start_time(), 'sandbox_violation': _sandbox_violation})\n"
             "    except BaseException:\n"
             "        pass\n"
             "atexit.register(_finish)\n",
@@ -1211,11 +1507,14 @@ def _read_offline_report(
     is constructed by the parent from the declared command; absent that
     binding this boundary fails closed.
     """
-    del expected_token, expected_pid, expected_start_time
     if (
         type(report_fd) is not int
         or report_fd < 0
         or not isinstance(expected_report, Mapping)
+        or type(expected_pid) is not int
+        or expected_pid <= 0
+        or type(expected_start_time) is not int
+        or expected_start_time < 0
     ):
         return None
     try:
@@ -1259,7 +1558,15 @@ def _read_offline_report(
     if len(frames) != 2 or frames[0].get("kind") != "report" or frames[1].get("kind") != "complete":
         return None
     completion = frames[1].get("value")
-    if not isinstance(completion, Mapping) or set(completion):
+    if (
+        not isinstance(completion, Mapping)
+        or set(completion) != {"pid", "start_time", "sandbox_violation"}
+        or type(completion.get("pid")) is not int
+        or completion.get("pid") != expected_pid
+        or type(completion.get("start_time")) is not int
+        or completion.get("start_time") != expected_start_time
+        or completion.get("sandbox_violation") is not False
+    ):
         return None
     value = frames[0].get("value")
     required = {"active", "policy", "attempts", "attempts_truncated", "blocked_attempts", "allowed_local_attempts"}
@@ -1453,24 +1760,37 @@ def _terminate_process_group(
 ) -> bool:
     """Terminate/reap only verified new processes and their current PGID."""
     if sys.platform.startswith("win") or os.name == "nt":
-        if leader_identity is None or leader_identity.get("pid") != process.pid:
+        # No verified Windows job-object/creation-time identity is available;
+        # never issue PID-only taskkill against a potentially reused PID.
+        return False
+    if os.name == "posix" and not sys.platform.startswith("linux"):
+        if (
+            leader_identity is None
+            or leader_identity.get("pid") != process.pid
+            or leader_identity.get("pgid") != process.pid
+        ):
             return False
+        cleanup_ok = True
         try:
-            result = subprocess.run(
-                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                capture_output=True,
-                timeout=1.0,
-                check=False,
-            )
-            if result.returncode != 0:
-                return False
-            process.wait(timeout=1.0)
-            return process.poll() is not None
-        except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired, ValueError):
-            return False
+            for sig, wait_time in ((signal.SIGTERM, 0.25), (signal.SIGKILL, 1.0)):
+                try:
+                    os.killpg(process.pid, sig)
+                except ProcessLookupError:
+                    pass
+                except (PermissionError, OSError):
+                    cleanup_ok = False
+                try:
+                    process.wait(timeout=wait_time)
+                except subprocess.TimeoutExpired:
+                    pass
+                except (OSError, subprocess.SubprocessError):
+                    cleanup_ok = False
+            if process.poll() is None:
+                cleanup_ok = False
+        except (AttributeError, TypeError, ValueError):
+            cleanup_ok = False
+        return cleanup_ok
     if not sys.platform.startswith("linux"):
-        # No verified descendant/tree-kill primitive is implemented on other
-        # platforms; leader-only termination must never be reported as clean.
         return False
     cleanup_ok = leader_identity is not None
     leader_pid = process.pid
@@ -1572,6 +1892,23 @@ _SUBREAPER_UNAVAILABLE = object()
 _subreaper_state: bool | object | None = None
 
 
+def _install_parent_death_signal(expected_parent_pid: int) -> None:
+    """Make every forked descendant die when its bounded leader exits."""
+    if not sys.platform.startswith("linux"):
+        return
+    import ctypes
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    prctl = libc.prctl
+    prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]
+    prctl.restype = ctypes.c_int
+    if prctl(1, signal.SIGKILL, 0, 0, 0) != 0:  # PR_SET_PDEATHSIG
+        error_no = ctypes.get_errno()
+        raise OSError(error_no, "parent-death signal unavailable")
+    if os.getppid() != expected_parent_pid:
+        os.kill(os.getpid(), signal.SIGKILL)
+
+
 def _ensure_child_subreaper() -> bool:
     """Make orphaned descendants observable so detached sessions fail closed."""
     global _subreaper_state
@@ -1642,6 +1979,7 @@ def _run_bounded_child(
     resource_limits: Mapping[str, int] | None = None,
     monitor_dir: Path | None = None,
     monitor_dirs: tuple[Path, ...] | list[Path] | None = None,
+    allowed_write_dirs: tuple[Path, ...] | list[Path] | None = None,
     disk_limit_bytes: int | None = None,
     offline_required: bool | None = None,
     aggregate_budget: _AggregateResourceBudget | None = None,
@@ -1661,6 +1999,7 @@ def _run_bounded_child(
             result["aggregate_resource"] = aggregate_budget.report()
             return result
     monitor_roots = tuple(monitor_dirs or (() if monitor_dir is None else (monitor_dir,))) + (Path(cwd),)
+    write_roots = (Path(cwd),) + tuple(allowed_write_dirs or ())
     offline_requested = env.get("PERSEUS_OFFLINE") == "1"
     if offline_required is not None and type(offline_required) is not bool:
         raise AcceptanceError("offline_policy_invalid")
@@ -1682,7 +2021,7 @@ def _run_bounded_child(
     if require_offline:
         try:
             child_env, guard_dir, report_read_fd, report_write_fd = _prepare_offline_guard(
-                argv, Path(cwd), child_env, allowed_roots=monitor_roots
+                argv, Path(cwd), child_env, allowed_roots=write_roots
             )
         except (OSError, TypeError, ValueError, AcceptanceError):
             return _blocked_child_result(limits, reason="offline_guard_unavailable")
@@ -1690,7 +2029,7 @@ def _run_bounded_child(
         if not _is_python_argv(argv):
             return _blocked_child_result(limits, reason="filesystem_sandbox_unavailable")
         try:
-            child_env, guard_dir = _prepare_filesystem_guard(argv, Path(cwd), child_env, monitor_roots)
+            child_env, guard_dir = _prepare_filesystem_guard(argv, Path(cwd), child_env, write_roots)
         except (OSError, TypeError, ValueError, AcceptanceError):
             return _blocked_child_result(limits, reason="filesystem_sandbox_unavailable")
     kwargs: dict[str, Any] = {
@@ -1724,14 +2063,19 @@ def _run_bounded_child(
             reason = "child_resource_limit" if cleanup_ok else "child_cleanup_failed"
             return _blocked_child_result(limits, reason=reason, cleanup_failed=not cleanup_ok)
 
+        expected_parent_pid = os.getpid()
+
         def _child_setup() -> None:
+            if sys.platform.startswith("linux"):
+                _install_parent_death_signal(expected_parent_pid)
             if resource_limiter is not None:
                 resource_limiter()
             if disk_sandbox_requested and landlock_available:
-                _install_landlock_write_sandbox(monitor_roots)
+                _install_landlock_write_sandbox(write_roots)
             if require_offline:
                 _install_offline_seccomp()
                 os.write(guard_write_fd, b"1")
+                os.close(guard_write_fd)
 
         kwargs["preexec_fn"] = _child_setup
     subreaper_ready = _ensure_child_subreaper() if sys.platform.startswith("linux") else False
@@ -1914,15 +2258,24 @@ def _run_bounded_child(
     if status == "passed" and (child_cpu > limits["cpu_seconds"] or child_rss > limits["address_space_bytes"] / (1024 * 1024)):
         status = "resource_limit"
     offline_report = None
+    expected_offline_report_sanitized = None
+    if isinstance(expected_offline_report, Mapping):
+        try:
+            expected_offline_report_sanitized = _sanitize_offline_report(expected_offline_report)
+        except (KeyError, TypeError, ValueError):
+            expected_offline_report_sanitized = None
     if report_read_fd >= 0:
         try:
             expected_start_time = leader_identity.get("start_time") if isinstance(leader_identity, Mapping) else None
-            offline_report = _read_offline_report(
+            observed_offline_report = _read_offline_report(
                 report_read_fd,
                 expected_pid=process.pid,
                 expected_start_time=expected_start_time,
                 expected_report=expected_offline_report,
             )
+            if observed_offline_report is not None and expected_offline_report_sanitized is not None:
+                if observed_offline_report == expected_offline_report_sanitized:
+                    offline_report = expected_offline_report_sanitized
         finally:
             try:
                 os.close(report_read_fd)
@@ -1985,7 +2338,7 @@ def _run_bounded_child(
             "enforced": bool(require_offline and guard_verified),
             "boundary": "seccomp" if require_offline and guard_verified else None,
             "report_present": offline_report is not None,
-            "telemetry": "parent_owned" if offline_report is not None else "unavailable",
+            "telemetry": "parent_derived" if offline_report is not None else "unavailable",
         },
         "cleanup_failed": cleanup_failed,
     }
@@ -2136,6 +2489,7 @@ def _parse_operation_receipt(
         or state_rel.is_absolute()
         or ".." in state_rel.parts
         or ".perseus-immutable" in state_rel.parts
+        or normalized_state_path != _OPERATION_STATE_PATH
         or not isinstance(state_digest, str)
         or not re.fullmatch(r"[0-9a-f]{64}", state_digest)
         or not isinstance(operation_baseline, Mapping)
@@ -2438,6 +2792,7 @@ def _run_render(
             env=env,
             resource_limits=limits,
             monitor_dirs=(workspace, state_dir, repo_root),
+            allowed_write_dirs=(state_dir,),
             disk_limit_bytes=limits["file_bytes"],
             offline_required=True,
             aggregate_budget=aggregate_budget,
@@ -3076,6 +3431,7 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
         "rollback": rollback,
         "negative_results": negative_results,
         "claims": claims,
+        "claims_ceiling": fixture["claims_ceiling"],
         "manifest_commitment": manifest_commitment,
         "workload_digest": workload_digest,
         "workload_query_digest": workload_query_digest,
@@ -3117,8 +3473,15 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
     }
     _validate_report_commitments(report)
     manifest = {**manifest_core, "manifest_commitment": manifest_commitment, "report_commitment": report_commitment, "stable_report_commitment": stable_report_commitment}
-    (out / "manifest.json").write_text(_json(manifest) + "\n", encoding="utf-8")
-    (out / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    try:
+        manifest_bytes = (_json(manifest) + "\n").encode("utf-8")
+        report_bytes = (json.dumps(report, indent=2, sort_keys=True, ensure_ascii=True, allow_nan=False) + "\n").encode("utf-8")
+    except (TypeError, ValueError, OverflowError):
+        raise AcceptanceError("report_serialization_failed") from None
+    if len(manifest_bytes) > _MAX_REPORT_BYTES or len(report_bytes) > _MAX_REPORT_BYTES:
+        raise AcceptanceError("report_too_large")
+    (out / "manifest.json").write_bytes(manifest_bytes)
+    (out / "report.json").write_bytes(report_bytes)
     if temp_context is not None:
         # Keep the return value useful while avoiding a temp-directory path in
         # public evidence. The caller receives the report, not host paths.
@@ -3184,7 +3547,7 @@ def main(argv: list[str] | None = None) -> int:
         report = run_acceptance(args.repo, fixture_path=args.fixture, output_dir=args.output)
     except (OSError, TypeError, ValueError, KeyError, IndexError, StopIteration, subprocess.SubprocessError, AcceptanceError) as exc:
         text = str(exc)
-        if text.startswith("fixture could not be loaded"):
+        if text in {"fixture_load_failed", "fixture_too_large"}:
             code = "fixture_load_failed"
         elif "offline" in text and "guard" in text:
             code = "offline_guard_unavailable"

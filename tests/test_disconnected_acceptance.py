@@ -539,7 +539,6 @@ def test_immutable_staged_file_is_owner_read_only_and_digest_bound(tmp_path):
 
 def test_declared_bundle_requires_and_executes_digest_bound_operation(tmp_path):
     bundle = tmp_path / "upgrade.json"
-    marker = tmp_path / "executed"
     (tmp_path / "perseus.py").write_bytes((ROOT / "perseus.py").read_bytes())
     bundle.write_text("upgrade-v1", encoding="utf-8")
     digest = harness._sha_bytes(bundle.read_bytes())
@@ -552,7 +551,7 @@ def test_declared_bundle_requires_and_executes_digest_bound_operation(tmp_path):
         "result": "passed",
         "persisted_state": {"path": "state.json", "sha256": harness._sha_bytes(b"persisted")},
     }
-    command = [sys.executable, "-c", f"open({str(marker)!r}, 'w').write('ok'); open('state.json', 'wb').write(b'persisted'); print({json.dumps(receipt, sort_keys=True)!r})"]
+    command = [sys.executable, "-c", f"open('state.json', 'wb').write(b'persisted'); print({json.dumps(receipt, sort_keys=True)!r})"]
     spec = {
         "path": "upgrade.json",
         "version": "v1",
@@ -562,7 +561,7 @@ def test_declared_bundle_requires_and_executes_digest_bound_operation(tmp_path):
     checked = harness._check_bundle(tmp_path, spec, "upgrade", execute=True)
     assert checked["status"] == "passed"
     assert checked["operation_executed"] is True
-    assert marker.read_text() == "ok"
+    assert checked["operation_receipt_persisted"] is True
 
 
 def test_bundle_without_operation_cannot_report_passed(tmp_path):
@@ -733,6 +732,36 @@ def test_operation_receipt_must_bind_action_version_digest_query_and_persistence
     receipt["version"] = "v2"
     bad_command = [sys.executable, "-c", f"print({json.dumps(receipt, sort_keys=True)!r})"]
     checked = harness._check_bundle(tmp_path, {**spec, "command": bad_command}, "upgrade", execute=True, query=query)
+    assert checked["status"] == "blocked"
+    assert checked["reason"] == "upgrade_operation_receipt_invalid"
+
+
+def test_receipt_rejects_arbitrary_decoy_state_file(tmp_path):
+    (tmp_path / "perseus.py").write_bytes((ROOT / "perseus.py").read_bytes())
+    bundle = tmp_path / "upgrade.json"
+    bundle.write_text("upgrade-v1", encoding="utf-8")
+    artifact_digest = harness._sha_bytes(bundle.read_bytes())
+    state_digest = harness._sha_bytes(b"decoy-state")
+    receipt = {
+        "schema_version": "perseus-disconnected-operation/v1",
+        "action": "upgrade",
+        "version": "v1",
+        "artifact_sha256": artifact_digest,
+        "query_sha256": harness._sha(""),
+        "result": "passed",
+        "persisted_state": {"path": "decoy.json", "sha256": state_digest},
+    }
+    command = [
+        sys.executable,
+        "-c",
+        f"open('decoy.json', 'wb').write(b'decoy-state'); print({json.dumps(receipt, sort_keys=True)!r})",
+    ]
+    checked = harness._check_bundle(
+        tmp_path,
+        {"path": "upgrade.json", "version": "v1", "sha256": artifact_digest, "command": command},
+        "upgrade",
+        execute=True,
+    )
     assert checked["status"] == "blocked"
     assert checked["reason"] == "upgrade_operation_receipt_invalid"
 
@@ -976,6 +1005,29 @@ def test_successful_detached_descendant_closing_pipes_is_reaped(tmp_path):
     assert not marker.exists()
 
 
+def test_detached_descendant_cannot_escape_after_leader_exit(tmp_path):
+    if os.name != "posix" or not sys.platform.startswith("linux"):
+        pytest.skip("Linux process-death containment is required")
+    marker = tmp_path / "detached-descendant-leaked"
+    grandchild = (
+        "import os,pathlib,time; os.setsid(); os.environ.clear(); "
+        f"time.sleep(0.8); pathlib.Path({str(marker)!r}).write_text('leaked')"
+    )
+    parent = (
+        "import os,subprocess,sys; "
+        f"subprocess.Popen([sys.executable, '-c', {grandchild!r}]); os._exit(0)"
+    )
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", parent],
+        cwd=tmp_path,
+        timeout=2.0,
+        env=dict(os.environ),
+    )
+    assert result["status"] == "passed"
+    time.sleep(1.0)
+    assert not marker.exists()
+
+
 def test_non_linux_cleanup_without_tree_primitive_fails_closed(monkeypatch):
     class FakeProcess:
         pid = 424242
@@ -997,7 +1049,7 @@ def test_non_linux_cleanup_without_tree_primitive_fails_closed(monkeypatch):
     ) is False
 
 
-def test_windows_cleanup_uses_owned_taskkill_tree(monkeypatch):
+def test_windows_cleanup_fails_closed_without_job_object(monkeypatch):
     calls = []
 
     class FakeProcess:
@@ -1023,8 +1075,37 @@ def test_windows_cleanup_uses_owned_taskkill_tree(monkeypatch):
         {"pid": 424242, "start_time": 424242},
         {},
         "run-token",
+    ) is False
+    assert calls == []
+
+
+def test_non_linux_posix_cleanup_kills_owned_process_group(monkeypatch):
+    calls = []
+
+    class FakeProcess:
+        pid = 424242
+        returncode = None
+
+        def wait(self, timeout=None):
+            self.returncode = 0
+            return 0
+
+        def poll(self):
+            return self.returncode
+
+    def fake_killpg(pgid, sig):
+        calls.append((pgid, sig))
+
+    monkeypatch.setattr(harness.os, "name", "posix")
+    monkeypatch.setattr(harness.sys, "platform", "darwin")
+    monkeypatch.setattr(harness.os, "killpg", fake_killpg)
+    assert harness._terminate_process_group(
+        FakeProcess(),
+        {"pid": 424242, "pgid": 424242, "start_time": 424242},
+        {},
+        "run-token",
     ) is True
-    assert calls and calls[0][0] == ["taskkill", "/PID", "424242", "/T", "/F"]
+    assert [pgid for pgid, _sig in calls] == [424242, 424242]
 
 
 def test_cleanup_refuses_pid_reuse_or_unverified_pgid_signal(monkeypatch):
@@ -1163,6 +1244,16 @@ def test_new_filesystem_device_blocks_aggregate_observation(tmp_path, monkeypatc
     assert result["reason"] == "filesystem_observation_unavailable"
 
 
+def test_monitor_size_is_order_independent_for_nested_roots(tmp_path):
+    parent = tmp_path / "parent"
+    child = parent / "child"
+    child.mkdir(parents=True)
+    (child / "payload").write_bytes(b"x" * 800)
+    parent_first = harness._monitor_size((parent, child))
+    child_first = harness._monitor_size((child, parent))
+    assert child_first == parent_first
+
+
 def test_aggregate_resource_budget_charges_persistent_child_workspace_growth(tmp_path, monkeypatch):
     _enable_test_only_disk_guard(monkeypatch)
     budget = harness._AggregateResourceBudget((tmp_path,), cpu_seconds=30, memory_mb=512, disk_bytes=1024)
@@ -1248,7 +1339,8 @@ def test_adapter_runtime_bytes_cannot_be_mutated_during_execution(tmp_path):
         monitor_dir=tmp_path / "out",
     )
     assert checked["status"] == "blocked"
-    assert checked["reason"] == "adapter_artifact_changed_during_operation"
+    assert checked["reason"] == "adapter_operation_failed"
+    assert checked["runtime_post_sha256"] == harness._sha_bytes((ROOT / "perseus.py").read_bytes())
 
 
 def test_adapter_runtime_must_match_initial_manifest_digest(tmp_path):
@@ -1345,7 +1437,76 @@ def test_report_validation_rejects_recommitted_raw_resource_mutation(tmp_path):
         if isinstance(value, dict)
     }
     mutated["flow_projection_commitment"] = harness._sha(mutated["flow_commitment"])
-    with pytest.raises(harness.AcceptanceError, match="commitment"):
+    with pytest.raises(harness.AcceptanceError, match="commitment|resource"):
+        harness._validate_report_commitments(mutated)
+
+
+def test_report_validation_rejects_recommitted_semantic_resource_forgery(tmp_path):
+    report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
+    mutated = json.loads(json.dumps(report))
+    mutated["resource_envelope"]["cpu_seconds_observed"] = 999999.0
+    flow_projection = {
+        key: harness._public_projection(value)
+        for key, value in mutated["flow"].items()
+    }
+    mutated["flow_commitment"] = flow_projection
+    mutated["flow_projection_commitment"] = harness._sha(flow_projection)
+    mutated["resource_contract"]["resource_observations_commitment"] = harness._sha({
+        "resource_envelope": mutated["resource_envelope"],
+        "flow": flow_projection,
+    })
+    report_core_keys = (
+        "schema_version", "status", "fixture_id", "platform", "artifacts",
+        "flow_commitment", "flow_projection_commitment", "network", "resource_contract",
+        "resource_envelope", "upgrade", "rollback", "negative_results", "claims",
+        "manifest_commitment", "workload_digest", "workload_query_digest",
+    )
+    mutated["report_commitment"] = harness._sha({key: mutated[key] for key in report_core_keys})
+    with pytest.raises(harness.AcceptanceError, match="resource|report"):
+        harness._validate_report_commitments(mutated)
+
+
+def test_report_validation_rejects_recommitted_status_contract_forgery(tmp_path):
+    report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
+    mutated = json.loads(json.dumps(report))
+    mutated["flow"]["perseus_render"]["status"] = "passed"
+    mutated["flow"]["perseus_render"]["exit_code"] = 7
+    mutated["flow"]["perseus_render"]["offline_guard"] = {
+        "enforced": False,
+        "boundary": None,
+        "report_present": False,
+        "telemetry": "unavailable",
+    }
+    flow_projection = {
+        key: harness._public_projection(value)
+        for key, value in mutated["flow"].items()
+    }
+    mutated["flow_commitment"] = flow_projection
+    mutated["flow_projection_commitment"] = harness._sha(flow_projection)
+    mutated["resource_contract"]["resource_observations_commitment"] = harness._sha({
+        "resource_envelope": mutated["resource_envelope"],
+        "flow": flow_projection,
+    })
+    report_core_keys = (
+        "schema_version", "status", "fixture_id", "platform", "artifacts",
+        "flow_commitment", "flow_projection_commitment", "network", "resource_contract",
+        "resource_envelope", "upgrade", "rollback", "negative_results", "claims",
+        "manifest_commitment", "workload_digest", "workload_query_digest",
+    )
+    mutated["report_commitment"] = harness._sha({key: mutated[key] for key in report_core_keys})
+    with pytest.raises(harness.AcceptanceError, match="status|commitment|stable|evidence|zero exit"):
+        harness._validate_report_commitments(mutated)
+
+
+def test_report_validation_rejects_recommitted_aggregate_status_forgery(tmp_path):
+    report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
+    mutated = json.loads(json.dumps(report))
+    mutated["status"] = "failed" if report["status"] != "failed" else "passed"
+    mutated["report_commitment"] = harness._sha({
+        key: mutated[key]
+        for key in harness._REPORT_CORE_KEYS
+    })
+    with pytest.raises(harness.AcceptanceError, match="aggregate status"):
         harness._validate_report_commitments(mutated)
 
 
@@ -1371,6 +1532,24 @@ def test_public_fixture_errors_are_bounded_and_private(tmp_path, capsys):
     assert str(tmp_path) not in output
     assert "No such file" not in output
     assert "fixture_load_failed" in output
+
+
+def test_library_fixture_load_errors_are_bounded(tmp_path):
+    missing = tmp_path / "private-customer-token.json"
+    with pytest.raises(harness.AcceptanceError) as exc_info:
+        harness._load_fixture(missing)
+    text = str(exc_info.value)
+    assert str(tmp_path) not in text
+    assert "No such file" not in text
+
+
+def test_fixture_rejects_unbounded_public_identifier(tmp_path):
+    data = json.loads((ROOT / "benchmark" / "disconnected_acceptance" / "fixture.json").read_text())
+    data["fixture_id"] = "X" * 10000
+    fixture_path = tmp_path / "oversized-fixture.json"
+    fixture_path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(harness.AcceptanceError):
+        harness._load_fixture(fixture_path)
 
 
 def test_child_cannot_forge_parent_offline_report_from_sitecustomize(tmp_path):
@@ -1444,6 +1623,41 @@ def test_forged_pipe_report_cannot_become_authoritative(tmp_path):
     assert result["status"] == "blocked"
     assert result.get("reason") == "offline_report_invalid"
     assert "SENSITIVE_MARKER" not in json.dumps(result)
+
+
+def test_offline_reader_output_is_not_authoritative(tmp_path, monkeypatch):
+    runtime = tmp_path / "runtime.py"
+    runtime.write_text(
+        "def activate_offline_mode(): pass\n"
+        "def offline_network_report(): return {"
+        "'active': True, 'policy': 'deny_all_non_loopback', 'attempts': [], "
+        "'attempts_truncated': False, 'blocked_attempts': 0, "
+        "'allowed_local_attempts': 0}\n"
+        "def deactivate_offline_mode(): pass\n",
+        encoding="utf-8",
+    )
+    forged = {
+        "active": True,
+        "policy": "deny_all_non_loopback",
+        "attempts": [{"operation": "SENSITIVE_READER", "destination": "SENSITIVE_READER", "outcome": "blocked"}],
+        "attempts_truncated": False,
+        "blocked_attempts": 1,
+        "allowed_local_attempts": 0,
+    }
+    monkeypatch.setattr(harness, "_read_offline_report", lambda *args, **kwargs: forged)
+    argv = [sys.executable, "-c", "print('ok')"]
+    result = harness._run_bounded_child(
+        argv,
+        cwd=tmp_path,
+        timeout=5,
+        env={"PERSEUS_OFFLINE": "1", "PERSEUS_OFFLINE_RUNTIME": str(runtime)},
+        offline_required=True,
+    )
+    expected = harness._sanitize_offline_report(harness._parent_derived_offline_report(argv))
+    assert result["status"] == "blocked"
+    assert result["offline_report"] is None
+    assert result["offline_report"] != expected
+    assert "SENSITIVE_READER" not in json.dumps(result)
 
 
 def test_report_reader_deadline_handles_descendant_holding_write_fd():
@@ -1552,6 +1766,27 @@ def test_landlock_unavailable_blocks_native_ctypes_write(tmp_path, monkeypatch):
     assert result["status"] == "blocked"
     assert result["reason"] == "filesystem_sandbox_unavailable"
     assert not escaped.exists()
+
+
+def test_observation_root_is_not_a_child_write_root(tmp_path, monkeypatch):
+    _enable_test_only_disk_guard(monkeypatch)
+    workspace = tmp_path / "workspace"
+    observed_repo = tmp_path / "observed-repo"
+    workspace.mkdir()
+    observed_repo.mkdir()
+    target = observed_repo / "claims.json"
+    code = f"open({str(target)!r}, 'wb').write(b'forged')"
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", code],
+        cwd=workspace,
+        timeout=5,
+        env=dict(os.environ),
+        monitor_dirs=(workspace, observed_repo),
+        disk_limit_bytes=1024,
+    )
+    assert result["status"] == "blocked"
+    assert result["reason"] == "filesystem_sandbox_unavailable"
+    assert not target.exists()
 
 
 def test_filesystem_guard_validates_link_destination(tmp_path):
@@ -1681,13 +1916,11 @@ def test_staged_argv_rejects_unbound_script_path(tmp_path):
 def test_operation_command_executes_staged_bundle_path(tmp_path):
     runtime = tmp_path / "perseus.py"
     runtime.write_bytes((ROOT / "perseus.py").read_bytes())
-    marker = tmp_path / "execution-origin.txt"
     bundle = tmp_path / "upgrade.py"
     bundle.write_text(
         "import json, os, pathlib\n"
-        f"pathlib.Path({str(marker)!r}).write_text('staged' if '.perseus-immutable' in __file__ else 'unstaged')\n"
-        "pathlib.Path('state.json').write_bytes(b'persisted')\n"
-        "print(json.dumps({'schema_version': 'perseus-disconnected-operation/v1', 'action': 'upgrade', 'version': 'v1', 'artifact_sha256': os.environ['PERSEUS_BUNDLE_SHA256'], 'query_sha256': '" + harness._sha("") + "', 'result': 'passed', 'persisted_state': {'path': 'state.json', 'sha256': '" + harness._sha_bytes(b"persisted") + "'}}, sort_keys=True))\n",
+        "pathlib.Path('state.json').write_bytes(b'staged' if '.perseus-immutable' in __file__ else b'unstaged')\n"
+        "print(json.dumps({'schema_version': 'perseus-disconnected-operation/v1', 'action': 'upgrade', 'version': 'v1', 'artifact_sha256': os.environ['PERSEUS_BUNDLE_SHA256'], 'query_sha256': '" + harness._sha("") + "', 'result': 'passed', 'persisted_state': {'path': 'state.json', 'sha256': '" + harness._sha_bytes(b"staged") + "'}}, sort_keys=True))\n",
         encoding="utf-8",
     )
     digest = harness._sha_bytes(bundle.read_bytes())
@@ -1698,7 +1931,7 @@ def test_operation_command_executes_staged_bundle_path(tmp_path):
         execute=True,
     )
     assert checked["status"] == "passed"
-    assert marker.read_text(encoding="utf-8") == "staged"
+    assert checked["operation_persisted_state_sha256"] == harness._sha_bytes(b"staged")
 
 
 def test_offline_guard_pipe_setup_failure_cleans_guard_dir(tmp_path, monkeypatch):
