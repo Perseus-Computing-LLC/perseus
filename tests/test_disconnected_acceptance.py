@@ -767,6 +767,83 @@ def test_broker_scope_rejects_missing_peer_identity_before_setup(tmp_path, monke
         )
 
 
+def test_broker_partial_scope_is_removed_before_root_fd_close(tmp_path, monkeypatch):
+    root = tmp_path / "delegated"
+    root.mkdir()
+    (root / "cgroup.procs").write_text("", encoding="ascii")
+    root_fd = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    monkeypatch.setattr(broker, "_open_private_directory", lambda _path: os.dup(root_fd))
+    monkeypatch.setattr(broker, "_peer_identity_matches", lambda *_args: True)
+    try:
+        with pytest.raises(OSError):
+            broker._create_scope(
+                root,
+                4242,
+                "b" * 32,
+                peer_start_time=1,
+                peer_pidfd=-1,
+            )
+        assert not [path for path in root.iterdir() if path.is_dir()]
+    finally:
+        os.close(root_fd)
+
+
+def test_broker_scope_cleanup_failure_is_reported(monkeypatch, tmp_path):
+    cleanup_error = getattr(broker, "_BrokerCleanupError", OSError)
+    identities = iter((True, False))
+    monkeypatch.setattr(broker, "_peer_identity_matches", lambda *_args: next(identities))
+    monkeypatch.setattr(broker, "_open_private_directory", lambda _path: 10)
+    monkeypatch.setattr(broker.os, "dup", lambda _fd: 11)
+    monkeypatch.setattr(broker, "_open_at", lambda *_args: 12)
+    monkeypatch.setattr(broker.os, "mkdir", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(broker.os, "fchmod", lambda *_args: None)
+    monkeypatch.setattr(broker, "_cleanup_scope", lambda _scope: False)
+    with pytest.raises(cleanup_error, match="cleanup"):
+        broker._create_scope(
+            tmp_path,
+            4242,
+            "c" * 32,
+            peer_start_time=1,
+            peer_pidfd=2,
+        )
+
+
+def test_broker_setup_cleanup_failure_stops_client_session(monkeypatch, tmp_path):
+    cleanup_error = getattr(broker, "_BrokerCleanupError", OSError)
+
+    class FakeConnection:
+        def __init__(self):
+            self.requests = [
+                b'{"op":"create","pid":4242,"run_token":"dddddddddddddddddddddddddddddddd"}\n',
+                b"",
+            ]
+            self.sent = []
+
+        def settimeout(self, _value):
+            return None
+
+        def recv(self, _size):
+            return self.requests.pop(0)
+
+        def sendall(self, value):
+            self.sent.append(value)
+
+        def close(self):
+            return None
+
+    conn = FakeConnection()
+    monkeypatch.setattr(broker, "_peer_credentials", lambda _conn: (4242, 1000, 1000))
+    monkeypatch.setattr(broker, "_process_start_time", lambda _pid: 1)
+    monkeypatch.setattr(broker, "_open_pidfd", lambda _pid: -1)
+    monkeypatch.setattr(broker, "_peer_identity_matches", lambda *_args: True)
+
+    def fail_setup(*_args, **_kwargs):
+        raise cleanup_error("broker setup cleanup failed")
+
+    monkeypatch.setattr(broker, "_create_scope", fail_setup)
+    assert broker._handle_client(conn, tmp_path, -1, 1000) is False
+
+
 def test_broker_cleanup_never_writes_stale_peer_pid(monkeypatch):
     scope = object.__new__(broker._Scope)
     scope.peer_pid = 4242
@@ -1680,6 +1757,77 @@ def test_disk_growth_charge_is_conservative_against_host_free_space_noise():
 
 def test_runtime_disk_charge_can_prefer_monitored_logical_growth():
     assert harness._disk_growth_charge(128, 3_229_485_565, prefer_logical=True) == 128
+
+
+def test_zero_exit_incomplete_child_uses_filesystem_fallback(tmp_path, monkeypatch):
+    _enable_test_only_disk_guard(monkeypatch)
+    snapshots = [
+        harness._FilesystemSnapshot({1: 2_000_000}, complete=True),
+        harness._FilesystemSnapshot({1: 1_000_000}, complete=True),
+    ]
+
+    def filesystem_snapshot():
+        return snapshots.pop(0) if snapshots else harness._FilesystemSnapshot({1: 1_000_000}, complete=True)
+
+    monkeypatch.setattr(harness, "_filesystem_free_bytes", filesystem_snapshot)
+    code = (
+        f"open('logical-write', 'wb').write(b'x' * 128); "
+        f"print('x' * {harness._MAX_CHILD_OUTPUT_BYTES + 1})"
+    )
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", code],
+        cwd=tmp_path,
+        timeout=5,
+        env=dict(os.environ),
+        monitor_dirs=(tmp_path,),
+        disk_limit_bytes=10_000_000,
+    )
+    assert result["status"] == "resource_limit"
+    assert result["exit_code"] == 0
+    assert result["disk_growth_bytes_observed"] >= 1_000_000
+
+
+def test_final_aggregate_observation_failure_blocks_child(tmp_path, monkeypatch):
+    _enable_test_only_disk_guard(monkeypatch)
+
+    class FinalObservationFailure:
+        exceeded = False
+        filesystem_observation_failed = False
+
+        def __init__(self):
+            self.calls = 0
+
+        def rebaseline_filesystems(self):
+            return True
+
+        def observe(self, **_kwargs):
+            self.calls += 1
+            if self.calls == 2:
+                self.filesystem_observation_failed = True
+                return False
+            return True
+
+        def report(self):
+            return {
+                "cpu_seconds_observed": 0.0,
+                "peak_rss_mb_observed": 0.0,
+                "disk_growth_bytes_observed": 0,
+                "status": "filesystem_observation_unavailable" if self.filesystem_observation_failed else "within_limit",
+            }
+
+    budget = FinalObservationFailure()
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", "print('ok')"],
+        cwd=tmp_path,
+        timeout=5,
+        env=dict(os.environ),
+        monitor_dirs=(tmp_path,),
+        disk_limit_bytes=1024,
+        aggregate_budget=budget,
+    )
+    assert budget.calls == 2
+    assert result["status"] == "blocked"
+    assert result["reason"] == "filesystem_observation_unavailable"
 
 
 def test_aggregate_disk_charge_ignores_host_noise_after_child_growth(tmp_path, monkeypatch):
@@ -2777,6 +2925,8 @@ def test_failed_child_retains_filesystem_fallback_for_mixed_root_growth(tmp_path
     )
     assert result["status"] in {"blocked", "resource_limit"}
     assert result["disk_growth_bytes_observed"] == 3_229_485_565
+    assert inside.exists()
+    assert outside.exists()
 
 
 def test_bounded_reader_stops_an_unbounded_output_stream(tmp_path):

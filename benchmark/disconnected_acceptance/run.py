@@ -3615,11 +3615,11 @@ def _run_bounded_child(
     max_logical_growth = max(max_logical_growth, logical_growth)
     if not _observe_filesystem_growth():
         status = "blocked"
-    if process.returncode == 0:
-        max_disk_growth = max_logical_growth
+    if status == "passed" and process.returncode == 0:
+        max_disk_growth = max(0, int(max_logical_growth))
     else:
-        # A failed child may have written outside monitored roots before its
-        # guard stopped it; retain the conservative filesystem fallback there.
+        # A failed or incomplete child may have written outside monitored roots
+        # before its guard stopped it; retain the conservative filesystem fallback.
         max_disk_growth = _disk_growth_charge(max_logical_growth, max_filesystem_growth)
     if disk_limit is not None and max_disk_growth > disk_limit and status == "passed":
         status = "resource_limit"
@@ -3677,14 +3677,21 @@ def _run_bounded_child(
         if status == "passed":
             status = "blocked"
     aggregate_resource = None
+    aggregate_observation_failed = False
     if aggregate_budget is not None:
-        aggregate_budget.observe(
+        aggregate_observation_ok = aggregate_budget.observe(
             cpu_seconds=child_cpu,
             peak_rss_mb=child_rss,
             disk_growth_bytes=max_disk_growth,
         )
+        aggregate_observation_failed = (
+            aggregate_budget.filesystem_observation_failed
+            or (not aggregate_observation_ok and not aggregate_budget.exceeded)
+        )
         aggregate_resource = aggregate_budget.report()
-        if aggregate_budget.exceeded and status == "passed":
+        if aggregate_observation_failed and status == "passed":
+            status = "blocked"
+        elif aggregate_budget.exceeded and status == "passed":
             status = "resource_limit"
     reason = None
     if cleanup_failed:
@@ -3699,7 +3706,7 @@ def _run_bounded_child(
         reason = (
             "child_spawn_failed" if process.returncode is None
             else "offline_guard_unavailable" if require_offline
-            else "filesystem_observation_unavailable" if filesystem_observation_failed
+            else "filesystem_observation_unavailable" if filesystem_observation_failed or aggregate_observation_failed
             else "filesystem_sandbox_unavailable" if disk_sandbox_requested and process.returncode == 126
             else "child_spawn_failed"
         )

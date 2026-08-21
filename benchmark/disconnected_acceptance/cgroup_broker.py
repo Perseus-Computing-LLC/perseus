@@ -36,6 +36,10 @@ _KILL_MODE = 0o200
 _SESSION_TIMEOUT_SECONDS = 5.0
 
 
+class _BrokerCleanupError(OSError):
+    """Privileged broker cleanup was not proven complete."""
+
+
 def _process_start_time(pid: int) -> int | None:
     if pid <= 0:
         return None
@@ -391,21 +395,29 @@ def _create_scope(
         for fd in (group_procs_fd, kill_fd, group_fd):
             os.fchmod(fd, _SEALED_MODE)
         return scope
-    except BaseException:
+    except BaseException as original_error:
+        cleanup_ok = True
         if scope is not None:
-            _cleanup_scope(scope)
+            try:
+                cleanup_ok = _cleanup_scope(scope)
+            except BaseException:
+                cleanup_ok = False
         else:
+            # Remove a partially created group while the delegated root FD is
+            # still open; closing it first makes the cleanup path unverifiable.
+            if group is not None:
+                try:
+                    os.rmdir(group.name, dir_fd=scope_root_fd)
+                except OSError:
+                    cleanup_ok = False
             for fd in (scope_root_fd, root_procs_fd, group_fd, group_procs_fd, group_read_fd, kill_fd, events_fd, local_peer_pidfd):
                 if fd >= 0:
                     try:
                         os.close(fd)
                     except OSError:
-                        pass
-            if group is not None:
-                try:
-                    os.rmdir(group.name, dir_fd=scope_root_fd)
-                except OSError:
-                    pass
+                        cleanup_ok = False
+        if not cleanup_ok:
+            raise _BrokerCleanupError("broker setup cleanup failed") from original_error
         raise
 
 
@@ -547,6 +559,13 @@ def _handle_client(conn: socket.socket, root: Path, root_fd: int, allowed_uid: i
                         break
                 else:
                     raise OSError("broker operation is invalid")
+            except _BrokerCleanupError:
+                session_ok = False
+                try:
+                    _send(conn, {"ok": False, "reason": "broker_cleanup_failed"})
+                except (OSError, TypeError, ValueError):
+                    pass
+                break
             except (OSError, TypeError, ValueError, UnicodeError, json.JSONDecodeError):
                 _send(conn, {"ok": False, "reason": "broker_request_invalid"})
     except (OSError, ValueError, struct.error, socket.timeout):
