@@ -1299,10 +1299,27 @@ def _validate_report_negative_results(report: Mapping[str, Any], flow: Mapping[s
         raise AcceptanceError("negative-results coverage is incomplete")
 
 
+def _platform_variant_is_partial(platform: Mapping[str, Any] | Any) -> bool:
+    """Treat an expected same-OS Python-version matrix variant as partial."""
+    if not isinstance(platform, Mapping) or platform.get("status") != "failed":
+        return False
+    expected = platform.get("expected")
+    observed = platform.get("observed")
+    return (
+        isinstance(expected, Mapping)
+        and isinstance(observed, Mapping)
+        and expected.get("os") == observed.get("os")
+        and isinstance(expected.get("python"), str)
+        and isinstance(observed.get("python"), str)
+        and expected.get("python") != observed.get("python")
+    )
+
+
 def _validate_report_status(report: Mapping[str, Any], flow: Mapping[str, Any], network: Mapping[str, Any]) -> None:
     platform = report.get("platform")
     if not isinstance(platform, Mapping):
         raise AcceptanceError("platform status is unavailable")
+    platform_variant_is_partial = _platform_variant_is_partial(platform)
     sources = [value for value in flow.values() if isinstance(value, Mapping)] + [network]
     for name in ("upgrade", "rollback"):
         value = report.get(name)
@@ -1327,9 +1344,9 @@ def _validate_report_status(report: Mapping[str, Any], flow: Mapping[str, Any], 
         raise AcceptanceError("aggregate negative results are unavailable")
     expected_status = (
         "failed"
-        if platform.get("status") != "passed" or hard_failures
+        if (platform.get("status") != "passed" and not platform_variant_is_partial) or hard_failures
         else "partial"
-        if unavailable or any(item.get("status") in {"unavailable", "not_run"} for item in negative_results if isinstance(item, Mapping))
+        if platform_variant_is_partial or unavailable or any(item.get("status") in {"unavailable", "not_run"} for item in negative_results if isinstance(item, Mapping))
         else "passed"
     )
     if report.get("status") != expected_status:
@@ -4788,11 +4805,12 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
         and item.get("status") in {"failed", "blocked", "timeout", "resource_limit", "not_run", "partial"}
         and item not in unavailable_cells
     ]
+    platform_variant_is_partial = _platform_variant_is_partial(platform_check)
     status = (
         "failed"
-        if platform_check["status"] != "passed" or hard_failures
+        if (platform_check["status"] != "passed" and not platform_variant_is_partial) or hard_failures
         else "partial"
-        if unavailable_cells or any(item["status"] in {"unavailable", "not_run"} for item in negative_results)
+        if platform_variant_is_partial or unavailable_cells or any(item["status"] in {"unavailable", "not_run"} for item in negative_results)
         else "passed"
     )
     workload_digest = _sha(fixture["workload"])

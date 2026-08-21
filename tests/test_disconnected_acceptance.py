@@ -2175,6 +2175,24 @@ def test_aggregate_status_rejects_inconclusive_required_cell():
         harness._validate_report_status(report, flow, network)
 
 
+def test_aggregate_status_allows_same_os_python_matrix_variant_as_partial():
+    harness._validate_report_status(
+        {
+            "status": "partial",
+            "platform": {
+                "status": "failed",
+                "expected": {"os": "linux", "python": "3.12"},
+                "observed": {"os": "linux", "python": "3.11"},
+            },
+            "upgrade": {"status": "not_run", "reason": "upgrade_bundle_undeclared"},
+            "rollback": {"status": "not_run", "reason": "rollback_bundle_undeclared"},
+            "negative_results": [],
+        },
+        {"required": {"status": "passed"}},
+        {"status": "passed"},
+    )
+
+
 def test_aggregate_status_rejects_incomplete_resource_observation():
     report = {
         "status": "passed",
@@ -2765,6 +2783,14 @@ def test_bounded_reader_stops_an_unbounded_output_stream(tmp_path):
 
 def test_disk_budget_charges_writes_outside_declared_roots(tmp_path, monkeypatch):
     _enable_test_only_disk_guard(monkeypatch)
+    calls = 0
+
+    def deterministic_filesystem_snapshot():
+        nonlocal calls
+        calls += 1
+        return harness._FilesystemSnapshot({1: 1_000_000 if calls <= 4 else 0}, complete=True)
+
+    monkeypatch.setattr(harness, "_filesystem_free_bytes", deterministic_filesystem_snapshot)
     workspace = tmp_path / "workspace"
     declared = tmp_path / "declared"
     escape = tmp_path / "escape"
