@@ -199,6 +199,8 @@ def _chmod(fd: int, path: Path, mode: int) -> None:
     if fd >= 0:
         os.fchmod(fd, mode)
     else:
+        # codeql[py/overly-permissive-file]
+        # The fallback is reached only with the broker's bounded cleanup modes.
         os.chmod(path, mode)
 
 
@@ -347,11 +349,13 @@ def _create_scope(
     run_token: str,
     *,
     root_fd: int | None = None,
-    peer_start_time: int | None = None,
-    peer_pidfd: int = -1,
+    peer_start_time: int | None,
+    peer_pidfd: int,
 ) -> _Scope:
     if not _TOKEN_RE.fullmatch(run_token):
         raise OSError("run token is invalid")
+    if not _peer_identity_matches(peer_pid, peer_start_time, peer_pidfd):
+        raise OSError("broker peer identity unavailable")
     scope_root_fd = root_procs_fd = group_fd = group_procs_fd = group_read_fd = kill_fd = events_fd = -1
     group: Path | None = None
     scope: _Scope | None = None
@@ -377,12 +381,12 @@ def _create_scope(
             peer_pidfd=local_peer_pidfd,
         )
         local_peer_pidfd = -1
-        if peer_start_time is not None and not _peer_identity_matches(peer_pid, peer_start_time, scope.peer_pidfd):
+        if not _peer_identity_matches(peer_pid, peer_start_time, scope.peer_pidfd):
             raise OSError("broker peer identity changed")
         _write_fd(group_procs_fd, str(peer_pid).encode("ascii"))
         if peer_pid not in _members(group_read_fd):
             raise OSError("broker peer did not enter scope")
-        if peer_start_time is not None and not _peer_identity_matches(peer_pid, peer_start_time, scope.peer_pidfd):
+        if not _peer_identity_matches(peer_pid, peer_start_time, scope.peer_pidfd):
             raise OSError("broker peer identity changed")
         for fd in (group_procs_fd, kill_fd, group_fd):
             os.fchmod(fd, _SEALED_MODE)

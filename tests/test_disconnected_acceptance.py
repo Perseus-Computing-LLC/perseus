@@ -752,6 +752,21 @@ def test_broker_client_rejects_non_root_server_peer(monkeypatch):
         harness._validate_broker_server_peer(object())
 
 
+def test_broker_scope_rejects_missing_peer_identity_before_setup(tmp_path, monkeypatch):
+    def unexpected_scope_setup(_path):
+        raise AssertionError("scope setup reached before identity gate")
+
+    monkeypatch.setattr(broker, "_open_private_directory", unexpected_scope_setup)
+    with pytest.raises(OSError, match="broker peer identity unavailable"):
+        broker._create_scope(
+            tmp_path,
+            os.getpid(),
+            "a" * 32,
+            peer_start_time=None,
+            peer_pidfd=-1,
+        )
+
+
 def test_broker_cleanup_never_writes_stale_peer_pid(monkeypatch):
     scope = object.__new__(broker._Scope)
     scope.peer_pid = 4242
