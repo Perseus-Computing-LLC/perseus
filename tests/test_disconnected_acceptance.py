@@ -19,6 +19,12 @@ import pytest
 from conftest import perseus
 
 
+pytestmark = pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="disconnected acceptance primitives require Linux",
+)
+
+
 ROOT = Path(__file__).resolve().parents[1]
 RUN = ROOT / "benchmark" / "disconnected_acceptance" / "run.py"
 BROKER = ROOT / "benchmark" / "disconnected_acceptance" / "cgroup_broker.py"
