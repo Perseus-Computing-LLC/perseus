@@ -21,10 +21,27 @@ from conftest import perseus
 
 ROOT = Path(__file__).resolve().parents[1]
 RUN = ROOT / "benchmark" / "disconnected_acceptance" / "run.py"
+BROKER = ROOT / "benchmark" / "disconnected_acceptance" / "cgroup_broker.py"
 _SPEC = importlib.util.spec_from_file_location("disconnected_acceptance", RUN)
 assert _SPEC and _SPEC.loader
 harness = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(harness)
+_BROKER_SPEC = importlib.util.spec_from_file_location("disconnected_acceptance_broker", BROKER)
+assert _BROKER_SPEC and _BROKER_SPEC.loader
+broker = importlib.util.module_from_spec(_BROKER_SPEC)
+_BROKER_SPEC.loader.exec_module(broker)
+
+
+_REAL_RUN_BOUNDED_CHILD = harness._run_bounded_child
+
+
+def _legacy_test_child(*args, **kwargs):
+    """Keep non-acceptance unit probes explicit about legacy cleanup semantics."""
+    kwargs.setdefault("require_process_containment", False)
+    return _REAL_RUN_BOUNDED_CHILD(*args, **kwargs)
+
+
+setattr(harness, "_run_bounded_child", _legacy_test_child)
 
 
 def _enable_test_only_disk_guard(monkeypatch):
@@ -626,9 +643,271 @@ def test_successful_child_finalizes_owned_process_group_before_return(tmp_path):
     assert not marker.exists()
 
 
+def test_cgroup_scope_seals_parent_and_child_controls(tmp_path):
+    if os.name != "posix":
+        pytest.skip("cgroup boundary is POSIX-specific")
+    root = tmp_path / "delegated"
+    group = root / "scope"
+    root.mkdir()
+    group.mkdir()
+    for path in (
+        root / "cgroup.procs",
+        root / "cgroup.kill",
+        group / "cgroup.procs",
+        group / "cgroup.kill",
+    ):
+        path.write_text("", encoding="ascii")
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0)
+    root_fd = os.open(root, flags)
+    group_fd = os.open(group, flags)
+    root_procs_fd = os.open(root / "cgroup.procs", os.O_WRONLY | getattr(os, "O_CLOEXEC", 0))
+    root_kill_fd = os.open(root / "cgroup.kill", os.O_WRONLY | getattr(os, "O_CLOEXEC", 0))
+    group_procs_fd = os.open(group / "cgroup.procs", os.O_WRONLY | getattr(os, "O_CLOEXEC", 0))
+    kill_fd = os.open(group / "cgroup.kill", os.O_WRONLY | getattr(os, "O_CLOEXEC", 0))
+    scope = harness._CgroupScope(
+        root=root,
+        group=group,
+        root_fd=root_fd,
+        root_procs_fd=root_procs_fd,
+        group_fd=group_fd,
+        group_procs_fd=group_procs_fd,
+        kill_fd=kill_fd,
+        root_kill_fd=root_kill_fd,
+    )
+    try:
+        assert harness._seal_cgroup_scope(scope) is True
+        assert (os.fstat(root_fd).st_mode & 0o777) == 0
+        assert (os.fstat(group_fd).st_mode & 0o777) == 0
+        assert (os.fstat(root_procs_fd).st_mode & 0o777) == 0
+        assert (os.fstat(root_kill_fd).st_mode & 0o777) == 0
+        assert (os.fstat(group_procs_fd).st_mode & 0o777) == 0
+        assert (os.fstat(kill_fd).st_mode & 0o777) == 0
+    finally:
+        harness._unseal_cgroup_scope(scope)
+        try:
+            for path in (
+                root / "cgroup.procs",
+                root / "cgroup.kill",
+                group / "cgroup.procs",
+                group / "cgroup.kill",
+            ):
+                path.unlink(missing_ok=True)
+            group.rmdir()
+            root.rmdir()
+        except OSError:
+            pass
+        for fd in (root_fd, root_procs_fd, root_kill_fd, group_fd, group_procs_fd, kill_fd):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
+
+def test_broker_opens_pidfd_when_python_wrapper_is_missing():
+    fd = broker._open_pidfd(os.getpid())
+    try:
+        assert fd >= 0
+    finally:
+        os.close(fd)
+
+
+def test_broker_client_rejects_non_root_server_peer(monkeypatch):
+    monkeypatch.setattr(harness, "_broker_peer_credentials", lambda _conn: (4242, 1002, 1002))
+    with pytest.raises(OSError, match="broker peer"):
+        harness._validate_broker_server_peer(object())
+
+
+def test_broker_cleanup_never_writes_stale_peer_pid(monkeypatch):
+    scope = object.__new__(broker._Scope)
+    scope.peer_pid = 4242
+    scope.peer_start_time = 11
+    scope.peer_pidfd = 99
+    scope.root_procs_fd = 1
+    scope.group_read_fd = 2
+    scope.kill_fd = 3
+    scope.events_fd = 4
+    scope.root_fd = scope.group_fd = scope.group_procs_fd = -1
+    scope.root = Path("/unused")
+    scope.group = Path("/unused/group")
+    scope.handle = "0" * 32
+    monkeypatch.setattr(broker, "_pidfd_is_alive", lambda _fd: False)
+    monkeypatch.setattr(broker, "_process_start_time", lambda _pid: None)
+    writes = []
+    monkeypatch.setattr(broker, "_write_fd", lambda fd, data: writes.append((fd, data)))
+    monkeypatch.setattr(broker, "_members", lambda _fd: [])
+    monkeypatch.setattr(broker, "_populated", lambda _fd: False)
+    monkeypatch.setattr(broker, "_chmod", lambda *_args: None)
+    monkeypatch.setattr(broker.os, "rmdir", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(scope, "close", lambda: True, raising=False)
+    assert broker._cleanup_scope(scope) is True
+    assert (scope.root_procs_fd, str(scope.peer_pid).encode("ascii")) not in writes
+
+
+def test_broker_cleanup_fails_closed_if_peer_changes_after_move_out(monkeypatch):
+    scope = object.__new__(broker._Scope)
+    scope.peer_pid = 4242
+    scope.peer_start_time = 11
+    scope.peer_pidfd = 99
+    scope.root_procs_fd = 1
+    scope.group_read_fd = 2
+    scope.kill_fd = 3
+    scope.events_fd = 4
+    scope.root_fd = scope.group_fd = scope.group_procs_fd = -1
+    scope.root = Path("/unused")
+    scope.group = Path("/unused/group")
+    scope.handle = "0" * 32
+    identities = iter((True, False))
+    monkeypatch.setattr(broker, "_peer_identity_matches", lambda *_args: next(identities))
+    writes = []
+    monkeypatch.setattr(broker, "_write_fd", lambda fd, data: writes.append((fd, data)))
+    monkeypatch.setattr(broker, "_members", lambda _fd: [])
+    monkeypatch.setattr(broker, "_populated", lambda _fd: False)
+    monkeypatch.setattr(broker, "_chmod", lambda *_args: None)
+    monkeypatch.setattr(broker.os, "rmdir", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(scope, "close", lambda: True, raising=False)
+    assert broker._cleanup_scope(scope) is False
+    assert (scope.root_procs_fd, str(scope.peer_pid).encode("ascii")) in writes
+
+
+def test_broker_cleanup_failure_stops_listener_rebind(monkeypatch):
+    monkeypatch.setattr(broker, "_handle_client", lambda *_args: False)
+    with pytest.raises(SystemExit, match="cleanup"):
+        broker._serve_session_result(False)
+
+
+def test_report_flow_requires_process_containment_for_passed_cell():
+    cell = {
+        "status": "passed",
+        "exit_code": 0,
+        "offline_report": {
+            "active": True,
+            "policy": "deny_all_non_loopback",
+            "attempts": [],
+            "attempts_truncated": False,
+            "blocked_attempts": 0,
+            "allowed_local_attempts": 0,
+        },
+        "offline_guard": {
+            "enforced": True,
+            "boundary": "seccomp",
+            "report_present": True,
+            "telemetry": "parent_derived",
+        },
+        "process_containment": {
+            "enforced": False,
+            "boundary": None,
+            "cleanup_verified": True,
+        },
+    }
+    with pytest.raises(harness.AcceptanceError, match="containment"):
+        harness._validate_report_flow_semantics({"test": cell})
+
+
+def test_disk_charge_is_conservative_against_filesystem_growth():
+    assert harness._disk_growth_charge(128, 3_229_485_565) == 3_229_485_565
+
+
+def test_directory_size_counts_allocated_blocks(tmp_path):
+    payload = tmp_path / "payload"
+    payload.write_bytes(b"x")
+    expected = payload.stat().st_blocks * 512
+    assert harness._directory_size(tmp_path) >= expected
+
+
+def test_missing_cgroup_broker_is_a_hard_containment_failure(tmp_path, monkeypatch):
+    monkeypatch.setenv("PERSEUS_ACCEPTANCE_CGROUP_BROKER", str(tmp_path / "missing.sock"))
+    monkeypatch.delenv("PERSEUS_ACCEPTANCE_CGROUP_ROOT", raising=False)
+    with pytest.raises(OSError, match="broker"):
+        harness._create_broker_scope("red-test")
+
+
+def test_broker_removes_listener_after_accepting_parent_session(tmp_path):
+    socket_path = tmp_path / "broker.sock"
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(socket_path))
+    server.listen(1)
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        client.connect(str(socket_path))
+        accepted = broker._accept_one_session(server, socket_path)
+        assert not socket_path.exists()
+        accepted.close()
+    finally:
+        client.close()
+        server.close()
+        socket_path.unlink(missing_ok=True)
+
+
+def test_bounded_child_cannot_reach_broker_endpoint(tmp_path):
+    endpoint = os.environ.get("PERSEUS_ACCEPTANCE_CGROUP_BROKER")
+    if not endpoint or not Path(endpoint).parent.exists():
+        pytest.skip("host cgroup broker integration is not configured")
+    marker = tmp_path / "broker-capability-reached"
+    child = (
+        "import pathlib,socket; "
+        f"s=socket.socket(socket.AF_UNIX); "
+        f"s.settimeout(0.2); "
+        f"\ntry: s.connect({endpoint!r})\n"
+        f"\nexcept OSError: pass\n"
+        f"\nelse: pathlib.Path({str(marker)!r}).write_text('connected')"
+    )
+    result = harness._run_bounded_child(
+        [sys.executable, "-S", "-c", child],
+        cwd=tmp_path,
+        timeout=2.0,
+        env=dict(os.environ),
+        require_process_containment=True,
+    )
+    assert result["status"] == "passed"
+    assert result["process_containment"] == {
+        "enforced": True,
+        "boundary": "cgroup_broker",
+        "cleanup_verified": True,
+    }
+    assert not marker.exists()
+
+
+def test_broker_retains_root_scope_process(tmp_path, monkeypatch):
+    (tmp_path / "cgroup.procs").write_text("", encoding="ascii")
+    monkeypatch.setattr(broker.os, "getpid", lambda: 4242)
+    with pytest.raises(TypeError, match="root FD"):
+        broker._retain_root(tmp_path)
+    root_fd = os.open(tmp_path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        broker._retain_root(root_fd)
+    finally:
+        os.close(root_fd)
+    assert (tmp_path / "cgroup.procs").read_text(encoding="ascii") == "4242"
+
+
+def test_required_containment_rejects_direct_cgroup_env_without_broker(tmp_path, monkeypatch):
+    monkeypatch.setenv("PERSEUS_ACCEPTANCE_CGROUP_ROOT", str(tmp_path))
+    monkeypatch.delenv("PERSEUS_ACCEPTANCE_CGROUP_BROKER", raising=False)
+    with pytest.raises(OSError, match="broker"):
+        harness._create_cgroup_scope("a" * 32, required=True)
+
+
+def test_configured_cgroup_boundary_unavailable_blocks_child(tmp_path, monkeypatch):
+    if os.name != "posix":
+        pytest.skip("cgroup boundary is POSIX-specific")
+    monkeypatch.setenv("PERSEUS_ACCEPTANCE_CGROUP_ROOT", str(tmp_path / "missing-cgroup"))
+    monkeypatch.delenv("PERSEUS_ACCEPTANCE_CGROUP_BROKER", raising=False)
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", "print('ok')"], cwd=tmp_path, timeout=2.0, env=dict(os.environ),
+        require_process_containment=True,
+    )
+    assert result["status"] == "blocked"
+    assert result["reason"] == "child_containment_unavailable"
+
+
 def test_successful_child_cannot_escape_with_a_detached_session(tmp_path):
     if os.name != "posix":
         pytest.skip("process-group assertion is POSIX-specific")
+    containment_configured = bool(
+        os.environ.get("PERSEUS_ACCEPTANCE_CGROUP_ROOT")
+        or os.environ.get("PERSEUS_ACCEPTANCE_CGROUP_BROKER")
+    )
     marker = tmp_path / "detached-descendant-leaked"
     ready = tmp_path / "detached-descendant-ready"
     grandchild = (
@@ -644,10 +923,14 @@ def test_successful_child_cannot_escape_with_a_detached_session(tmp_path):
         "print('ok')"
     )
     result = harness._run_bounded_child(
-        [sys.executable, "-c", parent], cwd=tmp_path, timeout=2.0, env=dict(os.environ)
+        [sys.executable, "-c", parent], cwd=tmp_path, timeout=2.0, env=dict(os.environ),
+        require_process_containment=True,
     )
-    assert result["status"] == "passed"
-    assert result["exit_code"] == 0
+    if containment_configured:
+        assert result["status"] == "passed"
+        assert result["exit_code"] == 0
+    else:
+        assert result["status"] in {"blocked", "failed"}
     time.sleep(1.2)
     assert not marker.exists()
 
@@ -734,10 +1017,15 @@ def test_workload_query_and_restart_count_are_exercised(tmp_path, monkeypatch):
                 "report_present": True,
                 "telemetry": "parent_derived",
             },
+            "process_containment": {
+                "enforced": True,
+                "boundary": "cgroup_broker",
+                "cleanup_verified": True,
+            },
         }
 
     monkeypatch.setattr(harness, "_run_render", fake_render)
-    monkeypatch.setattr(harness, "_run_bounded_child", lambda *args, **kwargs: {"status": "passed", "exit_code": 0, "stdout": json.dumps({"blocked": True, "destination": "x", "report": {"active": True, "policy": "deny_all_non_loopback", "attempts": [{"operation": "probe", "destination": "x", "outcome": "blocked"}], "attempts_truncated": False, "blocked_attempts": 1, "allowed_local_attempts": 0}}), "stderr": "", "stdout_prefix_bytes": 1, "stderr_prefix_bytes": 0, "stdout_truncated": False, "stderr_truncated": False, "child_cpu_seconds_observed": 0.0, "child_peak_rss_mb_observed": 0.0, "offline_report": {"active": True, "policy": "deny_all_non_loopback", "attempts": [], "attempts_truncated": False, "blocked_attempts": 0, "allowed_local_attempts": 0}, "offline_sandbox": "seccomp", "offline_guard": {"enforced": True, "boundary": "seccomp", "report_present": True, "telemetry": "parent_derived"}})
+    monkeypatch.setattr(harness, "_run_bounded_child", lambda *args, **kwargs: {"status": "passed", "exit_code": 0, "stdout": json.dumps({"blocked": True, "destination": "x", "report": {"active": True, "policy": "deny_all_non_loopback", "attempts": [{"operation": "probe", "destination": "x", "outcome": "blocked"}], "attempts_truncated": False, "blocked_attempts": 1, "allowed_local_attempts": 0}}), "stderr": "", "stdout_prefix_bytes": 1, "stderr_prefix_bytes": 0, "stdout_truncated": False, "stderr_truncated": False, "child_cpu_seconds_observed": 0.0, "child_peak_rss_mb_observed": 0.0, "offline_report": {"active": True, "policy": "deny_all_non_loopback", "attempts": [], "attempts_truncated": False, "blocked_attempts": 0, "allowed_local_attempts": 0}, "offline_sandbox": "seccomp", "offline_guard": {"enforced": True, "boundary": "seccomp", "report_present": True, "telemetry": "parent_derived"}, "process_containment": {"enforced": True, "boundary": "cgroup_broker", "cleanup_verified": True}})
     fixture_path = tmp_path / "fixture.json"
     fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
     report = harness.run_acceptance(ROOT, fixture_path=fixture_path, output_dir=tmp_path / "out")
@@ -1012,21 +1300,75 @@ def test_detached_descendant_cannot_escape_after_leader_exit(tmp_path):
     if os.name != "posix" or not sys.platform.startswith("linux"):
         pytest.skip("Linux process-death containment is required")
     marker = tmp_path / "detached-descendant-leaked"
+    ready = tmp_path / "detached-descendant-ready"
     grandchild = (
         "import os,pathlib,time; os.setsid(); os.environ.clear(); "
-        f"time.sleep(0.8); pathlib.Path({str(marker)!r}).write_text('leaked')"
+        f"pathlib.Path({str(ready)!r}).write_text('ready'); time.sleep(0.8); "
+        f"pathlib.Path({str(marker)!r}).write_text('leaked')"
     )
     parent = (
-        "import os,subprocess,sys; "
-        f"subprocess.Popen([sys.executable, '-c', {grandchild!r}]); os._exit(0)"
+        "import os,pathlib,subprocess,sys,time; "
+        f"subprocess.Popen([sys.executable, '-c', {grandchild!r}]); "
+        f"deadline=time.monotonic()+1.0; "
+        f"\nwhile time.monotonic() < deadline and not pathlib.Path({str(ready)!r}).exists(): time.sleep(0.01); "
+        "os._exit(0)"
     )
     result = harness._run_bounded_child(
         [sys.executable, "-c", parent],
         cwd=tmp_path,
         timeout=2.0,
         env=dict(os.environ),
+        require_process_containment=True,
     )
-    assert result["status"] == "passed"
+    containment_configured = bool(
+        os.environ.get("PERSEUS_ACCEPTANCE_CGROUP_ROOT")
+        or os.environ.get("PERSEUS_ACCEPTANCE_CGROUP_BROKER")
+    )
+    if containment_configured:
+        assert result["status"] == "passed"
+    else:
+        assert result["status"] in {"blocked", "failed"}
+    time.sleep(1.0)
+    assert not marker.exists()
+
+
+def test_exec_detached_descendant_requires_cgroup_containment(tmp_path):
+    if os.name != "posix" or not sys.platform.startswith("linux"):
+        pytest.skip("Linux cgroup containment is required")
+    marker = tmp_path / "exec-detached-descendant-leaked"
+    ready = tmp_path / "exec-detached-descendant-ready"
+    exec_code = (
+        "import pathlib,time; "
+        f"pathlib.Path({str(ready)!r}).write_text('ready'); time.sleep(0.8); "
+        f"pathlib.Path({str(marker)!r}).write_text('leaked')"
+    )
+    grandchild = (
+        "import os,pathlib,sys,time; os.setsid(); "
+        "fd=int(os.environ['PERSEUS_ACCEPTANCE_TOKEN_FD']); os.close(fd); "
+        f"os.execve(sys.executable, [sys.executable, '-c', {exec_code!r}], {{}})"
+    )
+    parent = (
+        "import pathlib,subprocess,sys,time; "
+        f"subprocess.Popen([sys.executable, '-c', {grandchild!r}]); "
+        f"deadline=time.monotonic()+1.0; "
+        f"\nwhile time.monotonic() < deadline and not pathlib.Path({str(ready)!r}).exists(): time.sleep(0.01); "
+        "__import__('os')._exit(0)"
+    )
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", parent],
+        cwd=tmp_path,
+        timeout=2.0,
+        env=dict(os.environ),
+        require_process_containment=True,
+    )
+    containment_configured = bool(
+        os.environ.get("PERSEUS_ACCEPTANCE_CGROUP_ROOT")
+        or os.environ.get("PERSEUS_ACCEPTANCE_CGROUP_BROKER")
+    )
+    if containment_configured:
+        assert result["status"] == "passed"
+    else:
+        assert result["status"] in {"blocked", "failed"}
     time.sleep(1.0)
     assert not marker.exists()
 
@@ -1283,6 +1625,10 @@ def test_disk_limit_includes_child_cwd_even_when_not_declared_separately(tmp_pat
     assert result["status"] == "resource_limit"
 
 
+def test_disk_growth_charge_is_conservative_against_host_free_space_noise():
+    assert harness._disk_growth_charge(128, 3_229_485_565) == 3_229_485_565
+
+
 def test_filesystem_growth_sums_all_devices():
     assert harness._filesystem_growth_bytes({1: 100, 2: 100}, {1: 90, 2: 70}) == 40
 
@@ -1321,16 +1667,16 @@ def test_monitor_size_is_order_independent_for_nested_roots(tmp_path):
 
 def test_aggregate_resource_budget_charges_persistent_child_workspace_growth(tmp_path, monkeypatch):
     _enable_test_only_disk_guard(monkeypatch)
-    budget = harness._AggregateResourceBudget((tmp_path,), cpu_seconds=30, memory_mb=512, disk_bytes=1024)
+    budget = harness._AggregateResourceBudget((tmp_path,), cpu_seconds=30, memory_mb=512, disk_bytes=6000)
     first = harness._run_bounded_child(
         [sys.executable, "-c", "open('first-write', 'wb').write(b'x' * 800)"],
         cwd=tmp_path, timeout=5, env=dict(os.environ), monitor_dirs=(tmp_path,),
-        disk_limit_bytes=1024, aggregate_budget=budget,
+        disk_limit_bytes=6000, aggregate_budget=budget,
     )
     second = harness._run_bounded_child(
         [sys.executable, "-c", "open('second-write', 'wb').write(b'x' * 800)"],
         cwd=tmp_path, timeout=5, env=dict(os.environ), monitor_dirs=(tmp_path,),
-        disk_limit_bytes=1024, aggregate_budget=budget,
+        disk_limit_bytes=6000, aggregate_budget=budget,
     )
     assert first["status"] == "passed"
     assert second["status"] == "resource_limit"
@@ -1846,6 +2192,11 @@ def test_backup_restore_rejects_boolean_render_exit_code(tmp_path):
                     "report_present": True,
                     "telemetry": "parent_derived",
                 },
+                "process_containment": {
+                    "enforced": True,
+                    "boundary": "cgroup_broker",
+                    "cleanup_verified": True,
+                },
             },
         },
     }
@@ -1872,7 +2223,15 @@ def test_network_nonpassed_status_still_rejects_raw_attempt_metadata():
 def test_passed_flow_requires_parent_derived_offline_guard_and_report():
     with pytest.raises(harness.AcceptanceError, match="offline (guard|report)"):
         harness._validate_report_flow_semantics({
-            "render": {"status": "passed", "exit_code": 0},
+            "render": {
+                "status": "passed",
+                "exit_code": 0,
+                "process_containment": {
+                    "enforced": True,
+                    "boundary": "cgroup_broker",
+                    "cleanup_verified": True,
+                },
+            },
         })
 
 
@@ -1926,7 +2285,7 @@ def test_report_validation_rejects_recommitted_status_contract_forgery(tmp_path)
         "manifest_commitment", "workload_digest", "workload_query_digest",
     )
     mutated["report_commitment"] = harness._sha({key: mutated[key] for key in report_core_keys})
-    with pytest.raises(harness.AcceptanceError, match="status|commitment|stable|evidence|zero exit|offline"):
+    with pytest.raises(harness.AcceptanceError, match="status|commitment|stable|evidence|zero exit|offline|containment"):
         harness._validate_report_commitments(mutated, expected_fixture=_fixture())
 
 

@@ -25,8 +25,10 @@ import secrets
 import shutil
 import select
 import signal
+import socket
 import stat
 import subprocess
+import struct
 import sys
 import tempfile
 import threading
@@ -83,6 +85,9 @@ _MAX_FIXTURE_BYTES = 1024 * 1024
 _MAX_FIXTURE_ID_BYTES = 128
 _MAX_FIXTURE_TEXT_BYTES = 4096
 _MAX_FIXTURE_PATH_BYTES = 512
+_CGROUP_ROOT_ENV = "PERSEUS_ACCEPTANCE_CGROUP_ROOT"
+_CGROUP_BROKER_ENV = "PERSEUS_ACCEPTANCE_CGROUP_BROKER"
+_MAX_CGROUP_BROKER_FRAME_BYTES = 64 * 1024
 _REASON_CODE_RE = re.compile(r"^[a-z][a-z0-9_]{0,95}$")
 _ALLOWED_PROBE_OUTCOMES = frozenset({"blocked", "allowed_local"})
 _OFFLINE_SECCOMP_SYSCALLS = (
@@ -479,6 +484,7 @@ def _bounded_reason(value: Any, default: str = "contract_invalid") -> str:
         "adapter_version_undeclared",
         "backup_restore_failed",
         "child_cleanup_failed",
+        "child_containment_unavailable",
         "child_resource_limit",
         "child_spawn_failed",
         "contract_invalid",
@@ -756,7 +762,9 @@ def _directory_size(root: Path) -> int:
     for path in root.rglob("*"):
         try:
             if path.is_file():
-                total += path.stat().st_size
+                info = path.stat()
+                allocated = int(getattr(info, "st_blocks", 0)) * 512
+                total += max(int(info.st_size), allocated)
         except OSError:
             continue
     return total
@@ -812,11 +820,11 @@ _PUBLIC_NUMERIC_KEYS = frozenset({
     "startup_ms_observed", "wall_seconds_observed",
 })
 _PUBLIC_BOOLEAN_KEYS = frozenset({
-    "active", "attempts_truncated", "cleanup_failed", "digest_match", "enforced", "log_truncated",
+    "active", "attempts_truncated", "cleanup_failed", "cleanup_verified", "digest_match", "enforced", "log_truncated",
     "output_truncated", "post_digest_match", "report_present", "restored", "stderr_truncated",
 })
 _PUBLIC_ENUM_VALUES = {
-    "boundary": frozenset({"seccomp"}),
+    "boundary": frozenset({"seccomp", "cgroup_broker", "cgroup_v2_sealed"}),
     "offline_sandbox": frozenset({"seccomp"}),
     "policy": frozenset({"deny_all", "deny_all_non_loopback"}),
     "render_status": frozenset({"passed", "blocked", "failed", "unavailable", "not_run", "timeout", "resource_limit", "partial"}),
@@ -981,6 +989,21 @@ _ALLOWED_REPORT_STATUSES = frozenset({
 })
 
 
+def _validate_process_containment(value: Any, *, label: str, require_enforced: bool) -> None:
+    if not isinstance(value, Mapping) or set(value) != {"enforced", "boundary", "cleanup_verified"}:
+        raise AcceptanceError(f"{label} process containment is invalid")
+    if type(value.get("enforced")) is not bool or type(value.get("cleanup_verified")) is not bool:
+        raise AcceptanceError(f"{label} process containment is invalid")
+    if value.get("boundary") not in {None, "cgroup_broker", "cgroup_v2_sealed"}:
+        raise AcceptanceError(f"{label} process containment boundary is invalid")
+    if require_enforced and (
+        value.get("enforced") is not True
+        or value.get("boundary") not in {"cgroup_broker", "cgroup_v2_sealed"}
+        or value.get("cleanup_verified") is not True
+    ):
+        raise AcceptanceError(f"{label} passed without enforced process containment")
+
+
 def _validate_report_flow_semantics(flow: Mapping[str, Any]) -> None:
     for name, cell in flow.items():
         if not isinstance(cell, Mapping):
@@ -988,6 +1011,13 @@ def _validate_report_flow_semantics(flow: Mapping[str, Any]) -> None:
         status = cell.get("status")
         if not isinstance(status, str) or status not in _ALLOWED_REPORT_STATUSES:
             raise AcceptanceError(f"flow {name} status is invalid")
+        containment = cell.get("process_containment")
+        if name == "backup_restore" and isinstance(cell.get("render"), Mapping):
+            containment = cell["render"].get("process_containment")
+        if status == "passed":
+            _validate_process_containment(containment, label=f"flow {name}", require_enforced=True)
+        elif containment is not None:
+            _validate_process_containment(containment, label=f"flow {name}", require_enforced=False)
         guard = cell.get("offline_guard")
         offline_report = cell.get("offline_report")
         if name == "backup_restore" and isinstance(cell.get("render"), Mapping):
@@ -1370,7 +1400,7 @@ def _validate_report_operation_semantics(
         "operation_child_peak_rss_mb_observed", "operation_resource_limits", "offline_sandbox",
         "offline_report", "offline_guard", "aggregate_resource", "operation_artifact_sha256",
         "operation_query_sha256", "operation_receipt", "operation_receipt_sha256",
-        "operation_receipt_persisted", "operation_persisted_state_sha256",
+        "operation_receipt_persisted", "operation_persisted_state_sha256", "process_containment",
     }
     if set(value) != required:
         raise AcceptanceError(f"{label} passed operation evidence is incomplete")
@@ -1406,6 +1436,7 @@ def _validate_report_operation_semantics(
         or guard.get("telemetry") != "parent_derived"
     ):
         raise AcceptanceError(f"{label} operation offline guard is invalid")
+    _validate_process_containment(value.get("process_containment"), label=f"{label} operation", require_enforced=True)
     report = value.get("offline_report")
     if not isinstance(report, Mapping):
         raise AcceptanceError(f"{label} operation report is invalid")
@@ -1693,6 +1724,12 @@ def _filesystem_free_bytes() -> _FilesystemSnapshot:
     return _FilesystemSnapshot(result, complete=complete and bool(result))
 
 
+def _disk_growth_charge(logical_growth: int, filesystem_growth: int) -> int:
+    logical = max(0, int(logical_growth))
+    filesystem = max(0, int(filesystem_growth))
+    return max(logical, filesystem)
+
+
 def _filesystem_growth_bytes(baseline: Mapping[int, int], current: Mapping[int, int]) -> int:
     if not _filesystem_observation_complete(baseline) or not _filesystem_observation_complete(current):
         raise AcceptanceError("filesystem_observation_unavailable")
@@ -1719,6 +1756,19 @@ class _AggregateResourceBudget:
         self.peak_rss_mb = 0.0
         self.disk_bytes = 0
 
+    def rebaseline_filesystems(self) -> bool:
+        """Exclude parent-side containment setup from aggregate child accounting."""
+        try:
+            current = _filesystem_free_bytes()
+        except (OSError, TypeError, ValueError, AcceptanceError):
+            self.filesystem_observation_failed = True
+            return False
+        if not _filesystem_observation_complete(current):
+            self.filesystem_observation_failed = True
+            return False
+        self.baseline_filesystems = current
+        return True
+
     def observe(self, *, cpu_seconds: float, peak_rss_mb: float, disk_growth_bytes: int) -> bool:
         self.cpu_seconds += max(0.0, float(cpu_seconds))
         self.peak_rss_mb = max(self.peak_rss_mb, max(0.0, float(peak_rss_mb)))
@@ -1729,7 +1779,7 @@ class _AggregateResourceBudget:
             self.filesystem_observation_failed = True
             filesystem_growth = 0
         self.disk_bytes += max(0, int(disk_growth_bytes))
-        self.disk_bytes = max(self.disk_bytes, current_growth, filesystem_growth)
+        self.disk_bytes = max(self.disk_bytes, _disk_growth_charge(current_growth, filesystem_growth))
         return not self.exceeded and not self.filesystem_observation_failed
 
     @property
@@ -2296,6 +2346,638 @@ def _signal_owned(
         return False
 
 
+class _CgroupScope:
+    def __init__(
+        self,
+        *,
+        root: Path,
+        group: Path,
+        root_fd: int,
+        root_procs_fd: int,
+        group_fd: int,
+        group_procs_fd: int,
+        kill_fd: int,
+        root_kill_fd: int = -1,
+        group_procs_read_fd: int = -1,
+        events_fd: int = -1,
+        broker_socket: socket.socket | None = None,
+        broker_handle: str | None = None,
+    ) -> None:
+        self.root = root
+        self.group = group
+        self.root_fd = root_fd
+        self.root_procs_fd = root_procs_fd
+        self.root_kill_fd = root_kill_fd
+        self.group_fd = group_fd
+        self.group_procs_fd = group_procs_fd
+        self.group_procs_read_fd = group_procs_read_fd
+        self.kill_fd = kill_fd
+        self.events_fd = events_fd
+        self.broker_socket = broker_socket
+        self.broker_handle = broker_handle
+        self.sealed = False
+
+
+_CGROUP2_SUPER_MAGIC = 0x63677270
+_CGROUP_CONTROL_SEALED_MODE = 0
+_CGROUP_DIRECTORY_SEALED_MODE = 0
+_CGROUP_PROCS_MODE = 0o644
+_CGROUP_KILL_MODE = 0o200
+_MAX_CGROUP_MEMBERS_BYTES = 1024 * 1024
+_MAX_CGROUP_MEMBER_COUNT = 65536
+
+
+def _unescape_mountinfo_path(value: str) -> str:
+    return value.replace(r"\040", " ").replace(r"\011", "\\t").replace(r"\012", "\\n").replace(r"\134", "\\")
+
+
+def _cgroup_mountpoint(path: Path) -> bool:
+    try:
+        lines = Path("/proc/self/mountinfo").read_text(encoding="ascii").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return False
+    for line in lines:
+        try:
+            left, right = line.split(" - ", 1)
+            fields = left.split()
+            filesystem = right.split()[0]
+            if len(fields) >= 5 and filesystem == "cgroup2":
+                if Path(_unescape_mountinfo_path(fields[4])) == path:
+                    return True
+        except (IndexError, ValueError):
+            continue
+    return False
+
+
+def _cgroup2_filesystem(fd: int) -> bool:
+    import ctypes
+
+    class _StatFs(ctypes.Structure):
+        _fields_ = [
+            ("f_type", ctypes.c_long),
+            ("f_bsize", ctypes.c_long),
+            ("f_blocks", ctypes.c_ulonglong),
+            ("f_bfree", ctypes.c_ulonglong),
+            ("f_bavail", ctypes.c_ulonglong),
+            ("f_files", ctypes.c_ulonglong),
+            ("f_ffree", ctypes.c_ulonglong),
+            ("f_fsid", ctypes.c_int * 2),
+            ("f_namelen", ctypes.c_long),
+            ("f_frsize", ctypes.c_long),
+            ("f_flags", ctypes.c_long),
+            ("f_spare", ctypes.c_long * 4),
+        ]
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.fstatfs.argtypes = [ctypes.c_int, ctypes.POINTER(_StatFs)]
+    libc.fstatfs.restype = ctypes.c_int
+    statfs = _StatFs()
+    if libc.fstatfs(fd, ctypes.byref(statfs)) != 0:
+        raise OSError(ctypes.get_errno(), "cgroup filesystem probe failed")
+    return int(statfs.f_type) == _CGROUP2_SUPER_MAGIC
+
+
+def _open_cgroup_dir(path: Path) -> int:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    return os.open(path, flags)
+
+
+def _open_cgroup_control(dir_fd: int, name: str, flags: int) -> int:
+    return os.open(name, flags | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0), dir_fd=dir_fd)
+
+
+def _read_fd_bounded(fd: int, limit: int = _MAX_CGROUP_MEMBERS_BYTES) -> bytes:
+    os.lseek(fd, 0, os.SEEK_SET)
+    data = os.read(fd, limit + 1)
+    if len(data) > limit:
+        raise OSError("cgroup control output is oversized")
+    return data
+
+
+def _cgroup_members_fd(fd: int) -> list[int]:
+    try:
+        pid_max = int(Path("/proc/sys/kernel/pid_max").read_text(encoding="ascii").strip())
+    except (OSError, TypeError, ValueError):
+        pid_max = 2**31 - 1
+    members: list[int] = []
+    for raw in _read_fd_bounded(fd).decode("ascii").split():
+        try:
+            pid = int(raw, 10)
+        except (TypeError, ValueError, OverflowError, UnicodeError):
+            raise OSError("cgroup membership is malformed") from None
+        if pid <= 0 or pid > pid_max:
+            raise OSError("cgroup membership is malformed")
+        members.append(pid)
+        if len(members) > _MAX_CGROUP_MEMBER_COUNT:
+            raise OSError("cgroup membership is oversized")
+    return members
+
+
+def _cgroup_populated_fd(fd: int) -> bool:
+    values = {}
+    for line in _read_fd_bounded(fd, 4096).decode("ascii").splitlines():
+        key, separator, value = line.partition(" ")
+        if separator:
+            values[key] = value.strip()
+    if values.get("populated") not in {"0", "1"}:
+        raise OSError("cgroup events are malformed")
+    return values["populated"] == "1"
+
+
+def _chmod_scope_fd(fd: int, path: Path, mode: int) -> None:
+    if fd >= 0:
+        os.fchmod(fd, mode)
+    else:
+        os.chmod(path, mode)
+
+
+def _seal_cgroup_scope(scope: _CgroupScope) -> bool:
+    try:
+        _chmod_scope_fd(scope.root_procs_fd, scope.root / "cgroup.procs", _CGROUP_CONTROL_SEALED_MODE)
+        _chmod_scope_fd(scope.root_kill_fd, scope.root / "cgroup.kill", _CGROUP_CONTROL_SEALED_MODE)
+        _chmod_scope_fd(scope.group_procs_fd, scope.group / "cgroup.procs", _CGROUP_CONTROL_SEALED_MODE)
+        _chmod_scope_fd(scope.kill_fd, scope.group / "cgroup.kill", _CGROUP_CONTROL_SEALED_MODE)
+        _chmod_scope_fd(scope.group_fd, scope.group, _CGROUP_DIRECTORY_SEALED_MODE)
+        _chmod_scope_fd(scope.root_fd, scope.root, _CGROUP_DIRECTORY_SEALED_MODE)
+    except (OSError, ValueError):
+        return False
+    scope.sealed = True
+    return True
+
+
+def _unseal_cgroup_scope(scope: _CgroupScope) -> bool:
+    ok = True
+    for fd, path, mode in (
+        (scope.root_fd, scope.root, 0o700),
+        (scope.root_procs_fd, scope.root / "cgroup.procs", _CGROUP_PROCS_MODE),
+        (scope.root_kill_fd, scope.root / "cgroup.kill", _CGROUP_KILL_MODE),
+        (scope.group_fd, scope.group, 0o700),
+        (scope.group_procs_fd, scope.group / "cgroup.procs", _CGROUP_PROCS_MODE),
+        (scope.kill_fd, scope.group / "cgroup.kill", _CGROUP_KILL_MODE),
+    ):
+        try:
+            _chmod_scope_fd(fd, path, mode)
+        except (OSError, ValueError):
+            ok = False
+    if ok:
+        scope.sealed = False
+    return ok
+
+
+def _broker_peer_credentials(conn: socket.socket) -> tuple[int, int, int]:
+    raw = conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
+    return struct.unpack("3i", raw)
+
+
+def _validate_broker_server_peer(conn: socket.socket) -> tuple[int, int, int]:
+    pid, uid, gid = _broker_peer_credentials(conn)
+    if pid <= 0 or uid != 0:
+        raise OSError("broker peer is not a trusted root server")
+    return pid, uid, gid
+
+
+def _broker_socket_path() -> Path:
+    configured = os.environ.get(_CGROUP_BROKER_ENV, "")
+    if not configured or not os.path.isabs(configured) or len(configured.encode("utf-8")) > 4096:
+        raise OSError("cgroup broker endpoint is unavailable")
+    endpoint = Path(os.path.abspath(configured))
+    current = Path("/")
+    try:
+        for component in endpoint.parts[1:-1]:
+            current = current / component
+            item = os.lstat(current)
+            if stat.S_ISLNK(item.st_mode) or item.st_uid != 0 or item.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+                raise OSError("cgroup broker endpoint is unsafe")
+        item = os.lstat(endpoint)
+    except OSError:
+        raise OSError("cgroup broker endpoint is unavailable") from None
+    if (
+        stat.S_ISLNK(item.st_mode)
+        or not stat.S_ISSOCK(item.st_mode)
+        or item.st_uid != 0
+        or item.st_mode & stat.S_IWOTH
+    ):
+        raise OSError("cgroup broker endpoint is unsafe")
+    return endpoint
+
+
+def _broker_roundtrip(conn: socket.socket, request: Mapping[str, Any]) -> Mapping[str, Any]:
+    encoded = json.dumps(dict(request), sort_keys=True, separators=(",", ":")).encode("utf-8")
+    if len(encoded) > _MAX_CGROUP_BROKER_FRAME_BYTES:
+        raise OSError("cgroup broker request is oversized")
+    conn.sendall(encoded + b"\n")
+    data = bytearray()
+    while len(data) < _MAX_CGROUP_BROKER_FRAME_BYTES:
+        chunk = conn.recv(min(4096, _MAX_CGROUP_BROKER_FRAME_BYTES - len(data)))
+        if not chunk:
+            raise OSError("cgroup broker closed the connection")
+        data.extend(chunk)
+        if b"\n" in chunk:
+            line, _, _ = bytes(data).partition(b"\n")
+            try:
+                response = json.loads(line.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                raise OSError("cgroup broker response is invalid") from None
+            if not isinstance(response, Mapping) or type(response.get("ok")) is not bool:
+                raise OSError("cgroup broker response is invalid")
+            return response
+    raise OSError("cgroup broker response is oversized")
+
+
+def _create_broker_scope(run_token: str) -> _CgroupScope:
+    endpoint = _broker_socket_path()
+    conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    conn.settimeout(3.0)
+    try:
+        conn.connect(str(endpoint))
+        _validate_broker_server_peer(conn)
+        response = _broker_roundtrip(
+            conn,
+            {"op": "create", "pid": os.getpid(), "run_token": run_token},
+        )
+        handle = response.get("handle")
+        if response.get("ok") is not True or not isinstance(handle, str) or not re.fullmatch(r"[0-9a-f]{32}", handle):
+            raise OSError("cgroup broker rejected create")
+        return _CgroupScope(
+            root=Path("/"),
+            group=Path("/"),
+            root_fd=-1,
+            root_procs_fd=-1,
+            group_fd=-1,
+            group_procs_fd=-1,
+            kill_fd=-1,
+            broker_socket=conn,
+            broker_handle=handle,
+        )
+    except (OSError, TypeError, ValueError):
+        try:
+            conn.close()
+        except OSError:
+            pass
+        raise OSError("cgroup broker is unavailable") from None
+
+
+def _finish_broker_scope(scope: _CgroupScope, operation: str) -> bool:
+    conn = scope.broker_socket
+    handle = scope.broker_handle
+    if conn is None or not isinstance(handle, str) or operation not in {"release", "cleanup"}:
+        return False
+    try:
+        response = _broker_roundtrip(conn, {"op": operation, "handle": handle})
+        return response.get("ok") is True
+    except (OSError, TypeError, ValueError):
+        return False
+    finally:
+        try:
+            conn.close()
+        except OSError:
+            pass
+        scope.broker_socket = None
+        scope.broker_handle = None
+
+
+def _close_cgroup_scope(scope: _CgroupScope) -> bool:
+    ok = True
+    if scope.broker_socket is not None:
+        try:
+            scope.broker_socket.close()
+        except OSError:
+            ok = False
+        scope.broker_socket = None
+        scope.broker_handle = None
+    for name in ("root_fd", "root_procs_fd", "root_kill_fd", "group_fd", "group_procs_fd", "group_procs_read_fd", "kill_fd", "events_fd"):
+        fd = getattr(scope, name)
+        if fd < 0:
+            continue
+        try:
+            os.close(fd)
+        except OSError:
+            ok = False
+        setattr(scope, name, -1)
+    return ok
+
+
+def _cgroup_root_from_env() -> Path | None:
+    configured = os.environ.get(_CGROUP_ROOT_ENV, "")
+    if not configured:
+        return None
+    if not sys.platform.startswith("linux"):
+        raise OSError("cgroup v2 is unavailable")
+    if not os.path.isabs(configured) or os.path.realpath(configured) != os.path.abspath(configured):
+        raise OSError("cgroup root path is unsafe")
+    root = Path(os.path.abspath(configured))
+    if _cgroup_mountpoint(root):
+        raise OSError("cgroup mount root is not a delegated subtree")
+    root_fd = -1
+    controls: list[int] = []
+    try:
+        root_fd = _open_cgroup_dir(root)
+        if not _cgroup2_filesystem(root_fd):
+            raise OSError("cgroup v2 filesystem is required")
+        root_stat = os.fstat(root_fd)
+        if root_stat.st_uid != os.geteuid() or os.geteuid() == 0:
+            raise OSError("cgroup delegation requires a non-root owner")
+        for name in ("cgroup.procs", "cgroup.kill", "cgroup.subtree_control"):
+            if not (root / name).exists():
+                raise OSError("cgroup control is unavailable")
+        for name in ("cgroup.procs", "cgroup.kill"):
+            controls.append(_open_cgroup_control(root_fd, name, os.O_WRONLY))
+    except (OSError, TypeError, ValueError):
+        raise
+    finally:
+        for fd in controls:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if root_fd >= 0:
+            try:
+                os.close(root_fd)
+            except OSError:
+                pass
+    return root
+
+
+def _cgroup_members(group: Path) -> list[int]:
+    members: list[int] = []
+    try:
+        pid_max = int(Path("/proc/sys/kernel/pid_max").read_text(encoding="ascii").strip())
+    except (OSError, TypeError, ValueError):
+        pid_max = 2**31 - 1
+    for raw in (group / "cgroup.procs").read_text(encoding="ascii").split():
+        try:
+            pid = int(raw, 10)
+        except (TypeError, ValueError, OverflowError):
+            raise OSError("cgroup membership is malformed") from None
+        if pid <= 0 or pid > pid_max:
+            raise OSError("cgroup membership is malformed")
+        members.append(pid)
+    return members
+
+
+def _process_in_cgroup(pid: int, group: Path) -> bool:
+    if not sys.platform.startswith("linux"):
+        return False
+    try:
+        lines = (Path("/proc") / str(pid) / "cgroup").read_text(encoding="ascii").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return False
+    for line in lines:
+        if "::" not in line:
+            continue
+        _, relative = line.split("::", 1)
+        relative = relative.rstrip("/")
+        if relative and relative.rsplit("/", 1)[-1] == group.name:
+            return True
+    return False
+
+
+def _signal_cgroup_member(pid: int, group: Path) -> bool:
+    """Signal only a live PID with a stable identity still in this scope."""
+    if pid == os.getpid():
+        return True
+    expected = _process_identity(pid)
+    if expected is None:
+        return True
+    if not _process_in_cgroup(pid, group):
+        return False
+    current = _process_identity(pid)
+    if current is None:
+        return True
+    if current.get("start_time") != expected.get("start_time"):
+        return False
+    try:
+        os.kill(pid, signal.SIGKILL)
+        return True
+    except ProcessLookupError:
+        return True
+    except (PermissionError, OSError, OverflowError):
+        return False
+
+
+def _create_cgroup_scope(run_token: str, *, required: bool = False) -> _CgroupScope | None:
+    if os.environ.get(_CGROUP_BROKER_ENV):
+        return _create_broker_scope(run_token)
+    if required:
+        raise OSError("root-owned cgroup broker is required")
+    root = _cgroup_root_from_env()
+    if root is None:
+        if required:
+            raise OSError("cgroup root is required")
+        return None
+    root_fd = root_procs_fd = root_kill_fd = -1
+    group_fd = group_procs_fd = kill_fd = events_fd = group_procs_read_fd = -1
+    group: Path | None = None
+    scope: _CgroupScope | None = None
+    try:
+        root_fd = _open_cgroup_dir(root)
+        root_procs_fd = _open_cgroup_control(root_fd, "cgroup.procs", os.O_WRONLY)
+        root_kill_fd = _open_cgroup_control(root_fd, "cgroup.kill", os.O_WRONLY)
+        group_name = f"perseus-acceptance-{os.getpid()}-{run_token}"
+        os.mkdir(group_name, 0o700, dir_fd=root_fd)
+        group = root / group_name
+        group_fd = _open_cgroup_control(root_fd, group_name, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        group_procs_fd = _open_cgroup_control(group_fd, "cgroup.procs", os.O_WRONLY)
+        kill_fd = _open_cgroup_control(group_fd, "cgroup.kill", os.O_WRONLY)
+        events_fd = _open_cgroup_control(group_fd, "cgroup.events", os.O_RDONLY)
+        group_procs_read_fd = _open_cgroup_control(group_fd, "cgroup.procs", os.O_RDONLY)
+        scope = _CgroupScope(
+            root=root,
+            group=group,
+            root_fd=root_fd,
+            root_procs_fd=root_procs_fd,
+            root_kill_fd=root_kill_fd,
+            group_fd=group_fd,
+            group_procs_fd=group_procs_fd,
+            kill_fd=kill_fd,
+            group_procs_read_fd=group_procs_read_fd,
+            events_fd=events_fd,
+        )
+        os.write(group_procs_fd, str(os.getpid()).encode("ascii"))
+        if os.getpid() not in _cgroup_members(group):
+            raise OSError("parent did not enter cgroup scope")
+        if _cgroup_members(root):
+            raise OSError("delegated cgroup root is not empty")
+        if not _seal_cgroup_scope(scope):
+            raise OSError("cgroup scope could not be sealed")
+        return scope
+    except BaseException:
+        if scope is not None:
+            _release_cgroup_scope(scope)
+        else:
+            for fd in (root_fd, root_procs_fd, root_kill_fd, group_fd, group_procs_fd, group_procs_read_fd, kill_fd, events_fd):
+                if fd >= 0:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+            if group is not None:
+                try:
+                    group.rmdir()
+                except OSError:
+                    pass
+        raise
+
+
+def _cgroup_scope_members(scope: _CgroupScope) -> list[int]:
+    if scope.group_procs_read_fd >= 0:
+        return _cgroup_members_fd(scope.group_procs_read_fd)
+    return _cgroup_members(scope.group)
+
+
+def _cgroup_scope_populated(scope: _CgroupScope) -> bool:
+    if scope.events_fd >= 0:
+        return _cgroup_populated_fd(scope.events_fd)
+    return bool(_cgroup_scope_members(scope))
+
+
+def _write_cgroup_fd(fd: int, value: bytes) -> None:
+    written = 0
+    while written < len(value):
+        count = os.write(fd, value[written:])
+        if count <= 0:
+            raise OSError("cgroup control write made no progress")
+        written += count
+
+
+def _release_cgroup_scope(scope: _CgroupScope) -> bool:
+    if scope.broker_socket is not None:
+        return _finish_broker_scope(scope, "release")
+    cleanup_ok = True
+    moved_out = False
+    try:
+        _write_cgroup_fd(scope.root_procs_fd, str(os.getpid()).encode("ascii"))
+        moved_out = True
+    except (OSError, ValueError):
+        cleanup_ok = False
+    try:
+        members = _cgroup_scope_members(scope)
+    except (OSError, ValueError):
+        members = [os.getpid()]
+        cleanup_ok = False
+    if os.getpid() in members:
+        cleanup_ok = False
+    elif moved_out:
+        try:
+            _write_cgroup_fd(scope.kill_fd, b"1")
+        except (OSError, ValueError):
+            cleanup_ok = False
+        deadline = time.monotonic() + 1.5
+        while time.monotonic() < deadline:
+            try:
+                if not _cgroup_scope_populated(scope):
+                    break
+            except (OSError, ValueError):
+                cleanup_ok = False
+                break
+            try:
+                _write_cgroup_fd(scope.kill_fd, b"1")
+            except (OSError, ValueError):
+                cleanup_ok = False
+                break
+            time.sleep(0.01)
+        try:
+            if _cgroup_scope_populated(scope):
+                cleanup_ok = False
+        except (OSError, ValueError):
+            cleanup_ok = False
+    if not _unseal_cgroup_scope(scope):
+        cleanup_ok = False
+    try:
+        if not _cgroup_scope_members(scope):
+            os.rmdir(scope.group, dir_fd=scope.root_fd)
+        else:
+            cleanup_ok = False
+    except (OSError, ValueError):
+        cleanup_ok = False
+    if not _close_cgroup_scope(scope):
+        cleanup_ok = False
+    return cleanup_ok
+
+
+def _known_processes_still_live(known: Mapping[int, Mapping[str, int]]) -> bool:
+    for identity in known.values():
+        current = _process_identity(identity.get("pid", -1))
+        if current is not None and current.get("start_time") == identity.get("start_time") and current.get("state") != "Z":
+            return True
+    return False
+
+
+def _terminate_cgroup_scope(
+    scope: _CgroupScope,
+    process: subprocess.Popen[Any] | None,
+    known: Mapping[int, Mapping[str, int]] | None = None,
+) -> bool:
+    """Kill every process in a sealed delegated cgroup, then remove the scope."""
+    if scope.broker_socket is not None:
+        cleanup_ok = _finish_broker_scope(scope, "cleanup")
+        if process is not None:
+            try:
+                process.wait(timeout=0.5)
+            except (subprocess.TimeoutExpired, OSError, subprocess.SubprocessError):
+                cleanup_ok = False
+        if known is not None and _known_processes_still_live(known):
+            cleanup_ok = False
+        return cleanup_ok
+    cleanup_ok = True
+    moved_out = False
+    try:
+        _write_cgroup_fd(scope.root_procs_fd, str(os.getpid()).encode("ascii"))
+        moved_out = True
+    except (OSError, ValueError):
+        cleanup_ok = False
+    try:
+        members = _cgroup_scope_members(scope)
+    except (OSError, ValueError):
+        members = [os.getpid()]
+        cleanup_ok = False
+    if os.getpid() in members:
+        cleanup_ok = False
+    elif moved_out:
+        try:
+            _write_cgroup_fd(scope.kill_fd, b"1")
+        except (OSError, ValueError):
+            cleanup_ok = False
+        deadline = time.monotonic() + 1.5
+        while time.monotonic() < deadline:
+            try:
+                if not _cgroup_scope_populated(scope):
+                    break
+            except (OSError, ValueError):
+                cleanup_ok = False
+                break
+            try:
+                _write_cgroup_fd(scope.kill_fd, b"1")
+            except (OSError, ValueError):
+                cleanup_ok = False
+                break
+            time.sleep(0.01)
+        try:
+            if _cgroup_scope_populated(scope):
+                cleanup_ok = False
+        except (OSError, ValueError):
+            cleanup_ok = False
+    if process is not None:
+        try:
+            process.wait(timeout=0.5)
+        except (subprocess.TimeoutExpired, OSError, subprocess.SubprocessError):
+            cleanup_ok = False
+    if known is not None and _known_processes_still_live(known):
+        cleanup_ok = False
+    if not _unseal_cgroup_scope(scope):
+        cleanup_ok = False
+    try:
+        if _cgroup_scope_members(scope):
+            cleanup_ok = False
+        else:
+            os.rmdir(scope.group, dir_fd=scope.root_fd)
+    except (OSError, ValueError):
+        cleanup_ok = False
+    if not _close_cgroup_scope(scope):
+        cleanup_ok = False
+    return cleanup_ok
+
+
 def _terminate_process_group(
     process: subprocess.Popen[Any],
     leader_identity: Mapping[str, int] | None,
@@ -2304,8 +2986,11 @@ def _terminate_process_group(
     *,
     baseline: Mapping[int, Mapping[str, int]] | None = None,
     token_fd: int | None = None,
+    cgroup_scope: _CgroupScope | None = None,
 ) -> bool:
     """Terminate/reap only verified new processes and their current PGID."""
+    if cgroup_scope is not None:
+        return _terminate_cgroup_scope(cgroup_scope, process, known=known)
     if sys.platform.startswith("win") or os.name == "nt":
         # No verified Windows job-object/creation-time identity is available;
         # never issue PID-only taskkill against a potentially reused PID.
@@ -2330,6 +3015,15 @@ def _terminate_process_group(
         return cleanup_ok
     for sig, wait_time in ((signal.SIGTERM, 0.25), (signal.SIGKILL, 1.0)):
         _owned_processes(leader_pid, baseline_snapshot, known, run_token, token_fd)
+        if any(
+            isinstance(leader_identity, Mapping)
+            and identity.get("pgid") != leader_identity.get("pgid")
+            for identity in known.values()
+        ):
+            # Without a delegated cgroup, a changed PGID proves that the
+            # descendant left the only recorded process-group boundary; its
+            # token or prior ancestry does not restore containment proof.
+            cleanup_ok = False
         group_pgid: int | None = None
         leader_verified = False
         if leader_identity is not None:
@@ -2523,6 +3217,7 @@ def _blocked_child_result(limits: Mapping[str, int], *, reason: str, cleanup_fai
         "offline_sandbox": None,
         "offline_report": None,
         "offline_guard": {"enforced": False, "boundary": None, "report_present": False},
+        "process_containment": {"enforced": False, "boundary": None, "cleanup_verified": not cleanup_failed},
         "cleanup_failed": cleanup_failed,
         "reason": _bounded_reason(reason, "offline_guard_unavailable"),
     }
@@ -2541,8 +3236,11 @@ def _run_bounded_child(
     disk_limit_bytes: int | None = None,
     offline_required: bool | None = None,
     aggregate_budget: _AggregateResourceBudget | None = None,
+    require_process_containment: bool = True,
 ) -> dict[str, Any]:
     """Run one child with verified ownership, inherited seccomp, and bounds."""
+    if type(require_process_containment) is not bool:
+        raise AcceptanceError("process_containment_policy_invalid")
     timeout_value = _validate_child_timeout(timeout)
     limits = _validate_child_limits(resource_limits)
     disk_limit = _validate_disk_limit(disk_limit_bytes) if disk_limit_bytes is not None else None
@@ -2574,6 +3272,8 @@ def _run_bounded_child(
     child_env = dict(env)
     run_token = secrets.token_hex(16)
     child_env["PERSEUS_ACCEPTANCE_RUN_ID"] = run_token
+    cgroup_scope: _CgroupScope | None = None
+    containment_boundary: str | None = None
     guard_dir: Path | None = None
     report_read_fd = report_write_fd = -1
     token_fd = -1
@@ -2682,6 +3382,42 @@ def _run_bounded_child(
                     pass
         cleanup_ok = _cleanup_guard_dir(guard_dir)
         return _blocked_child_result(limits, reason="child_containment_unavailable", cleanup_failed=not cleanup_ok)
+    try:
+        cgroup_scope = _create_cgroup_scope(
+            run_token,
+            required=require_process_containment and sys.platform.startswith("linux"),
+        )
+    except (OSError, TypeError, ValueError):
+        for fd in (token_fd, guard_read_fd, guard_write_fd, report_read_fd, report_write_fd):
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+        cleanup_ok = _cleanup_guard_dir(guard_dir)
+        return _blocked_child_result(
+            limits,
+            reason="child_containment_unavailable" if cleanup_ok else "child_cleanup_failed",
+            cleanup_failed=not cleanup_ok,
+        )
+    if cgroup_scope is not None:
+        containment_boundary = "cgroup_broker" if cgroup_scope.broker_socket is not None else "cgroup_v2_sealed"
+        child_env.pop(_CGROUP_ROOT_ENV, None)
+        child_env.pop(_CGROUP_BROKER_ENV, None)
+    if cgroup_scope is not None and aggregate_budget is not None and not aggregate_budget.rebaseline_filesystems():
+        for fd in (token_fd, guard_read_fd, guard_write_fd, report_read_fd, report_write_fd):
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+        cleanup_ok = _cleanup_guard_dir(guard_dir)
+        cleanup_ok = _release_cgroup_scope(cgroup_scope) and cleanup_ok
+        return _blocked_child_result(
+            limits,
+            reason="filesystem_observation_unavailable",
+            cleanup_failed=not cleanup_ok,
+        )
     baseline = _process_snapshot() if subreaper_ready else {}
     before_disk = _monitor_size(monitor_roots)
     filesystem_observation_failed = False
@@ -2700,6 +3436,8 @@ def _run_bounded_child(
                 except OSError:
                     pass
         cleanup_ok = _cleanup_guard_dir(guard_dir)
+        if cgroup_scope is not None:
+            cleanup_ok = _release_cgroup_scope(cgroup_scope) and cleanup_ok
         return _blocked_child_result(
             limits,
             reason="filesystem_observation_unavailable",
@@ -2720,6 +3458,8 @@ def _run_bounded_child(
                 except OSError:
                     pass
         cleanup_ok = _cleanup_guard_dir(guard_dir)
+        if cgroup_scope is not None:
+            cleanup_ok = _release_cgroup_scope(cgroup_scope) and cleanup_ok
         if not cleanup_ok:
             return _blocked_child_result(limits, reason="child_cleanup_failed", cleanup_failed=True)
         if require_offline:
@@ -2750,10 +3490,11 @@ def _run_bounded_child(
     captured: dict[str, Any] = {}
     peak_rss_bytes = _read_process_peak_rss_bytes(process.pid)
     max_disk_growth = 0
+    max_logical_growth = 0
     max_filesystem_growth = 0
 
     def _observe_filesystem_growth() -> bool:
-        nonlocal max_filesystem_growth, max_disk_growth, filesystem_observation_failed
+        nonlocal max_logical_growth, max_filesystem_growth, max_disk_growth, filesystem_observation_failed
         if not disk_sandbox_requested or filesystem_observation_failed:
             return not filesystem_observation_failed
         try:
@@ -2766,7 +3507,9 @@ def _run_bounded_child(
             filesystem_observation_failed = True
             return False
         max_filesystem_growth = max(max_filesystem_growth, growth)
-        max_disk_growth = max(max_disk_growth, max_filesystem_growth)
+        logical_growth = max(0, _monitor_size(monitor_roots) - before_disk)
+        max_logical_growth = max(max_logical_growth, logical_growth)
+        max_disk_growth = _disk_growth_charge(max_logical_growth, max_filesystem_growth)
         return True
 
     stdout_thread = threading.Thread(target=_bounded_reader, args=(process.stdout, _MAX_CHILD_OUTPUT_BYTES, captured, "stdout"), daemon=True)
@@ -2781,7 +3524,9 @@ def _run_bounded_child(
             if subreaper_ready:
                 _owned_processes(process.pid, baseline, known, run_token, token_fd)
             peak_rss_bytes = max(peak_rss_bytes, _read_process_peak_rss_bytes(process.pid))
-            max_disk_growth = max(max_disk_growth, max(0, _monitor_size(monitor_roots) - before_disk))
+            logical_growth = max(0, _monitor_size(monitor_roots) - before_disk)
+            max_logical_growth = max(max_logical_growth, logical_growth)
+            max_disk_growth = _disk_growth_charge(max_logical_growth, max_filesystem_growth)
             if not _observe_filesystem_growth():
                 status = "blocked"
                 break
@@ -2809,6 +3554,7 @@ def _run_bounded_child(
                 run_token,
                 baseline=baseline,
                 token_fd=token_fd,
+                cgroup_scope=cgroup_scope,
             )
             cleanup_failed = not cleanup_ok
         except (OSError, subprocess.SubprocessError, ValueError):
@@ -2840,7 +3586,9 @@ def _run_bounded_child(
     stderr = captured.get("stderr_bytes", b"")
     if captured.get("stdout_limit_exceeded") or captured.get("stderr_limit_exceeded"):
         status = "resource_limit"
-    max_disk_growth = max(max_disk_growth, max(0, _monitor_size(monitor_roots) - before_disk))
+    logical_growth = max(0, _monitor_size(monitor_roots) - before_disk)
+    max_logical_growth = max(max_logical_growth, logical_growth)
+    max_disk_growth = _disk_growth_charge(max_logical_growth, max_filesystem_growth)
     if not _observe_filesystem_growth():
         status = "blocked"
     if disk_limit is not None and max_disk_growth > disk_limit and status == "passed":
@@ -2947,6 +3695,11 @@ def _run_bounded_child(
             "boundary": "seccomp" if require_offline and guard_verified else None,
             "report_present": offline_report is not None,
             "telemetry": "parent_derived" if offline_report is not None else "unavailable",
+        },
+        "process_containment": {
+            "enforced": containment_boundary is not None,
+            "boundary": containment_boundary,
+            "cleanup_verified": not cleanup_failed,
         },
         "cleanup_failed": cleanup_failed,
     }
@@ -3249,6 +4002,7 @@ def _check_bundle(
                 monitor_dirs=(workspace, root),
                 disk_limit_bytes=disk_limit_bytes,
                 offline_required=True,
+                require_process_containment=True,
                 aggregate_budget=aggregate_budget,
             )
             _verify_staged_file(staged_bundle, actual, workspace=workspace)
@@ -3271,6 +4025,7 @@ def _check_bundle(
                 "offline_sandbox": operation.get("offline_sandbox"),
                 "offline_report": operation.get("offline_report"),
                 "offline_guard": operation.get("offline_guard"),
+                "process_containment": operation.get("process_containment"),
                 "aggregate_resource": operation.get("aggregate_resource"),
             })
             if (
@@ -3407,6 +4162,7 @@ def _run_render(
             allowed_write_dirs=(state_dir,),
             disk_limit_bytes=limits["file_bytes"],
             offline_required=True,
+            require_process_containment=True,
             aggregate_budget=aggregate_budget,
         )
         staged_ok = True
@@ -3444,6 +4200,7 @@ def _run_render(
         "offline_sandbox": result.get("offline_sandbox"),
         "offline_report": result.get("offline_report"),
         "offline_guard": result.get("offline_guard"),
+        "process_containment": result.get("process_containment"),
         "query_sha256": _sha(query_value),
         "artifact_sha256": expected,
     }
@@ -3525,6 +4282,7 @@ def _run_adapter(
                 monitor_dirs=(workspace, root),
                 disk_limit_bytes=disk_limit_bytes,
                 offline_required=True,
+                require_process_containment=True,
                 aggregate_budget=aggregate_budget,
             )
             _verify_staged_file(staged_artifact, actual, workspace=workspace)
@@ -3552,6 +4310,7 @@ def _run_adapter(
                 "offline_sandbox": operation.get("offline_sandbox"),
                 "offline_report": operation.get("offline_report"),
                 "offline_guard": operation.get("offline_guard"),
+                "process_containment": operation.get("process_containment"),
                 "query_sha256": _sha(query_value),
             }
             if post_digest != actual or post_runtime_digest != runtime_expected:
@@ -3667,6 +4426,7 @@ def _run_workload_query(
             monitor_dirs=(workspace, out, root),
             disk_limit_bytes=resource_limits["file_bytes"],
             offline_required=True,
+            require_process_containment=True,
             aggregate_budget=aggregate_budget,
         )
         staged_ok = True
@@ -3688,6 +4448,7 @@ def _run_workload_query(
         "offline_sandbox": result.get("offline_sandbox"),
         "offline_report": result.get("offline_report"),
         "offline_guard": result.get("offline_guard"),
+        "process_containment": result.get("process_containment"),
     }
     try:
         observed = json.loads(result.get("stdout", ""), parse_constant=lambda _value: (_ for _ in ()).throw(ValueError()))
@@ -3886,6 +4647,7 @@ def run_acceptance(repo_root: Path | str, *, fixture_path: Path | str | None = N
                 monitor_dirs=(probe_workspace, out, root),
                 disk_limit_bytes=child_limits["file_bytes"],
                 offline_required=True,
+                require_process_containment=True,
                 aggregate_budget=aggregate_budget,
             )
             try:
