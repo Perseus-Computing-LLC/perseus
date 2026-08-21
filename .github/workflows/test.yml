@@ -220,8 +220,11 @@ jobs:
               sudo kill -0 "${broker_pid}" 2>/dev/null && cleanup_failed=1
             fi
           else
-            read -r broker_pid broker_start_time <"${broker_pid_file}" || cleanup_failed=1
-            if [ "${cleanup_failed}" -eq 0 ] && sudo kill -0 "${broker_pid}" 2>/dev/null; then
+            if ! read -r broker_pid broker_start_time <"${broker_pid_file}" || ! [[
+              "${broker_pid}" =~ ^[0-9]+$ && "${broker_start_time}" =~ ^[0-9]+$
+            ]]; then
+              cleanup_failed=1
+            elif sudo kill -0 "${broker_pid}" 2>/dev/null; then
               # Never signal a live PID whose recorded identity no longer matches.
               cleanup_failed=1
             fi

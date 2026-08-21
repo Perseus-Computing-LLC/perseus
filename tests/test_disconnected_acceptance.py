@@ -86,6 +86,11 @@ def test_linux_broker_workflow_binds_pid_identity_and_fails_closed_on_cleanup():
     assert cleanup.index('cleanup_failed=1', cleanup.index('if [ ! -f "${broker_pid_file}" ]; then')) < cleanup.index(
         'elif broker_process_matches; then'
     )
+    assert (
+        'if ! read -r broker_pid broker_start_time <"${broker_pid_file}" || ! [[\n'
+        '              "${broker_pid}" =~ ^[0-9]+$ && "${broker_start_time}" =~ ^[0-9]+$\n'
+        '            ]]; then'
+    ) in cleanup
     assert cleanup.index('sudo cat "${broker_log}" >&2 || true') < cleanup.index(
         'sudo rm -f "${broker_pid_file}" "${broker_log}"'
     )
