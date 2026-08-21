@@ -50,17 +50,38 @@ jobs:
           broker_log="/tmp/perseus-acceptance-broker-${GITHUB_RUN_ID}-${{ matrix.python-version }}.log"
           sudo mkdir -p "${broker_root}" "${broker_dir}"
           sudo chmod 0755 "${broker_dir}"
+          sudo rm -f "${broker_pid_file}"
           python_bin="$(command -v python)"
-          sudo "${python_bin}" benchmark/disconnected_acceptance/cgroup_broker.py \
+          sudo bash -c '
+            set -euo pipefail
+            umask 0022
+            pid_file="$1"
+            python_bin="$2"
+            shift 2
+            start_time="$(awk "{print \$22}" "/proc/$$/stat")"
+            printf "%s %s\\n" "$$" "${start_time}" >"${pid_file}"
+            exec "${python_bin}" "$@"
+          ' -- "${broker_pid_file}" "${python_bin}" \
+            benchmark/disconnected_acceptance/cgroup_broker.py \
             --root "${broker_root}" --socket "${broker_socket}" --uid "$(id -u)" \
             >"${broker_log}" 2>&1 &
-          echo $! >"${broker_pid_file}"
           echo "PERSEUS_ACCEPTANCE_CGROUP_BROKER=${broker_socket}" >>"${GITHUB_ENV}"
+          broker_process_matches() {
+            local pid start_time current_start command
+            read -r pid start_time <"${broker_pid_file}" || return 1
+            [[ "${pid}" =~ ^[0-9]+$ && "${start_time}" =~ ^[0-9]+$ ]] || return 1
+            sudo kill -0 "${pid}" 2>/dev/null || return 1
+            current_start="$(sudo awk '{print $22}' "/proc/${pid}/stat" 2>/dev/null)" || return 1
+            [[ "${current_start}" == "${start_time}" ]] || return 1
+            command="$(sudo sh -c 'tr "\\0" " " <"$1"' sh "/proc/${pid}/cmdline" 2>/dev/null)" || return 1
+            [[ "${command}" == *"cgroup_broker.py"* ]]
+          }
           for _ in $(seq 1 50); do
-            if [ -S "${broker_socket}" ]; then
+            if [ -S "${broker_socket}" ] && broker_process_matches; then
               exit 0
             fi
-            if ! kill -0 "$(cat "${broker_pid_file}")" 2>/dev/null; then
+            if [ -f "${broker_pid_file}" ] && read -r broker_pid broker_start_time <"${broker_pid_file}" \
+              && ! sudo kill -0 "${broker_pid}" 2>/dev/null; then
               sudo cat "${broker_log}" >&2 || true
               exit 1
             fi
@@ -157,24 +178,69 @@ jobs:
         if: always() && runner.os == 'Linux'
         shell: bash
         run: |
-          set +e
+          set -euo pipefail
+          cleanup_failed=0
           broker_root="/sys/fs/cgroup/perseus-acceptance-${GITHUB_RUN_ID}-${{ matrix.python-version }}"
           broker_dir="/run/perseus-acceptance-${GITHUB_RUN_ID}-${{ matrix.python-version }}"
           broker_socket="${broker_dir}/broker.sock"
           broker_pid_file="/tmp/perseus-acceptance-broker-${GITHUB_RUN_ID}-${{ matrix.python-version }}.pid"
-          if [ -f "${broker_pid_file}" ]; then
-            sudo kill "$(cat "${broker_pid_file}")" 2>/dev/null || true
+          broker_log="/tmp/perseus-acceptance-broker-${GITHUB_RUN_ID}-${{ matrix.python-version }}.log"
+          broker_process_matches() {
+            local pid start_time current_start command
+            read -r pid start_time <"${broker_pid_file}" || return 1
+            [[ "${pid}" =~ ^[0-9]+$ && "${start_time}" =~ ^[0-9]+$ ]] || return 1
+            sudo kill -0 "${pid}" 2>/dev/null || return 1
+            current_start="$(sudo awk '{print $22}' "/proc/${pid}/stat" 2>/dev/null)" || return 1
+            [[ "${current_start}" == "${start_time}" ]] || return 1
+            command="$(sudo sh -c 'tr "\\0" " " <"$1"' sh "/proc/${pid}/cmdline" 2>/dev/null)" || return 1
+            [[ "${command}" == *"cgroup_broker.py"* ]]
+          }
+          if [ ! -f "${broker_pid_file}" ]; then
+            # Without a root-written identity record, cleanup cannot prove ownership.
+            cleanup_failed=1
+          elif broker_process_matches; then
+            read -r broker_pid _ <"${broker_pid_file}"
+            sudo kill "${broker_pid}" 2>/dev/null || {
+              sudo kill -0 "${broker_pid}" 2>/dev/null && cleanup_failed=1
+            }
+            stopped=0
             for _ in $(seq 1 20); do
-              if ! kill -0 "$(cat "${broker_pid_file}")" 2>/dev/null; then
+              if ! sudo kill -0 "${broker_pid}" 2>/dev/null; then
+                stopped=1
                 break
               fi
               sleep 0.1
             done
-            sudo kill -KILL "$(cat "${broker_pid_file}")" 2>/dev/null || true
+            if [ "${stopped}" -ne 1 ]; then
+              if broker_process_matches; then
+                sudo kill -KILL "${broker_pid}" 2>/dev/null || cleanup_failed=1
+              else
+                cleanup_failed=1
+              fi
+              sudo kill -0 "${broker_pid}" 2>/dev/null && cleanup_failed=1
+            fi
+          else
+            read -r broker_pid broker_start_time <"${broker_pid_file}" || cleanup_failed=1
+            if [ "${cleanup_failed}" -eq 0 ] && sudo kill -0 "${broker_pid}" 2>/dev/null; then
+              # Never signal a live PID whose recorded identity no longer matches.
+              cleanup_failed=1
+            fi
           fi
-          sudo rm -f "${broker_socket}"
-          sudo rmdir "${broker_root}" 2>/dev/null || true
-          sudo rmdir "${broker_dir}" 2>/dev/null || true
+          if [ -e "${broker_socket}" ]; then
+            sudo rm -f "${broker_socket}" || cleanup_failed=1
+          fi
+          sudo rmdir "${broker_root}" || cleanup_failed=1
+          sudo rmdir "${broker_dir}" || cleanup_failed=1
+          if [ "${cleanup_failed}" -ne 0 ]; then
+            echo "privileged cgroup broker cleanup failed" >&2
+            sudo cat "${broker_log}" >&2 || true
+          fi
+          sudo rm -f "${broker_pid_file}" "${broker_log}" || cleanup_failed=1
+          if [ "${cleanup_failed}" -ne 0 ]; then
+            echo "privileged cgroup broker cleanup failed" >&2
+            sudo cat "${broker_log}" >&2 || true
+            exit 1
+          fi
 
   test-windows:
     runs-on: windows-latest

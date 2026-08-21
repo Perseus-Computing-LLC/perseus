@@ -60,6 +60,41 @@ def _fixture():
     return harness._load_fixture(ROOT / "benchmark" / "disconnected_acceptance" / "fixture.json")
 
 
+def test_linux_broker_workflow_binds_pid_identity_and_fails_closed_on_cleanup():
+    workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+    start = workflow.index("      - name: Start privileged cgroup containment broker")
+    verify = workflow.index("      - name: Verify build artifact is in sync", start)
+    stop = workflow.index("      - name: Stop privileged cgroup containment broker", verify)
+    windows = workflow.index("  test-windows:", stop)
+    startup = workflow[start:verify]
+    cleanup = workflow[stop:windows]
+
+    assert "broker_start_time" in startup
+    assert "broker_pid_file" in startup
+    assert "sudo kill -0" in startup
+    assert "echo $!" not in startup
+    assert "broker_process_matches" in startup
+    assert "set +e" not in cleanup
+    assert "broker_process_matches" in cleanup
+    assert "sudo kill -0" in cleanup
+    assert "cleanup_failed=0" in cleanup
+    assert "exit 1" in cleanup
+    assert 'if [ ! -f "${broker_pid_file}" ]; then' in cleanup
+    assert cleanup.index('if [ ! -f "${broker_pid_file}" ]; then') < cleanup.index(
+        'elif broker_process_matches; then'
+    )
+    assert cleanup.index('cleanup_failed=1', cleanup.index('if [ ! -f "${broker_pid_file}" ]; then')) < cleanup.index(
+        'elif broker_process_matches; then'
+    )
+    assert cleanup.index('sudo cat "${broker_log}" >&2 || true') < cleanup.index(
+        'sudo rm -f "${broker_pid_file}" "${broker_log}"'
+    )
+    for line in cleanup.splitlines():
+        if any(command in line for command in ("sudo kill", "sudo rm", "sudo rmdir")):
+            assert "|| true" not in line
+
+
+
 def test_offline_guard_blocks_dns_and_records_bounded_attempt():
     perseus.deactivate_offline_mode()
     perseus.activate_offline_mode()
@@ -765,6 +800,26 @@ def test_broker_scope_rejects_missing_peer_identity_before_setup(tmp_path, monke
             peer_start_time=None,
             peer_pidfd=-1,
         )
+
+
+def test_broker_mountpoint_check_canonicalizes_relative_root(tmp_path, monkeypatch):
+    delegated = tmp_path / "delegated"
+    delegated.mkdir()
+    monkeypatch.chdir(tmp_path)
+    seen = []
+    monkeypatch.setattr(
+        broker,
+        "_is_cgroup_mountpoint",
+        lambda path: seen.append(path) or path == delegated.resolve(),
+    )
+    monkeypatch.setattr(
+        broker,
+        "_open_private_directory",
+        lambda _path: pytest.fail("mountpoint rejection must precede directory open"),
+    )
+    with pytest.raises(OSError, match="delegated subtree"):
+        broker._validate_root(Path("delegated"))
+    assert seen == [delegated.resolve()]
 
 
 def test_broker_partial_scope_is_removed_before_root_fd_close(tmp_path, monkeypatch):

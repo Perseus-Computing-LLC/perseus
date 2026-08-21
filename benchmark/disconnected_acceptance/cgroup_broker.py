@@ -287,6 +287,9 @@ def _open_private_directory(path: Path) -> int:
 
 
 def _validate_root(root: Path) -> int:
+    # Resolve aliases before checking whether the path is the cgroup mount root;
+    # otherwise a relative alias such as "." can bypass the mountpoint guard.
+    root = Path(os.path.realpath(os.path.abspath(root)))
     if _is_cgroup_mountpoint(root):
         raise OSError("broker root must be a delegated subtree")
     fd = _open_private_directory(root)
