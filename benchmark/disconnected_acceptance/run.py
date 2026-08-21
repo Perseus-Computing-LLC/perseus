@@ -1724,9 +1724,11 @@ def _filesystem_free_bytes() -> _FilesystemSnapshot:
     return _FilesystemSnapshot(result, complete=complete and bool(result))
 
 
-def _disk_growth_charge(logical_growth: int, filesystem_growth: int) -> int:
+def _disk_growth_charge(logical_growth: int, filesystem_growth: int, *, prefer_logical: bool = False) -> int:
     logical = max(0, int(logical_growth))
     filesystem = max(0, int(filesystem_growth))
+    if prefer_logical and logical > 0:
+        return logical
     return max(logical, filesystem)
 
 
@@ -1774,12 +1776,14 @@ class _AggregateResourceBudget:
         self.peak_rss_mb = max(self.peak_rss_mb, max(0.0, float(peak_rss_mb)))
         current_growth = max(0, _monitor_size(self.roots) - self.baseline_disk)
         try:
-            filesystem_growth = _filesystem_growth_bytes(self.baseline_filesystems, _filesystem_free_bytes())
+            _filesystem_growth_bytes(self.baseline_filesystems, _filesystem_free_bytes())
         except (AcceptanceError, OSError, TypeError, ValueError):
             self.filesystem_observation_failed = True
-            filesystem_growth = 0
-        self.disk_bytes += max(0, int(disk_growth_bytes))
-        self.disk_bytes = max(self.disk_bytes, _disk_growth_charge(current_growth, filesystem_growth))
+        child_disk_growth = max(0, int(disk_growth_bytes))
+        self.disk_bytes += child_disk_growth
+        if child_disk_growth > 0:
+            return not self.exceeded and not self.filesystem_observation_failed
+        self.disk_bytes = max(self.disk_bytes, current_growth)
         return not self.exceeded and not self.filesystem_observation_failed
 
     @property
@@ -3509,7 +3513,9 @@ def _run_bounded_child(
         max_filesystem_growth = max(max_filesystem_growth, growth)
         logical_growth = max(0, _monitor_size(monitor_roots) - before_disk)
         max_logical_growth = max(max_logical_growth, logical_growth)
-        max_disk_growth = _disk_growth_charge(max_logical_growth, max_filesystem_growth)
+        # Filesystem free-space deltas are host-wide noise while the child is live;
+        # logical growth is the authoritative charge for monitored roots.
+        max_disk_growth = max_logical_growth
         return True
 
     stdout_thread = threading.Thread(target=_bounded_reader, args=(process.stdout, _MAX_CHILD_OUTPUT_BYTES, captured, "stdout"), daemon=True)
@@ -3526,7 +3532,7 @@ def _run_bounded_child(
             peak_rss_bytes = max(peak_rss_bytes, _read_process_peak_rss_bytes(process.pid))
             logical_growth = max(0, _monitor_size(monitor_roots) - before_disk)
             max_logical_growth = max(max_logical_growth, logical_growth)
-            max_disk_growth = _disk_growth_charge(max_logical_growth, max_filesystem_growth)
+            max_disk_growth = max_logical_growth
             if not _observe_filesystem_growth():
                 status = "blocked"
                 break
@@ -3588,13 +3594,20 @@ def _run_bounded_child(
         status = "resource_limit"
     logical_growth = max(0, _monitor_size(monitor_roots) - before_disk)
     max_logical_growth = max(max_logical_growth, logical_growth)
-    max_disk_growth = _disk_growth_charge(max_logical_growth, max_filesystem_growth)
     if not _observe_filesystem_growth():
         status = "blocked"
+    if process.returncode == 0:
+        max_disk_growth = max_logical_growth
+    else:
+        # A failed child may have written outside monitored roots before its
+        # guard stopped it; retain the conservative filesystem fallback there.
+        max_disk_growth = _disk_growth_charge(max_logical_growth, max_filesystem_growth)
     if disk_limit is not None and max_disk_growth > disk_limit and status == "passed":
         status = "resource_limit"
     if cleanup_failed:
         status = "blocked" if require_offline else "failed"
+    elif disk_sandbox_requested and process.returncode == 126:
+        status = "blocked"
     elif status not in {"timeout", "resource_limit"} and process.returncode != 0:
         status = "blocked" if require_offline or (disk_sandbox_requested and process.returncode == 126) else "failed"
     after_children = (

@@ -1663,6 +1663,23 @@ def test_disk_growth_charge_is_conservative_against_host_free_space_noise():
     assert harness._disk_growth_charge(128, 3_229_485_565) == 3_229_485_565
 
 
+def test_runtime_disk_charge_can_prefer_monitored_logical_growth():
+    assert harness._disk_growth_charge(128, 3_229_485_565, prefer_logical=True) == 128
+
+
+def test_aggregate_disk_charge_ignores_host_noise_after_child_growth(tmp_path, monkeypatch):
+    snapshots = iter(
+        [
+            harness._FilesystemSnapshot({1: 1_000}, complete=True),
+            harness._FilesystemSnapshot({1: 0}, complete=True),
+        ]
+    )
+    monkeypatch.setattr(harness, "_filesystem_free_bytes", lambda: next(snapshots))
+    budget = harness._AggregateResourceBudget((tmp_path,), cpu_seconds=30, memory_mb=512, disk_bytes=2_000)
+    budget.observe(cpu_seconds=0.0, peak_rss_mb=0.0, disk_growth_bytes=128)
+    assert budget.disk_bytes == 128
+
+
 def test_filesystem_growth_sums_all_devices():
     assert harness._filesystem_growth_bytes({1: 100, 2: 100}, {1: 90, 2: 70}) == 40
 
@@ -2550,7 +2567,8 @@ def test_cleanup_does_not_signal_descendants_after_leader_pid_reuse(monkeypatch)
     ) is False
 
 
-def test_python_s_cannot_bypass_filesystem_containment(tmp_path):
+def test_python_s_cannot_bypass_filesystem_containment(tmp_path, monkeypatch):
+    monkeypatch.setattr(harness, "_landlock_supported", lambda: False)
     allowed = tmp_path / "allowed"
     escape = tmp_path / "escape"
     allowed.mkdir()
@@ -2635,6 +2653,97 @@ def test_filesystem_guard_validates_link_destination(tmp_path):
     )
     assert result["status"] == "blocked"
     assert not destination.exists()
+
+
+def test_filesystem_sandbox_violation_precedes_noisy_disk_limit(tmp_path, monkeypatch):
+    _enable_test_only_disk_guard(monkeypatch)
+    allowed = tmp_path / "allowed"
+    escape = tmp_path / "escape"
+    allowed.mkdir()
+    escape.mkdir()
+    escaped = escape / "outside.bin"
+    calls = 0
+
+    def noisy_filesystem_snapshot():
+        nonlocal calls
+        calls += 1
+        return harness._FilesystemSnapshot({1: 1_000_000 if calls == 1 else 0}, complete=True)
+
+    monkeypatch.setattr(harness, "_filesystem_free_bytes", noisy_filesystem_snapshot)
+    code = f"open({str(escaped)!r}, 'wb').write(b'escape')"
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", code],
+        cwd=allowed,
+        timeout=5,
+        env=dict(os.environ),
+        monitor_dirs=(allowed,),
+        disk_limit_bytes=1024,
+    )
+    assert result["status"] == "blocked"
+    assert result["reason"] == "filesystem_sandbox_unavailable"
+    assert not escaped.exists()
+
+
+def test_successful_child_ignores_noisy_filesystem_delta(tmp_path, monkeypatch):
+    _enable_test_only_disk_guard(monkeypatch)
+    calls = 0
+
+    def noisy_filesystem_snapshot():
+        nonlocal calls
+        calls += 1
+        return harness._FilesystemSnapshot({1: 1_000_000 if calls == 1 else 0}, complete=True)
+
+    monkeypatch.setattr(harness, "_filesystem_free_bytes", noisy_filesystem_snapshot)
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", "pass"],
+        cwd=tmp_path,
+        timeout=5,
+        env=dict(os.environ),
+        monitor_dirs=(tmp_path,),
+        disk_limit_bytes=1024,
+    )
+    assert result["status"] == "passed"
+    assert result["disk_growth_bytes_observed"] == 0
+
+
+def test_failed_child_retains_filesystem_fallback_for_mixed_root_growth(tmp_path, monkeypatch):
+    _enable_test_only_disk_guard(monkeypatch)
+    monkeypatch.setattr(
+        harness,
+        "_prepare_filesystem_guard",
+        lambda _argv, _cwd, env, _allowed_roots: (dict(env), None),
+    )
+    declared = tmp_path / "declared"
+    workspace = tmp_path / "workspace"
+    escape = tmp_path / "escape"
+    declared.mkdir()
+    workspace.mkdir()
+    escape.mkdir()
+    inside = declared / "inside.bin"
+    outside = escape / "outside.bin"
+    calls = 0
+
+    def noisy_filesystem_snapshot():
+        nonlocal calls
+        calls += 1
+        return harness._FilesystemSnapshot({1: 3_229_485_565 if calls == 1 else 0}, complete=True)
+
+    monkeypatch.setattr(harness, "_filesystem_free_bytes", noisy_filesystem_snapshot)
+    code = (
+        f"open({str(inside)!r}, 'wb').write(b'i' * 128); "
+        f"open({str(outside)!r}, 'wb').write(b'o' * 8192); "
+        "raise SystemExit(1)"
+    )
+    result = harness._run_bounded_child(
+        [sys.executable, "-c", code],
+        cwd=workspace,
+        timeout=5,
+        env=dict(os.environ),
+        monitor_dirs=(declared,),
+        disk_limit_bytes=1024,
+    )
+    assert result["status"] in {"blocked", "resource_limit"}
+    assert result["disk_growth_bytes_observed"] == 3_229_485_565
 
 
 def test_bounded_reader_stops_an_unbounded_output_stream(tmp_path):
