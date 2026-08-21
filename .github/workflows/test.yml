@@ -38,6 +38,37 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyyaml jsonschema pytest coverage hypothesis tiktoken
 
+      - name: Start privileged cgroup containment broker
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          broker_root="/sys/fs/cgroup/perseus-acceptance-${GITHUB_RUN_ID}-${{ matrix.python-version }}"
+          broker_dir="/run/perseus-acceptance-${GITHUB_RUN_ID}-${{ matrix.python-version }}"
+          broker_socket="${broker_dir}/broker.sock"
+          broker_pid_file="/tmp/perseus-acceptance-broker-${GITHUB_RUN_ID}-${{ matrix.python-version }}.pid"
+          broker_log="/tmp/perseus-acceptance-broker-${GITHUB_RUN_ID}-${{ matrix.python-version }}.log"
+          sudo mkdir -p "${broker_root}" "${broker_dir}"
+          sudo chmod 0755 "${broker_dir}"
+          python_bin="$(command -v python)"
+          sudo "${python_bin}" benchmark/disconnected_acceptance/cgroup_broker.py \
+            --root "${broker_root}" --socket "${broker_socket}" --uid "$(id -u)" \
+            >"${broker_log}" 2>&1 &
+          echo $! >"${broker_pid_file}"
+          echo "PERSEUS_ACCEPTANCE_CGROUP_BROKER=${broker_socket}" >>"${GITHUB_ENV}"
+          for _ in $(seq 1 50); do
+            if [ -S "${broker_socket}" ]; then
+              exit 0
+            fi
+            if ! kill -0 "$(cat "${broker_pid_file}")" 2>/dev/null; then
+              sudo cat "${broker_log}" >&2 || true
+              exit 1
+            fi
+            sleep 0.1
+          done
+          sudo cat "${broker_log}" >&2 || true
+          exit 1
+
       - name: Verify build artifact is in sync
         # The committed perseus.py must match a fresh build from scripts/. We
         # VERIFY it rather than auto-rebuilding and pushing back: a workflow that
@@ -121,6 +152,29 @@ jobs:
           name: ip-evidence-exhibits
           path: docs/ip/exhibits/
           if-no-files-found: warn
+
+      - name: Stop privileged cgroup containment broker
+        if: always() && runner.os == 'Linux'
+        shell: bash
+        run: |
+          set +e
+          broker_root="/sys/fs/cgroup/perseus-acceptance-${GITHUB_RUN_ID}-${{ matrix.python-version }}"
+          broker_dir="/run/perseus-acceptance-${GITHUB_RUN_ID}-${{ matrix.python-version }}"
+          broker_socket="${broker_dir}/broker.sock"
+          broker_pid_file="/tmp/perseus-acceptance-broker-${GITHUB_RUN_ID}-${{ matrix.python-version }}.pid"
+          if [ -f "${broker_pid_file}" ]; then
+            sudo kill "$(cat "${broker_pid_file}")" 2>/dev/null || true
+            for _ in $(seq 1 20); do
+              if ! kill -0 "$(cat "${broker_pid_file}")" 2>/dev/null; then
+                break
+              fi
+              sleep 0.1
+            done
+            sudo kill -KILL "$(cat "${broker_pid_file}")" 2>/dev/null || true
+          fi
+          sudo rm -f "${broker_socket}"
+          sudo rmdir "${broker_root}" 2>/dev/null || true
+          sudo rmdir "${broker_dir}" 2>/dev/null || true
 
   test-windows:
     runs-on: windows-latest

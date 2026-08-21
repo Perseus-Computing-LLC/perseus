@@ -704,6 +704,34 @@ def test_cgroup_scope_seals_parent_and_child_controls(tmp_path):
 
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX socket permission bits only")
+def test_broker_listener_uses_group_mode_and_restores_umask(tmp_path, monkeypatch):
+    socket_dir = tmp_path / "private"
+    socket_dir.mkdir()
+    os.chmod(socket_dir, 0o700)
+    parent_fd = os.open(
+        socket_dir,
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0),
+    )
+    monkeypatch.setattr(broker, "_open_private_directory", lambda _path: os.dup(parent_fd))
+    monkeypatch.setattr(broker.os, "chown", lambda *_args: None)
+    original_umask = os.umask(0o027)
+    os.umask(original_umask)
+    listener = None
+    try:
+        listener = broker._bind_listener(socket_dir / "broker.sock", os.getuid())
+        assert (socket_dir / "broker.sock").stat().st_mode & 0o777 == 0o660
+        restored_umask = os.umask(0o027)
+        os.umask(restored_umask)
+        assert restored_umask == original_umask
+    finally:
+        os.umask(original_umask)
+        if listener is not None:
+            listener.close()
+        (socket_dir / "broker.sock").unlink(missing_ok=True)
+        os.close(parent_fd)
+
+
 def test_broker_opens_pidfd_when_python_wrapper_is_missing():
     fd = broker._open_pidfd(os.getpid())
     try:

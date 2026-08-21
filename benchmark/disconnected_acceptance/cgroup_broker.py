@@ -597,9 +597,14 @@ def _bind_listener(socket_path: Path, allowed_uid: int) -> socket.socket:
             os.unlink(name, dir_fd=parent_fd)
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         anchored = f"/proc/self/fd/{parent_fd}/{name}"
-        server.bind(anchored)
+        # Create the listener with its final least-privilege mode atomically;
+        # restoring the process umask is mandatory even when bind fails.
+        previous_umask = os.umask(0o117)
+        try:
+            server.bind(anchored)
+        finally:
+            os.umask(previous_umask)
         os.chown(anchored, 0, allowed_uid)
-        os.chmod(anchored, 0o660)
         server.listen(16)
         os.close(parent_fd)
         return server
