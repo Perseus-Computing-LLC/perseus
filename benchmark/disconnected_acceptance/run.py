@@ -1815,6 +1815,7 @@ def _prepare_filesystem_guard(
 ) -> tuple[dict[str, str], Path | None]:
     """Install a fail-closed Python write sandbox when disk accounting is active."""
     child_env = dict(env)
+    child_env["PYTHONDONTWRITEBYTECODE"] = "1"
     if not _is_python_argv(argv):
         return child_env, None
     guard_dir = Path(tempfile.mkdtemp(prefix=".perseus-filesystem-", dir=str(cwd)))
@@ -1874,6 +1875,7 @@ def _prepare_offline_guard(
 ) -> tuple[dict[str, str], Path | None, int, int]:
     """Install parent-owned Python telemetry; seccomp contains every child."""
     child_env = dict(env)
+    child_env["PYTHONDONTWRITEBYTECODE"] = "1"
     child_env["PERSEUS_OFFLINE"] = "1"
     child_env.pop("PERSEUS_OFFLINE_REPORT", None)
     if not _is_python_argv(argv):
