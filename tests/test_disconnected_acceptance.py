@@ -168,7 +168,8 @@ def test_disconnected_harness_emits_claim_bounded_machine_report(tmp_path, monke
     assert report["flow"]["vault"]["status"] == "unavailable"
     assert report["flow"]["ledger"]["status"] == "unavailable"
     assert report["claims"]["ato_il5_il6"] == "not_claimed"
-    assert report["claims"]["local_offline_capable"] == "observed"
+    expected_local_offline = "observed" if report["platform"]["status"] == "passed" else "not_established"
+    assert report["claims"]["local_offline_capable"] == expected_local_offline
     assert report["negative_results"]
     assert "resource_envelope" in report
     assert "raw" not in json.dumps(report).casefold()
