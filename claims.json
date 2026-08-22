@@ -1,9 +1,9 @@
 {
   "_meta": {
     "description": "Canonical claim registry for Perseus Computing public surfaces. Every public figure derives from here. When a benchmark re-runs, update THIS file only; scripts/render_claims.py regenerates manifest strings and tests/test_claims_sync.py fails CI if any surface drifts.",
-    "updated": "2026-08-17",
+    "updated": "2026-08-22",
     "public_headline": "longmemeval_cot",
-    "public_headline_policy": "The validated official-CoT result is the current public QA headline. The plain-prompt result remains separately labeled methodology context.",
+    "public_headline_policy": "The latest completed 500-question paired confirmation is disclosed with its matched control and claim boundary. It is a company-run internal result, not an independent holdout or production-promotion claim. The provider-free attribution rerun remains provisional until its final report exists.",
     "public_site_positioning": "Perseus is the system around the model: Perseus resolves live context, Vault persists memory, and Ledger records evidence."
   },
   "claims": {
@@ -17,6 +17,14 @@
       "value": "2.23.0",
       "source": "perseus-vault latest GitHub release (verified 2026-08-14)",
       "status": "release",
+      "publishable": true
+    },
+    "jcp_dd2345": {
+      "value": "Approved",
+      "detail": "approved 2026-08-18; valid through 2031-08-18; this readiness credential does not grant technical-data access, CMMC/SPRS status, facility clearance, classified access, ATO, or partner fit",
+      "source": "/opt/data/work/govcon-engagements-jcp-20260818/STATUS.md + Vault decision jcp-credential-opportunity-gate-2026-08-18",
+      "status": "verified-readiness",
+      "label": "readiness",
       "publishable": true
     },
     "perseus_tool_count": {
@@ -80,19 +88,20 @@
     },
     "longmemeval_qa": {
       "value": "73.8%",
-      "detail": "plain mean of 3 runs (72.8/73.6/75.0); longmemeval_s 500, gpt-4o-2024-08-06 answerer + official per-type judge; retained as a separate methodology result, not the public headline",
+      "detail": "historical plain-prompt mean of 3 runs (72.8/73.6/75.0); longmemeval_s 500, gpt-4o-2024-08-06 answerer + official per-type judge; retained as a separate methodology result, not the current paired-confirmation headline",
       "source": "perseus-vault/benchmark/longmemeval/qa_report*.json + COMPARISON.md",
-      "status": "signed",
+      "status": "historical-reference",
       "label": "measured-plain-prompt",
       "publishable": true
     },
     "longmemeval_cot": {
-      "value": "79.0%",
-      "detail": "official-CoT mean (80.0/78.6/78.4)",
-      "source": "perseus-vault/benchmark/longmemeval/qa_report_cot*.json",
-      "status": "signed",
-      "label": "measured",
-      "publishable": true
+      "value": "82.0%",
+      "detail": "latest completed full 500-question paired internal confirmation (410/500) using the official-CoT answer prompt, evidence-structured candidate context, and a matched full-context control at 83.2% (416/500); delta -1.2 percentage points; 38 gains vs 44 regressions; execution and custody accepted, preregistered success rule failed, no automatic promotion; official evaluator cross-check unavailable locally",
+      "source": "/opt/data/benchmarks/longmemeval-1132-confirmation-20260822-r3/acceptance_report.json + candidate/main/qa_report.json",
+      "status": "accepted-with-exceptions",
+      "label": "measured-paired-confirmation",
+      "publishable": true,
+      "note": "This is not an independent holdout estimate, a product-superiority claim, or production authorization. The provider-free attribution rerun in /opt/data/benchmarks/longmemeval-1132-free-attribution-20260822-r4 has no final report yet and is not used as a score."
     },
     "longmemeval_retrieval_recall10": {
       "value": "99.2%",
