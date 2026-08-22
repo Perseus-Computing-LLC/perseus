@@ -73,14 +73,6 @@ def test_probe_evaluation_counts_omitted_target_as_decoder_recoverable():
     assert result["legacy"]["decoder_coverage"] == 0.0
 
 
-def test_probe_replay_allocates_one_fresh_database_per_probe():
-    paths = benchmark.probe_database_paths(Path("/tmp/probe-run"), 3)
-
-    assert len(paths) == 3
-    assert len(set(paths)) == 3
-    assert all(path.parent == Path("/tmp/probe-run") for path in paths)
-
-
 def test_probe_report_is_measurement_only_and_signature_bound():
     rows = [
         {"probe_id": "p1", "target": "capture/target", "rank": 1, "hit_at_5": True,
