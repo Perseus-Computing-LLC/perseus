@@ -87,9 +87,15 @@ def test_linux_broker_workflow_binds_pid_identity_and_fails_closed_on_cleanup():
         'elif broker_process_matches; then'
     )
     assert (
-        'if ! read -r broker_pid broker_start_time <"${broker_pid_file}" || ! [[\n'
+        'else\n'
+        '            if ! read -r broker_pid broker_start_time <"${broker_pid_file}" || ! [[\n'
         '              "${broker_pid}" =~ ^[0-9]+$ && "${broker_start_time}" =~ ^[0-9]+$\n'
-        '            ]]; then'
+        '            ]]; then\n'
+        '              cleanup_failed=1\n'
+        '            else\n'
+        '              # A nonmatching identity record is unverified even if the old PID exited.\n'
+        '              cleanup_failed=1\n'
+        '            fi'
     ) in cleanup
     assert cleanup.index('sudo cat "${broker_log}" >&2 || true') < cleanup.index(
         'sudo rm -f "${broker_pid_file}" "${broker_log}"'
@@ -807,7 +813,7 @@ def test_broker_scope_rejects_missing_peer_identity_before_setup(tmp_path, monke
         )
 
 
-def test_broker_mountpoint_probe_fails_closed_when_mountinfo_unreadable(monkeypatch, tmp_path):
+def test_broker_mountpoint_probe_fails_closed_on_unreadable_or_malformed_mountinfo(monkeypatch, tmp_path):
     original_read_text = Path.read_text
 
     def unreadable_mountinfo(path, *args, **kwargs):
@@ -816,6 +822,10 @@ def test_broker_mountpoint_probe_fails_closed_when_mountinfo_unreadable(monkeypa
         return original_read_text(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "read_text", unreadable_mountinfo)
+    with pytest.raises(OSError, match="mountpoint probe"):
+        broker._is_cgroup_mountpoint(tmp_path)
+
+    monkeypatch.setattr(Path, "read_text", lambda *_args, **_kwargs: "malformed mountinfo\n")
     with pytest.raises(OSError, match="mountpoint probe"):
         broker._is_cgroup_mountpoint(tmp_path)
 

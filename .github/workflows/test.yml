@@ -224,8 +224,8 @@ jobs:
               "${broker_pid}" =~ ^[0-9]+$ && "${broker_start_time}" =~ ^[0-9]+$
             ]]; then
               cleanup_failed=1
-            elif sudo kill -0 "${broker_pid}" 2>/dev/null; then
-              # Never signal a live PID whose recorded identity no longer matches.
+            else
+              # A nonmatching identity record is unverified even if the old PID exited.
               cleanup_failed=1
             fi
           fi

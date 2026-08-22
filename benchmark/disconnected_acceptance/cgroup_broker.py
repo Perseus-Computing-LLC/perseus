@@ -108,11 +108,14 @@ def _is_cgroup_mountpoint(path: Path) -> bool:
         try:
             left, right = line.split(" - ", 1)
             fields = left.split()
-            if len(fields) >= 5 and right.split()[0] == "cgroup2":
+            right_fields = right.split()
+            if len(fields) < 5 or not right_fields:
+                raise ValueError("mountinfo record is malformed")
+            if right_fields[0] == "cgroup2":
                 if Path(_unescape_mountinfo_path(fields[4])) == path:
                     return True
-        except (IndexError, ValueError):
-            continue
+        except (IndexError, ValueError) as exc:
+            raise OSError("cgroup mountpoint probe failed") from exc
     return False
 
 
