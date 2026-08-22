@@ -807,6 +807,59 @@ def test_broker_scope_rejects_missing_peer_identity_before_setup(tmp_path, monke
         )
 
 
+def test_broker_mountpoint_probe_fails_closed_when_mountinfo_unreadable(monkeypatch, tmp_path):
+    original_read_text = Path.read_text
+
+    def unreadable_mountinfo(path, *args, **kwargs):
+        if path == Path("/proc/self/mountinfo"):
+            raise OSError("mountinfo unavailable")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", unreadable_mountinfo)
+    with pytest.raises(OSError, match="mountpoint probe"):
+        broker._is_cgroup_mountpoint(tmp_path)
+
+
+def test_broker_identity_change_aborts_client_session(monkeypatch, tmp_path):
+    identity_error = getattr(broker, "_BrokerIdentityError", OSError)
+
+    class FakeConnection:
+        def __init__(self):
+            self.requests = [
+                b'{"op":"create","pid":4242,"run_token":"dddddddddddddddddddddddddddddddd"}\n',
+                b'{"op":"invalid"}\n',
+                b"",
+            ]
+            self.sent = []
+            self.recv_count = 0
+
+        def settimeout(self, _value):
+            return None
+
+        def recv(self, _size):
+            self.recv_count += 1
+            return self.requests.pop(0)
+
+        def sendall(self, value):
+            self.sent.append(value)
+
+        def close(self):
+            return None
+
+    conn = FakeConnection()
+    monkeypatch.setattr(broker, "_peer_credentials", lambda _conn: (4242, 1000, 1000))
+    monkeypatch.setattr(broker, "_process_start_time", lambda _pid: 1)
+    monkeypatch.setattr(broker, "_open_pidfd", lambda _pid: -1)
+    monkeypatch.setattr(broker, "_peer_identity_matches", lambda *_args: True)
+
+    def fail_setup(*_args, **_kwargs):
+        raise identity_error("broker peer identity changed")
+
+    monkeypatch.setattr(broker, "_create_scope", fail_setup)
+    assert broker._handle_client(conn, tmp_path, -1, 1000) is False
+    assert conn.recv_count == 1
+
+
 def test_broker_mountpoint_check_canonicalizes_relative_root(tmp_path, monkeypatch):
     delegated = tmp_path / "delegated"
     delegated.mkdir()

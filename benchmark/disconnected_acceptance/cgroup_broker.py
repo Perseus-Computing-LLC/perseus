@@ -40,6 +40,10 @@ class _BrokerCleanupError(OSError):
     """Privileged broker cleanup was not proven complete."""
 
 
+class _BrokerIdentityError(OSError):
+    """The authenticated broker peer could not be kept identity-bound."""
+
+
 def _process_start_time(pid: int) -> int | None:
     if pid <= 0:
         return None
@@ -98,8 +102,8 @@ def _unescape_mountinfo_path(value: str) -> str:
 def _is_cgroup_mountpoint(path: Path) -> bool:
     try:
         lines = Path("/proc/self/mountinfo").read_text(encoding="ascii").splitlines()
-    except (OSError, UnicodeDecodeError):
-        return False
+    except (OSError, UnicodeDecodeError) as exc:
+        raise OSError("cgroup mountpoint probe failed") from exc
     for line in lines:
         try:
             left, right = line.split(" - ", 1)
@@ -362,7 +366,7 @@ def _create_scope(
     if not _TOKEN_RE.fullmatch(run_token):
         raise OSError("run token is invalid")
     if not _peer_identity_matches(peer_pid, peer_start_time, peer_pidfd):
-        raise OSError("broker peer identity unavailable")
+        raise _BrokerIdentityError("broker peer identity unavailable")
     scope_root_fd = root_procs_fd = group_fd = group_procs_fd = group_read_fd = kill_fd = events_fd = -1
     group: Path | None = None
     scope: _Scope | None = None
@@ -389,12 +393,12 @@ def _create_scope(
         )
         local_peer_pidfd = -1
         if not _peer_identity_matches(peer_pid, peer_start_time, scope.peer_pidfd):
-            raise OSError("broker peer identity changed")
+            raise _BrokerIdentityError("broker peer identity changed")
         _write_fd(group_procs_fd, str(peer_pid).encode("ascii"))
         if peer_pid not in _members(group_read_fd):
             raise OSError("broker peer did not enter scope")
         if not _peer_identity_matches(peer_pid, peer_start_time, scope.peer_pidfd):
-            raise OSError("broker peer identity changed")
+            raise _BrokerIdentityError("broker peer identity changed")
         for fd in (group_procs_fd, kill_fd, group_fd):
             os.fchmod(fd, _SEALED_MODE)
         return scope
@@ -528,7 +532,7 @@ def _handle_client(conn: socket.socket, root: Path, root_fd: int, allowed_uid: i
         peer_start_time = _process_start_time(peer_pid)
         peer_pidfd = _open_pidfd(peer_pid)
         if not _peer_identity_matches(peer_pid, peer_start_time, peer_pidfd):
-            raise OSError("broker peer identity unavailable")
+            raise _BrokerIdentityError("broker peer identity unavailable")
         while True:
             raw = _recv_line(conn)
             if raw is None:
@@ -562,6 +566,13 @@ def _handle_client(conn: socket.socket, root: Path, root_fd: int, allowed_uid: i
                         break
                 else:
                     raise OSError("broker operation is invalid")
+            except _BrokerIdentityError:
+                session_ok = False
+                try:
+                    _send(conn, {"ok": False, "reason": "broker_peer_identity_failed"})
+                except (OSError, TypeError, ValueError):
+                    pass
+                break
             except _BrokerCleanupError:
                 session_ok = False
                 try:
