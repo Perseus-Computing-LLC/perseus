@@ -1,7 +1,7 @@
 # Perseus public site direction
 
 Status: implementation slice
-Date: 2026-07-31
+Date: 2026-08-22
 
 ## Thesis
 
@@ -24,8 +24,9 @@ Perseus presents three explicit responsibilities: resolve the present, remember 
 
 ## Claim posture
 
-- The public benchmark headline is **79.0% LongMemEval QA using the official CoT answer prompt**, sourced to three signed full-run reports.
-- The prior **73.8% plain-prompt mean** remains a separate methodology result and is not presented as the current headline.
+- The current public benchmark line is the latest completed **82.0% LongMemEval-S paired internal confirmation** (410/500) using the official-CoT answer prompt and evidence-structured candidate context; the matched full-context control scored 83.2% (416/500), a -1.2-point delta. Execution and custody passed, but the preregistered success rule failed, so this is not a superiority, independent-holdout, or production-promotion claim.
+- The prior **79.0% official-CoT mean** (three signed full runs) and **73.8% plain-prompt mean** remain historical methodology references; they are not blended with the paired confirmation.
+- The provider-free attribution rerun is provisional until its final report exists; do not publish an in-progress count as QA accuracy.
 - Retrieval-only, same-box, scale, temporal, and BEAM results remain distinct measurement families.
 - Economic models are illustrative and belong behind calculator or certification context, not in the primary proof rail.
 
@@ -38,7 +39,7 @@ Perseus presents three explicit responsibilities: resolve the present, remember 
 
 ## Acceptance criteria
 
-- [ ] No refreshed page has a stale 73.8% headline.
+- [x] No refreshed page has a stale 73.8% headline.
 - [ ] Each refreshed page has one obvious next action and one source-oriented secondary action.
 - [ ] The home page does not lead with a dense benchmark grid.
 - [ ] Security claims include their boundary and do not imply certification.

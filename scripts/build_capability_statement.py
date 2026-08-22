@@ -76,7 +76,7 @@ def rule_section(title: str, st: dict[str, ParagraphStyle]) -> list:
 
 
 def header(page_title: str, st: dict[str, ParagraphStyle]) -> Table:
-    left = [markup("PERSEUS COMPUTING LLC", st["header_brand"]), markup("CONTEXT  ·  MEMORY  ·  EVIDENCE", st["header_meta"])]
+    left = [markup("PERSEUS COMPUTING LLC", st["header_brand"]), markup("CONTEXT ENGINE  ·  VAULT  ·  LEDGER", st["header_meta"])]
     right = [markup(escape(page_title.upper()), st["header_meta"]), markup("DEFENSE CAPABILITY BRIEF  ·  2026", st["header_meta"])]
     t = Table([[left, right]], colWidths=[4.65 * inch, 2.70 * inch])
     t.setStyle(TableStyle([
@@ -93,7 +93,7 @@ def header(page_title: str, st: dict[str, ParagraphStyle]) -> Table:
 def info_band(profile: dict, st: dict[str, ParagraphStyle]) -> Table:
     fit = "Three audience routes" if profile["audience_label"].startswith("MASTER") else str(profile.get("fit_tag") or "")
     rows = [
-        [markup("<b>FOCUS</b><br/>" + escape(fit), st["body_small"]), markup("<b>DEPLOYMENT</b><br/>Local · air-gapped · private VPC", st["body_small"]), markup("<b>IDENTITY</b><br/>UEI PJS2LW7HAK35 · CAGE 22JC5", st["body_small"]), markup("<b>LICENSE</b><br/>MIT · SBOM published", st["body_small"])],
+        [markup("<b>FOCUS</b><br/>" + escape(fit), st["body_small"]), markup("<b>DEPLOYMENT</b><br/>Local · on-premises · private VPC · disconnected enclave", st["body_small"]), markup("<b>IDENTITY</b><br/>UEI PJS2LW7HAK35 · CAGE 22JC5", st["body_small"]), markup("<b>LICENSE</b><br/>MIT · SBOM published", st["body_small"])],
     ]
     t = Table(rows, colWidths=[1.84 * inch] * 4)
     t.setStyle(TableStyle([
@@ -124,9 +124,9 @@ def two_column_copy(left_label: str, left_text: str, right_label: str, right_tex
 
 def system_table(st: dict[str, ParagraphStyle]) -> Table:
     rows = [
-        [markup("<b>CONTEXT</b><br/><font color='#4E626D'>Before action</font>", st["module_title"]), plain("Resolves repository, ticket, deployment, and decision state into bounded context before an agent uses it.", st["body_small"])],
-        [markup("<b>MEMORY</b><br/><font color='#4E626D'>Across sessions</font>", st["module_title"]), plain("Retains governed, bitemporal memory with durable journaling and explicit authority boundaries.", st["body_small"])],
-        [markup("<b>EVIDENCE</b><br/><font color='#4E626D'>After action</font>", st["module_title"]), plain("Links actions and decisions to evidence, authority, and time so a reviewer can reconstruct what happened.", st["body_small"])],
+        [markup("<b>CONTEXT ENGINE</b><br/><font color='#4E626D'>Before action</font>", st["module_title"]), plain("Resolves live repository, ticket, deployment, and decision state into bounded context before an agent uses it.", st["body_small"])],
+        [markup("<b>PERSEUS VAULT</b><br/><font color='#4E626D'>Across sessions</font>", st["module_title"]), plain("Retains governed, bitemporal memory and local retrieval with durable journaling and explicit authority boundaries.", st["body_small"])],
+        [markup("<b>LEDGER</b><br/><font color='#4E626D'>After action</font>", st["module_title"]), plain("Records evidence, authority, approvals, and time so captured actions and served context can be reviewed later.", st["body_small"])],
     ]
     t = Table(rows, colWidths=[1.85 * inch, 5.50 * inch])
     t.setStyle(TableStyle([
@@ -162,7 +162,7 @@ def fit_table(profile: dict, st: dict[str, ParagraphStyle]) -> Table:
 def evidence_table(claims: dict, st: dict[str, ParagraphStyle]) -> Table:
     rows = [[markup("MEASURE", st["label_muted"]), markup("RESULT", st["label_muted"]), markup("WHAT IT SHOWS", st["label_muted"]), markup("SCOPE", st["label_muted"])]]
     values = [
-        ("LongMemEval QA", claims["longmemeval_cot"]["value"], "Answer quality when the agent receives the official context-of-thought protocol.", "Official-CoT mean · 3 signed runs"),
+        ("LongMemEval-S QA", claims["longmemeval_cot"]["value"], "Latest completed full paired QA result: 410/500 candidate cases under the official-CoT answer prompt.", "500q internal confirmation · control 83.2%"),
         ("Session retrieval", claims["longmemeval_retrieval_recall10"]["value"], "Relevant session memories remain available to the later task.", "Retrieval-only · recall@10"),
         ("BEAM correctness", claims["beam_correctness"]["value"], "The deterministic gauntlet stays correct across token tiers.", "128K–10M token tiers"),
         ("Durable write", claims["vault_durable_write_100k"]["value"], "Sustained write behavior at a 100K-entity scale.", "Signed report · not bulk insert"),
@@ -194,6 +194,20 @@ def flat_fact_table(title: str, rows: list[tuple[str, str]], st: dict[str, Parag
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
         ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    return t
+
+
+def engagement_line(profile: dict, st: dict[str, ParagraphStyle]) -> Table:
+    data = [[markup("CURRENT ENGAGEMENT", st["label_blue"]), plain(profile["engagement"], st["body_tiny"])]]
+    t = Table(data, colWidths=[1.45 * inch, 5.90 * inch])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), PALE),
+        ("LINEABOVE", (0, 0), (-1, 0), 0.55, RULE),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.55, RULE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     return t
 
@@ -232,16 +246,16 @@ def build(name: str, profile: dict, claims: dict) -> Path:
     story.append(call)
 
     # Page 2: evidence and procurement without unequal boxes.
-    story += [PageBreak(), header("Evidence and procurement", st), Spacer(1, 14), markup("EVIDENCE AND PROCUREMENT", st["eyebrow"]), markup("Proof with the condition attached.", st["title_compact"]), plain("The figures below are kept separate by measurement family so a reviewer can see what each result does—and does not—establish.", st["lead"]), Spacer(1, 16)]
-    story += rule_section("Measured evidence", st) + [evidence_table(claims, st), Spacer(1, 7), plain("Measured on named hardware with signed or committed reports and rerunnable methods. No customer ROI, customer cost savings, or compliance certification is implied by these figures.", st["body_tiny"]), Spacer(1, 18)]
+    story += [PageBreak(), header("Evidence and procurement", st), Spacer(1, 8), markup("EVIDENCE AND PROCUREMENT", st["eyebrow"]), markup("Proof with the condition attached.", st["title_compact"]), plain("The figures below are kept separate by measurement family so a reviewer can see what each result does—and does not—establish.", st["lead"]), Spacer(1, 10)]
+    story += rule_section("Measured evidence", st) + [evidence_table(claims, st), Spacer(1, 4), plain("LongMemEval-S: 82.0% candidate (410/500) vs 83.2% matched full-context control (416/500), -1.2 points. Execution/custody passed, but the preregistered success rule failed; no superiority, independent-holdout, or production-promotion claim is made. The provider-free rerun is provisional.", st["body_tiny"]), Spacer(1, 6)]
     story += rule_section("Procurement and deployment", st)
-    left = flat_fact_table("Company", [("Legal name", "Perseus Computing LLC"), ("Business", "U.S. small business · technical access"), ("UEI / CAGE", "PJS2LW7HAK35 / 22JC5"), ("NAICS", "541715 · 541511 · 541512"), ("SAM.gov", "Active — All Awards")], st)
-    right = flat_fact_table("Security and boundary", [("Deployment", "On-premises, air-gapped, private VPC, or controlled network"), ("Readiness", "SPRS 110/110 · CMMC Level 2 self-assessment, enclave scope"), ("Software", "MIT license · published SBOM"), ("Data posture", "No required cloud service, API key, or vendor runtime"), ("Integration", "Partner-led where mission hardware or sensors are involved")], st)
+    left = flat_fact_table("Company", [("Legal name", "Perseus Computing LLC"), ("Business", "U.S. small business · technical access"), ("UEI / CAGE", "PJS2LW7HAK35 / 22JC5"), ("NAICS", "541715 · 541511 · 541512"), ("SAM.gov", "Active — All Awards"), ("JCP / DD2345", claims["jcp_dd2345"]["value"] + " · valid through 2031-08-18")], st)
+    right = flat_fact_table("Security and boundary", [("Deployment", "Local, on-premises, private VPC, or customer-configured disconnected enclave"), ("Readiness", "SPRS 110/110 · CMMC Level 2 self-assessment, enclave scope"), ("Software", "MIT license · published SBOM"), ("Data posture", "No required cloud service, API key, or vendor runtime"), ("Integration", "Partner-led where mission hardware or sensors are involved")], st)
     facts = Table([[left, right]], colWidths=[3.68*inch, 3.67*inch])
     facts.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LINEBEFORE", (1, 0), (1, 0), .7, RULE), ("LEFTPADDING", (0, 0), (0, 0), 0), ("RIGHTPADDING", (0, 0), (0, 0), 14), ("LEFTPADDING", (1, 0), (1, 0), 14), ("RIGHTPADDING", (1, 0), (1, 0), 0), ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
-    story += [facts, Spacer(1, 17)]
+    story += [facts, Spacer(1, 6), engagement_line(profile, st), Spacer(1, 5)]
     story += rule_section("Scope in one sentence", st)
-    story += [plain("Perseus is the infrastructure around the model: context before action, governed memory across sessions, and evidence after action. It is not a claim to replace a mission platform, prime integrator, or sensor system.", st["body"]), Spacer(1, 14)]
+    story += [plain("Perseus is the infrastructure around the model: context before action, governed memory across sessions, and evidence after action. It is not a claim to replace a mission platform, prime integrator, or sensor system.", st["body"]), Spacer(1, 5)]
     contact = Table([[markup("<b>CONTACT</b>&nbsp;&nbsp; perseus@perseus.observer  ·  perseus.observer", st["body_small"]), markup("<b>UPDATED</b>&nbsp;&nbsp; " + escape(str(claims["_meta"]["updated"])), st["body_small"])]], colWidths=[5.75*inch, 1.60*inch])
     contact.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), PALE_BLUE), ("LINEABOVE", (0, 0), (-1, 0), .55, RULE), ("LINEBELOW", (0, 0), (-1, 0), .55, RULE), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 9), ("RIGHTPADDING", (0, 0), (-1, -1), 9), ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8)]))
     story.append(contact)
