@@ -1,0 +1,5 @@
+# Minimal, pinned dependencies for the live Vault density CI job.
+# Keep these versions aligned with the repository development freeze in
+# requirements.txt; this job does not need the full development environment.
+pytest==9.1.1
+PyYAML==6.0.3
