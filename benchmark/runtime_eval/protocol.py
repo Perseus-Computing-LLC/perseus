@@ -1125,49 +1125,51 @@ class RunStore:
         return self.run_dir(run_id) / "state.json"
 
     def load(self, run_id: str) -> dict[str, Any]:
-        path = self.state_path(run_id)
-        if not path.is_file():
-            raise ProtocolError(f"unknown run_id: {run_id}")
-        try:
-            value = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ProtocolError(f"invalid persisted run state: {run_id}") from exc
-        if not isinstance(value, dict) or value.get("run_id") != run_id or value.get("status") not in STATUSES:
-            raise ProtocolError(f"invalid persisted run state: {run_id}")
-        raw_artifact = value.get("result_artifact")
-        if raw_artifact is not None:
-            _artifact_state_metadata(raw_artifact, base_dir=self.run_dir(run_id))
-        safe = _hash_unknown_mapping_keys(_safe_persisted_value(value))
-        manifest = safe.get("manifest")
-        if (not isinstance(manifest, dict)
-                or manifest.get("run_id") != run_id
-                or manifest.get("manifest_digest") != _manifest_digest(manifest)):
-            raise ProtocolError(f"manifest digest or run identity mismatch: {run_id}")
-        result = safe.get("result")
-        if result is not None:
-            if not isinstance(result, dict) or result.get("result_digest") != sha256_value({k: v for k, v in result.items() if k != "result_digest"}):
-                raise ProtocolError(f"result digest mismatch: {run_id}")
-        return safe
+        with self._lock:
+            path = self.state_path(run_id)
+            if not path.is_file():
+                raise ProtocolError(f"unknown run_id: {run_id}")
+            try:
+                value = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ProtocolError(f"invalid persisted run state: {run_id}") from exc
+            if not isinstance(value, dict) or value.get("run_id") != run_id or value.get("status") not in STATUSES:
+                raise ProtocolError(f"invalid persisted run state: {run_id}")
+            raw_artifact = value.get("result_artifact")
+            if raw_artifact is not None:
+                _artifact_state_metadata(raw_artifact, base_dir=self.run_dir(run_id))
+            safe = _hash_unknown_mapping_keys(_safe_persisted_value(value))
+            manifest = safe.get("manifest")
+            if (not isinstance(manifest, dict)
+                    or manifest.get("run_id") != run_id
+                    or manifest.get("manifest_digest") != _manifest_digest(manifest)):
+                raise ProtocolError(f"manifest digest or run identity mismatch: {run_id}")
+            result = safe.get("result")
+            if result is not None:
+                if not isinstance(result, dict) or result.get("result_digest") != sha256_value({k: v for k, v in result.items() if k != "result_digest"}):
+                    raise ProtocolError(f"result digest mismatch: {run_id}")
+            return safe
 
     def _write(self, state: Mapping[str, Any]) -> dict[str, Any]:
-        value = dict(state)
-        target = self.state_path(str(value["run_id"]))
-        target.parent.mkdir(parents=True, exist_ok=True)
-        value["updated_at"] = utc_now()
-        fd, temporary = tempfile.mkstemp(prefix="state-", suffix=".tmp", dir=str(target.parent))
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(value, handle, indent=2, sort_keys=True, ensure_ascii=True)
-                handle.write("\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary, target)
-        finally:
+        with self._lock:
+            value = dict(state)
+            target = self.state_path(str(value["run_id"]))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            value["updated_at"] = utc_now()
+            fd, temporary = tempfile.mkstemp(prefix="state-", suffix=".tmp", dir=str(target.parent))
             try:
-                os.unlink(temporary)
-            except FileNotFoundError:
-                pass
-        return value
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    json.dump(value, handle, indent=2, sort_keys=True, ensure_ascii=True)
+                    handle.write("\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, target)
+            finally:
+                try:
+                    os.unlink(temporary)
+                except FileNotFoundError:
+                    pass
+            return value
 
     def create(self, manifest: Mapping[str, Any], *, run_id: str | None = None) -> dict[str, Any]:
         run_id = run_id or self.new_run_id()

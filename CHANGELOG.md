@@ -849,7 +849,7 @@ this release and ship in 1.0.10.
 ### 🔌 Integrations & Tools
 
 - **`perseus_trace` (stub)** — MCP tool stub for PROV-O provenance tracing; interface only, not yet implemented. (#401, #406)
-- **`--offline` flag (stub)** — air-gapped deployment stub for disabling network-dependent features. (#403, #407)
+- **`--offline` flag** — fail-closed process-local non-loopback network boundary with bounded attempt reporting for disconnected acceptance runs. (#997)
 
 ### 🧠 Memory
 
