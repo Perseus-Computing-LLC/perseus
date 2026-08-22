@@ -19,6 +19,17 @@ def dataset():
     return benchmark.load_dataset()
 
 
+def test_live_binary_requires_explicit_opt_in(monkeypatch, tmp_path):
+    monkeypatch.delenv("PERSEUS_VAULT_BENCHMARK_BIN", raising=False)
+    monkeypatch.delenv("PERSEUS_VAULT_BIN", raising=False)
+    assert benchmark.find_binary() is None
+
+    candidate = tmp_path / "perseus-vault"
+    candidate.write_text("fixture binary placeholder")
+    monkeypatch.setenv("PERSEUS_VAULT_BENCHMARK_BIN", str(candidate))
+    assert benchmark.find_binary() == str(candidate.resolve())
+
+
 def test_dataset_is_bounded_offline_and_has_load_bearing_cases(dataset):
     assert dataset["offline"] is True
     assert 2 <= len(dataset["cases"]) <= 10
@@ -153,3 +164,87 @@ def test_real_vault_replay_passes_when_binary_is_available(tmp_path):
     assert report["methods"]["production"]["decoder_recovery"] == 1.0
     assert report["vault"]["cases_replayed"] == len(report["case_results"])
     assert report["signature_sha256"]
+
+
+def test_ephemeral_fixture_owns_distinct_private_databases(tmp_path):
+    first = benchmark.EphemeralAdmissionFixture(binary="unused")
+    second = benchmark.EphemeralAdmissionFixture(binary="unused")
+    try:
+        first_path = Path(first.db_path)
+        second_path = Path(second.db_path)
+
+        assert first_path != second_path
+        assert first_path.parent != second_path.parent
+        assert first_path.parent.name.startswith("perseus-vault-density-")
+        assert second_path.parent.name.startswith("perseus-vault-density-")
+        assert tmp_path not in first_path.parents
+        assert tmp_path not in second_path.parents
+    finally:
+        first.close()
+        second.close()
+
+
+def test_ephemeral_fixture_matches_vault_unicode_json_canonicalization():
+    body = {"summary": "I’m cautious", "content": "I’m cautious"}
+
+    assert benchmark.EphemeralAdmissionFixture._stable_json(body) == (
+        '{"content":"I’m cautious","summary":"I’m cautious"}'
+    )
+
+
+@pytest.mark.slow
+def test_ephemeral_admission_fixture_is_serveable_and_cleans_up(tmp_path):
+    binary = benchmark.find_binary(None)
+    if binary is None:
+        pytest.skip("perseus-vault release binary is not available")
+
+    with benchmark.EphemeralAdmissionFixture(binary=binary) as fixture:
+        db_path = fixture.db_path
+        result = fixture.remember(
+            "integration-fixture", "deterministic", {"content": "fixture record"}
+        )
+        recalled = fixture.recall("fixture record", category="integration-fixture")
+
+        assert Path(db_path).parent.name.startswith("perseus-vault-density-")
+        assert result["serveable"] is True
+        assert result.get("proposed") is not True
+        assert any(item["key"] == "deterministic" for item in recalled["items"])
+
+    assert not Path(db_path).exists()
+
+
+@pytest.mark.slow
+def test_unauthenticated_write_remains_a_non_serveable_proposal(tmp_path):
+    binary = benchmark.find_binary(None)
+    if binary is None:
+        pytest.skip("perseus-vault release binary is not available")
+
+    vault = benchmark.VaultMCP(binary, tmp_path / "negative.db")
+    try:
+        result = vault.call(
+            "perseus_vault_remember",
+            {
+                "category": "negative-contract",
+                "key": "proposal",
+                "body_json": '{"content":"review me"}',
+                "type": "fact",
+                "skip_dedup": True,
+            },
+        )
+        recalled = vault.call(
+            "perseus_vault_recall",
+            {
+                "query": "review me",
+                "category": "negative-contract",
+                "limit": 10,
+                "mode": "fts5",
+                "trust_weight": 0,
+                "min_decay": 0,
+            },
+        )
+    finally:
+        vault.close()
+
+    assert result["proposed"] is True
+    assert result.get("serveable") is not True
+    assert recalled["items"] == []

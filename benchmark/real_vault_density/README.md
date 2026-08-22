@@ -1,9 +1,17 @@
 # Sanitized real Perseus Vault semantic-density replay
 
 This benchmark uses a bounded, sanitized export of the local shared Vault and
-replays it through the **real Perseus Vault MCP binary** against a fresh
-temporary SQLite database. It is offline: no network, LLM, embeddings, Greg,
+replays it through the **real Perseus Vault MCP binary** against an owned,
+fresh temporary database. It is offline: no network, LLM, embeddings, Greg,
 AWS, or persistent Vault database access.
+
+All live replay writes use `EphemeralAdmissionFixture`. The fixture registers a
+synthetic agent, installs an enforce-mode authority manifest, creates the
+hash-bound admission source event, and writes records through the public
+`perseus_vault_remember` API. Its database and per-run HMAC key are process-local
+and removed after the run; no personal database or long-lived credential is
+used. The ordinary unauthenticated write path remains a separate negative
+contract and must stay proposed/non-serveable.
 
 ## Source and privacy boundary
 
@@ -47,18 +55,39 @@ a proof of semantic de-identification.
 
 ## Run the replay
 
+Build or obtain a current `perseus-vault` binary, then run the governed
+synthetic density gate:
+
 ```bash
-uv run --no-project python benchmark/real_vault_density/run.py \
-  --bin /opt/data/perseus-vault/target/release/perseus-vault \
-  --corpus benchmark/real_vault_density/sanitized_corpus.json \
+uv run --no-project --with pyyaml python benchmark/real_vault_density/run.py \
+  --bin /path/to/perseus-vault \
   --out benchmark/real_vault_density/results.json
 ```
 
-The harness writes the sanitized entries through `perseus_vault_remember`,
-recalls all entries with `perseus_vault_recall(query="")`, and applies both:
+The harness owns a temporary Vault database and writes the deterministic dataset
+through the authenticated fixture. It then recalls every expected category/key
+address and applies both:
 
 - the production decoder-backed serving budget;
 - the legacy relevance-only budget.
+
+For the sanitized corpus and fixed retrieval probes, pass `--corpus` and,
+optionally, `--probes`:
+
+```bash
+uv run --no-project --with pyyaml python benchmark/real_vault_density/run.py \
+  --bin /path/to/perseus-vault \
+  --corpus benchmark/real_vault_density/sanitized_corpus.json \
+  --probes benchmark/real_vault_density/probes.json \
+  --out benchmark/real_vault_density/probe_results.json
+```
+
+The corpus contains historical natural-language text that intentionally trips a
+soft admission-lint pattern. The corpus/probe lane therefore uses Vault's
+documented operator-only `PERSEUS_VAULT_DISABLE_ADMISSION_LINT=1` escape hatch
+inside the owned fixture process only, so it can measure serving without
+weakening normal Vault clients. The synthetic gate and the unauthenticated
+negative-contract test run with the lint boundary enabled.
 
 The corpus replay uses a 160-character serving budget. It measures selection
 fraction, omitted-item count, prompt-token estimate, and decoder coverage. The
@@ -73,6 +102,11 @@ combined behavior of Vault lexical retrieval plus serving compression and
 should be read as diagnostic evidence, not a benchmark leaderboard claim.
 
 ## Result
+
+The checked-in result below is a historical 2.22 reference measurement. It is
+not used as the live pass/fail assertion; the authenticated replay above
+regenerates its report against the selected Vault binary and verifies the
+category/key retrieval set and density gate on every run.
 
 Against `perseus-vault 2.22.0 (a9524e9)`:
 
@@ -130,10 +164,22 @@ operational material.
 Regression tests:
 
 ```bash
-uv run --no-project --with pytest python -m pytest \
+uv run --no-project --with pytest --with pyyaml python -m pytest \
   tests/test_real_vault_sanitizer.py \
   tests/test_real_vault_density_benchmark.py -q -m 'not slow'
 ```
+
+The live replay is opt-in and uses the benchmark-specific binary variable so
+ordinary test runs cannot accidentally touch a personal Vault installation:
+
+```bash
+PERSEUS_VAULT_BENCHMARK_BIN=/path/to/perseus-vault \
+  uv run --no-project --with pytest --with pyyaml python -m pytest \
+  tests/test_real_vault_density_benchmark.py -q
+```
+
+This runs the authenticated replay, the fixture cleanup check, and the distinct
+unauthenticated proposal/recall negative contract.
 
 The sanitized corpus and result are review artifacts, not a production backup.
 Do not restore them into the live Vault.
