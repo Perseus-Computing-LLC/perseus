@@ -48,8 +48,8 @@
 
   <!-- Card 2: vs LLM -->
   <rect x="343" y="215" width="273" height="140" rx="6" fill="#07040d" stroke="#1c1430" stroke-width="1"/>
-  <text x="480" y="258" text-anchor="middle" fill="url(#accentGrad)" font-size="42" font-weight="800" letter-spacing="-0.02em" filter="url(#glow)">73.8%</text>
-  <text x="480" y="284" text-anchor="middle" fill="#9a8cc4" font-size="14" font-weight="600">LongMemEval QA</text>
+  <text x="480" y="258" text-anchor="middle" fill="url(#accentGrad)" font-size="42" font-weight="800" letter-spacing="-0.02em" filter="url(#glow)">82.0%</text>
+  <text x="480" y="284" text-anchor="middle" fill="#9a8cc4" font-size="14" font-weight="600">LongMemEval-S paired QA</text>
   <text x="480" y="306" text-anchor="middle" fill="#5d5078" font-size="11">vs Zep <tspan fill="#c77dff">63.8%</tspan> · Mem0 49.0% (published)</text>
   <text x="480" y="326" text-anchor="middle" fill="#5d5078" font-size="11">official harness · gpt-4o answerer + judge</text>
 

@@ -39,7 +39,7 @@ dataset.
 figure without its accuracy gate is meaningless. Full-500 reference accuracy
 for the product arm lives in
 [perseus-vault COMPARISON.md](https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/COMPARISON.md)
-(73.8% plain / 79.0% official-CoT mean, signed).
+(historical 73.8% plain / 79.0% official-CoT mean, signed; latest paired confirmation: 82.0% on LongMemEval-S).
 
 ## Report
 
