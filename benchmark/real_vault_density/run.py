@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
+import secrets
 import subprocess
 import tempfile
 from pathlib import Path
@@ -25,10 +27,6 @@ def load_corpus(path):
 
 def load_probes(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
-def probe_database_paths(workdir, count):
-    return [Path(workdir) / f"probe-{index:03d}.db" for index in range(count)]
 
 
 def probe_replay_signature(report):
@@ -65,11 +63,10 @@ def load_perseus():
     return module
 
 def find_binary(explicit=None):
-    candidates = [explicit, os.environ.get("PERSEUS_VAULT_BIN")]
-    candidates += [
-        "/opt/data/benchmark-bin/v2.22.0/perseus-vault",
-        "/opt/data/perseus-vault/target/release/perseus-vault",
-        str(REPO.parent / "perseus-vault" / "target" / "release" / "perseus-vault"),
+    candidates = [
+        explicit,
+        os.environ.get("PERSEUS_VAULT_BENCHMARK_BIN"),
+        os.environ.get("PERSEUS_VAULT_BIN"),
     ]
     for candidate in candidates:
         if candidate and Path(candidate).is_file():
@@ -78,40 +75,68 @@ def find_binary(explicit=None):
 
 
 class VaultMCP:
-    def __init__(self, binary, db):
-        self.proc = subprocess.Popen(
-            [binary, "--db", str(db)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
-            bufsize=1,
-        )
+    def __init__(self, binary, db, *, env=None, timeout=30.0, client_info_name="real-vault-density"):
+        self.binary = str(binary)
+        self.db = Path(db)
+        self.env = os.environ.copy()
+        self.env.update(env or {})
+        self.timeout = float(timeout)
+        self.client_info_name = client_info_name
+        self.proc = None
         self._next_id = 0
+
+    def __enter__(self):
+        self._ensure_started()
+        return self
+
+    def __exit__(self, *_exc):
+        self.close()
+
+    def _start(self):
+        self.proc = subprocess.Popen(
+            [self.binary, "serve", "--db", str(self.db)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+            bufsize=1, env=self.env,
+        )
         self._send({
             "jsonrpc": "2.0", "id": self._new_id(), "method": "initialize",
             "params": {"protocolVersion": "2025-06-18", "capabilities": {},
-                       "clientInfo": {"name": "real-vault-density", "version": "1"}},
+                       "clientInfo": {"name": self.client_info_name, "version": "1"}},
         })
-        self._read()
+        response = self._read()
+        if "error" in response:
+            raise RuntimeError(response["error"])
         self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+    def _ensure_started(self):
+        if self.proc is None or self.proc.poll() is not None:
+            self._start()
 
     def _new_id(self):
         self._next_id += 1
         return self._next_id
 
     def _send(self, message):
+        if self.proc is None or self.proc.stdin is None:
+            raise RuntimeError("Vault MCP is not running")
         self.proc.stdin.write(json.dumps(message) + "\n")
         self.proc.stdin.flush()
 
     def _read(self):
+        if self.proc is None or self.proc.stdout is None:
+            raise RuntimeError("Vault MCP is not running")
         while True:
             line = self.proc.stdout.readline()
             if not line:
-                stderr = self.proc.stderr.read()[:1000]
+                stderr = self.proc.stderr.read()[:1000] if self.proc.stderr else ""
                 raise RuntimeError(f"Vault MCP closed stdout: {stderr}")
             message = json.loads(line)
             if "result" in message or "error" in message:
                 return message
 
     def call(self, name, arguments):
+        self._ensure_started()
         request_id = self._new_id()
         self._send({
             "jsonrpc": "2.0", "id": request_id, "method": "tools/call",
@@ -131,12 +156,206 @@ class VaultMCP:
         return json.loads(text) if isinstance(text, str) else text
 
     def close(self):
+        proc, self.proc = self.proc, None
+        if proc is None:
+            return
         try:
-            self.proc.stdin.close()
-            self.proc.wait(timeout=10)
-        except Exception:
-            self.proc.kill()
-            self.proc.wait(timeout=5)
+            if proc.stdin:
+                proc.stdin.close()
+            proc.wait(timeout=self.timeout)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=5)
+
+
+class EphemeralAdmissionFixture:
+    """Run the real Vault MCP server against an owned temporary database.
+
+    This is intentionally narrower than the normal ``VaultMCP`` surface: the
+    fixture creates its own database and per-run source-event key, and exposes
+    only the admitted write path needed by this benchmark. It never accepts a
+    caller-provided database path or admission secret.
+    """
+
+    WORKSPACE = "perseus-real-vault-density"
+    AGENT = "perseus-real-vault-density"
+    _OPERATOR = "perseus-real-vault-density-operator"
+
+    def __init__(self, binary, *, timeout=30.0, allow_linted_content=False):
+        self._temporary_directory = tempfile.TemporaryDirectory(
+            prefix="perseus-vault-density-"
+        )
+        self.db_path = str(Path(self._temporary_directory.name) / "vault.db")
+        self._source_hmac_key = secrets.token_hex(32)
+        env = {
+            "PERSEUS_VAULT_ADMISSION_SOURCE_HMAC_KEY": self._source_hmac_key,
+        }
+        if allow_linted_content:
+            # This is the documented operator-only first-party benchmark
+            # escape hatch. It lets the sanitized replay exercise serving
+            # behavior for corpus text that intentionally contains a soft
+            # injection-lint phrase; normal Vault clients remain gated.
+            env["PERSEUS_VAULT_DISABLE_ADMISSION_LINT"] = "1"
+        self._vault = VaultMCP(
+            binary,
+            self.db_path,
+            env=env,
+            timeout=timeout,
+            client_info_name=self.AGENT,
+        )
+        self._closed = False
+
+    def __enter__(self):
+        try:
+            self._configure_authority()
+            return self
+        except BaseException:
+            self.close()
+            raise
+
+    def __exit__(self, *_exc):
+        self.close()
+
+    def close(self):
+        if self._closed:
+            return
+        self._vault.close()
+        self._temporary_directory.cleanup()
+        self._closed = True
+
+    @staticmethod
+    def _stable_json(value):
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+    def _configure_authority(self):
+        self._vault.call(
+            "perseus_vault_agent",
+            {
+                "agent_id": self.AGENT,
+                "name": self.AGENT,
+                "trust_tier": 2,
+                "fleet_id": "benchmark",
+            },
+        )
+        self._vault.call(
+            "perseus_vault_authority_set",
+            {
+                "agent_id": self.AGENT,
+                "workspace_hash": self.WORKSPACE,
+                "allowed_capabilities": [
+                    "memory.admission.source",
+                    "memory.commit",
+                    "memory.read",
+                ],
+                "scope_anchors": [self.WORKSPACE],
+                "mode": "enforce",
+                "author_agent_id": self._OPERATOR,
+                "capability_constraints_json": "{}",
+            },
+        )
+
+    def remember(self, category, key, body, *, external_refs=None):
+        """Write one deterministic authoritative, serveable record through MCP."""
+        body_value = dict(body)
+        if external_refs:
+            body_value["external_refs"] = external_refs
+        body_json = self._stable_json(body_value)
+        record_digest = hashlib.sha256(body_json.encode("utf-8")).hexdigest()
+        source_identity = f"{category}:{key}"
+        evaluated = {
+            "record_digest": record_digest,
+            "source_identity": source_identity,
+            "workspace_hash": self.WORKSPACE,
+            "actor_kind": "connector",
+            "actor_identity": self.AGENT,
+        }
+        attestation_payload = self._stable_json(
+            {**evaluated, "requesting_agent_id": self.AGENT}
+        )
+        source_attestation = hmac.new(
+            self._source_hmac_key.encode("utf-8"),
+            attestation_payload.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        source = self._vault.call(
+            "perseus_vault_journal",
+            {
+                "event_type": "admission_source",
+                "evaluated": evaluated,
+                "source_attestation": source_attestation,
+                "acted": {},
+                "forward": {},
+                "workspace_hash": self.WORKSPACE,
+                "requesting_agent_id": self.AGENT,
+            },
+        )
+        if not isinstance(source, dict) or not source.get("id"):
+            raise RuntimeError("admission source event did not return an id")
+
+        result = self._vault.call(
+            "perseus_vault_remember",
+            {
+                "category": category,
+                "key": key,
+                "body_json": body_json,
+                "type": "fact",
+                "workspace_hash": self.WORKSPACE,
+                "agent_id": self.AGENT,
+                "actor_kind": "connector",
+                "requesting_agent_id": self.AGENT,
+                "skip_dedup": True,
+                "external_refs": external_refs or [],
+                "admission": {
+                    "record_digest": record_digest,
+                    "source_identity": source_identity,
+                    "source_event_id": source["id"],
+                    "authorization_scope": self.WORKSPACE,
+                    "ingestion_channel": "real-vault-density",
+                    "workspace_hash": self.WORKSPACE,
+                    "source_trust": "authoritative",
+                    "actor_kind": "connector",
+                    "actor_identity": self.AGENT,
+                    "validated": True,
+                    "valid_from_unix_ms": 1,
+                    "recorded_at_unix_ms": 2,
+                    "task_relevance_bps": 9000,
+                },
+            },
+        )
+        if (
+            not isinstance(result, dict)
+            or result.get("serveable") is not True
+            or result.get("proposed")
+        ):
+            raise RuntimeError(f"admitted benchmark write was not serveable: {result}")
+        return result
+
+    def recall(self, query, *, category=None, limit=100):
+        args = {
+            "query": query,
+            "limit": limit,
+            "mode": "fts5",
+            "trust_weight": 0,
+            "min_decay": 0,
+            "workspace_hash": self.WORKSPACE,
+            "requesting_agent_id": self.AGENT,
+        }
+        if category is not None:
+            args["category"] = category
+        return self._vault.call("perseus_vault_recall", args)
+
+
+def _require_recalled_addresses(items, expected):
+    """Require every deterministic fixture address to be returned by recall."""
+    actual = {
+        f"{item.get('category', '')}/{item.get('key', '')}"
+        for item in items
+    }
+    missing = sorted(set(expected) - actual)
+    if missing:
+        raise RuntimeError(f"Vault recall omitted expected fixture records: {missing}")
+    return actual
 
 
 def _tokens(text):
@@ -201,6 +420,7 @@ def evaluate_case(perseus, case, vault_items):
     return {
         "case_id": case["id"],
         "vault_recalled_ids": [x["id"] for x in vault_items],
+        "vault_recalled_addresses": sorted(vault_by_address),
         "production": score(production, decoder_ids),
         "legacy": score(legacy, set()),
     }
@@ -294,10 +514,6 @@ def summarize_probes(rows):
 
 def build_probe_report(rows, binary, corpus_items, budget_chars=160):
     production = summarize_probes(rows)
-    legacy = {
-        key: production[key.replace("production_", "legacy_")]
-        for key in ("production_task_resumption", "production_decoder_coverage")
-    }
     report = {
         "benchmark": "perseus-real-vault-semantic-probes",
         "version": 1,
@@ -355,6 +571,11 @@ def verify_report_signature(report):
 def build_report(rows, binary):
     production = _average(rows, "production")
     legacy = _average(rows, "legacy")
+    retrieved_addresses = sorted({
+        address
+        for row in rows
+        for address in row.get("vault_recalled_addresses", [])
+    })
     report = {
         "benchmark": "perseus-real-vault-semantic-density",
         "version": 1,
@@ -364,7 +585,13 @@ def build_report(rows, binary):
         "binary": Path(binary).name,
         "case_results": rows,
         "methods": {"production": production, "legacy": legacy},
-        "vault": {"cases_replayed": len(rows)},
+        "vault": {
+            "cases_replayed": len(rows),
+            "retrieved_addresses": retrieved_addresses,
+            "retrieved_categories": sorted({
+                address.split("/", 1)[0] for address in retrieved_addresses
+            }),
+        },
         "corpus": {"items": len(rows)},
         "gate": {"pass": all(production[key] == 1.0 for key in ("task_resumption", "load_bearing_retention", "decoder_recovery"))},
     }
@@ -374,25 +601,27 @@ def build_report(rows, binary):
 def run_benchmark(binary, workdir):
     perseus = load_perseus()
     dataset = load_dataset(DATASET)
-    db = Path(workdir) / "vault-replay.db"
-    vault = VaultMCP(binary, db)
-    try:
+    with EphemeralAdmissionFixture(binary) as vault:
         for case in dataset["cases"]:
             for item in case["items"]:
-                body = {"content": item["content"], "summary": item["content"]}
-                vault.call("perseus_vault_remember", {
-                    "category": item["category"], "key": item["key"],
-                    "body_json": json.dumps(body), "type": "insight",
-                    "skip_dedup": True,
-                    "external_refs": item.get("external_refs", []),
-                })
+                vault.remember(
+                    item["category"],
+                    item["key"],
+                    {"content": item["content"], "summary": item["content"]},
+                    external_refs=item.get("external_refs"),
+                )
         rows = []
+        expected_addresses = [
+            f"{item['category']}/{item['key']}"
+            for case in dataset["cases"]
+            for item in case["items"]
+        ]
         for case in dataset["cases"]:
-            recalled = vault.call("perseus_vault_recall", {"query": "", "limit": 100, "mode": "fts5", "trust_weight": 0, "min_decay": 0})
-            rows.append(evaluate_case(perseus, case, recalled.get("items", [])))
+            recalled = vault.recall("", limit=100)
+            recalled_items = recalled.get("items", [])
+            _require_recalled_addresses(recalled_items, expected_addresses)
+            rows.append(evaluate_case(perseus, case, recalled_items))
         return build_report(rows, binary)
-    finally:
-        vault.close()
 
 
 def build_corpus_dataset(corpus):
@@ -422,22 +651,25 @@ def run_corpus_benchmark(binary, corpus_path, workdir):
     """Replay a sanitized Vault corpus through the real MCP binary."""
     dataset = build_corpus_dataset(json.loads(Path(corpus_path).read_text(encoding="utf-8")))
     perseus = load_perseus()
-    db = Path(workdir) / "vault-replay.db"
-    vault = VaultMCP(binary, db)
-    try:
+    with EphemeralAdmissionFixture(binary, allow_linted_content=True) as vault:
         case = dataset["cases"][0]
         for item in case["items"]:
-            vault.call("perseus_vault_remember", {
-                "category": item["category"], "key": item["key"],
-                "body_json": json.dumps({"content": item["content"], "summary": item["content"]}),
-                "type": "insight", "skip_dedup": True,
-            })
-        recalled = vault.call("perseus_vault_recall", {
-            "query": "", "limit": 1000, "mode": "fts5", "trust_weight": 0, "min_decay": 0,
-        })
+            vault.remember(
+                item["category"],
+                item["key"],
+                {"content": item["content"], "summary": item["content"]},
+            )
+        recalled = vault.recall("", limit=1000)
+        recalled_items = recalled.get("items", [])
+        expected_addresses = [
+            f"{item['category']}/{item['key']}" for item in case["items"]
+        ]
+        retrieved_addresses = _require_recalled_addresses(
+            recalled_items, expected_addresses
+        )
         recalled_by_address = {
             f"{item['category']}/{item['key']}": item
-            for item in recalled.get("items", [])
+            for item in recalled_items
         }
         replay_items = [
             {**recalled_by_address[f"{item['category']}/{item['key']}"],
@@ -447,14 +679,13 @@ def run_corpus_benchmark(binary, corpus_path, workdir):
         metrics = evaluate_corpus_case(perseus, replay_items, case["budget_chars"])
         row = {
             "case_id": case["id"],
-            "vault_recalled_ids": [item["id"] for item in recalled.get("items", [])],
+            "vault_recalled_ids": [item["id"] for item in recalled_items],
+            "vault_recalled_addresses": sorted(retrieved_addresses),
             **metrics,
         }
         report = build_report([row], binary)
         report["corpus"] = {"items": dataset["corpus_item_count"], "format": "perseus-sanitized-replay-v1"}
         return finalize_report(report)
-    finally:
-        vault.close()
 
 
 def run_probe_benchmark(binary, corpus_path, probes_path, workdir, budget=640):
@@ -465,22 +696,21 @@ def run_probe_benchmark(binary, corpus_path, probes_path, workdir, budget=640):
         raise ValueError("probe manifest is empty")
     perseus = load_perseus()
     rows = []
-    for probe_index, probe in enumerate(probes):
-        vault = VaultMCP(binary, probe_database_paths(workdir, len(probes))[probe_index])
-        try:
+    for probe in probes:
+        with EphemeralAdmissionFixture(binary, allow_linted_content=True) as vault:
             for item in corpus.get("items", []):
-                vault.call("perseus_vault_remember", {
-                    "category": item["category"], "key": item["key"],
-                    "body_json": json.dumps({"content": item["content"], "summary": item.get("summary", "")}),
-                    "type": "insight", "skip_dedup": True,
-                })
-            recalled = vault.call("perseus_vault_recall", {
-                "query": probe["query"], "limit": 1000, "mode": "fts5", "trust_weight": 0,
-                "skip_side_effects": True, "min_decay": 0,
-            })
-            rows.append(evaluate_probe(probe, recalled.get("items", []), perseus, budget))
-        finally:
-            vault.close()
+                vault.remember(
+                    item["category"],
+                    item["key"],
+                    {"content": item["content"], "summary": item.get("summary", "")},
+                )
+            recalled = vault.recall(probe["query"], limit=1000)
+            recalled_items = recalled.get("items", [])
+            _require_recalled_addresses(
+                recalled_items,
+                [f"{probe['category']}/{probe['key']}"],
+            )
+            rows.append(evaluate_probe(probe, recalled_items, perseus, budget))
     return build_probe_report(
         rows,
         binary,
