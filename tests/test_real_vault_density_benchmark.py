@@ -2,7 +2,14 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -28,6 +35,269 @@ def test_live_binary_requires_explicit_opt_in(monkeypatch, tmp_path):
     candidate.write_text("fixture binary placeholder")
     monkeypatch.setenv("PERSEUS_VAULT_BENCHMARK_BIN", str(candidate))
     assert benchmark.find_binary() == str(candidate.resolve())
+
+
+def test_recalled_addresses_are_exact_and_unique():
+    items = [
+        {"category": "capture", "key": "one"},
+        {"category": "capture", "key": "one"},
+    ]
+
+    with pytest.raises(RuntimeError, match="duplicate"):
+        benchmark._require_recalled_addresses(items, ["capture/one"])
+
+    with pytest.raises(RuntimeError, match="exact"):
+        benchmark._require_recalled_addresses(
+            [{"category": "capture", "key": "one"}, {"category": "capture", "key": "two"}],
+            ["capture/one"],
+        )
+
+
+def test_report_requires_retrieved_address_evidence():
+    rows = [{
+        "case_id": "case-a",
+        "production": {"task_resumption": 1.0, "load_bearing_retention": 1.0,
+                       "decoder_recovery": 1.0, "prompt_tokens": 1,
+                       "uncompressed_tokens": 2},
+        "legacy": {"task_resumption": 0.0, "load_bearing_retention": 0.0,
+                   "decoder_recovery": 0.0, "prompt_tokens": 1,
+                   "uncompressed_tokens": 2},
+    }]
+
+    with pytest.raises(ValueError, match="retrieved address"):
+        benchmark.build_report(rows, binary="perseus-vault")
+
+
+def test_fixture_forces_admission_lint_boundary_for_child(monkeypatch):
+    monkeypatch.setenv("PERSEUS_VAULT_DISABLE_ADMISSION_LINT", "1")
+    normal = benchmark.EphemeralAdmissionFixture(binary="unused")
+    corpus = benchmark.EphemeralAdmissionFixture(
+        binary="unused", allow_linted_content=True
+    )
+    try:
+        assert normal._vault.env["PERSEUS_VAULT_DISABLE_ADMISSION_LINT"] == "0"
+        assert corpus._vault.env["PERSEUS_VAULT_DISABLE_ADMISSION_LINT"] == "1"
+    finally:
+        normal.close()
+        corpus.close()
+
+
+def test_mcp_read_has_a_bounded_deadline(tmp_path):
+    class SlowStdout:
+        def readline(self):
+            time.sleep(0.2)
+            return ""
+
+    client = benchmark.VaultMCP("unused", tmp_path / "vault.db", timeout=0.01)
+    client.proc = SimpleNamespace(stdout=SlowStdout(), stderr=None)
+    client._stop_process = lambda _proc: None
+    with pytest.raises(TimeoutError, match="deadline"):
+        client._readline_with_deadline(time.monotonic() + 0.01)
+    client.proc = None
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux identity guard")
+def test_startup_identity_failure_reaps_fresh_process_group(monkeypatch, tmp_path):
+    marker = tmp_path / "startup-identity-descendant-survived"
+    ready = tmp_path / "startup-identity-descendant-ready"
+    child = (
+        "import pathlib,time; "
+        f"time.sleep(0.35); pathlib.Path({str(marker)!r}).write_text('leaked')"
+    )
+    parent = (
+        "import pathlib,subprocess,sys,time; "
+        f"subprocess.Popen([sys.executable, '-c', {child!r}]); "
+        f"pathlib.Path({str(ready)!r}).write_text('ready'); time.sleep(10)"
+    )
+    real_popen = benchmark.subprocess.Popen
+    spawned = None
+
+    def fake_popen(_args, **kwargs):
+        nonlocal spawned
+        spawned = real_popen([sys.executable, "-c", parent], **kwargs)
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline and not ready.exists():
+            time.sleep(0.01)
+        assert ready.exists()
+        return spawned
+
+    monkeypatch.setattr(benchmark.subprocess, "Popen", fake_popen)
+    real_read_identity = benchmark.VaultMCP._read_process_identity
+    read_count = 0
+
+    def fail_leader_identity_once(pid):
+        nonlocal read_count
+        read_count += 1
+        if read_count == 1:
+            return None
+        return real_read_identity(pid)
+
+    monkeypatch.setattr(
+        benchmark.VaultMCP,
+        "_read_process_identity",
+        staticmethod(fail_leader_identity_once),
+    )
+    client = benchmark.VaultMCP("unused", tmp_path / "vault.db")
+    try:
+        with pytest.raises(RuntimeError, match="identity"):
+            client._start()
+        assert client.proc is None
+        assert client._process_group_id is None
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            if marker.exists():
+                break
+            time.sleep(0.02)
+        assert not marker.exists()
+    finally:
+        if spawned is not None and (
+            spawned.poll() is None
+            or benchmark.VaultMCP._process_group_exists(spawned.pid)
+        ):
+            try:
+                os.killpg(spawned.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            spawned.wait(timeout=1)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX-specific")
+@pytest.mark.parametrize(
+    "leader_mode",
+    [
+        "exits_first",
+        "leader_reaped_first",
+        "leader_reaped_identity_mismatch",
+        "exits_on_term",
+        "ignores_term",
+        "identity_mismatch",
+    ],
+)
+def test_mcp_stop_empties_owned_process_group(tmp_path, leader_mode):
+    marker = tmp_path / f"descendant-survived-{leader_mode}"
+    child = (
+        "import pathlib,time; "
+        f"time.sleep(0.35); pathlib.Path({str(marker)!r}).write_text('leaked')"
+    )
+    if leader_mode in {
+        "exits_first",
+        "leader_reaped_first",
+        "leader_reaped_identity_mismatch",
+    }:
+        parent = (
+            "import subprocess,sys; "
+            f"subprocess.Popen([sys.executable, '-c', {child!r}])"
+        )
+    elif leader_mode == "ignores_term":
+        parent = (
+            "import signal,subprocess,sys,time; "
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+            f"subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(10)"
+        )
+    else:
+        parent = (
+            "import subprocess,sys,time; "
+            f"subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(10)"
+        )
+    client = benchmark.VaultMCP("unused", tmp_path / "vault.db")
+    client._enable_child_subreaper()
+    process = subprocess.Popen(
+        [sys.executable, "-c", parent],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    client._process_group_id = process.pid
+    client._leader_identity = benchmark.VaultMCP._read_process_identity(process.pid)
+    client._leader_pidfd = (
+        os.pidfd_open(process.pid) if hasattr(os, "pidfd_open") else None
+    )
+    assert client._leader_identity is not None
+    try:
+        if leader_mode == "exits_first":
+            deadline = time.monotonic() + 1
+            while time.monotonic() < deadline:
+                identity = benchmark.VaultMCP._read_process_identity(process.pid)
+                if identity is not None and identity["state"] == "Z":
+                    break
+                time.sleep(0.02)
+            else:
+                pytest.fail("leader did not exit into an observable zombie state")
+        elif leader_mode in {"leader_reaped_first", "leader_reaped_identity_mismatch"}:
+            process.wait(timeout=1)
+            client._leader_pidfd = None
+        if leader_mode == "leader_reaped_identity_mismatch":
+            saved_identity = client._leader_identity
+            client._leader_identity = {
+                **saved_identity,
+                "session": saved_identity["session"] + 1,
+            }
+            with pytest.raises(RuntimeError, match="ownership"):
+                client._stop_process(process)
+            client._leader_identity = saved_identity
+        if leader_mode == "identity_mismatch":
+            client._leader_identity = {
+                **client._leader_identity,
+                "start_time": client._leader_identity["start_time"] + 1,
+            }
+            client.proc = process
+            with pytest.raises(RuntimeError, match="identity"):
+                client.close()
+            assert client.proc is process
+            client._leader_identity = benchmark.VaultMCP._read_process_identity(
+                process.pid
+            ) or {
+                "pid": process.pid,
+                "pgid": process.pid,
+                "start_time": 0,
+            }
+            client.close()
+        client._stop_process(process)
+        assert not benchmark.VaultMCP._process_group_exists(process.pid)
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline and marker.exists():
+            time.sleep(0.02)
+        assert not marker.exists()
+    finally:
+        if process.poll() is None or benchmark.VaultMCP._process_group_exists(process.pid):
+            client._stop_process(process)
+
+
+def test_probe_replay_rejects_oversized_corpus_before_starting_vault(tmp_path):
+    corpus_path = tmp_path / "corpus.json"
+    probes_path = tmp_path / "probes.json"
+    corpus_path.write_text(json.dumps({
+        "items": [
+            {"category": "capture", "key": f"item-{index}", "content": f"fact {index}"}
+            for index in range(25)
+        ]
+    }), encoding="utf-8")
+    probes_path.write_text(json.dumps([{
+        "id": "probe-0", "query": "fact 0",
+        "category": "capture", "key": "item-0",
+    }]), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="24"):
+        benchmark.run_probe_benchmark("unused", corpus_path, probes_path, tmp_path)
+
+    oversized_path = tmp_path / "oversized-corpus.json"
+    oversized_path.write_bytes(b"{" + b" " * benchmark.MAX_REPLAY_BYTES + b"}")
+    with pytest.raises(ValueError, match="byte maximum"):
+        benchmark.run_corpus_benchmark("unused", oversized_path, tmp_path)
+
+
+def test_density_ci_pins_dependencies_and_drops_checkout_credentials():
+    workflow = (REPO / ".github" / "workflows" / "vault-quality-gate.yml").read_text()
+    constraints = REPO / "benchmark" / "real_vault_density" / "requirements-ci.txt"
+
+    assert "requirements-ci.txt" in workflow
+    assert '-m "not slow"' in workflow
+    assert "-m slow" in workflow
+    assert workflow.count("persist-credentials: false") >= 4
+    assert constraints.exists()
+    assert "pytest==" in constraints.read_text()
+    assert "PyYAML==" in constraints.read_text()
 
 
 def test_dataset_is_bounded_offline_and_has_load_bearing_cases(dataset):
@@ -100,6 +370,7 @@ def test_report_signature_covers_corpus_metadata():
     rows = [{
         "case_id": "case-a",
         "vault_recalled_ids": [],
+        "vault_recalled_addresses": ["capture/case-a"],
         "production": {"task_resumption": 1.0, "load_bearing_retention": 1.0,
                        "decoder_recovery": 1.0, "prompt_tokens": 1,
                        "uncompressed_tokens": 2},
@@ -122,6 +393,7 @@ def test_report_contract_requires_real_vault_and_decoder_metrics():
         {
             "case_id": "case-a",
             "vault_recalled_ids": ["ordinary", "correction"],
+            "vault_recalled_addresses": ["ordinary/key-a", "correction/key-b"],
             "production": {
                 "task_resumption": 1.0,
                 "load_bearing_retention": 1.0,
@@ -182,6 +454,19 @@ def test_ephemeral_fixture_owns_distinct_private_databases(tmp_path):
     finally:
         first.close()
         second.close()
+
+
+def test_fixture_cleanup_runs_when_vault_shutdown_fails(monkeypatch):
+    fixture = benchmark.EphemeralAdmissionFixture(binary="unused")
+    db_parent = Path(fixture.db_path).parent
+
+    def fail_shutdown():
+        raise RuntimeError("synthetic shutdown failure")
+
+    monkeypatch.setattr(fixture._vault, "close", fail_shutdown)
+    with pytest.raises(RuntimeError, match="shutdown"):
+        fixture.close()
+    assert not db_parent.exists()
 
 
 def test_ephemeral_fixture_matches_vault_unicode_json_canonicalization():

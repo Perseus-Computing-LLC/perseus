@@ -6,15 +6,23 @@ import hashlib
 import hmac
 import json
 import os
+import queue
 import secrets
+import signal
 import subprocess
+import sys
 import tempfile
+import threading
+import time
+from collections import deque
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 DATASET = HERE / "dataset.json"
 LOAD_BEARING = {"constraint", "contradiction", "correction", "keystone", "policy", "prohibition"}
+MAX_REPLAY_ITEMS = 24
+MAX_REPLAY_BYTES = 1 << 20
 
 
 def load_dataset(path=DATASET):
@@ -22,7 +30,11 @@ def load_dataset(path=DATASET):
 
 
 def load_corpus(path):
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    with Path(path).open("rb") as stream:
+        raw = stream.read(MAX_REPLAY_BYTES + 1)
+    if len(raw) > MAX_REPLAY_BYTES:
+        raise ValueError(f"replay corpus exceeds {MAX_REPLAY_BYTES}-byte maximum")
+    return json.loads(raw.decode("utf-8"))
 
 
 def load_probes(path):
@@ -83,7 +95,12 @@ class VaultMCP:
         self.timeout = float(timeout)
         self.client_info_name = client_info_name
         self.proc = None
+        self._process_group_id = None
+        self._leader_identity = None
+        self._leader_pidfd = None
+        self._subreaper_was_enabled = None
         self._next_id = 0
+        self._stderr_lines = deque(maxlen=20)
 
     def __enter__(self):
         self._ensure_started()
@@ -92,13 +109,184 @@ class VaultMCP:
     def __exit__(self, *_exc):
         self.close()
 
-    def _start(self):
-        self.proc = subprocess.Popen(
-            [self.binary, "serve", "--db", str(self.db)],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
-            bufsize=1, env=self.env,
+    @staticmethod
+    def _read_process_identity(pid):
+        if not sys.platform.startswith("linux"):
+            return None
+        try:
+            stat = (Path("/proc") / str(pid) / "stat").read_text(encoding="utf-8")
+            closing_paren = stat.rfind(")")
+            fields = stat[closing_paren + 2 :].split()
+            return {
+                "pid": pid,
+                "state": fields[0],
+                "pgid": int(fields[2]),
+                "session": int(fields[3]),
+                "start_time": int(fields[19]),
+            }
+        except (IndexError, OSError, ValueError):
+            return None
+
+    @staticmethod
+    def _child_subreaper_state():
+        if not sys.platform.startswith("linux"):
+            return None
+        import ctypes
+
+        libc = ctypes.CDLL(None, use_errno=True)
+        prctl = libc.prctl
+        prctl.restype = ctypes.c_int
+        state = ctypes.c_int()
+        if prctl(37, ctypes.byref(state), 0, 0, 0) != 0:  # PR_GET_CHILD_SUBREAPER
+            error_no = ctypes.get_errno()
+            raise OSError(error_no, "child-subreaper state unavailable")
+        return bool(state.value)
+
+    @staticmethod
+    def _set_child_subreaper(enabled):
+        if not sys.platform.startswith("linux"):
+            return
+        import ctypes
+
+        libc = ctypes.CDLL(None, use_errno=True)
+        prctl = libc.prctl
+        prctl.restype = ctypes.c_int
+        if prctl(36, int(enabled), 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
+            error_no = ctypes.get_errno()
+            raise OSError(error_no, "child-subreaper configuration failed")
+
+    def _enable_child_subreaper(self):
+        if not sys.platform.startswith("linux") or self._subreaper_was_enabled is not None:
+            return
+        previous = self._child_subreaper_state()
+        self._subreaper_was_enabled = previous
+        if not previous:
+            self._set_child_subreaper(True)
+
+    def _restore_child_subreaper(self):
+        if self._subreaper_was_enabled is False:
+            self._set_child_subreaper(False)
+        self._subreaper_was_enabled = None
+
+    @classmethod
+    def _process_group_member_identities(cls, pgid):
+        if not sys.platform.startswith("linux"):
+            return ()
+        try:
+            entries = Path("/proc").iterdir()
+        except OSError:
+            return ()
+        members = []
+        for entry in entries:
+            if not entry.name.isdigit():
+                continue
+            pid = int(entry.name)
+            if pid == os.getpid():
+                continue
+            identity = cls._read_process_identity(pid)
+            if identity is not None and identity["pgid"] == pgid:
+                members.append(identity)
+        return tuple(members)
+
+    @classmethod
+    def _process_group_member_pids(cls, pgid):
+        return tuple(
+            identity["pid"]
+            for identity in cls._process_group_member_identities(pgid)
         )
+
+    @classmethod
+    def _reap_process_group_children(cls, pgid):
+        if not sys.platform.startswith("linux"):
+            return True
+        reap_ok = True
+        for pid in cls._process_group_member_pids(pgid):
+            try:
+                while os.waitpid(pid, os.WNOHANG)[0] > 0:
+                    pass
+            except (ChildProcessError, ProcessLookupError):
+                pass
+            except OSError:
+                reap_ok = False
+        return reap_ok
+
+    def _verify_process_group(self, proc, pgid):
+        if pgid is None:
+            return False
+        if sys.platform.startswith("linux"):
+            expected = self._leader_identity
+            current = self._read_process_identity(proc.pid)
+            if current is not None:
+                if (
+                    expected is None
+                    or current["start_time"] != expected["start_time"]
+                    or current["pgid"] != pgid
+                    or current["session"] != expected["session"]
+                ):
+                    raise RuntimeError("Vault MCP leader identity or process group changed")
+                return True
+            if not self._process_group_exists(pgid):
+                return False
+            expected_session = expected.get("session") if expected else None
+            if expected_session is None:
+                raise RuntimeError("Vault MCP leader identity is unavailable")
+            members = self._process_group_member_identities(pgid)
+            if not any(
+                member["pgid"] == pgid and member["session"] == expected_session
+                for member in members
+            ):
+                raise RuntimeError("Vault MCP process group ownership is unavailable")
+            return True
+        try:
+            current_pgid = os.getpgid(proc.pid)
+        except ProcessLookupError:
+            if self._process_group_exists(pgid):
+                raise RuntimeError("Vault MCP process group identity is unavailable")
+            return False
+        if current_pgid != pgid:
+            raise RuntimeError("Vault MCP process group changed")
+        return True
+
+    def _start(self):
+        previous = self.proc
+        if previous is not None:
+            self._stop_process(previous)
+            self.proc = None
+        self._stderr_lines = deque(maxlen=20)
+        self._enable_child_subreaper()
+        try:
+            self.proc = subprocess.Popen(
+                [self.binary, "serve", "--db", str(self.db)],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+                bufsize=1, env=self.env, start_new_session=(os.name != "nt"),
+            )
+        except BaseException:
+            self._restore_child_subreaper()
+            raise
+        self._process_group_id = self.proc.pid if os.name != "nt" else None
+        self._leader_identity = self._read_process_identity(self.proc.pid)
+        if sys.platform.startswith("linux") and self._leader_identity is None:
+            proc = self.proc
+            try:
+                self._stop_process(proc, fresh_spawn=True)
+            except BaseException as exc:
+                raise RuntimeError(
+                    "Vault MCP leader identity is unavailable and cleanup failed"
+                ) from exc
+            self.proc = None
+            raise RuntimeError("Vault MCP leader identity is unavailable")
+        if sys.platform.startswith("linux") and hasattr(os, "pidfd_open"):
+            try:
+                self._leader_pidfd = os.pidfd_open(self.proc.pid)
+            except OSError:
+                self._leader_pidfd = None
+        if self.proc.stderr is not None:
+            threading.Thread(
+                target=self._drain_stderr,
+                args=(self.proc.stderr, self._stderr_lines),
+                daemon=True,
+            ).start()
         self._send({
             "jsonrpc": "2.0", "id": self._new_id(), "method": "initialize",
             "params": {"protocolVersion": "2025-06-18", "capabilities": {},
@@ -109,8 +297,129 @@ class VaultMCP:
             raise RuntimeError(response["error"])
         self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
+    @staticmethod
+    def _drain_stderr(stream, lines):
+        try:
+            for line in stream:
+                lines.append(line.rstrip())
+        except (OSError, ValueError):
+            pass
+
+    @staticmethod
+    def _process_group_exists(pgid):
+        if os.name == "nt":
+            return False
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    @classmethod
+    def _wait_process_group_empty(cls, pgid, timeout=5.0):
+        if os.name == "nt":
+            return True
+        deadline = time.monotonic() + timeout
+        while cls._process_group_exists(pgid):
+            if not cls._reap_process_group_children(pgid):
+                return False
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            time.sleep(min(0.05, remaining))
+        return cls._reap_process_group_children(pgid) and not cls._process_group_exists(pgid)
+
+    @staticmethod
+    def _signal_process_group(pgid, sig):
+        try:
+            os.killpg(pgid, sig)
+        except ProcessLookupError:
+            return False
+        except PermissionError as exc:
+            raise RuntimeError("cannot signal owned Vault MCP process group") from exc
+        return True
+
+    def _stop_process(self, proc, *, fresh_spawn=False):
+        pgid = self._process_group_id if os.name != "nt" else None
+        cleanup_succeeded = False
+        try:
+            try:
+                if proc.stdin:
+                    proc.stdin.close()
+            except (OSError, ValueError):
+                pass
+            if pgid is not None:
+                if fresh_spawn:
+                    if self._process_group_exists(pgid):
+                        self._signal_process_group(pgid, signal.SIGKILL)
+                    elif proc.poll() is None:
+                        proc.kill()
+                elif self._verify_process_group(proc, pgid):
+                    self._signal_process_group(pgid, signal.SIGTERM)
+                time.sleep(0.25)
+                if not fresh_spawn and self._verify_process_group(proc, pgid):
+                    self._signal_process_group(pgid, signal.SIGKILL)
+            elif proc.poll() is None:
+                proc.terminate()
+                time.sleep(0.25)
+                if proc.poll() is None:
+                    proc.kill()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError("Vault MCP leader did not exit") from exc
+            except OSError as exc:
+                raise RuntimeError("Vault MCP leader wait failed") from exc
+            if pgid is not None:
+                if not self._reap_process_group_children(pgid):
+                    raise RuntimeError("Vault MCP process-group child reap failed")
+                if not self._wait_process_group_empty(pgid):
+                    raise RuntimeError("Vault MCP process group did not become empty")
+            cleanup_succeeded = True
+        finally:
+            if cleanup_succeeded:
+                if self._leader_pidfd is not None:
+                    try:
+                        os.close(self._leader_pidfd)
+                    except OSError as exc:
+                        raise RuntimeError("Vault MCP leader identity handle close failed") from exc
+                    self._leader_pidfd = None
+                self._leader_identity = None
+                if self._process_group_id == pgid:
+                    self._process_group_id = None
+                self._restore_child_subreaper()
+
+    def _abandon_process(self, proc):
+        owned = self.proc is proc
+        self._stop_process(proc)
+        if owned:
+            self.proc = None
+
     def _ensure_started(self):
-        if self.proc is None or self.proc.poll() is not None:
+        if self.proc is None:
+            self._start()
+            return
+        if sys.platform.startswith("linux") and self._leader_identity is not None:
+            current = self._read_process_identity(self.proc.pid)
+            if current is None:
+                if (
+                    self._process_group_id is not None
+                    and self._process_group_exists(self._process_group_id)
+                ):
+                    raise RuntimeError("Vault MCP leader identity is unavailable")
+                self._start()
+                return
+            if (
+                current["start_time"] != self._leader_identity["start_time"]
+                or current["pgid"] != self._process_group_id
+            ):
+                raise RuntimeError("Vault MCP leader identity or process group changed")
+            if current["state"] == "Z":
+                self._start()
+            return
+        if self.proc.poll() is not None:
             self._start()
 
     def _new_id(self):
@@ -123,15 +432,51 @@ class VaultMCP:
         self.proc.stdin.write(json.dumps(message) + "\n")
         self.proc.stdin.flush()
 
-    def _read(self):
+    def _stderr_text(self):
+        return "\n".join(self._stderr_lines)[-1000:]
+
+    def _readline_with_deadline(self, deadline):
         if self.proc is None or self.proc.stdout is None:
             raise RuntimeError("Vault MCP is not running")
+        proc = self.proc
+        stream = proc.stdout
+        assert stream is not None
+        result = queue.Queue(maxsize=1)
+
+        def read_line():
+            try:
+                result.put_nowait(stream.readline())
+            except (OSError, ValueError) as exc:
+                result.put_nowait(exc)
+
+        threading.Thread(target=read_line, daemon=True).start()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            self._abandon_process(proc)
+            raise TimeoutError("Vault MCP read deadline exceeded")
+        try:
+            line = result.get(timeout=remaining)
+        except queue.Empty as exc:
+            self._abandon_process(proc)
+            raise TimeoutError("Vault MCP read deadline exceeded") from exc
+        if isinstance(line, BaseException):
+            self._abandon_process(proc)
+            raise OSError("Vault MCP stdout read failed") from line
+        return line
+
+    def _read(self):
+        deadline = time.monotonic() + self.timeout
         while True:
-            line = self.proc.stdout.readline()
+            line = self._readline_with_deadline(deadline)
             if not line:
-                stderr = self.proc.stderr.read()[:1000] if self.proc.stderr else ""
-                raise RuntimeError(f"Vault MCP closed stdout: {stderr}")
-            message = json.loads(line)
+                proc = self.proc
+                if proc is not None:
+                    self._abandon_process(proc)
+                raise RuntimeError(f"Vault MCP closed stdout: {self._stderr_text()}")
+            try:
+                message = json.loads(line)
+            except json.JSONDecodeError:
+                continue
             if "result" in message or "error" in message:
                 return message
 
@@ -156,17 +501,10 @@ class VaultMCP:
         return json.loads(text) if isinstance(text, str) else text
 
     def close(self):
-        proc, self.proc = self.proc, None
-        if proc is None:
-            return
-        try:
-            if proc.stdin:
-                proc.stdin.close()
-            proc.wait(timeout=self.timeout)
-        except (OSError, ValueError, subprocess.TimeoutExpired):
-            if proc.poll() is None:
-                proc.kill()
-                proc.wait(timeout=5)
+        proc = self.proc
+        if proc is not None:
+            self._stop_process(proc)
+            self.proc = None
 
 
 class EphemeralAdmissionFixture:
@@ -190,13 +528,13 @@ class EphemeralAdmissionFixture:
         self._source_hmac_key = secrets.token_hex(32)
         env = {
             "PERSEUS_VAULT_ADMISSION_SOURCE_HMAC_KEY": self._source_hmac_key,
+            # Normal fixture runs must not inherit an operator override from
+            # the parent process. The explicit corpus/probe lane uses the
+            # documented operator-only lint escape hatch; normal clients do not.
+            "PERSEUS_VAULT_DISABLE_ADMISSION_LINT": (
+                "1" if allow_linted_content else "0"
+            ),
         }
-        if allow_linted_content:
-            # This is the documented operator-only first-party benchmark
-            # escape hatch. It lets the sanitized replay exercise serving
-            # behavior for corpus text that intentionally contains a soft
-            # injection-lint phrase; normal Vault clients remain gated.
-            env["PERSEUS_VAULT_DISABLE_ADMISSION_LINT"] = "1"
         self._vault = VaultMCP(
             binary,
             self.db_path,
@@ -220,9 +558,11 @@ class EphemeralAdmissionFixture:
     def close(self):
         if self._closed:
             return
-        self._vault.close()
-        self._temporary_directory.cleanup()
-        self._closed = True
+        try:
+            self._vault.close()
+        finally:
+            self._closed = True
+            self._temporary_directory.cleanup()
 
     @staticmethod
     def _stable_json(value):
@@ -346,16 +686,70 @@ class EphemeralAdmissionFixture:
         return self._vault.call("perseus_vault_recall", args)
 
 
-def _require_recalled_addresses(items, expected):
-    """Require every deterministic fixture address to be returned by recall."""
-    actual = {
-        f"{item.get('category', '')}/{item.get('key', '')}"
-        for item in items
-    }
-    missing = sorted(set(expected) - actual)
-    if missing:
-        raise RuntimeError(f"Vault recall omitted expected fixture records: {missing}")
-    return actual
+def _require_recalled_addresses(
+    items, expected, *, allowed_addresses=None, expected_categories=None
+):
+    """Require recalled addresses to be exact, unique, typed, and bounded."""
+    if not isinstance(items, list):
+        raise TypeError("Vault recall items must be a list")
+    expected = list(expected)
+    if not expected or any(not isinstance(address, str) or "/" not in address for address in expected):
+        raise RuntimeError("expected recall addresses must be non-empty strings")
+    expected_set = set(expected)
+    if len(expected_set) != len(expected):
+        raise RuntimeError("expected recall addresses must be unique")
+    if allowed_addresses is None:
+        allowed_set = expected_set
+    else:
+        allowed = list(allowed_addresses)
+        if not allowed or any(
+            not isinstance(address, str) or "/" not in address for address in allowed
+        ) or len(set(allowed)) != len(allowed):
+            raise RuntimeError("allowed recall addresses must be unique non-empty strings")
+        allowed_set = set(allowed)
+    categories = set(expected_categories or ())
+    actual_addresses = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise TypeError("Vault recall items must be objects")
+        category = item.get("category")
+        key = item.get("key")
+        if not isinstance(category, str) or not category or not isinstance(key, str) or not key:
+            raise RuntimeError("Vault recall item has invalid category/key")
+        if categories and category not in categories:
+            raise RuntimeError(f"Vault recall returned an unexpected category: {category}")
+        address = f"{category}/{key}"
+        if address in actual_addresses:
+            raise RuntimeError(f"Vault recall returned a duplicate address: {address}")
+        actual_addresses.append(address)
+    actual_set = set(actual_addresses)
+    missing = sorted(expected_set - actual_set)
+    unexpected = sorted(actual_set - allowed_set)
+    if missing or unexpected or (allowed_addresses is None and actual_set != expected_set):
+        raise RuntimeError(
+            "Vault recall must match the exact bounded address set: "
+            f"missing={missing} unexpected={unexpected}"
+        )
+    return actual_set
+
+
+def _validate_report_address_evidence(rows):
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("report requires retrieved address evidence")
+    for row in rows:
+        if not isinstance(row, dict):
+            raise TypeError("report requires retrieved address evidence")
+        addresses = row.get("vault_recalled_addresses")
+        if not isinstance(addresses, list) or not addresses:
+            raise ValueError("report requires retrieved address evidence")
+        try:
+            _require_recalled_addresses(
+                [{"category": address.split("/", 1)[0], "key": address.split("/", 1)[1]}
+                 for address in addresses if isinstance(address, str) and "/" in address],
+                addresses,
+            )
+        except RuntimeError as exc:
+            raise ValueError(f"invalid retrieved address evidence: {exc}") from exc
 
 
 def _tokens(text):
@@ -569,6 +963,7 @@ def verify_report_signature(report):
 
 
 def build_report(rows, binary):
+    _validate_report_address_evidence(rows)
     production = _average(rows, "production")
     legacy = _average(rows, "legacy")
     retrieved_addresses = sorted({
@@ -616,10 +1011,17 @@ def run_benchmark(binary, workdir):
             for case in dataset["cases"]
             for item in case["items"]
         ]
+        expected_categories = {
+            address.split("/", 1)[0] for address in expected_addresses
+        }
         for case in dataset["cases"]:
             recalled = vault.recall("", limit=100)
             recalled_items = recalled.get("items", [])
-            _require_recalled_addresses(recalled_items, expected_addresses)
+            _require_recalled_addresses(
+                recalled_items,
+                expected_addresses,
+                expected_categories=expected_categories,
+            )
             rows.append(evaluate_case(perseus, case, recalled_items))
         return build_report(rows, binary)
 
@@ -639,17 +1041,17 @@ def build_corpus_dataset(corpus):
                 {"category": item["category"], "key": item["key"],
                  "content": item["content"],
                  "relevance": 1.0 - index / max(1, len(items))}
-                for index, item in enumerate(items[:24])
+                for index, item in enumerate(items[:MAX_REPLAY_ITEMS])
             ],
             "required_facts": [], "load_bearing_ids": [],
         }],
-        "corpus_item_count": min(len(items), 24),
+        "corpus_item_count": min(len(items), MAX_REPLAY_ITEMS),
     }
 
 
 def run_corpus_benchmark(binary, corpus_path, workdir):
     """Replay a sanitized Vault corpus through the real MCP binary."""
-    dataset = build_corpus_dataset(json.loads(Path(corpus_path).read_text(encoding="utf-8")))
+    dataset = build_corpus_dataset(load_corpus(corpus_path))
     perseus = load_perseus()
     with EphemeralAdmissionFixture(binary, allow_linted_content=True) as vault:
         case = dataset["cases"][0]
@@ -665,7 +1067,9 @@ def run_corpus_benchmark(binary, corpus_path, workdir):
             f"{item['category']}/{item['key']}" for item in case["items"]
         ]
         retrieved_addresses = _require_recalled_addresses(
-            recalled_items, expected_addresses
+            recalled_items,
+            expected_addresses,
+            expected_categories={"capture"},
         )
         recalled_by_address = {
             f"{item['category']}/{item['key']}": item
@@ -691,6 +1095,13 @@ def run_corpus_benchmark(binary, corpus_path, workdir):
 def run_probe_benchmark(binary, corpus_path, probes_path, workdir, budget=640):
     """Replay a sanitized corpus and evaluate fixed, auditable gold probes."""
     corpus = load_corpus(corpus_path)
+    corpus_items = corpus.get("items", [])
+    if len(corpus_items) > MAX_REPLAY_ITEMS:
+        raise ValueError(
+            f"probe corpus exceeds bounded maximum of {MAX_REPLAY_ITEMS} items"
+        )
+    dataset = build_corpus_dataset(corpus)
+    replay_items = dataset["cases"][0]["items"]
     probes = load_probes(probes_path)
     if not probes:
         raise ValueError("probe manifest is empty")
@@ -698,7 +1109,7 @@ def run_probe_benchmark(binary, corpus_path, probes_path, workdir, budget=640):
     rows = []
     for probe in probes:
         with EphemeralAdmissionFixture(binary, allow_linted_content=True) as vault:
-            for item in corpus.get("items", []):
+            for item in replay_items:
                 vault.remember(
                     item["category"],
                     item["key"],
@@ -706,15 +1117,25 @@ def run_probe_benchmark(binary, corpus_path, probes_path, workdir, budget=640):
                 )
             recalled = vault.recall(probe["query"], limit=1000)
             recalled_items = recalled.get("items", [])
+            target_address = f"{probe['category']}/{probe['key']}"
+            allowed_addresses = [
+                f"{item['category']}/{item['key']}"
+                for item in replay_items
+            ]
+            expected_categories = {
+                item["category"] for item in replay_items
+            }
             _require_recalled_addresses(
                 recalled_items,
-                [f"{probe['category']}/{probe['key']}"],
+                [target_address],
+                allowed_addresses=allowed_addresses,
+                expected_categories=expected_categories,
             )
             rows.append(evaluate_probe(probe, recalled_items, perseus, budget))
     return build_probe_report(
         rows,
         binary,
-        corpus_items=len(corpus.get("items", [])),
+        corpus_items=dataset["corpus_item_count"],
         budget_chars=budget,
     )
 

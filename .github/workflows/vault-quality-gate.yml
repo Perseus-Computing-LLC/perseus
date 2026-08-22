@@ -13,8 +13,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5 (2026-07-16)
+        with:
+          persist-credentials: false
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5 (2026-07-16)
         with:
+          persist-credentials: false
           repository: Perseus-Computing-LLC/perseus-vault
           # #958: PINNED to a known-good vault SHA. The gate previously
           # followed vault main at run time, so any broken vault push (e.g.
@@ -56,8 +59,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5 (2026-07-16)
+        with:
+          persist-credentials: false
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5 (2026-07-16)
         with:
+          persist-credentials: false
           repository: Perseus-Computing-LLC/perseus-vault
           ref: 88c14ed9fc430f8a80094796617b3f95fe3f4a36  # #1131 ephemeral fixture
           path: perseus-vault
@@ -71,11 +77,12 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install benchmark test dependencies
-        run: python -m pip install pytest pyyaml
+        run: python -m pip install -r benchmark/real_vault_density/requirements-ci.txt
       - name: Run authenticated replay and negative contract
         env:
           PERSEUS_VAULT_BENCHMARK_BIN: ${{ github.workspace }}/perseus-vault/target/debug/perseus-vault
         run: |
+          python -m pytest tests/test_real_vault_density_benchmark.py -q -m "not slow"
           python -m pytest tests/test_real_vault_density_benchmark.py -q -m slow
           python benchmark/real_vault_density/run.py \
             --bin "$PERSEUS_VAULT_BENCHMARK_BIN" \
