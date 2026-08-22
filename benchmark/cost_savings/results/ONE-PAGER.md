@@ -43,7 +43,7 @@ prompts measurably LOSE accuracy on the tasks agents do most.
 
 - Sample size is 60 questions; per-task-type cells are small. The signed
   full-500 accuracy distribution for the product arm is published separately
-  (79.0% mean, official CoT prompt).
+  (historical 79.0% mean, official CoT prompt; latest paired confirmation is 82.0% on the benchmarks page).
 - The ledger is integer-exact and independently re-queryable, but not yet
   cryptographically tamper-evident; that hardening is scheduled and tracked
   publicly. Until then, we recommend verifying savings against your own

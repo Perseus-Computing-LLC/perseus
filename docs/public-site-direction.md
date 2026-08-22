@@ -39,7 +39,7 @@ Perseus presents three explicit responsibilities: resolve the present, remember 
 
 ## Acceptance criteria
 
-- [ ] No refreshed page has a stale 73.8% headline.
+- [x] No refreshed page has a stale 73.8% headline.
 - [ ] Each refreshed page has one obvious next action and one source-oriented secondary action.
 - [ ] The home page does not lead with a dense benchmark grid.
 - [ ] Security claims include their boundary and do not imply certification.

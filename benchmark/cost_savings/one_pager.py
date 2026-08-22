@@ -111,7 +111,7 @@ prompts measurably LOSE accuracy on the tasks agents do most.
 
 - Sample size is {f['n']} questions; per-task-type cells are small. The signed
   full-500 accuracy distribution for the product arm is published separately
-  (79.0% mean, official CoT prompt).
+  (historical 79.0% mean, official CoT prompt; latest paired confirmation is 82.0% on the benchmarks page).
 - The ledger is integer-exact and independently re-queryable, but not yet
   cryptographically tamper-evident; that hardening is scheduled and tracked
   publicly. Until then, we recommend verifying savings against your own
@@ -192,7 +192,7 @@ reproduces the run are public: <code>benchmark/cost_savings/</code> in the Perse
 <h2>Stated limits (we would rather you check than take our word)</h2>
 <div class="limits"><ul>
 <li>Sample size is {f['n']} questions; per-task-type cells are small. The signed full-500
-accuracy distribution for the product arm is published separately (79.0% mean, official CoT prompt).</li>
+accuracy distribution for the product arm is published separately (historical 79.0% mean, official CoT prompt; latest paired confirmation is 82.0% on the benchmarks page).</li>
 <li>The ledger is integer-exact and independently re-queryable, but not yet cryptographically
 tamper-evident; that hardening is scheduled and tracked publicly. Until then we recommend
 verifying savings against your own provider invoice, which is the strongest baseline anyway.</li>

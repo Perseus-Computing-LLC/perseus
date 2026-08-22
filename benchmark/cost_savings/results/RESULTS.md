@@ -49,7 +49,7 @@ deterministically — first-N per type in dataset order, no cherry-picking
 Caveats that remain (stated so nobody overquotes): n=60 means per-type cells
 are noisy (4–16 questions each); the deterministic first-N-per-type subset
 skews slightly harder than the full mix (product arm 66.7% here vs the signed
-79.0% full-500 CoT mean — both arms face the same questions, so the DELTA is
+historical 79.0% full-500 CoT mean — both arms face the same questions, so the DELTA is
 the robust stat); and the ledger tamper-evidence gap below applies to every
 run.
 
@@ -118,7 +118,7 @@ Trustworthy and robust:
 Not yet trustworthy as a headline, and stated plainly so it is never overquoted:
 
 - **n = 25 is a small sample.** The signed full-500 reference for the product
-  arm is 79.0% CoT mean (see the vault repo `benchmark/longmemeval/COMPARISON.md`).
+  arm is the historical 79.0% CoT mean (see the vault repo `benchmark/longmemeval/COMPARISON.md`).
   The 96.0% here is real for this subset but is not the benchmark-wide number.
 - **All 25 questions are the `single-session-user` type.** That is the easiest
   LongMemEval category. This subset is a favorable, non-stratified slice. The
