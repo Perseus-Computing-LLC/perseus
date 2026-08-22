@@ -1,0 +1,29 @@
+{
+  "schema_version": "perseus-disconnected-acceptance/v1",
+  "fixture_id": "synthetic-devsecops-001",
+  "platform": {
+    "os": "linux",
+    "python": "3.12",
+    "network_policy": "deny_all",
+    "resource_limits": {"cpu_seconds": 300, "memory_mb": 512, "disk_mb": 256}
+  },
+  "artifacts": [
+    {"name": "perseus", "path": "perseus.py", "required": true, "sbom": "sbom.cdx.json"},
+    {"name": "perseus-vault", "path": "external/perseus-vault", "required": false, "sbom": null},
+    {"name": "perseus-ledger", "path": "external/ledger", "required": false, "sbom": null}
+  ],
+  "workload": {
+    "source": "@perseus v1.0.26\n@date\n",
+    "query": "render synthetic disconnected context",
+    "restart_count": 1,
+    "upgrade_bundle": null,
+    "rollback_bundle": null
+  },
+  "claims_ceiling": {
+    "local_offline_capable": "observed_only",
+    "iron_bank_submitted": "not_claimed",
+    "iron_bank_assessed": "not_claimed",
+    "customer_platform_deployable": "not_established",
+    "ato_il5_il6": "not_claimed"
+  }
+}

@@ -136,6 +136,27 @@ def test_run_store_persists_atomic_lifecycle_and_partial_results(source_artifact
     assert store.load(state["run_id"])["status"] == "cancelled"
 
 
+def test_run_store_serializes_persisted_state_reads(source_artifact, tmp_path):
+    store = protocol.RunStore(tmp_path / "runs")
+    state = store.create(_manifest(source_artifact))
+
+    class TrackingLock:
+        def __init__(self):
+            self.enter_count = 0
+
+        def __enter__(self):
+            self.enter_count += 1
+            return self
+
+        def __exit__(self, _exc_type, _exc_value, _traceback):
+            return False
+
+    lock = TrackingLock()
+    store._lock = lock
+    assert store.load(state["run_id"])["run_id"] == state["run_id"]
+    assert lock.enter_count == 1
+
+
 def _script(tmp_path, body):
     tmp_path.mkdir(parents=True, exist_ok=True)
     path = tmp_path / "worker.py"

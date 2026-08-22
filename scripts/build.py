@@ -23,6 +23,7 @@ from pathlib import Path
 MODULE_ORDER = [
     "src/perseus/__init__.py",
     "src/perseus/config.py",
+    "src/perseus/offline.py",  # ← #997: fail-closed process-local offline boundary
     "src/perseus/hooks.py",
     "src/perseus/webhooks.py",
     "src/perseus/registry.py",
