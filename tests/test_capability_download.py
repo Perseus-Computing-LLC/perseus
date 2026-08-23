@@ -95,3 +95,16 @@ def test_public_capability_profiles_use_contribution_language_and_no_internal_ro
         "Partner-led fit",
     ):
         assert forbidden_marker not in public_copy
+
+
+def test_capability_statement_uses_consistent_perseus_product_names():
+    html = (ROOT / "government" / "capability-statement.html").read_text(encoding="utf-8")
+    profiles = (ROOT / "scripts" / "capability_profiles.json").read_text(encoding="utf-8")
+    generator = (ROOT / "scripts" / "build_capability_statement.py").read_text(encoding="utf-8")
+    for surface in (html, profiles, generator):
+        lowered = surface.lower()
+        assert "perseus context engine" in lowered
+        assert "perseus vault" in lowered
+        assert "perseus ledger" in lowered
+    assert "context engine  ·  vault  ·  ledger" not in generator.lower()
+    assert "three-product platform" not in profiles.lower()
