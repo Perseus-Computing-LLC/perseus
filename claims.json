@@ -28,7 +28,7 @@
       "publishable": true
     },
     "perseus_tool_count": {
-      "value": "37",
+      "value": "38",
       "detail": "current default MCP contract; maintained for internal compatibility tests, not a public marketing count",
       "source": "perseus._get_all_mcp_tools({}) via tests/test_tool_count_claim.py",
       "status": "code-enforced",
