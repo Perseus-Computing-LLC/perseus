@@ -1,0 +1,18 @@
+.policy-page { padding: 72px 0 96px; min-height: 58vh; }
+.policy-hero { max-width: 850px; margin-bottom: 42px; }
+.policy-hero .lead { max-width: 70ch; }
+.policy-grid { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 56px; align-items: start; }
+.policy-body { max-width: 760px; }
+.policy-body h2 { color: var(--text); font-size: 22px; line-height: 1.25; margin: 34px 0 12px; }
+.policy-body h2:first-child { margin-top: 0; }
+.policy-body h3 { color: var(--text); font-size: 16px; margin: 24px 0 8px; }
+.policy-body p, .policy-body li { color: var(--text-faint); font-size: 15px; line-height: 1.75; }
+.policy-body ul { margin: 8px 0 18px; padding-left: 22px; }
+.policy-body a, .policy-nav a { color: var(--violet); }
+.policy-note { border: 1px solid var(--border); border-left: 3px solid var(--amber); border-radius: 10px; background: var(--surface-1); padding: 16px 18px; margin: 20px 0; }
+.policy-note p { margin: 0; }
+.policy-nav { position: sticky; top: 24px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-1); padding: 18px; }
+.policy-nav strong { display: block; color: var(--text); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 12px; }
+.policy-nav a { display: block; font-size: 13px; padding: 6px 0; }
+.policy-meta { color: var(--text-faint); font: 12px/1.6 'JetBrains Mono', monospace; }
+@media (max-width: 760px) { .policy-page { padding: 48px 0 72px; } .policy-grid { grid-template-columns: 1fr; gap: 28px; } .policy-nav { position: static; order: -1; } }
