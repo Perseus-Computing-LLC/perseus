@@ -159,6 +159,18 @@ def _main_impl():
     p_artifact.add_argument("--output", "-o", default=None, help="Write the artifact to a file")
     p_artifact.add_argument("--json", action="store_true", help="Write JSON to stdout even when --output is used")
 
+    # context inspector (#1007) — read-only progressive-disclosure run view
+    p_inspector = sub.add_parser(
+        "context-inspector", aliases=["context-inspect"],
+        help="Inspect a compiled context run without exposing raw source bodies",
+    )
+    p_inspector.add_argument("input", nargs="?", default=None, help="Inspector report input JSON path")
+    p_inspector.add_argument("--scenario", default=None, help="Run one deterministic provider-free fixture scenario")
+    p_inspector.add_argument("--list-scenarios", action="store_true", help="List deterministic inspector fixture scenarios")
+    p_inspector.add_argument("--view", choices=["summary", "breakdown", "detail", "all"], default="summary", help="Progressive disclosure level for human output")
+    p_inspector.add_argument("--json", action="store_true", help="Emit the complete hash-bound JSON projection")
+    p_inspector.add_argument("--output", "-o", default=None, help="Write the projection or rendered view to a file")
+
     # sbom/lineage (#995) — offline software supply-chain ingestion and query
     p_sbom = sub.add_parser("sbom", help="Ingest SPDX/CycloneDX documents and query software lineage")
     sbom_sub = p_sbom.add_subparsers(dest="sbom_command", required=True)
@@ -803,6 +815,8 @@ def _main_impl():
         return cmd_code_map(args, cfg)
     elif args.command == "context-artifact":
         return cmd_context_artifact(args, cfg)
+    elif args.command in {"context-inspector", "context-inspect"}:
+        return cmd_context_inspector(args, cfg)
     elif args.command == "sbom":
         return cmd_sbom(args, cfg)
     elif args.command == "memory-efficiency":

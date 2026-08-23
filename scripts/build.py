@@ -103,6 +103,7 @@ MODULE_ORDER = [
     "src/perseus/commitment_codec.py", # ← #971: commitment-preserving verifiable compression (Context Codec)
     "src/perseus/retry_isolation.py",  # ← #972: clean-restart attempt isolation (CCRM retry contamination)
     "src/perseus/pooled_selection.py", # ← #970: pluggable submodular context-selection engine (PACMS)
+    "src/perseus/context_inspector.py", # ← #1007: progressive-disclosure context budget and selection inspector
 
 
     "src/perseus/code_graph.py",         # ← #921: optional symbol/dependency-aware context provider
