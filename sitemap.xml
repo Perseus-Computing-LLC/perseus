@@ -79,6 +79,36 @@
     <priority>0.6</priority>
   </url>
   <url>
+    <loc>https://perseus.observer/cloud/privacy/</loc>
+    <lastmod>2026-08-23</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://perseus.observer/cloud/terms/</loc>
+    <lastmod>2026-08-23</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://perseus.observer/cloud/security/</loc>
+    <lastmod>2026-08-23</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://perseus.observer/cloud/retention/</loc>
+    <lastmod>2026-08-23</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://perseus.observer/cloud/telemetry/</loc>
+    <lastmod>2026-08-23</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
     <loc>https://perseus.observer/blog/agent-memory-context-never-leaves-your-machine/</loc>
     <lastmod>2026-07-21</lastmod>
     <changefreq>yearly</changefreq>

@@ -21,6 +21,7 @@
 <meta name="twitter:title" content="Perseus Cloud: federated context for teams">
 <meta name="twitter:description" content="Perseus Cloud: optional federation, encrypted sync, and central policy for teams. The local-first CLI stays free and open source.">
 <meta name="twitter:image" content="https://perseus.observer/assets/og/cloud.png">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Perseus Cloud","url":"https://perseus.observer/cloud/","description":"Optional managed federation, encrypted sync, and centralized policy for Perseus teams.","isPartOf":{"@type":"WebSite","name":"Perseus","url":"https://perseus.observer/"}}</script>
 <link rel="stylesheet" href="/assets/fonts.css">
 <link rel="stylesheet" href="/assets/tokens.css">
 <link rel="stylesheet" href="/assets/perseus.css">
@@ -35,9 +36,10 @@
       <svg width="30" height="30" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
       <b>Perseus<span class="sub"> / Cloud</span></b>
     </a>
-    <nav class="navlinks">
+    <nav class="navlinks" aria-label="Cloud navigation">
       <a href="#why">Why Cloud</a>
       <a href="#plans">Plans</a>
+      <a href="/cloud/privacy/">Policies</a>
       <a href="/">Perseus ↗</a>
     </nav>
     <button class="toggle" data-theme-toggle aria-label="Toggle theme"><span class="dot"></span><span data-theme-label>Light</span></button>
@@ -46,6 +48,7 @@
 </header>
 
 <!-- HERO -->
+<main id="main">
 <section class="hero" data-screen-label="Cloud hero">
   <div class="glow"></div>
   <span class="reticle tl"></span><span class="reticle tr"></span><span class="reticle bl"></span><span class="reticle br"></span>
@@ -60,13 +63,14 @@
     Optional managed layer
   </span>
   <h1 class="hero-h" style="max-width:18ch;">The same engine, <span style="color:var(--amber);">federated</span> across your team.</h1>
-  <p class="lead" style="max-width:62ch; margin-bottom:22px;">Perseus Cloud is the optional layer for teams that want shared context federation, encrypted sync, and centralized policy, without giving up the local-first core. <span class="em">Your data stays encrypted with keys you hold.</span></p>
+  <p class="lead" style="max-width:62ch; margin-bottom:22px;">Perseus Cloud is the optional layer for teams that want shared context federation, encrypted sync, and centralized policy, without giving up the local-first core. <span class="em">Review the service boundary and key-custody terms before sending hosted data.</span></p>
   <p class="mono" style="font-size:14.5px; line-height:1.6; color:var(--text-faint); max-width:60ch; margin-bottom:38px;">The CLI is, and always will be, free and open source. Cloud is additive.</p>
   <div class="hero-cta" style="margin-bottom:0; flex-wrap:wrap; align-items:center; gap:12px;">
     <a href="/cloud/signup/" class="btn btn-amber btn-lg">Get started free</a>
     <a href="/cloud/login/" class="btn btn-ghost btn-lg">Log in</a>
     <a href="/" class="btn btn-ghost btn-lg">Use the free CLI ↗</a>
   </div>
+  <p class="mono" style="font-size:13px; margin-top:18px; color:var(--text-faint);"><a href="/cloud/privacy/">Privacy</a> · <a href="/cloud/terms/">Terms</a> · <a href="/cloud/security/">Security</a> · <a href="/cloud/retention/">Retention</a> · <a href="/cloud/telemetry/">Telemetry</a></p>
   </div>
 </section>
 
@@ -80,7 +84,7 @@
     <h2 class="h" style="max-width:26ch; margin-bottom:48px;">Team scale, <span style="color:var(--violet);">without</span> surrendering ownership.</h2>
     <div class="cards">
       <div class="card"><h3>Context federation</h3><p>Share resolved context across machines and teammates with Ed25519-signed sync. Every payload verifiable.</p></div>
-      <div class="card"><h3>Customer-held keys</h3><p>End-to-end encryption with keys you control. Perseus Cloud relays ciphertext. It never sees your context.</p></div>
+      <div class="card"><h3>Visible encryption boundary</h3><p>Vault encryption protects stored data, with key custody determined by the deployment. The managed API receives the payloads needed to provide the service; see the policy pages before sending sensitive data.</p></div>
       <div class="card"><h3>Central policy</h3><p>Define which directives and tools are allowed org-wide, with an audit trail for every render.</p></div>
       <div class="card"><h3>Self-host option</h3><p>Run the federation server in your own VPC or on-prem. Same protocol, your infrastructure.</p></div>
     </div>
@@ -117,6 +121,7 @@
     </div>
   </div>
 </section>
+</main>
 
 <footer class="site">
   <div class="foot-compact">
@@ -124,7 +129,7 @@
       <svg width="26" height="26" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
       <span class="legal-line">Perseus Computing LLC · perseus.observer/cloud</span>
     </div>
-    <div class="sib"><a href="/">Perseus</a><a href="/perseus-vault/">Perseus Vault</a><a href="/government/">Government</a><a href="https://github.com/Perseus-Computing-LLC/perseus">GitHub</a></div>
+    <div class="sib"><a href="/">Perseus</a><a href="/vault/">Perseus Vault</a><a href="/government/">Government</a><a href="/cloud/privacy/">Privacy</a><a href="/cloud/terms/">Terms</a><a href="/cloud/security/">Security</a><a href="https://github.com/Perseus-Computing-LLC/perseus">GitHub</a></div>
   </div>
 </footer>
 
