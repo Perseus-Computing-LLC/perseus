@@ -663,6 +663,8 @@ def _build_output_schema(tool_name: str, spec) -> dict | None:
                 "rendered": {"type": "string", "description": "System prompt block content"}
             }
         }
+    if tool_name == "perseus_context_inspect":
+        return _CONTEXT_INSPECTOR_MCP_OUTPUT_SCHEMA
     if tool_name in {
         "perseus_context_rank", "perseus_context_ask",
         "perseus_agent_projection_preview", "perseus_agent_projection_consent",
@@ -692,6 +694,8 @@ def _build_annotations(tool_name: str, spec) -> dict | None:
     if tool_name == "perseus_get_health":
         hints["readOnlyHint"] = True
     if tool_name in ("perseus_date", "perseus_drift", "perseus_env"):
+        hints["readOnlyHint"] = True
+    if tool_name == "perseus_context_inspect":
         hints["readOnlyHint"] = True
     # Read-only tools that escape the reads_files / executes_shell checks
     if tool_name in ("perseus_auto_skill", "perseus_profile", "perseus_perseus", "perseus_vault", "perseus_mason",
@@ -816,11 +820,49 @@ LEGACY_MCP_TOOLS: list[dict] = [
     # registered". Re-add it here only once a real trace implementation exists.
 ]
 
+# #1007: the inspector is read-only and returns a bounded report. Keep the
+# advertised transport schema closed even though nested producer contracts are
+# versioned independently.
+_CONTEXT_INSPECTOR_MCP_OUTPUT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["schema_version", "operation", "status", "run", "budget", "selection", "quality", "commitments", "replay", "definitions", "errors"],
+    "properties": {
+        "schema_version": {"type": "string", "const": "perseus-context-inspector/v1"},
+        "operation": {"type": "string", "const": "context_inspect"},
+        "status": {"type": "string"},
+        "run": {"type": "object", "additionalProperties": False, "patternProperties": {".*": {}}},
+        "budget": {"type": "object", "additionalProperties": False, "patternProperties": {".*": {}}},
+        "selection": {"type": "object", "additionalProperties": False, "patternProperties": {".*": {}}},
+        "quality": {"type": "object", "additionalProperties": False, "patternProperties": {".*": {}}},
+        "commitments": {"type": "object", "additionalProperties": False, "patternProperties": {".*": {}}},
+        "replay": {"type": "object", "additionalProperties": False, "patternProperties": {".*": {}}},
+        "definitions": {"type": "object", "additionalProperties": False, "patternProperties": {".*": {}}},
+        "errors": {"type": "array", "items": {"type": "string"}},
+        "scenario": {"type": "object", "additionalProperties": False, "patternProperties": {".*": {}}},
+    },
+}
+
 # ── Versioned context contract tools (#916/#917) ─────────────────────────────
 # These operations are host-side, bounded, and read-only with respect to source
 # memory. Release/consent/revoke only manage the sanitized projection boundary;
 # they never create a second memory authority.
 _CONTEXT_CONTRACT_MCP_TOOLS: list[dict] = [
+    _tool_schema(
+        "perseus_context_inspect",
+        "Inspect a compiled context run through a read-only progressive-disclosure projection. "
+        "Returns summary, rendered-token budget attribution, bounded Vault selection decisions, "
+        "DAG links, evidence/quality states, and replay commitments without raw bodies.",
+        {
+            "artifact": {"type": "object", "description": "Existing context/DAG/evidence/quality/selection artifact"},
+            "baseline": {"type": "object", "description": "Optional matched baseline artifact for comparison"},
+            "candidate": {"type": "object", "description": "Optional candidate artifact for comparison"},
+            "scenario": {"type": "string", "maxLength": 64, "description": "Deterministic provider-free fixture scenario name"},
+            "view": {"type": "string", "enum": ["summary", "breakdown", "detail", "all"]},
+        },
+        output_schema=_CONTEXT_INSPECTOR_MCP_OUTPUT_SCHEMA,
+        annotations={"readOnlyHint": True},
+    ),
     _tool_schema(
         "perseus_context_rank",
         "Rank at most 64 caller-supplied candidates for one task and scope. "
@@ -1240,7 +1282,7 @@ def _context_contract_dispatch(
     ``context_contract.py``; this small MCP adapter only shapes the transport.
     """
     names = {
-        "perseus_context_rank", "perseus_context_ask",
+        "perseus_context_inspect", "perseus_context_rank", "perseus_context_ask",
         "perseus_agent_projection_preview", "perseus_agent_projection_consent",
         "perseus_agent_projection_release", "perseus_agent_projection_revoke",
     }
@@ -1248,7 +1290,10 @@ def _context_contract_dispatch(
         return None
     args = dict(arguments or {})
     try:
-        if tool_name == "perseus_context_rank":
+        if tool_name == "perseus_context_inspect":
+            artifact = args.get("artifact") if isinstance(args.get("artifact"), dict) else args
+            result = inspect_context(artifact)
+        elif tool_name == "perseus_context_rank":
             result = context_rank(args, cfg=cfg)
         elif tool_name == "perseus_context_ask":
             result = context_ask(args, cfg=cfg)

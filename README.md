@@ -256,7 +256,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 
 ### MCP Tools
 
-<!-- test-count: 2777 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
+<!-- test-count: 2787 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
 <!-- The table below documents the current default output of _get_all_mcp_tools({}). Recount before editing. -->
 MCP tools resolve live state at invocation time, including the canonical Perseus Vault tool. Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
 
@@ -269,6 +269,7 @@ MCP tools resolve live state at invocation time, including the canonical Perseus
 | `perseus_budget` | Declare a token budget for the rendered context (renders as empty text). Enforced by `perseus prompt-size`: an over-budget render warns — or fails with `strict` — with a per-directive byte/token breakdown (#606). Declarations are read from source text before conditionals are evaluated; top-level only — a @budget inside an @include'd file is not enforced (prompt-size warns) (#626). Read-only. |
 | `perseus_capture` | Write recent session checkpoints to Perseus Vault as durable memories (#713) — the write side of the memory loop, symmetric to @memory recall. Idempotent per checkpoint (re-render upserts, never duplicates). Use at session boundaries so lessons persist immediately instead of waiting for a scheduled harvest. WRITES to the vault; never cached. |
 | `perseus_context_diff` | Render a compact 'Since last session' delta (#714): git branch/commits, Agora task-board changes, new inbox messages, new checkpoints, and new vault session memories since the last recorded snapshot. Use at the top of a context document so the assistant spends zero turns re-orienting on unchanged state. Maintains its own per-workspace snapshot (refresh debounced by render.context_diff_min_age_s); reset=true forces a new baseline. Never cached. |
+| `perseus_context_inspect` | Read-only progressive-disclosure projection of a compiled context run: high-signal summary, separated rendered-token budget ledgers, bounded selection decisions, DAG/evidence/quality commitments, and deterministic fixture replay metadata. Raw prompts, credentials, tool payloads, and unredacted bodies are excluded. |
 | `perseus_context_ask` | Answer one narrow question from at most 64 scoped records with evidence-linked validity/confidence, or an explicit insufficient-evidence/review/degraded/unavailable outcome. |
 | `perseus_context_rank` | Deterministically rank at most 64 caller-supplied candidates for one task/scope, preserving identity and provenance commitments without exporting raw private memory. |
 | `perseus_date` | Current date/time |
