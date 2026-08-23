@@ -14,8 +14,8 @@
       "publishable": true
     },
     "vault_version": {
-      "value": "2.23.0",
-      "source": "perseus-vault latest GitHub release (verified 2026-08-14)",
+      "value": "2.23.1",
+      "source": "perseus-vault release candidate prepared in fix/public-contracts-20260823; update after merged release/tag verification",
       "status": "release",
       "publishable": true
     },
@@ -38,8 +38,8 @@
     },
     "tool_schema_reduction": {
       "value": "67%",
-      "detail": "each Perseus Vault tool is published once instead of three historical alias copies: 441 raw advertised names -> 147 canonical tools (67% smaller); counts re-derived 2026-08-14 from the CI-enforced registry (147 canonical / 441 compatibility manifest)",
-      "source": "perseus-vault src/mcp.rs advertise-time canonicalization",
+      "detail": "the current Perseus Vault registry publishes 169 canonical tools from 507 compatibility-manifest names (67% smaller); counts re-derived 2026-08-23 from the CI-enforced registry on main 88c14ed",
+      "source": "perseus-vault src/mcp.rs + scripts/registry_metadata_check.py",
       "status": "derived-structural",
       "label": "derived",
       "publishable": true
@@ -266,8 +266,8 @@
       "note": "extreme_enterprise_results_full.json absent (broken link). Do not publish."
     },
     "tool_scope_agent_tier": {
-      "value": "67%",
-      "detail": "PERSEUS_VAULT_TOOL_SCOPE=agent advertises 48 of 147 canonical MCP tools — a 67% smaller surface for agent clients; advertisement-only (tools/call unaffected; authorization stays workspace binding + authority manifests); shipped perseus-vault #1051, merged eea8c97b 2026-08-14",
+      "value": "70%",
+      "detail": "PERSEUS_VAULT_TOOL_SCOPE=agent advertises 51 of 169 canonical MCP tools — a 70% smaller surface for agent clients; advertisement-only (tools/call unaffected; authorization stays workspace binding + authority manifests); source-derived from perseus-vault main 88c14ed on 2026-08-23",
       "source": "perseus-vault src/mcp.rs TOOL_SCOPES side table + scripts/registry_metadata_check.py",
       "status": "code-enforced",
       "label": "derived",

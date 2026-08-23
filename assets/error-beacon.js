@@ -1,4 +1,4 @@
-/* Perseus client error beacon — self-hosted, opt-out-free, minimal.
+/* Perseus client error beacon — self-hosted, opt-out, minimal.
    Reports uncaught errors + unhandled promise rejections to the Perseus
    cloud-api collector (cloud-api.perseus.observer/api/report), which relays
    to the operator via self-hosted ntfy. No PII beyond message/source/line/
@@ -7,6 +7,9 @@
   'use strict';
   var ENDPOINT = 'https://cloud-api.perseus.observer/api/report';
   if (location.protocol !== 'https:') return;
+  try {
+    if (window.localStorage.getItem('perseus-telemetry') === 'off') return;
+  } catch (e) { /* privacy controls may block storage; continue silently */ }
   var sent = [];
   var budget = 5;
   function noise(message) {
