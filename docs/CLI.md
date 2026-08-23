@@ -35,9 +35,21 @@
 | `perseus update [--apply] [--check] [--auto on\|off]` | Check for and apply Perseus updates from git. |
 | `perseus mcp {serve,config,register}` | Run Perseus as an MCP server — expose directives as tools for any MCP-compatible assistant. |
 | `perseus doctor [--workspace PATH] [--json]` | Run readiness checks against workspace and config (10 checks: config, context file, render settings, checkpoint age, Perseus Vault narrative, federation, Guide log, serve endpoint, directive registry, version). |
+| `perseus context-inspector [INPUT.json] [--view summary|breakdown|detail|all]` | Read-only progressive-disclosure inspector for a compiled context run. Shows high-signal run state first; `--view breakdown` adds rendered-token attribution and `--view detail` adds bounded selection decisions and DAG links. `--scenario NAME` / `--list-scenarios` use deterministic provider-free fixtures. `--json` emits the hash-bound report. |
 | `perseus memory-efficiency [--output FILE]` | Emit the offline Vault memory-injection efficiency report (#929): deterministic, hash-only token-savings evidence. |
 | `perseus skills {mine,list,approve,reject,telemetry}` | **Transcript mining → procedural skill synthesis (#932).** `mine` scans session transcripts (`assistant.sessions_dir`) and stages candidate procedural skills (trigger, steps, pitfalls, evidence) in `skills.candidates_dir` — deterministic, no model. `list [--status …] [--json]` reviews them. `approve <name>` is the human/operator **review gate**: promotes a candidate into the live skills dir where `@skills`/`@auto-skill` see it. `reject <name>` tombstones it so re-mining never re-suggests it. `telemetry [--output FILE]` emits the #929-line context-token impact report for `@skill-candidates` surfacing. Mining never writes AGENTS.md/CLAUDE.md — surfacing is opt-in via the `@skill-candidates` directive in your context source. |
 | `perseus trust [--json] {profile,audit}` | Show effective permission profile and trust posture; audit recent access decisions. |
+
+## Context inspector
+
+The inspector consumes existing context/DAG/evidence/quality and Vault selection artifacts without changing ranking or authority state. Its report schema is [schemas/context-inspector.schema.yaml](../schemas/context-inspector.schema.yaml). The rendered ledger deliberately keeps retrieved, eligible, selected, delivered, omitted, saved, and provider-billed tokens separate; rendered estimates are not provider-billed savings. Candidate detail is commitment-first and does not copy raw prompts, tool payloads, credentials, or unredacted memory bodies.
+
+```bash
+perseus context-inspector .perseus/context-run.json --view summary
+perseus context-inspector .perseus/context-run.json --view detail --json
+perseus context-inspector --list-scenarios
+perseus context-inspector --scenario evidence_verification --json
+```
 
 ## JSON Surfaces
 
