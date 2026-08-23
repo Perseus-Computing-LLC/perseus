@@ -1,0 +1,350 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "https://perseus.observer/schemas/context-inspector/v1"
+title: Perseus context inspector report
+version: "perseus-context-inspector/v1"
+description: >-
+  Read-only, commitment-first progressive-disclosure projection of a compiled
+  context run. Rendered-token estimates and provider-reported usage are
+  separate accounting classes.
+type: object
+additionalProperties: false
+required: [schema_version, operation, status, run, budget, selection, quality, commitments, replay, definitions, errors]
+properties:
+  schema_version: {type: string, const: perseus-context-inspector/v1}
+  operation: {type: string, const: context_inspect}
+  status:
+    type: string
+    enum: [complete, degraded, abstained, unavailable, empty, disabled, partial, timeout, stale, conflicted, review, invalid_input]
+  run: {$ref: "#/$defs/run"}
+  budget: {$ref: "#/$defs/budget"}
+  selection: {$ref: "#/$defs/selection"}
+  quality: {$ref: "#/$defs/quality"}
+  commitments:
+    type: object
+    additionalProperties: false
+    required: [policy, configuration, code, artifact, dag, selection, evidence, quality, replay]
+    properties:
+      policy: {$ref: "#/$defs/commitment"}
+      configuration: {$ref: "#/$defs/commitment"}
+      code: {$ref: "#/$defs/commitment"}
+      artifact: {$ref: "#/$defs/commitment"}
+      dag: {$ref: "#/$defs/commitment"}
+      selection: {$ref: "#/$defs/commitment"}
+      evidence: {$ref: "#/$defs/commitment"}
+      quality: {$ref: "#/$defs/commitment"}
+      replay: {$ref: "#/$defs/commitment"}
+  replay:
+    type: object
+    additionalProperties: false
+    required: [status, replay_digest, sealed_artifacts, definition]
+    properties:
+      status: {type: string, enum: [verified, invalid]}
+      replay_digest: {$ref: "#/$defs/digest"}
+      definition: {type: string, minLength: 1}
+      sealed_artifacts:
+        type: object
+        additionalProperties: false
+        required: [artifact, dag, evidence, quality, selection]
+        properties:
+          artifact: {$ref: "#/$defs/sealed_artifact"}
+          dag: {$ref: "#/$defs/sealed_artifact"}
+          evidence: {$ref: "#/$defs/sealed_artifact"}
+          quality: {$ref: "#/$defs/sealed_artifact"}
+          selection: {$ref: "#/$defs/sealed_artifact"}
+  definitions:
+    type: object
+    additionalProperties: false
+    required: [units, metrics, privacy, provider_billed]
+    properties:
+      units:
+        type: object
+        additionalProperties: false
+        required: [tokens, items, milliseconds, score]
+        properties:
+          tokens: {type: string}
+          items: {type: string}
+          milliseconds: {type: string}
+          score: {type: string}
+      metrics:
+        type: object
+        additionalProperties: false
+        required: [tokens, items, milliseconds, retrieved, eligible, selected, delivered, omitted, saved, provider_billed]
+        properties:
+          tokens: {type: string}
+          items: {type: string}
+          milliseconds: {type: string}
+          retrieved: {type: string}
+          eligible: {type: string}
+          selected: {type: string}
+          delivered: {type: string}
+          omitted: {type: string}
+          saved: {type: string}
+          provider_billed: {type: string}
+      privacy: {type: string, minLength: 1}
+      provider_billed: {type: string, minLength: 1}
+  errors:
+    type: array
+    maxItems: 32
+    items: {type: string, minLength: 1, maxLength: 128}
+  scenario: {$ref: "#/$defs/scenario"}
+$defs:
+  digest:
+    type: [string, "null"]
+    pattern: "^sha256:[0-9a-f]{64}$"
+  metric:
+    type: object
+    additionalProperties: false
+    required: [value, unit, state, semantics, definition]
+    properties:
+      value: {type: [number, boolean, "null"]}
+      unit: {type: string, minLength: 1, maxLength: 32}
+      state: {type: string, minLength: 1, maxLength: 64}
+      semantics: {type: string, minLength: 1, maxLength: 96}
+      definition: {type: string, minLength: 1, maxLength: 512}
+      source: {type: string, maxLength: 160}
+  commitment:
+    type: object
+    additionalProperties: false
+    required: [digest, state, source]
+    properties:
+      digest: {$ref: "#/$defs/digest"}
+      state: {type: string, minLength: 1, maxLength: 64}
+      source: {type: string, maxLength: 160}
+      version: {type: string, maxLength: 96}
+  sealed_artifact:
+    type: object
+    additionalProperties: false
+    required: [state, digest]
+    properties:
+      state: {type: string, minLength: 1, maxLength: 32}
+      digest: {$ref: "#/$defs/digest"}
+  run:
+    type: object
+    additionalProperties: false
+    required: [run_id, task_id, context_policy, retrieval_profile, provider, counts, rendered_tokens, declared_budget, remaining_budget, latency, state]
+    properties:
+      run_id: {type: [string, "null"], maxLength: 160}
+      task_id: {type: [string, "null"], maxLength: 160}
+      context_policy:
+        type: object
+        additionalProperties: false
+        required: [version, digest, state]
+        properties:
+          version: {type: [string, "null"], maxLength: 96}
+          digest: {$ref: "#/$defs/digest"}
+          state: {type: string}
+      retrieval_profile:
+        type: object
+        additionalProperties: false
+        required: [name, digest, state]
+        properties:
+          name: {type: [string, "null"], maxLength: 96}
+          digest: {$ref: "#/$defs/digest"}
+          state: {type: string}
+      provider:
+        type: object
+        additionalProperties: false
+        required: [status, provider, usage]
+        properties:
+          status: {type: string}
+          provider: {type: [string, "null"], maxLength: 160}
+          usage:
+            type: object
+            additionalProperties: false
+            required: [provider, status, status_source, input_tokens, output_tokens, total_tokens, accounting_note]
+            properties:
+              provider: {type: [string, "null"], maxLength: 160}
+              status: {type: string}
+              status_source: {type: string, maxLength: 160}
+              input_tokens: {$ref: "#/$defs/metric"}
+              output_tokens: {$ref: "#/$defs/metric"}
+              total_tokens: {$ref: "#/$defs/metric"}
+              accounting_note: {type: string, minLength: 1}
+      counts:
+        type: object
+        additionalProperties: false
+        required: [candidates, eligible, selected, delivered]
+        properties:
+          candidates: {$ref: "#/$defs/metric"}
+          eligible: {$ref: "#/$defs/metric"}
+          selected: {$ref: "#/$defs/metric"}
+          delivered: {$ref: "#/$defs/metric"}
+      rendered_tokens: {$ref: "#/$defs/metric"}
+      declared_budget: {$ref: "#/$defs/metric"}
+      remaining_budget: {$ref: "#/$defs/metric"}
+      latency: {$ref: "#/$defs/metric"}
+      state:
+        type: object
+        additionalProperties: false
+        required: [status, degraded, abstention_required, reason_codes]
+        properties:
+          status: {type: string}
+          degraded: {type: boolean}
+          abstention_required: {type: boolean}
+          reason_codes: {type: array, items: {type: string, maxLength: 96}, maxItems: 32}
+  budget:
+    type: object
+    additionalProperties: false
+    required: [rendered, declared, remaining, within_budget, baseline, estimator, provider_billed, contributions, constraints, accounting_note, provider_usage_note]
+    properties:
+      rendered:
+        type: object
+        additionalProperties: false
+        required: [retrieved, eligible, selected, delivered, omitted, saved]
+        properties:
+          retrieved: {$ref: "#/$defs/metric"}
+          eligible: {$ref: "#/$defs/metric"}
+          selected: {$ref: "#/$defs/metric"}
+          delivered: {$ref: "#/$defs/metric"}
+          omitted: {$ref: "#/$defs/metric"}
+          saved: {$ref: "#/$defs/metric"}
+      declared: {$ref: "#/$defs/metric"}
+      remaining: {$ref: "#/$defs/metric"}
+      within_budget: {$ref: "#/$defs/metric"}
+      baseline: {$ref: "#/$defs/metric"}
+      provider_billed: {$ref: "#/$defs/metric"}
+      estimator:
+        type: object
+        additionalProperties: false
+        required: [label, state, source]
+        properties:
+          label: {type: string}
+          state: {type: string}
+          source: {type: string}
+      contributions:
+        type: object
+        additionalProperties: false
+        required: [system_policy, requirements, governed_memory, source_evidence, tool_output, summaries, other]
+        patternProperties:
+          "^(system_policy|requirements|governed_memory|source_evidence|tool_output|summaries|other)$": {$ref: "#/$defs/contribution"}
+        properties:
+          system_policy: {$ref: "#/$defs/contribution"}
+          requirements: {$ref: "#/$defs/contribution"}
+          governed_memory: {$ref: "#/$defs/contribution"}
+          source_evidence: {$ref: "#/$defs/contribution"}
+          tool_output: {$ref: "#/$defs/contribution"}
+          summaries: {$ref: "#/$defs/contribution"}
+          other: {$ref: "#/$defs/contribution"}
+      constraints:
+        type: object
+        additionalProperties: false
+        required: [floors, caps, shortfalls, hard_rejections]
+        properties:
+          floors: {type: object, additionalProperties: {$ref: "#/$defs/metric"}}
+          caps: {type: object, additionalProperties: {$ref: "#/$defs/metric"}}
+          shortfalls:
+            type: array
+            maxItems: 32
+            items:
+              type: object
+              additionalProperties: false
+              required: [type, tokens, state]
+              properties:
+                type: {type: string}
+                tokens: {$ref: "#/$defs/metric"}
+                state: {type: string}
+          hard_rejections: {type: array, maxItems: 32, items: {type: string}}
+      accounting_note: {type: string, minLength: 1}
+      provider_usage_note: {type: string, minLength: 1}
+  contribution:
+    type: object
+    additionalProperties: false
+    required: [state, tokens]
+    properties:
+      state: {type: string}
+      tokens:
+        type: object
+        additionalProperties: false
+        required: [retrieved, eligible, selected, delivered, omitted, saved]
+        properties:
+          retrieved: {$ref: "#/$defs/metric"}
+          eligible: {$ref: "#/$defs/metric"}
+          selected: {$ref: "#/$defs/metric"}
+          delivered: {$ref: "#/$defs/metric"}
+          omitted: {$ref: "#/$defs/metric"}
+          saved: {$ref: "#/$defs/metric"}
+  selection:
+    type: object
+    additionalProperties: false
+    required: [state, candidate_count, selected_order, items, detail_resolution]
+    properties:
+      state: {type: string}
+      candidate_count: {type: [integer, "null"], minimum: 0}
+      selected_order: {type: array, maxItems: 64, items: {type: string}}
+      detail_resolution: {type: string, minLength: 1}
+      items:
+        type: array
+        maxItems: 64
+        items: {$ref: "#/$defs/selection_item"}
+  selection_item:
+    type: object
+    additionalProperties: false
+    required: [candidate_id, candidate_commitment, source_arms, final_rank, final_rank_state, evidence_state, validity_state, token_estimate, token_estimate_state, token_unit, disposition, reason_code, delivered, packet_position, packet_position_state, source_refs, dag_links, source_class]
+    properties:
+      candidate_id: {type: string, minLength: 1, maxLength: 160}
+      candidate_commitment: {$ref: "#/$defs/digest"}
+      source_arms: {type: array, maxItems: 8, items: {$ref: "#/$defs/source_arm"}}
+      final_rank: {type: [integer, "null"], minimum: 1}
+      final_rank_state: {type: string}
+      evidence_state: {type: string}
+      validity_state: {type: string}
+      token_estimate: {type: [integer, "null"], minimum: 0}
+      token_estimate_state: {type: string}
+      token_unit: {type: string, const: tokens}
+      disposition: {type: string}
+      reason_code: {type: string}
+      delivered: {type: [boolean, "null"]}
+      packet_position: {type: [integer, "null"], minimum: 1}
+      packet_position_state: {type: string}
+      source_refs: {type: array, maxItems: 16, items: {type: string, maxLength: 160}}
+      source_class: {type: string}
+      dag_links:
+        type: object
+        additionalProperties: false
+        required: [state, node_ids, edge_ids, packet_positions]
+        properties:
+          state: {type: string}
+          node_ids: {type: array, maxItems: 16, items: {type: string}}
+          edge_ids: {type: array, maxItems: 16, items: {type: string}}
+          packet_positions: {type: array, maxItems: 16, items: {type: integer, minimum: 1}}
+  source_arm:
+    type: object
+    additionalProperties: false
+    required: [arm, retrieval_rank, score, rank_state, score_state]
+    properties:
+      arm: {type: string, minLength: 1, maxLength: 96}
+      retrieval_rank: {type: [integer, "null"], minimum: 1}
+      score: {type: [number, "null"]}
+      rank_state: {type: string}
+      score_state: {type: string}
+  quality:
+    type: object
+    additionalProperties: false
+    required: [state, report_digest, preflight, overall_score, replay, evidence_class]
+    properties:
+      state: {type: string}
+      report_digest: {$ref: "#/$defs/digest"}
+      preflight:
+        type: object
+        additionalProperties: false
+        required: [state, passed]
+        properties:
+          state: {type: string}
+          passed: {type: [boolean, "null"]}
+      overall_score: {$ref: "#/$defs/metric"}
+      replay: {type: object, additionalProperties: false, required: [state], properties: {state: {type: string}}}
+      evidence_class: {type: string}
+  scenario:
+    type: object
+    additionalProperties: false
+    required: [name, description, fixture_id, fixture_commitment, query_commitment, policy, configuration, code, mode]
+    properties:
+      name: {type: string}
+      description: {type: string}
+      fixture_id: {type: string}
+      fixture_commitment: {$ref: "#/$defs/digest"}
+      query_commitment: {$ref: "#/$defs/digest"}
+      policy: {$ref: "#/$defs/commitment"}
+      configuration: {$ref: "#/$defs/commitment"}
+      code: {$ref: "#/$defs/commitment"}
+      mode: {type: string}
