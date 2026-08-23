@@ -1,163 +1,23 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<!doctype html>
+<html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Benchmarks: Perseus and Perseus Vault, reproducible</title>
-<link rel="icon" href="/assets/perseus.svg">
-<link rel="canonical" href="https://perseus.observer/bench/">
-<meta name="description" content="Every Perseus and Perseus Vault performance figure, with the source data and the commands to reproduce it. Measured counts and modeled scale scenarios, kept separate.">
-<meta name="theme-color" content="#0A0A12">
-<meta property="og:type" content="website">
-<meta property="og:site_name" content="Perseus">
-<meta property="og:title" content="Perseus and Perseus Vault benchmarks, reproducible">
-<meta property="og:description" content="The numbers, the source data, and the commands to reproduce them.">
-<meta property="og:url" content="https://perseus.observer/bench/">
-<meta property="og:image" content="https://perseus.observer/assets/og/perseus.png">
-<meta name="twitter:card" content="summary_large_image">
-<script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
-<link rel="stylesheet" href="/assets/fonts.css">
-<link rel="stylesheet" href="/assets/tokens.css">
-<link rel="stylesheet" href="/assets/perseus.css">
-
-<script src="/assets/error-beacon.js" defer></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Perseus benchmarks | canonical evidence desk</title>
+  <meta name="description" content="Perseus benchmark methods and reproducible evidence now live on the canonical evidence desk.">
+  <meta name="robots" content="noindex,follow">
+  <link rel="canonical" href="https://perseus.observer/benchmarks/">
+  <meta http-equiv="refresh" content="0; url=/benchmarks/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#080a0d;color:#eff3f1;font:16px/1.55 system-ui,sans-serif}main{max-width:620px;padding:32px;margin:24px;border:1px solid #30404b;border-radius:12px;background:#0d1116}a{color:#e5c983;font-weight:700}</style>
 </head>
 <body>
-
-<header class="site">
-  <div class="nav">
-    <a href="/" class="brand" aria-label="Perseus home">
-      <svg width="30" height="30" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
-      <b>Perseus<span class="sub"> / Benchmarks</span></b>
-    </a>
-    <nav class="navlinks">
-      <a href="/">Perseus</a>
-      <a href="/perseus-vault/">Perseus Vault</a>
-      <a href="/#performance">Performance</a>
-      <a href="/#products">Products</a>
-    </nav>
-    <button class="toggle" data-theme-toggle aria-label="Toggle theme"><span class="dot"></span><span data-theme-label>Light</span></button>
-    <a href="https://github.com/Perseus-Computing-LLC/perseus/tree/main/benchmark" class="btn btn-primary">Benchmark source ↗</a>
-  </div>
-</header>
-
-<main>
-
-<section class="hero" data-screen-label="Benchmarks hero">
-  <div class="hero-inner" style="max-width:760px;">
-    <span class="eyebrow amber">
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><line x1="1.5" y1="2.5" x2="10.5" y2="6.5"/><line x1="1.5" y1="6.5" x2="10.5" y2="6.5"/><line x1="1.5" y1="10.5" x2="10.5" y2="6.5"/></g><circle cx="10.5" cy="6.5" r="1.7" fill="currentColor"/></svg>
-      Reproducible benchmarks
-    </span>
-    <h1 class="hero-h">The numbers, and how to reproduce them.</h1>
-    <p class="lead">Every figure below comes out of the <span class="em">benchmark</span> directory in the open source repo. Clone it, run the suite, and check our math. We keep two things separate on purpose: hard counts we measured, and scale scenarios we modeled. Both are reproducible. Only one is field telemetry, and neither is yet.</p>
-  </div>
-</section>
-
-<section class="sec" data-screen-label="Measured">
-  <div class="wrap reveal">
-    <span class="eyebrow violet">
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><line x1="1.5" y1="3" x2="11.5" y2="3"/><line x1="1.5" y1="6.5" x2="11.5" y2="6.5"/><line x1="1.5" y1="10" x2="11.5" y2="10"/></g></svg>
-      Measured
-    </span>
-    <h2 class="h" style="margin-bottom:14px;">Hard counts and direct measurements.</h2>
-    <p class="lead" style="font-size:15.5px; max-width:60ch; margin-bottom:40px;">These are counted or measured directly, not extrapolated.</p>
-    <div class="statstrip" style="margin-bottom:28px;">
-      <div class="stat"><div class="n amber">100.0</div><div class="c">Gauntlet v2 score, out of 100</div></div>
-      <div class="stat"><div class="n">1,185</div><div class="c">Tests passing</div></div>
-      <div class="stat"><div class="n violet">76%</div><div class="c">Smaller context than naive, full coverage</div></div>
-      <div class="stat"><div class="n">31ms</div><div class="c">Render, 5 directives</div></div>
-    </div>
-    <div class="cards">
-      <div class="card">
-        <h3>Gauntlet v2: 100.0 / 100</h3>
-        <p>The full directive and adversarial suite, scored on a fixed rubric. Source: <span class="mono" style="color:var(--amber-ink);">benchmark/gauntlet/</span>.</p>
-      </div>
-      <div class="card">
-        <h3>Context size: 76% smaller</h3>
-        <p>On the compose fixture, naive whole-corpus context is 1,832 tokens. A Perseus compile is 434, and it still answers all four test questions where tuned retrieval drops facts. Source: <span class="mono" style="color:var(--amber-ink);">benchmark/compose/</span>.</p>
-      </div>
-      <div class="card">
-        <h3>1,185 tests passing</h3>
-        <p>The product test suite on the current release. A plain count, run it yourself with pytest.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section class="sec band" data-screen-label="Modeled scenarios">
-  <div class="wrap reveal">
-    <span class="eyebrow amber">
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><line x1="1.5" y1="2.5" x2="10.5" y2="6.5"/><line x1="1.5" y1="6.5" x2="10.5" y2="6.5"/><line x1="1.5" y1="10.5" x2="10.5" y2="6.5"/></g><circle cx="10.5" cy="6.5" r="1.7" fill="currentColor"/></svg>
-      Scale scenarios (modeled)
-    </span>
-    <h2 class="h" style="margin-bottom:14px;">What happens at scale, computed from the data.</h2>
-    <p class="lead" style="font-size:15.5px; max-width:64ch; margin-bottom:40px;">These come from scripts that model larger workloads (tens of thousands of directives, a 500 developer week) using measured per-operation costs. They are reproducible, but they are projections, not production telemetry. We label them that way so you can weigh them honestly.</p>
-    <div class="statstrip" style="margin-bottom:28px;">
-      <div class="stat"><div class="n amber">450×</div><div class="c">Cold to warm, 50,000 directives</div></div>
-      <div class="stat"><div class="n amber">1.0</div><div class="c">Semantic equivalence, 20/20 A/B pairs</div></div>
-      <div class="stat"><div class="n amber">611×</div><div class="c">Cold to warm, 22,528 directives</div></div>
-    </div>
-    <div class="cards">
-      <div class="card">
-        <h3>450× cold to warm</h3>
-        <p>At 50,000 directives a cold render takes 612.6s and a warm one takes 1.36s. The cache absorbs the cost. Source: <span class="mono" style="color:var(--amber-ink);">benchmark/cold-vs-warm.json</span>.</p>
-      </div>
-      <div class="card">
-        <h3>1.0 semantic equivalence</h3>
-        <p>A live judge scored every A/B pair semantically equivalent: same answers from the resolved context as from the raw workspace state. Source: <span class="mono" style="color:var(--amber-ink);">benchmark/ultimate_suite_results.json</span>.</p>
-      </div>
-      <div class="card">
-        <h3>611× cold to warm</h3>
-        <p>22,528 varied directives against the real Perseus repo: cold 619.1s, warm 1.014s. Source: <span class="mono" style="color:var(--amber-ink);">benchmark/real_deltas.json</span>.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section class="sec" data-screen-label="Reproduce">
-  <div class="wrap reveal">
-    <span class="eyebrow violet">
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><line x1="1.5" y1="3" x2="11.5" y2="3"/><line x1="1.5" y1="6.5" x2="11.5" y2="6.5"/><line x1="1.5" y1="10" x2="11.5" y2="10"/></g></svg>
-      Reproduce it
-    </span>
-    <h2 class="h" style="margin-bottom:24px;">Run it yourself.</h2>
-    <div class="term" style="max-width:640px;">
-      <div class="term-bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="f">~/perseus/benchmark</span></div>
-<pre><span class="t-dim"># clone the repo and run a suite</span>
-git clone https://github.com/Perseus-Computing-LLC/perseus
-cd perseus/benchmark
-
-<span class="t-dim"># compose: context size and answer coverage</span>
-python compose/run.py
-
-<span class="t-dim"># cold vs warm at scale</span>
-python run_coldwarm_heavy.py
-
-<span class="t-dim"># the gauntlet</span>
-python gauntlet/gauntlet_orchestrator.py</pre>
-    </div>
-    <p class="cap mono" style="margin-top:18px; font-size:12px;">All data files and scripts live in the repo. If a number here does not match what you get, open an issue and we will fix it.</p>
-    <div class="hero-cta" style="margin-top:28px;">
-      <a href="https://github.com/Perseus-Computing-LLC/perseus/tree/main/benchmark" class="btn btn-amber btn-lg">Read the benchmark source ↗</a>
-      <a href="/" class="btn btn-ghost btn-lg">Back to Perseus</a>
-    </div>
-  </div>
-</section>
-
-</main>
-
-<footer class="site">
-  <div class="foot-compact">
-    <div class="brand-line">
-      <svg width="26" height="26" viewBox="0 0 56 56" fill="none" aria-hidden="true"><rect x="3" y="14" width="17" height="3.6" rx="1.8" fill="var(--violet)"/><rect x="3" y="21" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".75"/><rect x="3" y="28" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".55"/><rect x="3" y="35" width="17" height="3.6" rx="1.8" fill="var(--violet)" fill-opacity=".4"/><g stroke="var(--amber)" stroke-width="2.4" stroke-linecap="round"><line x1="22" y1="16" x2="42" y2="28"/><line x1="22" y1="23" x2="42" y2="28"/><line x1="22" y1="30" x2="42" y2="28"/><line x1="22" y1="37" x2="42" y2="28"/></g><circle cx="44" cy="28" r="4.2" fill="var(--amber)"/></svg>
-      <span class="legal-line">Perseus Computing LLC · MIT License · perseus.observer/bench</span>
-    </div>
-    <div class="sib"><a href="/">Perseus</a><a href="/perseus-vault/">Perseus Vault</a><a href="https://github.com/Perseus-Computing-LLC/perseus">GitHub</a></div>
-  </div>
-</footer>
-
-<script src="/assets/perseus.js"></script>
+  <main>
+    <p>Perseus benchmarks</p>
+    <h1>The evidence desk has moved.</h1>
+    <p>Current methods, conditions, and reproducible reports are maintained at the canonical benchmark page.</p>
+    <p><a href="/benchmarks/">Open the evidence desk →</a></p>
+  </main>
+  <script>location.replace('/benchmarks/');</script>
 </body>
-<!-- 2026-08-15 -->
 </html>

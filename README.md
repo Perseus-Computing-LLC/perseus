@@ -74,19 +74,17 @@ Your agents re-read their whole notebook from page one on every call, and you're
 
 ---
 
-## 🛡️ Product Family
+## 🛡️ Platform
 
-Perseus is the live context engine. Seven specialized products extend it:
+Perseus is one platform with three layers. Each layer has a distinct job; together they keep agent work oriented, durable, and reviewable.
 
-| Product | Description | Page |
+| Layer | What it does | Page |
 |---|---|---|
-| **Perseus Vault** | Persistent, encrypted memory for AI agents — FTS5, entities, layers, confidence decay. New integrations use the canonical `perseus_vault_*` surface. | [perseus.observer/perseus-vault](https://perseus.observer/perseus-vault/) |
-| **MCTS** | 31 security analyzers for MCP servers — tool poisoning, prompt injection, credential leaks | [perseus.observer/mcts](https://perseus.observer/mcts/) |
-| **PR Pilot** | 5-agent autonomous PR review pipeline — graduated autonomy L1→L3 | [perseus.observer/pr-pilot](https://perseus.observer/pr-pilot/) |
-| **Blast Radius** | GitLab-native dependency impact analysis — 1 mention, instant risk report | [perseus.observer/blast-radius](https://perseus.observer/blast-radius/) |
-| **Rapid Agent** | Dual-backend memory agent (Elastic ↔ Engram-rs) — Google Cloud Hackathon | [perseus.observer/rapid-agent](https://perseus.observer/rapid-agent/) |
-| **Qwen Memory** | Agent that gets smarter every session — Qwen Cloud Hackathon | [perseus.observer/qwen-memory](https://perseus.observer/qwen-memory/) |
-| **CrewAI Memory** | Persistent cross-session memory backend for CrewAI (54K stars) — community PR #6208 | [perseus.observer/crewai](https://perseus.observer/crewai/) |
+| **Context engine** | Resolves live workspace state into a bounded, verified briefing before the model runs. | [perseus.observer/context-engine](https://perseus.observer/context-engine/) |
+| **Perseus Vault** | Persists governed memory across sessions with local-first storage, retrieval, and confidence-aware records. | [perseus.observer/vault](https://perseus.observer/vault/) |
+| **Perseus Ledger** | Records hash-chained events and evidence so consequential work can be reconstructed and reviewed. | [perseus.observer/ledger](https://perseus.observer/ledger/) |
+
+The [benchmarks desk](https://perseus.observer/benchmarks/) is the proof surface for measured results. It is not a fourth product or a substitute for a customer evaluation.
 
 ---
 
@@ -94,7 +92,7 @@ Perseus is the live context engine. Seven specialized products extend it:
 
 [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys. Offline dense/hybrid embeddings are **bundled by default** (the model is compiled into the binary), so semantic recall works zero-config with no external model download. Perseus Vault exposes a broad canonical MCP surface under `perseus_vault_*` names across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management. Representative tools include `perseus_vault_remember`, `perseus_vault_recall`, `perseus_vault_context`, `perseus_vault_traverse`, `perseus_vault_decay`, `perseus_vault_stats`, and `perseus_vault_health`.
 
-📄 [Product page →](https://perseus.observer/perseus-vault/) | ⭐ [Vault on GitHub →](https://github.com/Perseus-Computing-LLC/perseus-vault)
+📄 [Product page →](https://perseus.observer/vault/) | ⭐ [Vault on GitHub →](https://github.com/Perseus-Computing-LLC/perseus-vault)
 
 **Install** (prebuilt binary — Linux / macOS):
 ```bash
@@ -132,30 +130,14 @@ The `perseus-vault` binary self-resolves its canonical default DB path, so no `-
 
 Works with any MCP-compatible assistant.
 
-## 🏆 Hackathons — 3 Entries Submitted
+## Project history
 
-### Google Cloud Rapid Agent (Elastic Partner Track)
-**Status:** Submitted | **Deadline:** June 11, 2026 | **Devpost:** [perseus-cmzeu9](https://devpost.com/software/perseus-cmzeu9)
-📄 [Product page →](https://perseus.observer/rapid-agent/)
+The projects below are historical experiments and submissions, not current product lines:
 
-Perseus is entered in the Google Cloud Rapid Agent Hackathon (Elastic Partner Track).
-The submission demonstrates persistent agent memory across three consecutive sessions,
-with live backend swap from Elastic Cloud to Engram-rs (self-hosted).
-
-### Qwen Cloud Hackathon (MemoryAgent Track)
-**Status:** Submitted | 📄 [Product page →](https://perseus.observer/qwen-memory/)
-
-Agent that gets smarter every session. Persistent memory, confidence decay, cross-session compounding. Track requirements checklist with contradiction demo beat.
-
-### GitLab Transcend Hackathon (Showcase Track)
-**Status:** Submitted | 📄 [Product page →](https://perseus.observer/blast-radius/)
-
-Blast Radius — GitLab-native dependency impact analysis via Orbit knowledge graph. One @mention, instant risk report.
-
-### Build with Gemini XPRIZE
-**Status:** Submitted | 📄 [Product page →](https://perseus.observer/pr-pilot/)
-
-PR Pilot — 5-agent autonomous PR review pipeline. Gemini API, Google Cloud Run, Stripe integration.
+- **Rapid Agent** — persistent agent memory across three sessions, with a backend swap from Elastic Cloud to Engram-rs. [Devpost](https://devpost.com/software/perseus-cmzeu9)
+- **Qwen Memory** — a memory-agent prototype exploring confidence decay and cross-session compounding.
+- **Blast Radius** — a GitLab-native dependency-impact prototype using a knowledge graph.
+- **PR Pilot** — an autonomous PR-review prototype with graduated review stages.
 
 ## Wire Perseus to Your Assistant (MCP)
 
@@ -274,7 +256,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 
 ### MCP Tools
 
-<!-- test-count: 2775 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
+<!-- test-count: 2776 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
 <!-- The table below documents the current default output of _get_all_mcp_tools({}). Recount before editing. -->
 MCP tools resolve live state at invocation time, including the canonical Perseus Vault tool. Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
 
