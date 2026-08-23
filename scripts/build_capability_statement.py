@@ -54,7 +54,7 @@ def styles() -> dict[str, ParagraphStyle]:
         "label_blue": ParagraphStyle("label_blue", fontName="Helvetica-Bold", fontSize=7.0, leading=8.3, textColor=BLUE),
         "label_muted": ParagraphStyle("label_muted", fontName="Helvetica-Bold", fontSize=7.0, leading=8.3, textColor=FAINT),
         "band_value": ParagraphStyle("band_value", fontName="Helvetica-Bold", fontSize=9.0, leading=10.5, textColor=NAVY),
-        "module_title": ParagraphStyle("module_title", fontName="Helvetica-Bold", fontSize=11.2, leading=12.8, textColor=NAVY),
+        "module_title": ParagraphStyle("module_title", fontName="Helvetica-Bold", fontSize=10.4, leading=11.8, textColor=NAVY),
         "metric_value": ParagraphStyle("metric_value", fontName="Helvetica-Bold", fontSize=14.5, leading=16, textColor=GREEN),
         "metric_label": ParagraphStyle("metric_label", fontName="Helvetica-Bold", fontSize=8.0, leading=9.4, textColor=NAVY),
         "metric_detail": ParagraphStyle("metric_detail", parent=base, fontSize=7.2, leading=8.8, textColor=MUTED),
@@ -76,7 +76,7 @@ def rule_section(title: str, st: dict[str, ParagraphStyle]) -> list:
 
 
 def header(page_title: str, st: dict[str, ParagraphStyle]) -> Table:
-    left = [markup("PERSEUS COMPUTING LLC", st["header_brand"]), markup("CONTEXT ENGINE  ·  VAULT  ·  LEDGER", st["header_meta"])]
+    left = [markup("PERSEUS COMPUTING LLC", st["header_brand"]), markup("PERSEUS CONTEXT ENGINE  ·  PERSEUS VAULT  ·  PERSEUS LEDGER", st["header_meta"])]
     right = [markup(escape(page_title.upper()), st["header_meta"]), markup("DEFENSE CAPABILITY BRIEF  ·  2026", st["header_meta"])]
     t = Table([[left, right]], colWidths=[4.65 * inch, 2.70 * inch])
     t.setStyle(TableStyle([
@@ -124,11 +124,11 @@ def two_column_copy(left_label: str, left_text: str, right_label: str, right_tex
 
 def system_table(st: dict[str, ParagraphStyle]) -> Table:
     rows = [
-        [markup("<b>CONTEXT ENGINE</b><br/><font color='#4E626D'>Before action</font>", st["module_title"]), plain("Resolves live repository, ticket, deployment, and decision state into bounded context before an agent uses it.", st["body_small"])],
+        [markup("<b>PERSEUS CONTEXT ENGINE</b><br/><font color='#4E626D'>Before action</font>", st["module_title"]), plain("Resolves live repository, ticket, deployment, and decision state into bounded context before an agent uses it.", st["body_small"])],
         [markup("<b>PERSEUS VAULT</b><br/><font color='#4E626D'>Across sessions</font>", st["module_title"]), plain("Retains governed, bitemporal memory and local retrieval with durable journaling and explicit authority boundaries.", st["body_small"])],
-        [markup("<b>LEDGER</b><br/><font color='#4E626D'>After action</font>", st["module_title"]), plain("Records evidence, authority, approvals, and time so captured actions and served context can be reviewed later.", st["body_small"])],
+        [markup("<b>PERSEUS LEDGER</b><br/><font color='#4E626D'>After action</font>", st["module_title"]), plain("Records evidence, authority, approvals, and time so captured actions and served context can be reviewed later.", st["body_small"])],
     ]
-    t = Table(rows, colWidths=[1.85 * inch, 5.50 * inch])
+    t = Table(rows, colWidths=[2.35 * inch, 5.00 * inch])
     t.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), PALE),
         ("LINEABOVE", (0, 0), (-1, 0), 0.55, RULE),
@@ -136,7 +136,7 @@ def system_table(st: dict[str, ParagraphStyle]) -> Table:
         ("LINEBELOW", (0, 0), (-1, -2), 0.35, RULE),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 9), ("RIGHTPADDING", (0, 0), (-1, -1), 9),
-        ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
     ]))
     return t
 
