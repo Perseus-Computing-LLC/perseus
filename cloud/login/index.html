@@ -10,6 +10,7 @@
 <meta name="description" content="Log in to your Perseus Cloud account.">
 <meta name="robots" content="noindex,nofollow">
 <meta name="theme-color" content="#0A0A12">
+<meta property="og:type" content="website"><meta property="og:site_name" content="Perseus"><meta property="og:title" content="Log in — Perseus Cloud"><meta property="og:description" content="Log in to your Perseus Cloud account."><meta property="og:url" content="https://perseus.observer/cloud/login/"><meta name="twitter:card" content="summary"><meta name="twitter:title" content="Log in — Perseus Cloud"><meta name="twitter:description" content="Log in to your Perseus Cloud account.">
 <link rel="stylesheet" href="/assets/fonts.css">
 <link rel="stylesheet" href="/assets/tokens.css">
 <link rel="stylesheet" href="/assets/perseus.css">
@@ -38,11 +39,11 @@
 <script src="/assets/error-beacon.js" defer></script>
 </head>
 <body class="auth-page">
-<div class="auth-card">
+<main id="main" class="auth-card">
   <h1>Log in to Perseus Cloud</h1>
   <p class="sub">Access your vault, manage API keys, and configure federation.</p>
 
-  <div id="alert-error" class="alert alert-error"></div>
+  <div id="alert-error" class="alert alert-error" role="alert" aria-live="assertive"></div>
 
   <form id="login-form">
     <div class="form-group">
@@ -65,8 +66,12 @@
     <a href="/cloud/password-reset/">Forgot password?</a>
     &nbsp;·&nbsp;
     <a href="/cloud/">Back to Cloud</a>
+    &nbsp;·&nbsp;
+    <a href="/cloud/privacy/">Privacy</a>
+    &nbsp;·&nbsp;
+    <a href="/cloud/terms/">Terms</a>
   </div>
-</div>
+</main>
 
 <script>
 const API_BASE = 'https://cloud-api.perseus.observer/api';

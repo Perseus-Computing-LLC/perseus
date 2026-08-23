@@ -630,10 +630,10 @@ cd ~/.perseus-vault && cargo build --release
 cp target/release/perseus-vault ~/.local/bin/perseus-vault
 
 # Verify
-perseus-vault --version   # expect "perseus-vault 2.14.0" (or later)
+perseus-vault --version   # expect "perseus-vault 2.23.1" (or later)
 ```
 
-> **Perseus Vault tool surface:** Perseus Vault is an MCP JSON-RPC stdio server exposing ~55 tools
+> **Perseus Vault tool surface:** Perseus Vault is an MCP JSON-RPC stdio server exposing 169 canonical tools
 > across its five tiers — including `perseus_vault_remember`, `perseus_vault_recall`, `perseus_vault_get_entity`,
 > `perseus_vault_journal`, `perseus_vault_state_set`/`perseus_vault_state_get`, `perseus_vault_health`, and `perseus_vault_stats`.
 > Search is SQLite FTS5 keyword by default; embedding/rerank are optional via

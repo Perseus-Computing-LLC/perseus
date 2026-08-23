@@ -10,6 +10,7 @@
 <meta name="description" content="Create your Perseus Cloud account. Free starter tier with 1,000 entities and 1 workspace.">
 <meta name="robots" content="noindex,nofollow">
 <meta name="theme-color" content="#0A0A12">
+<meta property="og:type" content="website"><meta property="og:site_name" content="Perseus"><meta property="og:title" content="Sign up — Perseus Cloud"><meta property="og:description" content="Create your Perseus Cloud account. Free starter tier with 1,000 entities and 1 workspace."><meta property="og:url" content="https://perseus.observer/cloud/signup/"><meta name="twitter:card" content="summary"><meta name="twitter:title" content="Sign up — Perseus Cloud"><meta name="twitter:description" content="Create your Perseus Cloud account. Free starter tier with 1,000 entities and 1 workspace.">
 <link rel="stylesheet" href="/assets/fonts.css">
 <link rel="stylesheet" href="/assets/tokens.css">
 <link rel="stylesheet" href="/assets/perseus.css">
@@ -38,23 +39,23 @@
 <script src="/assets/error-beacon.js" defer></script>
 </head>
 <body class="auth-page">
-<div class="auth-card">
+<main id="main" class="auth-card">
   <h1>Create your Perseus Cloud account</h1>
   <p class="sub">Free starter tier — 1,000 entities, 1 workspace. No credit card required.</p>
 
-  <div id="alert-error" class="alert alert-error"></div>
-  <div id="alert-success" class="alert alert-success"></div>
+  <div id="alert-error" class="alert alert-error" role="alert" aria-live="assertive"></div>
+  <div id="alert-success" class="alert alert-success" role="status" aria-live="polite"></div>
 
   <form id="signup-form">
     <div class="form-group">
       <label for="email">Email</label>
       <input type="email" id="email" name="email" required placeholder="you@company.com" autocomplete="email">
-      <div class="form-error" id="email-error"></div>
+      <div class="form-error" id="email-error" role="alert"></div>
     </div>
     <div class="form-group">
       <label for="password">Password</label>
       <input type="password" id="password" name="password" required placeholder="Minimum 8 characters" autocomplete="new-password" minlength="8">
-      <div class="form-error" id="password-error"></div>
+      <div class="form-error" id="password-error" role="alert"></div>
     </div>
     <button type="submit" class="btn btn-amber btn-full" id="submit-btn">
       Create account
@@ -66,8 +67,12 @@
     Already have an account? <a href="/cloud/login/">Log in</a>
     &nbsp;·&nbsp;
     <a href="/cloud/">Back to Cloud</a>
+    &nbsp;·&nbsp;
+    <a href="/cloud/privacy/">Privacy</a>
+    &nbsp;·&nbsp;
+    <a href="/cloud/terms/">Terms</a>
   </div>
-</div>
+</main>
 
 <script>
 const API_BASE = 'https://cloud-api.perseus.observer/api';
