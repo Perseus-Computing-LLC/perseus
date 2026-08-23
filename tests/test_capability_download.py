@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 
@@ -47,10 +48,10 @@ def test_tailored_capability_artifacts_exist_and_public_copy_is_not_internal_wor
 
 def test_government_landing_is_single_purpose_and_exposes_all_three_custom_routes():
     landing = (ROOT / "government" / "index.html").read_text(encoding="utf-8")
-    assert "Mission fit for" in landing and "controlled AI" in landing
+    assert "Controlled AI for" in landing and "defense workflows" in landing
     assert "Email Thomas" not in landing
     assert "Thomas Connally" not in landing
-    assert "Choose the version for the conversation." in landing
+    assert "One platform. Three mission entry points." in landing
     assert "Cyber-Networks.pdf" in landing
     assert "C3BM.pdf" in landing
     assert "Electronic-Systems.pdf" in landing
@@ -62,3 +63,35 @@ def test_government_landing_is_single_purpose_and_exposes_all_three_custom_route
         "Sovereignty",
     ):
         assert retired_marker not in landing
+
+    for internal_or_hedging_marker in (
+        "Strongest direct fit",
+        "Enabling / adjacent fit",
+        "Partner-led / conditional fit",
+        "clearest direct route",
+        "C3BM is enabling",
+        "Electronic Systems is partner-led",
+    ):
+        assert internal_or_hedging_marker not in landing
+
+
+def test_public_capability_profiles_use_contribution_language_and_no_internal_route_status():
+    profiles = json.loads((ROOT / "scripts" / "capability_profiles.json").read_text(encoding="utf-8"))
+    assert all("focus_tag" in profile and "contribution_rows" in profile for profile in profiles.values())
+    public_copy = "\n".join(
+        (ROOT / rel).read_text(encoding="utf-8")
+        for rel in ("government/index.html", "government/capability-statement.html", "scripts/capability_profiles.json")
+    )
+    for forbidden_marker in (
+        "Route snapshot",
+        "NV074",
+        "NV027",
+        "CPSP",
+        "Tradewinds",
+        "AFRL/ISW",
+        "in front of an ISW Division SME",
+        "Primary fit",
+        "Enabling fit",
+        "Partner-led fit",
+    ):
+        assert forbidden_marker not in public_copy

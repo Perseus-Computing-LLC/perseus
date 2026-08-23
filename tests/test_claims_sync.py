@@ -45,10 +45,10 @@ def _claim_value(claim_id: str) -> str:
 
 # (relative_path, claim_id) pairs: the claim's canonical value MUST appear in the file.
 SURFACE_CHECKS = [
-    ("README.md", "longmemeval_cot"),       # 79.0% official-CoT headline
+    ("README.md", "longmemeval_cot"),       # 82.0% paired confirmation
     ("README.md", "longmemeval_qa"),        # 73.8% plain-prompt methodology result
     ("manifest.json", "perseus_version"),   # current release
-    ("index.html", "longmemeval_cot"),      # 79.0% official-CoT headline
+    ("index.html", "longmemeval_cot"),      # 82.0% paired confirmation
     ("index.html", "perseus_version"),      # PyPI pill must pin the current release
     ("government/capability-statement.html", "vault_version"),  # footer pill: current vault release
     ("readme-preview/index.html", "perseus_version"),
@@ -65,6 +65,8 @@ SURFACE_CHECKS = [
     ("benchmarks/index.html", "beam_correctness"),     # 13/13
     ("benchmarks/index.html", "beam_as_of_p50_10m"),   # 23.07 ms (flat point-lookup at 10M)
     ("benchmarks/index.html", "beam_scale_10m"),       # 10M top tier
+    ("benchmarks/index.html", "memconflict_macro"),    # 0.555 self-run replication
+    ("benchmarks/memconflict/index.html", "memconflict_macro"),
 ]
 
 # Retired / unbacked tokens that must NOT appear on public surfaces.

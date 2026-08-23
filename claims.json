@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "Canonical claim registry for Perseus Computing public surfaces. Every public figure derives from here. When a benchmark re-runs, update THIS file only; scripts/render_claims.py regenerates manifest strings and tests/test_claims_sync.py fails CI if any surface drifts.",
-    "updated": "2026-08-22",
+    "updated": "2026-08-23",
     "public_headline": "longmemeval_cot",
     "public_headline_policy": "The latest completed 500-question paired confirmation is disclosed with its matched control and claim boundary. It is a company-run internal result, not an independent holdout or production-promotion claim. The provider-free attribution rerun remains provisional until its final report exists.",
     "public_site_positioning": "Perseus is the system around the model: Perseus resolves live context, Vault persists memory, and Ledger records evidence."
@@ -228,6 +228,14 @@
       "signature_sha256": "2c1e38ab18aad935089acad0bf2ccc750a7f627d59865dcad4a5ec2daff5f077",
       "status": "signed",
       "label": "measured",
+      "publishable": true
+    },
+    "memconflict_macro": {
+      "value": "0.555",
+      "detail": "macro score in a self-run replication of the third-party MemConflict protocol; 8 self-hosted memory providers and 3,750 questions, with the canonical report linked on the detail page",
+      "source": "benchmarks/memconflict/index.html + https://engturtle.github.io/hermes-memconflict/report/",
+      "status": "self-run-replication",
+      "label": "measured-replication",
       "publishable": true
     },
     "cost_savings_pct": {
