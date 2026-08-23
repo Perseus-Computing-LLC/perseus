@@ -1,11 +1,23 @@
 # Perseus public site direction
 
 Status: implementation slice
-Date: 2026-08-22
+Date: 2026-08-23
 
 ## Thesis
 
 Perseus presents three explicit responsibilities: resolve the present, remember what matters, and prove what happened. The public surface should make the boundary of each responsibility legible before it presents a number.
+
+## Audience language
+
+Audience routing is an internal capture aid, not a public ranking of product quality. Do not label a public offering "strongest direct fit," "enabling / adjacent fit," or "partner-led / conditional fit." Those phrases make a capable platform sound tentative and ask the reader to perform our internal triage.
+
+Use contribution language instead:
+
+- **Direct mission contribution — Cyber & Networks.** Perseus directly contributes context, governed memory, and evidence to AI/ML, DevSecOps, cyber, and enterprise IT workflows inside the controlled network.
+- **Mission-platform contribution — C3BM.** Perseus contributes an inspectable layer alongside software factories and distributed-decision workflows while the mission platform keeps system authority.
+- **Partner integration — Electronic Systems.** Perseus contributes the local context, memory, and evidence layer around sensing, EW, PNT, and related mission-system workflows; the qualified prime or technical partner owns hardware, safety, and test authority.
+
+This is a description of how Perseus participates in a conversation—not a claim that one route is more valuable than another. Internal opportunity notes may retain the routing rationale, but public pages and capability statements should lead with the contribution.
 
 ## Surface rules
 
@@ -33,8 +45,8 @@ Perseus presents three explicit responsibilities: resolve the present, remember 
 ## Implementation slice
 
 - Shared shell: `assets/site-shell.css`, `assets/site-shell.js`.
-- Primary routes refreshed: `/`, `/context-engine/`, `/vault/`, `/government/`, `/benchmarks/`.
-- Existing special-purpose pages remain isolated until they receive route-specific content review: capability statement, auth forms, demos, hackathon pages, and legacy redirect paths.
+- Primary routes refreshed: `/`, `/context-engine/`, `/vault/`, `/ledger/`, `/government/`, `/benchmarks/`, and the public README/package surface.
+- Capability statements now use contribution language and are generated from `scripts/capability_profiles.json`; auth pages are noindex; legacy `/bench/` and `/harness/` routes resolve to canonical pages instead of presenting duplicate or unfinished copy.
 - Verify representative desktop/mobile routes with browser navigation, console inspection, and interaction checks before deployment.
 
 ## Acceptance criteria
@@ -42,7 +54,7 @@ Perseus presents three explicit responsibilities: resolve the present, remember 
 - [x] No refreshed page has a stale 73.8% headline.
 - [ ] Each refreshed page has one obvious next action and one source-oriented secondary action.
 - [ ] The home page does not lead with a dense benchmark grid.
-- [ ] Security claims include their boundary and do not imply certification.
+- [x] Security claims include their boundary and do not imply certification.
 - [ ] Benchmark page names method and source next to each claim family.
 - [ ] Mobile navigation, copy buttons, theme toggle, and reduced-motion behavior work without external JavaScript dependencies.
 - [ ] Representative routes render without console errors and pass static link/HTML checks.
@@ -55,7 +67,7 @@ After this slice: 2/10. The remaining risk is the old special-purpose route set,
 
 ## Ad-ready revision
 
-The first implementation slice was not live because the repository uses legacy GitHub Pages publishing from `main`; production still served the prior inline-style pages. The ad-facing revision therefore treats live verification as part of the design deliverable.
+The first implementation slice was not live because the repository uses legacy GitHub Pages publishing from `main`; production may still serve the prior inline-style pages until the branch is published. The ad-facing revision therefore treats live verification as part of the design deliverable.
 
 - Home = **System Map / Decide.** Show Perseus, Vault, and Ledger as a connected product system, then offer one local try path.
 - Vault = **Configure / Trust.** Make the memory product and its install path the first decision.
@@ -64,7 +76,7 @@ The first implementation slice was not live because the repository uses legacy G
 
 ## Next slice
 
-Migrate the remaining public marketing and article routes to the shared shell, then retire duplicate legacy aliases and wire the claims registry into a generated proof rail. Do not migrate capability-statement or auth surfaces by mechanical replacement.
+Keep the shared shell and claims registry synchronized across the website, README, package metadata, and capability PDFs. Continue content-specific review of article and experimental routes; do not reintroduce abandoned product URLs or mechanical "fit" labels.
 
 **Live publishing rule:** after pushing to `main`, wait for the GitHub Pages deployment to report `success`, then fetch `https://perseus.observer/` and the shared CSS directly. A repository-only redesign is not a website deliverable.
 

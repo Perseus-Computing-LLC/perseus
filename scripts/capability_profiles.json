@@ -4,15 +4,15 @@
     "audience_label": "MASTER CAPABILITY STATEMENT",
     "headline": "The infrastructure around the model.",
     "lead": "Perseus Computing builds a three-product platform for AI workflows inside the operating boundary: Context Engine resolves live, bounded context; Perseus Vault retains governed local memory; Ledger records evidence, authority, and time. The platform is designed for on-premises, disconnected, and controlled-network deployments.",
-    "fit_tag": "Comprehensive platform",
+    "focus_tag": "Three mission entry points",
     "problem": "AI can produce a plausible answer while losing the state that made it useful. The next operator then has to reconstruct the repository state, prior decision, or evidence trail before work can continue.",
     "change": "Perseus joins context before action, governed memory across sessions, and evidence after action at the workflow boundary—without claiming to replace the model, mission platform, prime integrator, or approving authority.",
-    "discussion": "Bring one bounded workflow, its data boundary, and the integration surface that needs to be made reviewable; the Hanscom small-business relationship can help identify the right technical owner or partner route.",
-    "engagement": "Route snapshot: NV074 primary; NV027/CPSP exploratory; Tradewinds optional. DICE submitted; two Phase I + two D2P2 SBIR proposals submitted in the prior round; AFRL/ISW whitepaper in SME review since 21 July. Status only—no awards or endorsements claimed.",
-    "fit_rows": [
-      ["C3BM", "Software factories, resilient C2, and distributed decision workflows where a local context/memory/evidence layer can support a qualified mission team.", "ENABLING FIT"],
-      ["CYBER & NETWORKS", "AI/ML, DevSecOps, RMF evidence, cyber, and enterprise IT workflows where state and provenance must stay inside the controlled network.", "PRIMARY FIT"],
-      ["ELECTRONIC SYSTEMS", "Partner-led support where local, reviewable AI connects to sensing, EW, PNT, or mission-system workflows.", "PARTNER-LED"]
+    "discussion": "Bring one bounded workflow, its data boundary, and the integration surface that needs to be made reviewable; we will define the platform contribution and the right technical conversation.",
+    "engagement": "Engagement posture: start with a bounded workflow, data boundary, and integration surface. Perseus can define a technical path with a prime, mission-system owner, or government technical stakeholder.",
+    "contribution_rows": [
+      ["C3BM", "Software factories, resilient C2, and distributed decision workflows where a local context/memory/evidence layer strengthens the mission team.", "Software factory layer"],
+      ["CYBER & NETWORKS", "AI/ML, DevSecOps, RMF evidence, cyber, and enterprise IT workflows where state and provenance stay inside the controlled network.", "Secure AI layer"],
+      ["ELECTRONIC SYSTEMS", "Mission-system integration where local, reviewable AI connects to sensing, EW, PNT, or related workflows.", "Mission-system integration"]
     ]
   },
   "cyber-networks": {
@@ -20,47 +20,47 @@
     "audience_label": "CYBER & NETWORKS",
     "headline": "Controlled AI workflows need state and evidence that survive the handoff.",
     "lead": "Perseus combines Context Engine, Perseus Vault, and Ledger to keep working context, governed memory, and evidence lineage inside the controlled environment where an AI/ML or DevSecOps workflow runs.",
-    "fit_tag": "Primary fit",
+    "focus_tag": "Secure AI · DevSecOps",
     "problem": "AI-assisted cyber and DevSecOps workflows often lose the state that made an answer useful: the current repository, ticket, deployment, source commitment, or prior decision. That gap makes review, handoff, and risk acceptance harder.",
     "change": "Context Engine resolves bounded workflow state before action; Vault preserves local, time-aware memory; Ledger can package captured inputs, approvals, actions, and served context for downstream review. Perseus is an evidence layer—not an automated cATO platform.",
     "discussion": "Use the C&N Industry Meeting Request Form for a short conversation about one bounded AI/ML, DevSecOps, or RMF evidence workflow, its data boundary, and the integration surface between the agent and existing tools.",
-    "engagement": "C&N intake is through the current Microsoft Forms industry-meeting page. Use unclassified, non-sensitive details; no C&N meeting, cATO authorization, or Government endorsement is claimed.",
-    "fit_rows": [
-      ["AI / ML TRUST", "Evidence-aware context and governed memory for controlled model-assisted workflows.", "PRIMARY FIT"],
-      ["DEVSECOPS / RMF", "Ledger provenance and bounded context envelopes that can sit beside control, POA&M, monitoring, and engineering systems.", "PRIMARY FIT"],
-      ["CYBER / IT", "Local deployment where cloud memory, external telemetry, or opaque state is out of bounds.", "PRIMARY FIT"]
+    "engagement": "Briefing posture: use unclassified, non-sensitive workflow details and define the data boundary and existing control or integration surface.",
+    "contribution_rows": [
+      ["AI / ML TRUST", "Evidence-aware context and governed memory for controlled model-assisted workflows.", "Context + memory + evidence"],
+      ["DEVSECOPS / RMF", "Ledger provenance and bounded context envelopes that work alongside control, POA&M, monitoring, and engineering systems.", "Provenance + bounded context"],
+      ["CYBER / IT", "Local deployment where cloud memory, external telemetry, or opaque state is out of bounds.", "Local deployment"]
     ]
   },
   "c3bm": {
     "filename": "Perseus-Computing-LLC-Capability-Statement-C3BM.pdf",
     "audience_label": "C3BM",
     "headline": "Make AI-enabled C2 and software delivery reviewable across the handoff.",
-    "lead": "Perseus gives AI-enabled C2 and software-factory workflows a local Context Engine, governed Vault memory, and Ledger evidence layer—an enabling component that can sit beside the mission platform.",
-    "fit_tag": "Enabling fit",
+    "lead": "Perseus gives AI-enabled C2 and software-factory workflows a local Context Engine, governed Vault memory, and Ledger evidence layer that strengthens the mission platform while preserving mission authority.",
+    "focus_tag": "Software factories · distributed decisions",
     "problem": "Distributed teams and agents move through repositories, decisions, operational artifacts, and evolving mission context. When state disappears between sessions or handoffs, software-factory work becomes harder to review, re-plan, and trust.",
     "change": "Context Engine supplies a bounded starting state, Vault preserves the working record across sessions, and Ledger records what was used and what happened. The contribution is intentionally modular so a prime or mission-system owner can retain system authority.",
-    "discussion": "Bring one software-factory, resilient-C2, or distributed-decision workflow, the handoffs that fail today, and the existing integration surface; we are seeking the right technical owner or SBO carve-out route, not claiming an existing C3BM integration.",
-    "engagement": "C3BM is a warm Hanscom small-business route after the 14 August meeting. The objective is technical routing for a bounded enabling component; prior proposals are R&D status facts, not C3BM sponsorship or awards.",
-    "fit_rows": [
-      ["SOFTWARE FACTORIES", "Durable context across agent sessions, repositories, tickets, deployments, and engineering handoffs.", "PRIMARY FIT"],
-      ["RESILIENT C2", "Evidence-backed memory for workflows that must be re-planned, handed off, and reviewed.", "ENABLING FIT"],
-      ["PRIME BOUNDARY", "A modular contribution that can support a prime-led system and possible small-business carve-out without replacing the mission platform.", "ENABLING FIT"]
+    "discussion": "Bring one software-factory, resilient-C2, or distributed-decision workflow, the handoffs that fail today, and the existing integration surface; we will define the bounded platform contribution and the right technical owner.",
+    "engagement": "Engagement posture: identify the software-factory or distributed-decision workflow, then define the modular contribution and the prime or mission-system interface.",
+    "contribution_rows": [
+      ["SOFTWARE FACTORIES", "Durable context across agent sessions, repositories, tickets, deployments, and engineering handoffs.", "Context + continuity"],
+      ["RESILIENT C2", "Evidence-backed memory for workflows that must be re-planned, handed off, and reviewed.", "Evidence + continuity"],
+      ["PRIME BOUNDARY", "A modular contribution that supports a prime-led system while preserving mission-platform authority.", "Modular integration"]
     ]
   },
   "electronic-systems": {
     "filename": "Perseus-Computing-LLC-Capability-Statement-Electronic-Systems.pdf",
     "audience_label": "ELECTRONIC SYSTEMS",
     "headline": "A local evidence layer around mission-system AI.",
-    "lead": "Perseus provides Context Engine, Perseus Vault, and Ledger around an AI-enabled mission workflow; sensing, EW, PNT, embedded inference, and prime-system integration remain partner-led responsibilities.",
-    "fit_tag": "Partner-led fit",
+    "lead": "Perseus provides Context Engine, Perseus Vault, and Ledger around an AI-enabled mission workflow. A qualified prime or domain partner supplies the mission hardware, embedded inference, and system integration authority.",
+    "focus_tag": "Mission-system integration",
     "problem": "Mission-system teams need to know what data an AI assistant saw, what it retained, how current it was, and how a decision can be reviewed without moving the working record outside the program boundary.",
     "change": "Context Engine renders bounded mission context, Vault retains local and time-aware memory, and Ledger records evidence and authority boundaries. The three products form an inspectable support layer while the mission owner retains hardware, safety, and authorization responsibility.",
-    "discussion": "Bring a specific sensing, EW, PNT, or mission-system integration boundary, its deployment constraints, and the prime or technical partner role that Perseus could support.",
-    "engagement": "An AFRL/ISW whitepaper has been in front of an ISW Division SME since 21 July. This brief is a broader routing/partner conversation—not a duplicate follow-up or sponsorship claim.",
-    "fit_rows": [
-      ["SENSING / EW / PNT", "Context and evidence support where local AI must remain close to the mission workflow.", "PRIMARY FIT"],
-      ["MISSION DATA", "Governed memory, temporal state, and provenance without requiring a cloud memory service.", "ENABLING FIT"],
-      ["PARTNER-LED", "A bounded infrastructure contribution for a prime, integrator, or domain performer that owns mission hardware and test authority.", "PARTNER-LED"]
+    "discussion": "Bring a specific sensing, EW, PNT, or mission-system integration boundary, its deployment constraints, and the prime or technical partner role that owns hardware and test authority.",
+    "engagement": "Engagement posture: identify the sensing, EW, PNT, or mission-system boundary and the partner role that owns hardware, safety, and test authority.",
+    "contribution_rows": [
+      ["SENSING / EW / PNT", "Context and evidence support where local AI must remain close to the mission workflow.", "Context + evidence support"],
+      ["MISSION DATA", "Governed memory, temporal state, and provenance without requiring a cloud memory service.", "Governed memory + provenance"],
+      ["PARTNER INTEGRATION", "A bounded infrastructure contribution for the prime, integrator, or domain performer that owns mission hardware and test authority.", "Integration contribution"]
     ]
   }
 }

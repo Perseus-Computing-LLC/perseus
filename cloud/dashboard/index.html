@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dashboard — Perseus Cloud</title>
+<meta name="description" content="Perseus Cloud team dashboard.">
+<meta name="robots" content="noindex,nofollow">
+<link rel="canonical" href="https://perseus.observer/cloud/dashboard/">
 <script>try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
 <link rel="icon" href="/assets/perseus.svg">
 <link rel="stylesheet" href="/assets/fonts.css">
@@ -41,10 +44,9 @@
     <div class="panel"><h1>Welcome to Perseus Cloud</h1><p id="tenant"></p></div>
     <div class="card-grid">
       <article class="card"><h2>Plan</h2><div class="metric" id="plan"></div><p class="detail">Your current Cloud tier.</p></article>
-      <article class="card"><h2>Included seats</h2><div class="metric" id="seats"></div><p class="detail">Add seat 11 to start a Team upgrade.</p></article>
-      <article class="card"><h2>Verified-savings recommendation</h2><div class="metric" id="donation"></div><p class="detail">Optional; never an automatic charge.</p></article>
+      <article class="card"><h2>Included seats</h2><div class="metric" id="seats"></div><p class="detail">Seats included in your current Cloud tier.</p></article>
     </div>
-    <section class="panel"><h1>Evidence and audit</h1><p id="savings"></p><p>Perseus Ledger provides the verifiable event and evidence record for this workspace. The hosted endpoint remains on its legacy URL during transition.</p><a class="btn btn-amber" href="https://plutus.perseus.observer/auth/login">Open Perseus Ledger</a></section>
+    <section class="panel"><h1>Evidence and audit</h1><p id="savings"></p><p>Perseus Ledger provides the verifiable event and evidence record for this workspace.</p><a class="btn btn-amber" href="/ledger/">View Ledger →</a></section>
   </section>
 </main>
 <script>
@@ -66,7 +68,6 @@ async function loadDashboard() {
     document.getElementById('tenant').textContent = 'Tenant ' + data.tenant_id + ' · email ' + (data.email_verified ? 'verified' : 'unverified');
     document.getElementById('plan').textContent = info.plan.charAt(0).toUpperCase() + info.plan.slice(1);
     document.getElementById('seats').textContent = info.max_seats + ' seats';
-    document.getElementById('donation').textContent = (info.donation_bps / 100) + '%';
     document.getElementById('savings').textContent = info.savings_tally;
     hide('loading'); show('content');
   } catch (error) {

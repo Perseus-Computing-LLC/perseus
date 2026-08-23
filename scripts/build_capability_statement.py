@@ -91,9 +91,9 @@ def header(page_title: str, st: dict[str, ParagraphStyle]) -> Table:
 
 
 def info_band(profile: dict, st: dict[str, ParagraphStyle]) -> Table:
-    fit = "Three audience routes" if profile["audience_label"].startswith("MASTER") else str(profile.get("fit_tag") or "")
+    focus = str(profile.get("focus_tag") or "Three mission entry points")
     rows = [
-        [markup("<b>FOCUS</b><br/>" + escape(fit), st["body_small"]), markup("<b>DEPLOYMENT</b><br/>Local · on-premises · private VPC · disconnected enclave", st["body_small"]), markup("<b>IDENTITY</b><br/>UEI PJS2LW7HAK35 · CAGE 22JC5", st["body_small"]), markup("<b>LICENSE</b><br/>MIT · SBOM published", st["body_small"])],
+        [markup("<b>FOCUS</b><br/>" + escape(focus), st["body_small"]), markup("<b>DEPLOYMENT</b><br/>Local · on-premises · private VPC · disconnected enclave", st["body_small"]), markup("<b>IDENTITY</b><br/>UEI PJS2LW7HAK35 · CAGE 22JC5", st["body_small"]), markup("<b>LICENSE</b><br/>MIT · SBOM published", st["body_small"])],
     ]
     t = Table(rows, colWidths=[1.84 * inch] * 4)
     t.setStyle(TableStyle([
@@ -141,11 +141,10 @@ def system_table(st: dict[str, ParagraphStyle]) -> Table:
     return t
 
 
-def fit_table(profile: dict, st: dict[str, ParagraphStyle]) -> Table:
-    data = [[markup("ROUTE", st["label_muted"]), markup("USE", st["label_muted"]), markup("ROLE", st["label_muted"])]]
-    for label, text, tag in profile["fit_rows"]:
-        role = {"PRIMARY FIT": "Direct fit", "ENABLING FIT": "Enabling fit", "PARTNER-LED": "Partner-led"}.get(tag, tag.title())
-        data.append([markup(f"<b>{escape(label)}</b>", st["body_small"]), plain(text, st["body_small"]), markup(escape(role), st["label"])])
+def contribution_table(profile: dict, st: dict[str, ParagraphStyle]) -> Table:
+    data = [[markup("ROUTE", st["label_muted"]), markup("USE", st["label_muted"]), markup("CONTRIBUTION", st["label_muted"])]]
+    for label, text, contribution in profile["contribution_rows"]:
+        data.append([markup(f"<b>{escape(label)}</b>", st["body_small"]), plain(text, st["body_small"]), markup(escape(contribution), st["label"])])
     t = Table(data, colWidths=[1.62 * inch, 4.53 * inch, 1.20 * inch])
     t.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), PALE_BLUE),
@@ -233,14 +232,14 @@ def build(name: str, profile: dict, claims: dict) -> Path:
     doc.addPageTemplates([PageTemplate(id="brief", frames=[frame], onPage=footer)])
     story: list = []
 
-    # Page 1: orientation and fit.
-    story += [header("Mission fit", st), Spacer(1, 14), markup("PERSEUS COMPUTING LLC", st["eyebrow"])]
+    # Page 1: platform orientation and mission contribution.
+    story += [header("Defense capability", st), Spacer(1, 14), markup("PERSEUS COMPUTING LLC", st["eyebrow"])]
     headline = "Infrastructure for AI agents in controlled environments." if name == "master" else profile["headline"]
     story += [markup(escape(headline), st["title"] if len(headline) < 60 else st["title_compact"]), plain(profile["lead"], st["lead"]), Spacer(1, 12), info_band(profile, st), Spacer(1, 13)]
     story += rule_section("The useful difference", st)
     story += [two_column_copy("The problem", profile["problem"], "The layer", profile["change"], st), Spacer(1, 12)]
     story += rule_section("What Perseus provides", st) + [system_table(st), Spacer(1, 12)]
-    story += rule_section("Where it fits", st) + [fit_table(profile, st), Spacer(1, 8)]
+    story += rule_section("Where the platform contributes", st) + [contribution_table(profile, st), Spacer(1, 8)]
     call = Table([[markup(f"<b>FIRST CONVERSATION</b>&nbsp;&nbsp; {escape(profile['discussion'])}", st["callout"])]], colWidths=[7.35*inch])
     call.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), NAVY), ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10), ("TOPPADDING", (0, 0), (-1, -1), 9), ("BOTTOMPADDING", (0, 0), (-1, -1), 9)]))
     story.append(call)
@@ -250,7 +249,7 @@ def build(name: str, profile: dict, claims: dict) -> Path:
     story += rule_section("Measured evidence", st) + [evidence_table(claims, st), Spacer(1, 4), plain("LongMemEval-S: 82.0% candidate (410/500) vs 83.2% matched full-context control (416/500), -1.2 points. Execution/custody passed, but the preregistered success rule failed; no superiority, independent-holdout, or production-promotion claim is made. The provider-free rerun is provisional.", st["body_tiny"]), Spacer(1, 6)]
     story += rule_section("Procurement and deployment", st)
     left = flat_fact_table("Company", [("Legal name", "Perseus Computing LLC"), ("Business", "U.S. small business · technical access"), ("UEI / CAGE", "PJS2LW7HAK35 / 22JC5"), ("NAICS", "541715 · 541511 · 541512"), ("SAM.gov", "Active — All Awards"), ("JCP / DD2345", claims["jcp_dd2345"]["value"] + " · valid through 2031-08-18")], st)
-    right = flat_fact_table("Security and boundary", [("Deployment", "Local, on-premises, private VPC, or customer-configured disconnected enclave"), ("Readiness", "SPRS 110/110 · CMMC Level 2 self-assessment, enclave scope"), ("Software", "MIT license · published SBOM"), ("Data posture", "No required cloud service, API key, or vendor runtime"), ("Integration", "Partner-led where mission hardware or sensors are involved")], st)
+    right = flat_fact_table("Security and boundary", [("Deployment", "Local, on-premises, private VPC, or customer-configured disconnected enclave"), ("Readiness", "SPRS 110/110 · CMMC Level 2 self-assessment, enclave scope"), ("Software", "MIT license · published SBOM"), ("Data posture", "No required cloud service, API key, or vendor runtime"), ("Integration", "Mission hardware, safety, and test authority remain with the mission owner or qualified partner")], st)
     facts = Table([[left, right]], colWidths=[3.68*inch, 3.67*inch])
     facts.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LINEBEFORE", (1, 0), (1, 0), .7, RULE), ("LEFTPADDING", (0, 0), (0, 0), 0), ("RIGHTPADDING", (0, 0), (0, 0), 14), ("LEFTPADDING", (1, 0), (1, 0), 14), ("RIGHTPADDING", (1, 0), (1, 0), 0), ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
     story += [facts, Spacer(1, 6), engagement_line(profile, st), Spacer(1, 5)]
