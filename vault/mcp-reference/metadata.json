@@ -1,0 +1,13 @@
+{
+  "source_commit": "f48e528f89dfb8ce8c19c4a0714808a9d1fb728c",
+  "vault_version": "2.23.1",
+  "feature_profile": "--no-default-features",
+  "generators": {
+    "sourcey": "3.6.5",
+    "mcp_parser": "0.4.1"
+  },
+  "tool_count": 173,
+  "raw_snapshot_sha256": "bdafa2b26b47362ff9b6e340075f19d27286a7ef69459ffad6d7fbd3ad47b378",
+  "raw_snapshot": "mcp.raw.json",
+  "rendered_snapshot": "mcp.render.json"
+}
