@@ -1,0 +1,37 @@
+{
+  "publication_path": "/vault/mcp-reference/",
+  "source_commit": "f48e528f89dfb8ce8c19c4a0714808a9d1fb728c",
+  "vault_version": "2.23.1",
+  "feature_profile": "--no-default-features",
+  "tool_count": 173,
+  "source_workflow_run": {
+    "id": 32897532973,
+    "url": "https://github.com/Perseus-Computing-LLC/perseus-vault/actions/runs/32897532973",
+    "conclusion": "success"
+  },
+  "site_artifact": {
+    "id": 9581842001,
+    "sha256": "a192545ab3f9df8ab2525293f3ab1cc7dededc7dd29559c26b66cb189948d416",
+    "url": "https://api.github.com/repos/Perseus-Computing-LLC/perseus-vault/actions/artifacts/9581842001"
+  },
+  "snapshot_artifact": {
+    "id": 9581837639,
+    "sha256": "f3775c4d24f48e876cab5733345ef34ce96987ca03e78b72bb4bb6bddffadf16",
+    "url": "https://api.github.com/repos/Perseus-Computing-LLC/perseus-vault/actions/artifacts/9581837639"
+  },
+  "raw_snapshot_sha256": "bdafa2b26b47362ff9b6e340075f19d27286a7ef69459ffad6d7fbd3ad47b378",
+  "generators": {
+    "sourcey": "3.6.5",
+    "mcp_parser": "0.4.1"
+  },
+  "publication_transform": {
+    "copied_generated_files": true,
+    "rewritten_files": [
+      "search-index.json",
+      "llms.txt",
+      "llms-full.txt",
+      "sitemap.xml"
+    ],
+    "relative_html_assets_preserved": true
+  }
+}
