@@ -8,3 +8,8 @@
 # exposure), to LF regardless of a contributor's local git configuration.
 perseus.py text eol=lf
 *.sh text eol=lf
+
+# Sourcey-generated reference files are hash-addressed in metadata.json. Keep
+# their text bytes stable across Linux and Windows checkouts.
+vault/mcp-reference/** text eol=lf
+vault/mcp-reference/**/*.png binary -eol
