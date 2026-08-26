@@ -463,17 +463,15 @@ _KNOWN_VAULT_PATHS = [
     )
 ]
 
-# Copy-paste remediation shown when the memory connector is configured but the
-# binary is absent (#663). Perseus does not download/build a Rust binary
-# silently, so point at the install path instead.
+# Version-bound remediation shown when the memory connector is configured but
+# the binary is absent (#663). Perseus does not download or execute remote code.
 MEMORY_INSTALL_REMEDIATION = (
-    "Install Perseus Vault (the memory engine), then re-run `perseus doctor`. "
-    "Quickest (prebuilt binary, Linux/macOS): "
-    "`curl -sSf https://raw.githubusercontent.com/Perseus-Computing-LLC/"
-    "perseus-vault/main/scripts/install.sh | sh`. "
-    "Build from source (Windows / Intel macOS / no prebuilt): "
-    "`cargo install --git https://github.com/Perseus-Computing-LLC/perseus-vault`. "
-    "Or wire the connector automatically with `perseus quickstart --with-memory`."
+    "Install Perseus Vault from a verified release, then re-run `perseus doctor`. "
+    "Release: https://github.com/Perseus-Computing-LLC/perseus-vault/releases/tag/v2.23.2 . "
+    "The x86_64 Linux archive SHA-256 is "
+    "7143709aa6c9c29128e5daae47c13ddcc6ec56b35c7a605726b51f635309998e; "
+    "verify it before extraction. Other platforms and provenance are on the release page. "
+    "You can wire the connector with `perseus quickstart --with-memory`."
 )
 
 

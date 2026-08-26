@@ -1,7 +1,7 @@
 # Perseus Local CLI Example
 
 The simplest possible Perseus setup — no assistant integration, no containers.
-Install Perseus, scaffold a context source, render it, write a checkpoint, ask Pythia.
+Install Perseus, scaffold a context source, render it, write a checkpoint, and request an optional task suggestion.
 
 ## What this demonstrates
 
@@ -15,7 +15,7 @@ Install Perseus, scaffold a context source, render it, write a checkpoint, ask P
 | `@read` | Inline file snippet |
 | `perseus checkpoint` | Write a named session waypoint |
 | `perseus recover` | Restore the last checkpoint to stdout |
-| `perseus suggest` | Ask Pythia which tool or approach to use |
+| `perseus suggest` | Ask the configured LLM backend which tool or approach to use |
 | `perseus doctor` | Run all health checks and get a readiness summary |
 
 ## Run it
@@ -81,7 +81,7 @@ perseus checkpoint \
 # Recover the checkpoint to stdout
 perseus recover --workspace "$PWD"
 
-# Ask Pythia for a recommendation
+# Request an optional task suggestion
 perseus suggest "how do I keep context fresh across sessions" --quick
 
 # Run all readiness checks

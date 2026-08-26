@@ -1,0 +1,300 @@
+import hashlib
+import importlib.util
+import json
+import re
+from pathlib import Path
+from xml.etree import ElementTree as ET
+
+ROOT = Path(__file__).resolve().parents[1]
+CANONICAL = {
+    "index.html": "/",
+    "context-engine/index.html": "/context-engine/",
+    "vault/index.html": "/vault/",
+    "ledger/index.html": "/ledger/",
+    "security/index.html": "/security/",
+    "benchmarks/index.html": "/benchmarks/",
+    "benchmarks/context-bench/index.html": "/benchmarks/context-bench/",
+    "benchmarks/memconflict/index.html": "/benchmarks/memconflict/",
+    "docs/index.html": "/docs/",
+    "demo/index.html": "/demo/",
+    "government/index.html": "/government/",
+    "government/capability-statement.html": "/government/capability-statement.html",
+    "vault/mcp-reference/index.html": "/vault/mcp-reference/",
+}
+SPECIAL_PUBLIC_HTML = {"vault/mcp-reference/mcp-tools.html"}
+
+
+def text(path):
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def load_generator():
+    spec = importlib.util.spec_from_file_location("build_public_site", ROOT / "scripts" / "build_public_site.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_canonical_pages_share_accessible_shell_and_metadata():
+    for path, route in CANONICAL.items():
+        page = text(path)
+        assert page.count("<h1") == 1, path
+        assert '<a class="skip-link" href="#main">Skip to content</a>' in page
+        assert '<main id="main">' in page
+        assert 'class="site-header"' in page
+        assert 'class="site-footer"' in page
+        assert '<meta name="description"' in page
+        assert '<meta name="twitter:card" content="summary_large_image">' in page
+        assert f'<link rel="canonical" href="https://perseus.observer{route}">' in page
+        assert 'style="' not in page, f"inline style escaped the shared design system: {path}"
+
+
+def test_canonical_product_names_precede_short_forms():
+    combined = "\n".join(text(path) for path in CANONICAL)
+    assert "Perseus Context Engine" in combined
+    assert "Perseus Vault" in combined
+    assert "Perseus Ledger" in combined
+    for path in CANONICAL:
+        page = text(path)
+        for full, short in (
+            ("Perseus Context Engine", "Context Engine"),
+            ("Perseus Vault", "Vault"),
+            ("Perseus Ledger", "Ledger"),
+        ):
+            if short in page:
+                assert full in page
+                assert page.index(full) <= page.index(short)
+
+
+def test_retired_public_products_do_not_return_to_canonical_surface():
+    combined = "\n".join(text(path) for path in CANONICAL)
+    for marker in (
+        "Perseus Cloud",
+        "MCTS",
+        "PR Pilot",
+        "Blast Radius",
+        "Rapid Agent",
+        "Qwen Memory",
+        "Email Thomas",
+        "Thomas Connally",
+        "sensing, EW, PNT",
+    ):
+        assert marker not in combined
+
+
+def test_sitemap_contains_only_canonical_indexable_routes():
+    root = ET.fromstring(text("sitemap.xml"))
+    ns = {"s": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+    locs = {node.text or "" for node in root.findall("s:url/s:loc", ns)}
+    expected = {"https://perseus.observer" + route for route in CANONICAL.values()}
+    assert locs == expected
+    assert not any("/cloud/" in loc or "/services/" in loc or "/blog/" in loc for loc in locs)
+
+
+def test_complete_html_inventory_is_canonical_redirect_404_or_declared_reference():
+    module = load_generator()
+    expected = set(CANONICAL) | set(module.REDIRECTS) | {"404.html"} | SPECIAL_PUBLIC_HTML
+    actual = {str(path.relative_to(ROOT)) for path in ROOT.rglob("*.html")}
+    assert actual == expected
+
+
+def test_declared_deep_reference_has_canonical_metadata():
+    page = text("vault/mcp-reference/mcp-tools.html")
+    assert '<link rel="canonical" href="https://perseus.observer/vault/mcp-reference/mcp-tools.html"/>' in page
+
+
+def test_every_legacy_html_route_is_a_noindex_compatibility_redirect():
+    module = load_generator()
+    for path in module.REDIRECTS:
+        page = text(path)
+        assert '<meta name="robots" content="noindex,follow">' in page
+        assert 'http-equiv="refresh"' in page
+        assert "location.replace(" in page
+
+
+def test_product_structured_data_points_to_each_component_repository():
+    expected = {
+        "context-engine/index.html": "https://github.com/Perseus-Computing-LLC/perseus",
+        "vault/index.html": "https://github.com/Perseus-Computing-LLC/perseus-vault",
+        "ledger/index.html": "https://github.com/Perseus-Computing-LLC/ledger",
+    }
+    for path, repository in expected.items():
+        match = re.search(r'<script type="application/ld\+json">(.*?)</script>', text(path))
+        assert match, path
+        assert json.loads(match.group(1))["codeRepository"] == repository
+
+
+def test_vault_install_is_release_pinned_and_digest_checked():
+    documents = ("vault/index.html", "docs/index.html", "README.md", "QUICKSTART.md", "SETUP-GUIDE.md")
+    combined = "\n".join(text(path) for path in documents)
+    assert "raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/install.sh" not in combined
+    assert "main/scripts/bootstrap.sh" not in combined
+    for path in documents:
+        content = text(path)
+        assert "releases/download/v2.23.2/perseus-vault-x86_64-unknown-linux-gnu.tar.gz" in content, path
+        assert "7143709aa6c9c29128e5daae47c13ddcc6ec56b35c7a605726b51f635309998e" in content, path
+        assert "sha256sum -c -" in content, path
+        assert "set -euo pipefail" in content, path
+        assert "mktemp -d" in content, path
+        assert content.index("sha256sum -c -") < content.index("tar -xzf"), path
+
+
+def test_public_readme_keeps_current_claim_qualifiers_and_boundaries():
+    readme = text("README.md")
+    for required in (
+        "410/500 (82.0%)",
+        "416/500 (83.2%)",
+        "company-run",
+        "preregistered success rule failed",
+        "not a superiority",
+        "not independent assessments or C3PAO certification",
+        "does not grant data access, classified access, facility clearance, an ATO, or cross-domain approval",
+        "perseus@perseus.observer",
+    ):
+        assert required in readme
+    for forbidden in (
+        "Enterprise Ready",
+        "500-developer team",
+        "SAM.gov registration in progress",
+        "classified environments",
+        "Perseus is fully offline by default",
+        "No project data leaves your machine",
+        "Rapid Agent",
+        "Qwen Memory",
+        "Blast Radius",
+        "PR Pilot",
+        "97% vs 93",
+        "+17.33%",
+        "privacy@perseus.observer",
+    ):
+        assert forbidden not in readme
+
+
+def test_linked_public_documents_are_claim_bounded():
+    bounded = "\n".join(text(path) for path in (
+        "QUICKSTART.md",
+        "benchmark/README.md",
+        "benchmark/edge-bench/README.md",
+        "benchmark/cost_savings/README.md",
+        "docs/federal-buyers.md",
+        "SETUP-GUIDE.md",
+    ))
+    for forbidden in (
+        "main/scripts/install.sh",
+        "main/scripts/bootstrap.sh",
+        "36 → 0",
+        "23,402×",
+        "301× faster",
+        "costs a fraction",
+        "Deploy in SCIFs",
+        "Active Federal Engagements",
+        "ATO support",
+        "prevents hallucination",
+    ):
+        assert forbidden not in bounded
+    quickstart = text("QUICKSTART.md")
+    assert "Pythia" not in quickstart
+    assert "Synthesis" not in quickstart
+    for required in (
+        "publishable: false",
+        "not a customer result",
+        "not independent assessments or C3PAO certification",
+        "perseus@perseus.observer",
+    ):
+        assert required in bounded
+
+
+def test_shared_interactions_have_failure_feedback_and_reduced_motion():
+    js = text("assets/site-shell.js")
+    css = text("assets/site-shell.css")
+    assert "Clipboard unavailable" in js
+    assert 'event.key === "Escape"' in js
+    assert 'open ? "Close navigation" : "Open navigation"' in js
+    assert "first.focus()" in js
+    assert "prefers-reduced-motion" in css
+    assert "scroll-margin-top" in css
+    assert "focus-visible" in css
+
+
+def test_runtime_and_bootstrap_do_not_recommend_mutable_remote_scripts():
+    combined = "\n".join(text(path) for path in (
+        "scripts/bootstrap.sh",
+        "src/perseus/doctor.py",
+        "src/perseus/serve.py",
+        "perseus.py",
+    ))
+    assert "raw.githubusercontent.com" not in combined
+    assert "releases/tag/v2.23.2" in combined
+    assert "7143709aa6c9c29128e5daae47c13ddcc6ec56b35c7a605726b51f635309998e" in combined
+
+
+def test_secondary_measurements_keep_controls_and_limits():
+    combined = text("benchmarks/index.html") + text("scripts/build_capability_statement.py")
+    for required in (
+        "No answer-quality control arm",
+        "No comparative control arm",
+        "not real-world model quality",
+        "not customer capacity",
+    ):
+        assert required in combined
+
+
+def test_demo_replay_artifact_is_hash_bound_and_claim_limited():
+    metadata = json.loads(text("demo/sample-metadata.json"))
+    source = (ROOT / metadata["source_path"]).read_bytes()
+    output = (ROOT / metadata["output_path"]).read_bytes()
+    assert hashlib.sha256(source).hexdigest() == metadata["source_sha256"]
+    assert hashlib.sha256(output).hexdigest() == metadata["output_sha256"]
+    page = text("demo/index.html")
+    for phrase in ("does not run a model", "does not prove model behavior", "bounded excerpt", "compatibility memory pointer is excluded"):
+        assert phrase in page
+    assert "94%" not in page and "fleet" not in page.lower()
+    assert "perseus_memory" not in output.decode("utf-8")
+
+
+def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
+    package = json.loads(text("manifest.json"))
+    assert package["author"] == {
+        "name": "Perseus Computing LLC",
+        "email": "perseus@perseus.observer",
+        "url": "https://perseus.observer",
+    }
+    assert "no data leaves your machine" not in package["long_description"]
+    assert "optional transports" in package["long_description"]
+
+    bootstrap = text("scripts/bootstrap.sh")
+    assert "Engram" not in bootstrap
+    assert 'command: ["vault"' not in bootstrap
+    assert "@perseus v1.0.6" not in bootstrap
+
+    integration = text("integrations/claude-code/README.md")
+    assert "raw.githubusercontent.com" not in integration
+    assert "reviewed checkout" in integration
+
+    reference = text("vault/mcp-reference/README.md")
+    publication = json.loads(text("vault/mcp-reference/publication.json"))
+    metadata = json.loads(text("vault/mcp-reference/metadata.json"))
+    assert metadata["source_commit"] == publication["source_commit"]
+    assert metadata["source_commit"] in reference
+    assert str(publication["source_workflow_run"]["id"]) in reference
+    for path in ("vault/mcp-reference/mcp-tools.html", "vault/mcp-reference/llms.txt", "vault/mcp-reference/llms-full.txt"):
+        content = text(path)
+        assert "plaintext FTS5 index and metadata" in content
+        assert "optional network transports" in content
+
+
+def test_one_public_contact_identity():
+    combined = "\n".join(text(path) for path in CANONICAL)
+    assert "Perseus Computing LLC" in combined
+    assert "perseus@perseus.observer" in combined
+    assert not re.search(r"mailto:(?!perseus@perseus\.observer)", combined)
+
+
+def test_committed_html_matches_public_site_generator(tmp_path):
+    module = load_generator()
+    setattr(module, "ROOT", tmp_path)
+    module.build()
+    generated = set(CANONICAL) | set(module.REDIRECTS) | {"404.html"}
+    for path in generated:
+        assert (tmp_path / path).read_bytes() == (ROOT / path).read_bytes(), path

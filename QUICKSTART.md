@@ -10,8 +10,8 @@ perseus quickstart
 
 That's it. Perseus scans your project, creates a context template, and verifies
 everything works. If you have an LLM key in your environment (Gemini, Groq,
-OpenAI, or DeepSeek), it's auto-detected and configured for Pythia suggestions
-and Synthesis.
+OpenAI, or DeepSeek), it is detected and can configure optional task suggestions
+and cited synthesis.
 
 ## What Just Happened
 
@@ -38,23 +38,27 @@ Perseus resolves and shapes the active working context; Perseus Vault owns durab
 
 ## Add Durable Memory (optional)
 
-Cross-session durable memory is a separate, optional component — the **Perseus Vault**
-MCP server. Perseus resolves and shapes the active working context; Perseus Vault
-owns durable-memory persistence and recall. `perseus quickstart` already wires the
-connector in your config; to install the engine (prebuilt binary, Linux/macOS):
+Cross-session durable memory is a separate, optional component: **Perseus Vault**. Perseus Context Engine resolves the active working context; Perseus Vault owns durable-memory persistence and recall. `perseus quickstart` writes the connector configuration. The command below installs the verified v2.23.2 x86_64 Linux release:
 
 ```bash
-curl -sSf https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/install.sh | sh
-perseus doctor    # confirms Perseus can reach the vault
+set -euo pipefail
+workdir="$(mktemp -d)"
+trap 'rm -rf "$workdir"' EXIT
+archive="$workdir/perseus-vault-x86_64-unknown-linux-gnu.tar.gz"
+curl -fSL -o "$archive" https://github.com/Perseus-Computing-LLC/perseus-vault/releases/download/v2.23.2/perseus-vault-x86_64-unknown-linux-gnu.tar.gz
+printf '%s  %s\n' '7143709aa6c9c29128e5daae47c13ddcc6ec56b35c7a605726b51f635309998e' "$archive" | sha256sum -c -
+tar -xzf "$archive" -C "$workdir"
+test -f "$workdir/perseus-vault"
+mkdir -p "$HOME/.local/bin"
+install -m 0755 "$workdir/perseus-vault" "$HOME/.local/bin/perseus-vault"
+perseus doctor
 ```
 
-Windows / Intel-macOS: `cargo install --git https://github.com/Perseus-Computing-LLC/perseus-vault`.
-Without it, Perseus works fine — memory recall simply returns nothing.
+Use the [v2.23.2 release page](https://github.com/Perseus-Computing-LLC/perseus-vault/releases/tag/v2.23.2) for macOS, Windows, other architectures, and provenance. Without Perseus Vault, Perseus Context Engine still works; Vault-backed recall returns no records.
 
 ## Setting Up a Free LLM Backend
 
-Pythia (task suggestions) and Synthesis (cited claims from source files) need an
-LLM. Perseus supports several free options:
+Optional task suggestions and cited synthesis need an LLM. Perseus supports several backends:
 
 ### Option 1: Gemini Free Tier (recommended)
 
@@ -230,7 +234,7 @@ trust:
   allow_outside_workspace: false
   redact_secrets: true
 
-# Optional: LLM backend for Pythia suggestions & Synthesis
+# Optional: LLM backend for task suggestions and cited synthesis
 generation:
   enabled: true
   model: gemini-2.5-flash

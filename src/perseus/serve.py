@@ -2403,9 +2403,10 @@ def cmd_init(args, cfg):
         command = vault_cfg.get("command", ["perseus-vault", "serve"])
         binary_path = _find_vault_binary(command)
         if binary_path is None:
-            print(f"💡 Perseus Vault not found. For persistent cross-session memory (prebuilt binary):")
-            print(f"   curl -sSf https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/install.sh | sh")
-            print(f"   then re-run `perseus doctor` to confirm. (Windows/Intel-mac: build from source — see the repo.)")
+            print("Perseus Vault not found. Install a verified release from:")
+            print("   https://github.com/Perseus-Computing-LLC/perseus-vault/releases/tag/v2.23.2")
+            print("   x86_64 Linux archive SHA-256: 7143709aa6c9c29128e5daae47c13ddcc6ec56b35c7a605726b51f635309998e")
+            print("   Verify the archive before extraction, then re-run `perseus doctor`.")
         else:
             language = _detect_project_language(workspace)
             lang_note = f" (detected: {language})" if language else ""
