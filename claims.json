@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "Canonical claim registry for Perseus Computing public surfaces. Every public figure derives from here. When a benchmark re-runs, update THIS file only; scripts/render_claims.py regenerates manifest strings and tests/test_claims_sync.py fails CI if any surface drifts.",
-    "updated": "2026-08-23",
+    "updated": "2026-08-25",
     "public_headline": "longmemeval_cot",
     "public_headline_policy": "The latest completed 500-question paired confirmation is disclosed with its matched control and claim boundary. It is a company-run internal result, not an independent holdout or production-promotion claim. The provider-free attribution rerun remains provisional until its final report exists.",
     "public_site_positioning": "Perseus is the system around the model: Perseus resolves live context, Vault persists memory, and Ledger records evidence."
@@ -38,8 +38,8 @@
     },
     "tool_schema_reduction": {
       "value": "67%",
-      "detail": "the current Perseus Vault registry publishes 169 canonical tools from 507 compatibility-manifest names (67% smaller); counts re-derived 2026-08-23 from the CI-enforced registry on main 88c14ed",
-      "source": "perseus-vault src/mcp.rs + scripts/registry_metadata_check.py",
+      "detail": "the current Perseus Vault registry publishes 173 canonical tools from 519 compatibility-manifest names (67% smaller); counts re-derived 2026-08-25 from the CI-enforced registry on main f48e528f89dfbce8c19c4a0714808a9d1fb728c; the exact public reference labels the --no-default-features profile and release",
+      "source": "perseus-vault src/mcp.rs + scripts/registry_metadata_check.py + vault/mcp-reference/metadata.json",
       "status": "derived-structural",
       "label": "derived",
       "publishable": true
@@ -266,8 +266,8 @@
       "note": "extreme_enterprise_results_full.json absent (broken link). Do not publish."
     },
     "tool_scope_agent_tier": {
-      "value": "70%",
-      "detail": "PERSEUS_VAULT_TOOL_SCOPE=agent advertises 51 of 169 canonical MCP tools — a 70% smaller surface for agent clients; advertisement-only (tools/call unaffected; authorization stays workspace binding + authority manifests); source-derived from perseus-vault main 88c14ed on 2026-08-23",
+      "value": "69%",
+      "detail": "PERSEUS_VAULT_TOOL_SCOPE=agent advertises 54 of 173 canonical MCP tools — a 69% smaller advertised surface for agent clients; advertisement-only (tools/call unaffected; authorization stays workspace binding + authority manifests); source-derived from perseus-vault main f48e528f89dfbce8c19c4a0714808a9d1fb728c on 2026-08-25; the exact count is release/profile-specific",
       "source": "perseus-vault src/mcp.rs TOOL_SCOPES side table + scripts/registry_metadata_check.py",
       "status": "code-enforced",
       "label": "derived",
