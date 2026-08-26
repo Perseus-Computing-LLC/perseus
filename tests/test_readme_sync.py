@@ -1,9 +1,9 @@
 """
-README ↔ reality sync checks (#551).
+Context Engine MCP compatibility reference ↔ reality sync checks (#551).
 
-The MCP tool table in README.md must stay aligned with the actual default
-toolset. These tests pin the README to ground truth so the surface cannot
-silently rot again.
+The technical compatibility table in docs/context-engine-mcp-tools.md must stay
+aligned with the actual default toolset. The root README intentionally carries
+only the current public product summary.
 """
 
 import re
@@ -19,28 +19,26 @@ _ROOT = Path(__file__).resolve().parents[1]
 
 
 def _mcp_section() -> str:
-    readme = (_ROOT / "README.md").read_text(encoding="utf-8")
-    section = readme.split("### MCP Tools", 1)[1]
-    return section.split("## The Problem", 1)[0]
+    return (_ROOT / "docs" / "context-engine-mcp-tools.md").read_text(encoding="utf-8")
 
 
 def _table_tools(text: str) -> list[str]:
     return re.findall(r"^\| `(perseus_\w+)` \|", text, flags=re.M)
 
 
-def test_readme_default_tool_table_matches_get_all_mcp_tools():
-    """The main README table must be exactly _get_all_mcp_tools({})'s set."""
+def test_compatibility_reference_default_tool_table_matches_get_all_mcp_tools():
+    """The technical compatibility table must match _get_all_mcp_tools({})."""
     section = _mcp_section()
     optin_at = section.find("Opt-in only")
-    assert optin_at != -1, "README lost its opt-in tools table"
+    assert optin_at != -1, "compatibility reference lost its opt-in tools table"
     default_rows = _table_tools(section[:optin_at])
     optin_rows = _table_tools(section[optin_at:])
 
     actual = {t["name"] for t in perseus._get_all_mcp_tools({})}
 
-    assert len(default_rows) == len(set(default_rows)), "duplicate rows in README table"
+    assert len(default_rows) == len(set(default_rows)), "duplicate rows in compatibility table"
     assert set(default_rows) == actual, (
-        "README default-tool table is out of sync with _get_all_mcp_tools({}): "
+        "Compatibility default-tool table is out of sync with _get_all_mcp_tools({}): "
         f"missing from table: {sorted(actual - set(default_rows))}; "
         f"stale rows in table: {sorted(set(default_rows) - actual)}"
     )
@@ -50,12 +48,12 @@ def test_readme_default_tool_table_matches_get_all_mcp_tools():
         "opt-in-only tools unexpectedly present in the default toolset"
 
 
-def test_readme_prose_tool_surface_matches_table():
+def test_compatibility_reference_prose_tool_surface_matches_table():
     section = _mcp_section()
-    assert "MCP tools resolve live state" in section, "README prose MCP-surface sentence missing"
+    assert "MCP tools resolve live state" in section, "compatibility MCP-surface sentence missing"
     optin_at = section.find("Opt-in only")
     default_rows = _table_tools(section[:optin_at])
-    assert default_rows, "README MCP tool table is empty"
+    assert default_rows, "compatibility MCP tool table is empty"
 
 
 def test_readme_test_count_comment_matches_current():

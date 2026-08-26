@@ -1,0 +1,11 @@
+{
+  "artifact_type": "perseus-context-render-bounded-replay/v1",
+  "generated_at": "2026-08-26T16:49:37Z",
+  "generator": "bounded excerpt from a Perseus 1.0.27 source-checkout render",
+  "source_revision": "d2e857ba4ea96a7e5656d0e44bc5daab48e6cd36",
+  "source_path": "demo/sample-context.md",
+  "source_sha256": "a97c21acd634a17c1c61a99aeb9aba3bf8c53706ee5f2f23957667c66f55b153",
+  "output_path": "demo/sample-resolved.txt",
+  "output_sha256": "e514e9de9cb76a690291cffd229b1c21a4dd4d4c4c5bffea85c5b96e0f797a9d",
+  "claim_boundary": "Bounded excerpt from a real local render; the automatic compatibility memory pointer is excluded. No model, memory retrieval, live service, customer data, token measurement, or production receipt."
+}

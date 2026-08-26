@@ -6,7 +6,7 @@ Runnable demo workspaces. Each subdirectory is a self-contained example you can 
 
 ## [`local-cli/`](./local-cli/)
 
-**The simplest possible Perseus setup.** Local CLI only — no assistant integration, no containers. Install Perseus, scaffold a context source, render it, write a checkpoint, ask Pythia. Covers the three core pillars in ten commands.
+**The simplest possible Perseus setup.** Local CLI only, without assistant integration or containers. Install Perseus, scaffold a context source, render it, write a checkpoint, and request an optional task suggestion. The example covers the main CLI loop in ten commands.
 
 Use this to understand how Perseus works before wiring it to an assistant.
 
