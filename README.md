@@ -334,13 +334,13 @@ Keep it fresh with cron, launchd, systemd, or `perseus watch`:
 
 ```bash
 # Linux systemd (auto-refresh every 5 minutes)
-~/.local/bin/perseus systemd .perseus/context.md --output AGENTS.md --interval 5m --install --enable
+~/.local/bin/perseus systemd create .perseus/context.md --output AGENTS.md --interval 5m --install --enable
 
 # macOS launchd
-~/.local/bin/perseus launchd .perseus/context.md --output AGENTS.md
+~/.local/bin/perseus launchd create .perseus/context.md --output AGENTS.md
 
 # Cron (any POSIX host)
-~/.local/bin/perseus cron .perseus/context.md --output AGENTS.md --every 5 --install
+~/.local/bin/perseus cron create .perseus/context.md --output AGENTS.md --every 5 --install
 ```
 
 See the [Integration Guide](https://github.com/Perseus-Computing-LLC/perseus/blob/main/docs/HERMES_INTEGRATION.md) for Hermes-specific auto-refresh setups and [adapter patterns](https://github.com/Perseus-Computing-LLC/perseus/blob/main/spec/integration.md) for full integration details.

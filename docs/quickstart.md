@@ -209,17 +209,17 @@ Re-renders whenever the source file changes.
 
 ```bash
 # Print a crontab entry
-~/.local/bin/perseus cron .perseus/context.md --output .hermes.md --every 5
+~/.local/bin/perseus cron create .perseus/context.md --output .hermes.md --every 5
 
 # Install it (macOS/Linux)
-~/.local/bin/perseus cron .perseus/context.md --output .hermes.md --every 5 --install
+~/.local/bin/perseus cron create .perseus/context.md --output .hermes.md --every 5 --install
 ```
 
 ### Option C — systemd / launchd
 
 ```bash
-~/.local/bin/perseus systemd .perseus/context.md --output .hermes.md   # Linux
-~/.local/bin/perseus launchd .perseus/context.md --output .hermes.md   # macOS
+~/.local/bin/perseus systemd create .perseus/context.md --output .hermes.md   # Linux
+~/.local/bin/perseus launchd create .perseus/context.md --output .hermes.md   # macOS
 ```
 
 ---

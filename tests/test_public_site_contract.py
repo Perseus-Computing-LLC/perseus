@@ -409,6 +409,19 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     assert "git checkout <full-commit-sha-you-reviewed>" in detailed_quickstart
     assert "do not install from the mutable default branch" in detailed_quickstart
     assert "python -m pip install -e ." in detailed_quickstart
+    for scheduler in ("cron", "launchd", "systemd"):
+        assert f"perseus {scheduler} create" in detailed_quickstart or f"perseus {scheduler} create" in root_readme
+    for obsolete_scheduler in ("perseus cron .perseus", "perseus launchd .perseus", "perseus systemd .perseus"):
+        assert obsolete_scheduler not in detailed_quickstart
+        assert obsolete_scheduler not in root_readme
+
+    site_builder = text("scripts/build_public_site.py")
+    assert "pip install perseus-ledger==1.2.4" in site_builder
+    assert "pip install perseus-ledger\\n" not in site_builder
+
+    card_generator = text("scripts/generate_server_card.py")
+    assert "Path(__file__).resolve().parents[1]" in card_generator
+    assert 'Path(".well-known/mcp/server-card.json")' not in card_generator
 
     install = text("INSTALL.md")
     assert "uv tool install perseus-ctx==1.0.26" in install
