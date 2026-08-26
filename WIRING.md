@@ -69,9 +69,9 @@ Print the exact config:
 ~/.local/bin/perseus mcp config
 ```
 
-### SSE (remote agents, multi-machine)
+### SSE (loopback integrations)
 
-Set a bearer token in the protected Perseus config before launch. The SSE server refuses to bind without authentication unless the operator explicitly sets `mcp.allow_no_auth: true`.
+The built-in SSE listener binds to `127.0.0.1` and accepts only loopback Host headers. Set a bearer token in the protected Perseus config before launch. The server refuses to bind without authentication unless the operator explicitly sets `mcp.allow_no_auth: true`. For multi-machine use, put a separately reviewed authenticated reverse proxy or tunnel in front of the loopback listener; the direct `<host>:8420` path is not supported.
 
 ```yaml
 mcp:
@@ -82,7 +82,7 @@ mcp:
 ~/.local/bin/perseus mcp serve --transport sse --port 8420
 ```
 
-Send that token as an `Authorization: Bearer …` header and point remote assistants at `http://<host>:8420/sse`.
+A local client sends that token as an `Authorization: Bearer …` header to `http://127.0.0.1:8420/sse`.
 
 ### Available MCP Tools
 

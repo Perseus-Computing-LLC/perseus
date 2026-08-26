@@ -373,6 +373,11 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     card = json.loads(text(".well-known/mcp/server-card.json"))
     assert card["serverInfo"]["version"] == manifest["version"] == "1.0.26"
     assert card["authentication"] == {"required": True, "schemes": ["bearer"]}
+    card_tools = {tool["name"]: tool for tool in card["tools"]}
+    for mutating_tool in ("perseus_capture", "perseus_context_diff"):
+        assert card_tools[mutating_tool]["annotations"]["readOnlyHint"] is False
+        assert card_tools[mutating_tool]["annotations"]["destructiveHint"] is True
+    assert "_build_server_card" in text("scripts/generate_server_card.py")
     render_claims = text("scripts/render_claims.py")
     assert render_claims.count('"perseus_pypi_version"') >= 3
 
@@ -392,6 +397,22 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
 
     assert "sse_bearer_token" in root_readme
     assert "sse_bearer_token" in wiring
+    assert "loopback-only SSE listener" in root_readme
+    assert "SSE (loopback integrations)" in wiring
+    assert "http://<host>:8420/sse" not in wiring
+
+    install = text("INSTALL.md")
+    assert "uv tool install perseus-ctx==1.0.26" in install
+    assert "python -m pip install perseus-ctx==1.0.26" in install
+    for unsafe_install in ("uv tool install perseus-ctx\n", "pip install perseus-ctx\n"):
+        assert unsafe_install not in install
+    assert "Do not use `git pull && ./scripts/install.sh`" in install
+    assert "Do not execute a mutable branch checkout" in install
+
+    for sbom_path in ("SBOM.md", "docs/SBOM.md"):
+        sbom_text = text(sbom_path)
+        assert "langchain-core" in sbom_text
+        assert "llama-index-core" in sbom_text
 
     hook = text("integrations/claude-code/on_session_start.sh")
     assert '"${PERSEUS[@]}" render' in hook
