@@ -2,6 +2,7 @@ import hashlib
 import importlib.util
 import json
 import re
+import subprocess
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -246,6 +247,11 @@ def test_demo_replay_artifact_is_hash_bound_and_claim_limited():
     output = (ROOT / metadata["output_path"]).read_bytes()
     assert hashlib.sha256(source).hexdigest() == metadata["source_sha256"]
     assert hashlib.sha256(output).hexdigest() == metadata["output_sha256"]
+    committed_source = subprocess.check_output(
+        ["git", "show", f"{metadata['source_revision']}:{metadata['source_path']}"],
+        cwd=ROOT,
+    )
+    assert hashlib.sha256(committed_source).hexdigest() == metadata["source_sha256"]
     page = text("demo/index.html")
     for phrase in ("does not run a model", "does not prove model behavior", "bounded excerpt", "compatibility memory pointer is excluded"):
         assert phrase in page
@@ -303,6 +309,15 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     assert "Level 2 self-assessment" in security_policy
     assert "does **not** claim a SLSA provenance attestation" in security_policy
     assert "signed SLSA build provenance" not in security_policy
+
+    nist = text("docs/NIST-AI-RMF-ALIGNMENT.md")
+    for retired_claim in ("ATO submissions", "Perseus never writes", "450x", "94% token compression", "0 failures at 150", "no data leaves"):
+        assert retired_claim not in nist
+    assert "does not demonstrate full NIST AI RMF conformity" in nist
+
+    support = text("SUPPORT.md")
+    assert "perseus-ctx==1.0.26" in support
+    assert "copy-paste `perseus.py`" not in support
 
     manifest = json.loads(text("manifest.json"))
     assert manifest["server"]["mcp_config"]["args"] == ["mcp", "serve"]

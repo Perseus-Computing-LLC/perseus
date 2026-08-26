@@ -54,11 +54,6 @@
           "default": "auto",
           "enum": ["auto", "claude", "cursor", "codex", "hermes", "copilot"],
           "description": "Target AI assistant (auto-detects from workspace files)"
-        },
-        "perseus.showStatusBar": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show Perseus render status in the status bar"
         }
       }
     }

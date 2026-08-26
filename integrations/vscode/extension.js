@@ -23,13 +23,24 @@ function requireTrustedWorkspace() {
 }
 
 function resolveWithinWorkspace(root, rawPath) {
-    const resolvedRoot = path.resolve(root);
+    const resolvedRoot = fs.realpathSync(root);
     const resolved = path.resolve(resolvedRoot, rawPath);
     const relative = path.relative(resolvedRoot, resolved);
-    if (!relative || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))) {
-        return resolved;
+    if (relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) {
+        throw new Error(`Perseus path must remain inside the workspace: ${rawPath}`);
     }
-    throw new Error(`Perseus path must remain inside the workspace: ${rawPath}`);
+
+    // Reject symlinks in every existing output-path component. This prevents a
+    // workspace-relative path from resolving to an external target.
+    let current = resolvedRoot;
+    for (const segment of relative.split(path.sep).filter(Boolean)) {
+        current = path.join(current, segment);
+        if (!fs.existsSync(current)) break;
+        if (fs.lstatSync(current).isSymbolicLink()) {
+            throw new Error(`Perseus output path cannot contain a symbolic link: ${rawPath}`);
+        }
+    }
+    return resolved;
 }
 
 function activate(context) {
@@ -113,7 +124,6 @@ function startWatching() {
     const contextFile = path.join(root, '.perseus', 'context.md');
     if (!fs.existsSync(contextFile)) return;
 
-    const config = vscode.workspace.getConfiguration('perseus');
     const pattern = new vscode.RelativePattern(path.join(root, '.perseus'), '**/*');
 
     watcher = vscode.workspace.createFileSystemWatcher(pattern, false, false, false);

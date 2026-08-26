@@ -77,6 +77,8 @@ def test_public_vscode_integration_requires_trust_and_contains_output_paths():
     script = f"""
 const assert = require('assert');
 const Module = require('module');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const originalLoad = Module._load;
 Module._load = function(request, parent, isMain) {{
@@ -84,13 +86,23 @@ Module._load = function(request, parent, isMain) {{
   return originalLoad.call(this, request, parent, isMain);
 }};
 const resolveWithinWorkspace = require({extension_path})._test.resolveWithinWorkspace;
-const root = path.resolve('/tmp/perseus workspace');
-assert.strictEqual(
-  resolveWithinWorkspace(root, 'nested/AGENTS.md'),
-  path.join(root, 'nested/AGENTS.md')
-);
-assert.throws(() => resolveWithinWorkspace(root, '../escape.md'));
-assert.throws(() => resolveWithinWorkspace(root, path.resolve(root, '..', 'escape.md')));
+const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'perseus-vscode-'));
+const root = path.join(sandbox, 'workspace');
+const outside = path.join(sandbox, 'outside');
+fs.mkdirSync(root);
+fs.mkdirSync(outside);
+try {{
+  assert.strictEqual(
+    resolveWithinWorkspace(root, 'nested/AGENTS.md'),
+    path.join(root, 'nested/AGENTS.md')
+  );
+  assert.throws(() => resolveWithinWorkspace(root, '../escape.md'));
+  assert.throws(() => resolveWithinWorkspace(root, path.resolve(root, '..', 'escape.md')));
+  fs.symlinkSync(outside, path.join(root, 'linked'), 'dir');
+  assert.throws(() => resolveWithinWorkspace(root, 'linked/AGENTS.md'));
+}} finally {{
+  fs.rmSync(sandbox, {{ recursive: true, force: true }});
+}}
 """
     result = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr

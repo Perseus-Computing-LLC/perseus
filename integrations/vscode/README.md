@@ -21,6 +21,7 @@ Do not install the unreviewed directory from a mutable branch.
 | `perseus.executable` | empty | Optional absolute path to a reviewed executable; otherwise the adapter searches `PATH` |
 | `perseus.outputFile` | `.hermes.md` | Workspace-relative output; traversal outside the workspace is rejected |
 | `perseus.assistant` | `auto` | Select a fixed workspace-relative assistant output |
-| `perseus.showStatusBar` | `true` | Show render status |
+
+The status bar is always shown while this compatibility adapter is active.
 
 The adapter uses argument arrays rather than a shell command string. Enabled rendering still runs with the current user's permissions and can overwrite the selected file inside the trusted workspace.
