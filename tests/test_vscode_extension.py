@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXT_DIR = REPO_ROOT / "editors" / "vscode"
+INTEGRATION_EXT_DIR = REPO_ROOT / "integrations" / "vscode"
 
 
 def _package() -> dict:
@@ -57,3 +59,38 @@ def test_vscode_release_docs_cover_smoke_and_packaging():
     assert "perseus.compactMemory" in combined
     assert "--allow-lsp-mutations" in combined
     assert "Do not publish" in combined
+
+
+def test_public_vscode_integration_requires_trust_and_contains_output_paths():
+    package = json.loads((INTEGRATION_EXT_DIR / "package.json").read_text(encoding="utf-8"))
+    props = package["contributes"]["configuration"]["properties"]
+    assert props["perseus.autoRender"]["default"] is False
+    assert props["perseus.executable"]["default"] == ""
+
+    source = (INTEGRATION_EXT_DIR / "extension.js").read_text(encoding="utf-8")
+    assert "workspace.isTrusted" in source
+    assert "resolveWithinWorkspace" in source
+    assert "sourceCandidate" not in source
+    assert "execFile(" in source
+
+    extension_path = json.dumps(str(INTEGRATION_EXT_DIR / "extension.js"))
+    script = f"""
+const assert = require('assert');
+const Module = require('module');
+const path = require('path');
+const originalLoad = Module._load;
+Module._load = function(request, parent, isMain) {{
+  if (request === 'vscode') return {{}};
+  return originalLoad.call(this, request, parent, isMain);
+}};
+const resolveWithinWorkspace = require({extension_path})._test.resolveWithinWorkspace;
+const root = path.resolve('/tmp/perseus workspace');
+assert.strictEqual(
+  resolveWithinWorkspace(root, 'nested/AGENTS.md'),
+  path.join(root, 'nested/AGENTS.md')
+);
+assert.throws(() => resolveWithinWorkspace(root, '../escape.md'));
+assert.throws(() => resolveWithinWorkspace(root, path.resolve(root, '..', 'escape.md')));
+"""
+    result = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr

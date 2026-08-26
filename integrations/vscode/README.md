@@ -1,41 +1,26 @@
-# Perseus — VS Code / Cursor Extension
+# Perseus lightweight VS Code / Cursor adapter
 
-Live context for your AI coding assistant. Zero cold-start discovery calls.
+This directory contains a source-only compatibility adapter. The supported LSP extension and its release instructions live in [`editors/vscode`](../../editors/vscode/). Do not publish this adapter as the primary Marketplace extension.
 
-## Install
+The adapter does not render merely because a repository is opened. VS Code must trust the workspace, and automatic rendering is off by default. It invokes only an executable found on the operator's `PATH` or an explicitly configured absolute executable path. It does not execute a workspace copy of `perseus.py`.
 
-1. Copy this directory to `~/.vscode/extensions/perseus-context/`
-2. Reload VS Code (`Ctrl+Shift+P` → "Developer: Reload Window")
-3. Open a workspace with `.perseus/context.md` — Perseus activates automatically
+## Local review and install
 
-Or from the marketplace (coming soon):
-```bash
-code --install-extension tcconnally.perseus-context
-```
+1. Review `extension.js` and `package.json` from a pinned repository commit.
+2. Copy this directory to a local VS Code extension-development location.
+3. Reload VS Code and open a trusted workspace containing `.perseus/context.md`.
+4. Run `Perseus: Render Context Now`, or explicitly enable automatic rendering after reviewing the context source and output path.
 
-## How it works
-
-1. **Auto-render** — When you save `.perseus/context.md`, Perseus renders live context to your assistant's file
-2. **Status bar** — "Perseus: 722 lines · 48KB · 1.7s" — always visible
-3. **Assistant auto-detect** — Finds CLAUDE.md, .cursorrules, AGENTS.md, or .hermes.md automatically
-4. **Commands**: `Perseus: Render Context Now` · `Perseus: Init Workspace`
+Do not install the unreviewed directory from a mutable branch.
 
 ## Configuration
 
 | Setting | Default | Description |
 |---|---|---|
-| `perseus.autoRender` | `true` | Auto-render on context file changes |
-| `perseus.outputFile` | `.hermes.md` | Output file name |
-| `perseus.assistant` | `auto` | Target assistant (claude, cursor, codex, hermes, copilot) |
-| `perseus.showStatusBar` | `true` | Show render status in status bar |
+| `perseus.autoRender` | `false` | Render after context changes only when explicitly enabled in a trusted workspace |
+| `perseus.executable` | empty | Optional absolute path to a reviewed executable; otherwise the adapter searches `PATH` |
+| `perseus.outputFile` | `.hermes.md` | Workspace-relative output; traversal outside the workspace is rejected |
+| `perseus.assistant` | `auto` | Select a fixed workspace-relative assistant output |
+| `perseus.showStatusBar` | `true` | Show render status |
 
-## Publish to Marketplace
-
-```bash
-npm install -g @vscode/vsce
-cd integrations/vscode
-vsce package  # → perseus-context-1.0.0.vsix
-vsce publish  # → live on marketplace
-```
-
-Requires a Visual Studio Marketplace publisher account. Create one at https://marketplace.visualstudio.com/manage
+The adapter uses argument arrays rather than a shell command string. Enabled rendering still runs with the current user's permissions and can overwrite the selected file inside the trusted workspace.

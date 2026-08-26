@@ -235,7 +235,7 @@ HOME = """
 
 CONTEXT = f"""
 <section class="product-hero context-hero"><div class="wrap product-hero-grid"><div><p class="kicker">Present / current workspace state</p><h1>Start the first turn already oriented.</h1><p class="lead">Perseus Context Engine resolves the repository, services, tests, tasks, and conventions you already maintain into one inspectable briefing.</p><div class="actions"><a class="button button-primary" href="#install">Run the first render</a><a class="text-link" href="{SOURCE}" rel="noopener">Read source ↗</a></div></div><div class="artifact-diff"><div><span>Before</span><p>Port? Test state? Last decision? The agent must inspect each source.</p></div><div><span>Resolved artifact</span><pre>API_PORT: 3001
-Tests: 894 passing
+Tests: inspect the current CI record
 Checkpoint: review pending
 Sources: 4 verified</pre></div></div></div></section>
 <section class="section"><div class="wrap product-job"><div><p class="kicker">Product job</p><h2>Compile facts before they consume model time.</h2></div><div class="job-flow"><div><span>1</span><b>Author directives</b><p>Name the sources the workspace already trusts.</p></div><div><span>2</span><b>Resolve locally</b><p>Perseus reads them and applies explicit bounds.</p></div><div><span>3</span><b>Review the artifact</b><p>The agent starts from a file a person can inspect.</p></div></div></div></section>
@@ -291,7 +291,7 @@ Activate “Replay committed render” to load the generated output and its SHA-
   <div class="demo-controls"><button class="button button-primary" type="button" data-demo-run>Replay committed render</button><button class="button button-secondary" type="button" data-demo-reset disabled>Reset</button><p data-demo-status aria-live="polite">Idle. No network request has run.</p></div>
   <details class="demo-boundary"><summary>What this replay proves and does not prove</summary><p>The interaction proves that the public route can load and display the committed bounded excerpt and its metadata. The excerpt comes from a local Perseus Context Engine render and excludes the automatic compatibility memory pointer. It does not prove model behavior, memory retrieval, token savings, customer performance, or a live service.</p></details>
 </div></section>
-<section class="section"><div class="wrap install-layout"><div><p class="kicker">Run the real product</p><h2>Generate the same artifact in your own workspace.</h2><p>The real loop runs locally: author sources, render the briefing, inspect the output, then give that file to the assistant you already use.</p></div><div>""" + command("pip install perseus-ctx\nperseus quickstart\nperseus render .perseus/context.md -o AGENTS.md") + """</div></div></section>
+<section class="section"><div class="wrap install-layout"><div><p class="kicker">Run the published product</p><h2>Generate a complete artifact in your own workspace.</h2><p>The real loop runs locally: author sources, render the briefing, inspect the output, then give that file to the assistant you already use.</p></div><div>""" + command("pip install perseus-ctx\nperseus quickstart\nperseus render .perseus/context.md -o AGENTS.md") + """</div></div></section>
 """
 
 GOVERNMENT = """

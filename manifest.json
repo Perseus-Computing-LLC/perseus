@@ -23,7 +23,7 @@
     "entry_point": "perseus",
     "mcp_config": {
       "command": "perseus",
-      "args": ["mcp"]
+      "args": ["mcp", "serve"]
     }
   },
   "compatibility": {
