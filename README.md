@@ -491,141 +491,30 @@ The next session recovers immediately with `perseus recover` — workspace-aware
 
 ---
 
-## Multi-Agent Coordination
+## Composition boundary
 
-![120-agent swarm demo — 120 agents claiming tasks via atomic sidecar locks, zero collisions](demo-swarm.gif)
-
-Because Perseus outputs flat files and writes checkpoints to disk, downstream systems can build coordination on top of it without Perseus itself being an orchestration platform. The checkpoint store is namespaced and lock-protected — agents read each other's latest state from the filesystem rather than a message bus. Teams have extended this pattern to multi-agent relay, shared inboxes, and agora task boards.
-
-```
-dev-01: [architect → implementer → reviewer → tester]  ─┐
-dev-02: [architect → implementer → reviewer → tester]  ─┤
-...                                                      ├─ shared checkpoint store
-dev-30: [architect → implementer → reviewer → tester]  ─┘     (namespaced + lock-protected)
-```
-
-Proven at enterprise scale — see [Multi-Agent Relay](./docs/EXAMPLES.md#subagent-handover-zero-tax-orientation).
+Perseus Context Engine writes bounded context artifacts and workspace checkpoints. Other systems can read those files to coordinate work, but the Context Engine is not an orchestration platform and the repository does not claim an enterprise deployment from that composition pattern.
 
 ---
 
 ## Architecture
 
-```
-  Plugins:  ~/.perseus/plugins/        ─┐  Discovered at render time.
-            ~/.perseus/validators/       │  Macros, hooks, webhooks,
-            ~/.perseus/formats/          ┘  and aliases load from config.
-
-Source document (.perseus/context.md)
-  @perseus v1.0.8
-  @query "git log --oneline -5"          ┐
-  @read .env key="PORT"                  │  Directives resolved
-  @waypoint ttl=86400                    │  before context window.
-  @services                              │  Cache layer avoids
-    - name: My App                       │  re-running slow queries.
-      url: http://localhost:3001/health  ┘
-          │
-          ▼ perseus render
-  Resolved markdown (facts, not instructions)
-          │
-          ▼
-  .hermes.md  ←── cron watchdog keeps this ≤5 min fresh
-          │
-          ▼
-  AI context window — complete, accurate, zero pre-flight tax
-
-  Waypoints: ~/.perseus/checkpoints/
-  Plugins:   ~/.perseus/plugins/
-  Validators:~/.perseus/validators/
-  Formats:   ~/.perseus/formats/
-  Cache:     ~/.perseus/cache/
-  Config:    ~/.perseus/config.yaml
+```text
+operator-authored context source
+        |
+        v
+Perseus Context Engine
+  - validates enabled directives
+  - resolves allowed local sources
+  - gates optional shell and network operations
+  - emits bounded markdown plus diagnostics
+        |
+        +--> compatible assistant host
+        +--> optional Perseus Vault recall
+        +--> optional Perseus Ledger evidence record
 ```
 
----
-
-## Extensibility (Hephaestus)
-
-Perseus is extensible without source patching. Drop Python files into
-`~/.perseus/` and the renderer discovers them at startup.
-
-### Plugins
-
-```python
-# ~/.perseus/plugins/my_plugin.py
-from perseus.registry import DirectiveSpec
-
-def _resolve_service_status(args, cfg, workspace):
-    import urllib.request
-    try:
-        resp = urllib.request.urlopen(args.strip(), timeout=5)
-        return f"Status: {resp}"
-    except Exception as e:
-        return f"Error: {e}"
-
-REGISTER = {
-    "@service-status": DirectiveSpec(
-        name="@service-status",
-        resolver=_resolve_service_status,
-        args=["url"],
-        kind="inline",
-        call_sig="acw",
-        executes_shell=False,
-        safe_for_hover=True,
-        cacheable=True,
-        summary="Check HTTP status of a URL",
-    )
-}
-```
-
-Use it in context files: `@service-status https://api.example.com/health`
-
-Built-in directives always win collisions. Plugins respect the same permission
-profile as built-ins (`executes_shell` gates behind `allow_query_shell`).
-
-### Macros
-
-Reusable directive compositions — no Python needed:
-
-```markdown
-@macro deploy %env% %version%
-@query "kubectl rollout status deploy/app -n %env%"
-@services
-  - name: app-%env%
-    url: https://%env%.example.com/health
-@endmacro
-
-@deploy production 2.3.1
-```
-
-Macros expand before directive resolution. Chaining supported up to depth 5 with
-cycle detection. Define them in your context file or at `.perseus/macros.md`.
-
-### Render Pipeline Hooks
-
-Shell scripts or Python callbacks fire at render lifecycle points —
-`on_render_start`, `on_directive_resolved`, `on_cache_hit`, `on_cache_miss`,
-`on_render_complete`, `on_directive_error`:
-
-```yaml
-# ~/.perseus/config.yaml
-hooks:
-  enabled: true
-  on_render_complete:
-    - cmd: "notify-send 'Context refreshed'"
-  on_directive_error:
-    - plugin: "my_error_handler"
-```
-
-### Pipe Syntax
-
-Chain directives with `|` for lightweight composition (max 3 stages):
-
-```markdown
-@query "ls services/" | @cache ttl=300
-@read config.yaml path="endpoints" | @validate schema="endpoint-list"
-```
-
-Output of each stage becomes the first positional argument to the next.
+Perseus Vault and Perseus Ledger remain separate components. Extensions, hooks, custom directives, and external service checks execute only when the operator configures them; they inherit the current user's permissions and can change the local-only data boundary.
 
 ### Tiered Context (Progressive Disclosure)
 
@@ -812,70 +701,18 @@ value signal.
 
 ---
 
-## Context Profiles & Recall-First Memory (`@profile`)
+## Context profiles and durable-memory boundary
 
-**A context engine should retrieve, not pre-load.** As of v1.0.14, Perseus is **recall-first by default**: the automatic long-term-memory dump that used to be stapled into every rendered context is replaced by a short, static retrieval pointer plus the recall tools. On a 200k-context model, a fixed memory blob on every turn is a permanent token tax that poisons prefix-cache stability the moment any fact changes — Perseus already has the retrieval layer (`@memory`, `@vault`, `perseus_vault`), so the default context now spends the budget on the task.
-
-Per-model **context profiles** make the posture first-class and model-aware:
+Perseus Context Engine resolves and shapes the active working context. Perseus Vault owns durable-memory persistence and recall. The default `on_demand` profile adds a retrieval pointer instead of preloading a memory dump; `relevant` and legacy `always` modes require explicit configuration.
 
 ```yaml
-# ~/.perseus/config.yaml
 profiles:
-  default:            { context_target: 200000,  memory: on_demand }
-  claude-sonnet-4-6:  { context_target: 200000,  memory: on_demand }
-  claude-opus-4-8:    { context_target: 1000000, memory: on_demand }   # big window is not an excuse to bloat
-  legacy-dump:        { context_target: 200000,  memory: always, inject_limit: 5 }
+  default: { context_target: 200000, memory: on_demand }
 ```
 
-Select a profile per document with the `@profile` directive (unknown names fall back to `default` deterministically):
+An explicit `@memory` directive is a code-level compatibility interface for requesting recalled memory. It is not a separate product. Recalled material can be stale or incomplete, so live workspace state and operator policy remain authoritative.
 
-```markdown
-@profile claude-sonnet-4-6
-```
-
-Three memory postures:
-
-| Posture | Behavior |
-|---|---|
-| `on_demand` (**default**) | Inject a static retrieval pointer + tools. **No pre-materialized memory dump.** The fixed prompt prefix stays byte-stable across vault writes (prefix-cache friendly). |
-| `relevant` | Inject only entities whose `recall_when` triggers match the current render context (via the vault's trigger matching). No match → no dump. |
-| `always` | **Legacy opt-in.** The pre-v1.0.14 unconditional dump on every render. Kept for back-compat; documented as an anti-pattern. `always_inject: true` is accepted as an alias. |
-
-Injection hygiene (all postures that inject content):
-
-- **De-duplicated** — if the rendered document already contains a memory section (an explicit `@memory` directive, a template section, or a previous injection pass), the automatic block is skipped. The same memory content can never appear twice in one context.
-- **Workspace-scoped** — recall calls that support it receive the active workspace hash, so personal and project memories don't share one undifferentiated pool at the render layer.
-- **Budgeted per profile** — a 200k-class profile admits at most a handful of entities (`inject_limit`, default 5; 10 for larger windows).
-- **Advisory framing** — injected memory carries a note that it may be stale or tangential and that live workspace state wins on conflict, instead of asserting authority.
-
-To suppress the automatic section entirely (pointer included) set `Perseus Vault.auto_inject: false`; to restore the old behavior globally set `profiles.default.memory: always`.
-
----
-
-## Project Memory (Perseus Vault)
-
-Perseus Vault (Μνήμη) is Perseus's narrative project memory. It distills checkpoints and Guide recommendations into a per-workspace narrative — so your assistant knows not just what's running, but *how you got here*.
-
-```bash
-# Update the narrative from latest checkpoints
-perseus memory update
-
-# Query the narrative
-perseus memory query "what was the auth decision?"
-
-# Render it inline
-perseus render .perseus/context.md --output CLAUDE.md
-```
-
-In your context file:
-
-```markdown
-@memory                    # full narrative
-@memory focus="decisions"  # decisions section only
-@memory focus="recent"     # recent activity
-```
-
-Perseus Vault distills deterministically and zero-dependency — Perseus runs no inference of its own (observe model); the host agent reads and reasons over the narrative with whatever model it already uses. Full docs: [spec/components.md](./spec/components.md) § 4.
+To disable automatic recall pointers, set `perseus_vault.auto_inject: false`. See the [setup guide](SETUP-GUIDE.md) and the [versioned Vault API reference](https://perseus.observer/vault/mcp-reference/) for the current boundary.
 
 ---
 

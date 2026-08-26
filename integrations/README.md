@@ -1,35 +1,31 @@
-# Perseus — AI Assistant Integrations
+# Perseus Context Engine integrations
 
-Perseus is assistant-agnostic. It produces plain markdown. Every integration below just
-points the markdown at the file your assistant already reads.
+Perseus Context Engine renders plain markdown for the files that compatible assistant hosts already read.
 
-| Integration | Surface | Install | Distribution |
-|---|---|---|---|
-| **[VS Code / Cursor](./vscode/)** | Every dev using Copilot, Cursor, Codex, Claude | `.vsix` or Marketplace | VS Code Marketplace |
-| **[Claude Code](./claude-code/)** | Session-start hook | One curl command | README snippet |
-| **[GitHub Action](./github-action/)** | Every repo on GitHub | One workflow file | GitHub Actions Marketplace |
-| **[Invarium](./invarium.md)** | Context regression testing for Perseus agents | `pip install invarium` | Docs + PyPI |
+| Integration | Surface | Installation boundary |
+|---|---|---|
+| [VS Code / Cursor](./vscode/) | Editor context | Install a reviewed `.vsix` or use the Marketplace listing |
+| [Claude Code](./claude-code/) | Session-start hook | Install the checked-in hook from a reviewed checkout |
+| [GitHub Action](./github-action/) | Repository workflow | Copy and review the checked-in workflow |
+| [Invarium](./invarium.md) | Context regression testing | Follow its versioned package documentation |
 
 ## Pattern
 
-All three follow the same pattern:
+1. The integration runs `perseus render .perseus/context.md --output <target>`.
+2. The assistant host reads the rendered target file.
+3. Shell and network directives remain subject to the Context Engine security gates and current-user permissions.
 
-1. **Before** assistant session: `perseus render .perseus/context.md --output <target>`
-2. **Assistant opens**: reads `<target>` (CLAUDE.md, AGENTS.md, .cursorrules, .hermes.md)
-3. **Zero discovery calls** — context is live, verified, pre-resolved
-
-## Quickstart
+## Start from a reviewed checkout
 
 ```bash
-# 1. Install Perseus
-pip install perseus-ctx
-
-# 2. Scaffold your workspace
+python -m pip install perseus-ctx==1.0.26
 cd my-project
-perseus init . --output CLAUDE.md
+perseus quickstart
 
-# 3. Pick your integration:
-#    VS Code → install from integrations/vscode/
-#    Claude Code → curl integrations/claude-code/on_session_start.sh
-#    GitHub Actions → copy integrations/github-action/ workflow
+# Choose one reviewed integration source:
+# VS Code: integrations/vscode/
+# Claude Code: integrations/claude-code/on_session_start.sh
+# GitHub Actions: integrations/github-action/
 ```
+
+Do not download and execute mutable scripts from a branch tip. Review the checked-in integration before installing it.

@@ -18,12 +18,21 @@ command -v "$PYTHON" >/dev/null 2>&1 || fail "$PYTHON not found"
 info "Installing pinned package $PKG_SPEC"
 "$PYTHON" -m pip install --upgrade "$PKG_SPEC"
 
+SCRIPTS_DIR="$("$PYTHON" -c 'import sysconfig; print(sysconfig.get_path("scripts"))')"
+PERSEUS_BIN="$SCRIPTS_DIR/perseus"
+[ -x "$PERSEUS_BIN" ] || fail "installed Perseus executable not found at $PERSEUS_BIN"
+VERSION_OUTPUT="$("$PERSEUS_BIN" --version)"
+case "$VERSION_OUTPUT" in
+  *"$PERSEUS_CTX_VERSION"*) ;;
+  *) fail "installed executable version mismatch: $VERSION_OUTPUT" ;;
+esac
+
 cd "$WORKSPACE"
 info "Initializing Perseus Context Engine in $WORKSPACE"
-perseus quickstart
+"$PERSEUS_BIN" quickstart
 
 info "Running diagnostics"
-perseus doctor
+"$PERSEUS_BIN" doctor
 
 printf '\nPerseus Context Engine is configured.\n'
 printf 'Review .perseus/config.yaml and .perseus/context.md before enabling shell or network directives.\n'

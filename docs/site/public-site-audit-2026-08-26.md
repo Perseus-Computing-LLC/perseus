@@ -1,8 +1,8 @@
 # Perseus public-site audit — 2026-08-26
 
-**Production inspected:** <https://perseus.observer/>  
-**Repository base:** `d2e857ba4ea96a7e5656d0e44bc5daab48e6cd36`  
-**Pages source:** `main:/` (GitHub Pages legacy build, custom domain `perseus.observer`, HTTPS enforced)  
+**Production inspected:** <https://perseus.observer/>
+**Repository base:** `d2e857ba4ea96a7e5656d0e44bc5daab48e6cd36`
+**Pages source:** `main:/` (GitHub Pages legacy build, custom domain `perseus.observer`, HTTPS enforced)
 **Production deployment:** GitHub deployment `6103555758`, SHA `d2e857ba4ea96a7e5656d0e44bc5daab48e6cd36`
 
 ## Evidence and limits

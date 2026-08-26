@@ -83,24 +83,21 @@ mkdir -p ~/.perseus
 
 ```yaml
 # ~/.perseus/config.yaml
-# ⚠ CRITICAL: render.allow_query_shell must be true for @query to work.
-# trust.allow_query_shell controls audit display only — NOT the render gate.
+# Safe default: shell and network operations remain disabled.
 render:
-  allow_query_shell: true        # ← REQUIRED to enable @query directives
-  allow_agent_shell: true        # ← REQUIRED to enable @agent directives
-  allow_remote_services_health: true
-  allow_services_command: true   # ← REQUIRED for command-type @services checks
+  allow_query_shell: false
+  allow_agent_shell: false
+  allow_remote_services_health: false
+  allow_services_command: false
   parallel_services: true
   services_timeout_s: 3
 
 trust:
-  allow_query_shell: true        # controls audit display only
+  allow_query_shell: false
   allow_outside_workspace: false
   redact_secrets: true
 
 # Optional: assistant integration (Hermes Agent)
-guide:
-  skill_dir: ~/.hermes/skills
 assistant:
   sessions_dir: ~/.hermes/sessions
 ```
@@ -163,8 +160,8 @@ This document was rendered live by Perseus. All values below are current.
 ## Session History
 @session count=5
 
-## What's Running
-@query "docker ps --format 'table {{.Names}}\t{{.Status}}'" @cache ttl=60
+## Repository layout
+@tree depth=2
 
 ## Environment
 @env NODE_ENV fallback="development"

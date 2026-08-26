@@ -51,7 +51,7 @@ def mark() -> str:
 
 def header(current: str, cta_href: str = "/docs/", cta_label: str = "Start locally") -> str:
     links = "".join(
-        f'<a href="{href}"{(" aria-current=\"page\"" if key == current else "")}>{label}</a>'
+        f'<a href="{href}"{(" aria-current=\"page\"" if key == current and not href.startswith("/#") else "")}>{label}</a>'
         for key, href, label in NAV
     )
     mobile = "".join(f'<a href="{href}">{label}</a>' for _, href, label in NAV)

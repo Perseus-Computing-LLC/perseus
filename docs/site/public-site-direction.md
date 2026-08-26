@@ -28,14 +28,14 @@ An editorial technical system: warm off-white and near-black surfaces, oxidized 
 
 A high-density documentation system with numbered sections, fixed-width annotations, and utilitarian black/white/olive styling.
 
-**Strength:** Excellent for evaluators and Government readers.  
+**Strength:** Excellent for evaluators and Government readers.
 **Risk:** Too austere for commercial/developer conversion; can look bureaucratic or derivative of military manuals.
 
 ### C. Research Instrument
 
 A bright scientific-publication system with charts, citations, generous white space, and laboratory blue/green accents.
 
-**Strength:** Strong for methods and researchers.  
+**Strength:** Strong for methods and researchers.
 **Risk:** Under-signals integration and procurement readiness; can resemble an academic project rather than a company platform.
 
 ## Recommended visual system
