@@ -386,7 +386,7 @@ Use the [public methods desk](https://perseus.observer/benchmarks/) and [`claims
 
 ## How Perseus Works
 
-The first line in this syntax example is the directive protocol marker, not the installed package version:
+The first line in this **illustrative syntax sample** is the directive protocol marker, not the installed package version. Dates, task names, and rendered values below are examples, not current release or test evidence:
 
 ```markdown
 @perseus v1.0.8
@@ -445,10 +445,10 @@ Next: run pytest tests/test_webhook.py
 
 ## Project Memory
 ### Recent
-- 2026-06-05: Deep-dive code review — O(n²)→O(n) macro expansion, regex parser, webhook retry classification, shell injection hardening. Test suite at 894 tests (Linux, Python 3.10–3.12), all passing.
-- 2026-05-27: Shipped MCP deep integration (Phase 25). 24 directives exposed as MCP tools by default.
-- 2026-05-26: Deployed Perseus v1.0.6 to PyPI. Test suite at 894 tests — all passing (Linux, Python 3.10–3.12).
-- 2026-05-24: Completed Hephaestus extensibility — plugin directives, macros, hooks, pipes.
+- [Illustrative] Reviewed a retry classification and shell-input hardening change.
+- [Illustrative] Added an MCP integration path for a project workspace.
+- [Illustrative] Published an earlier package release.
+- [Illustrative] Added plugin directives, macros, hooks, and pipes.
 ```
 
 The assistant never sees a directive. It sees a document that was already true — including which skills are available, which tasks are open, and what decisions were recently made.

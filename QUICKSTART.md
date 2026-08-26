@@ -3,7 +3,7 @@
 ## 30-Second Install
 
 ```bash
-pip install perseus-ctx
+pip install perseus-ctx==1.0.26
 cd your-project
 perseus quickstart
 ```
@@ -202,7 +202,9 @@ perseus trust
 perseus recover
 ```
 
-## Manual Config
+## Advanced manual configuration (dangerous gates opt-in)
+
+The example below deliberately enables shell, agent-shell, remote-health, and service-command operations. Do not use it as a default. Review each gate, keep unneeded operations `false`, and set `PERSEUS_ALLOW_DANGEROUS=1` only for a workspace where the operator accepts those process-level permissions.
 
 If you prefer to configure manually instead of using `perseus quickstart`:
 

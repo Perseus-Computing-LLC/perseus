@@ -95,7 +95,7 @@ async function initWorkspace() {
 
     const perseusBin = await findPerseus();
     if (!perseusBin) {
-        vscode.window.showErrorMessage('Perseus not found. Install: pip install perseus-ctx');
+        vscode.window.showErrorMessage('Perseus not found. Install: pip install perseus-ctx==1.0.26');
         return;
     }
 

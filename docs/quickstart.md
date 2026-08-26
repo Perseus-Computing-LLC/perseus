@@ -44,10 +44,10 @@ rm -f ~/.local/share/perseus/perseus.py
 
 ```bash
 # fast isolated install
-uv tool install perseus-ctx
+uv tool install perseus-ctx==1.0.26
 
 # or standard pip install
-pip install perseus-ctx
+pip install perseus-ctx==1.0.26
 
 which perseus
 perseus --version
