@@ -283,6 +283,8 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     assert "@perseus v1.0.6" not in bootstrap
     for required in ("SCRIPTS_DIR", "PERSEUS_BIN", '"$PERSEUS_BIN" quickstart', '"$PERSEUS_BIN" doctor', "version mismatch"):
         assert required in bootstrap
+    assert "INSTALLED_VERSION" in bootstrap
+    assert '*"$PERSEUS_CTX_VERSION"*' not in bootstrap
 
     for path in ("integrations/README.md", "integrations/claude-code/README.md"):
         integration = text(path)
@@ -334,6 +336,15 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     assert "pip install perseus-ctx==1.0.26" in root_readme
 
     assert "/opt/data" not in text("claims.json")
+
+    temporal = json.loads(text("claims.json"))["claims"]["temporal_correctness"]
+    for qualifier in ("13 of 13", "no external control", "fixture contract only", "does not establish customer-workload accuracy"):
+        assert qualifier in temporal["detail"]
+
+    wiring = text("WIRING.md")
+    assert "LLM Backend — Pythia & Synthesis" not in wiring
+    assert "Savings Wire — Metering Spend and Provable Savings into Plutus" not in wiring
+    assert "Perseus Ledger is the separate public product" in wiring
 
     manifest = json.loads(text("manifest.json"))
     assert manifest["server"]["mcp_config"]["args"] == ["mcp", "serve"]

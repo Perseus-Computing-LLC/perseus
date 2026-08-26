@@ -203,6 +203,7 @@
     },
     "temporal_correctness": {
       "value": "13/13",
+      "detail": "13 of 13 deterministic temporal-gauntlet fixture cases passed; no external control or baseline; this validates the committed fixture contract only and does not establish customer-workload accuracy or production authorization",
       "source": "perseus-vault/benchmark/temporal/gauntlet_report.json",
       "status": "signed",
       "label": "measured",
