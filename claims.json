@@ -1,21 +1,21 @@
 {
   "_meta": {
     "description": "Canonical claim registry for Perseus Computing public surfaces. Every public figure derives from here. When a benchmark re-runs, update THIS file only; scripts/render_claims.py regenerates manifest strings and tests/test_claims_sync.py fails CI if any surface drifts.",
-    "updated": "2026-08-25",
+    "updated": "2026-08-26",
     "public_headline": "longmemeval_cot",
     "public_headline_policy": "The latest completed 500-question paired confirmation is disclosed with its matched control and claim boundary. It is a company-run internal result, not an independent holdout or production-promotion claim. The provider-free attribution rerun remains provisional until its final report exists.",
     "public_site_positioning": "Perseus is the system around the model: Perseus resolves live context, Vault persists memory, and Ledger records evidence."
   },
   "claims": {
     "perseus_version": {
-      "value": "1.0.26",
+      "value": "1.0.27",
       "source": "VERSION",
       "status": "release",
       "publishable": true
     },
     "vault_version": {
-      "value": "2.23.1",
-      "source": "perseus-vault release candidate prepared in fix/public-contracts-20260823; update after merged release/tag verification",
+      "value": "2.23.2",
+      "source": "perseus-vault tag v2.23.2 at 9c829207a4b44a8e679ba912b4c1c5608c8f1e36; release and Sourcey artifact verification",
       "status": "release",
       "publishable": true
     },
