@@ -1,8 +1,6 @@
 # Wiring Perseus — Live Context for AI Assistants
 
-Perseus resolves your project state *before* the AI assistant sees it. This
-guide covers every way to wire Perseus into your workflow so context stays
-live-loaded — no stale files, no "discover what's running" preambles.
+Perseus resolves project state before an AI assistant sees it. This guide covers supported integration patterns and documents how each one refreshes its context. Freshness is tool-specific: some paths resolve files at invocation time, while remote compatibility and waypoint features can use bounded caches or persisted snapshots.
 
 ## Context, memory, and session terms
 
@@ -30,10 +28,9 @@ Perseus resolves and shapes the active working context; Perseus Vault owns durab
 
 ---
 
-## 1. MCP Server — Live Tools at Invocation Time
+## 1. MCP server — tool-specific freshness
 
-Every MCP tool resolves live workspace state when called — no stale cache, no
-pre-computed snapshots.
+Most workspace-reading MCP tools resolve their source when called. Remote compatibility tools, waypoint/session data, and explicitly cache-enabled paths can use bounded cached or persisted state. Check each tool's contract in the generated MCP reference before relying on invocation-time freshness.
 
 ### stdio (Claude Desktop, Claude Code, Cursor, Codex)
 

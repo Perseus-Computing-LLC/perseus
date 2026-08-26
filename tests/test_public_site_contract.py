@@ -285,6 +285,20 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
         assert required in bootstrap
     assert "INSTALLED_VERSION" in bootstrap
     assert '*"$PERSEUS_CTX_VERSION"*' not in bootstrap
+    embedded_pattern = re.search(r're\.search\(r"([^"]+)"', bootstrap)
+    assert embedded_pattern is not None
+    version_pattern = re.compile(embedded_pattern.group(1))
+    valid_version = version_pattern.search("perseus v1.0.26 (reviewed)")
+    malformed_version = version_pattern.search("perseus v1.0.260")
+    assert valid_version is not None and valid_version.group(1) == "1.0.26"
+    assert malformed_version is not None and malformed_version.group(1) != "1.0.26"
+
+    for quickstart_path in ("QUICKSTART.md", "docs/quickstart.md"):
+        quickstart = text(quickstart_path)
+        assert "pip install perseus-ctx\n" not in quickstart
+        assert "uv tool install perseus-ctx\n" not in quickstart
+        assert "perseus-ctx==1.0.26" in quickstart
+    assert "dangerous gates opt-in" in text("QUICKSTART.md")
 
     for path in ("integrations/README.md", "integrations/claude-code/README.md"):
         integration = text(path)
@@ -307,6 +321,8 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     assert "execFile(" in extension
     assert "argsPrefix" in extension
     assert "fs.accessSync" in extension
+    assert "pip install perseus-ctx==1.0.26" in extension
+    assert "pip install perseus-ctx==1.0.26" in text("integrations/claude-code/on_session_start.sh")
 
     security_policy = text("SECURITY.md")
     assert "not sandboxed" in security_policy
@@ -328,6 +344,7 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     sbom_doc = text("docs/SBOM.md")
     assert "Runtime/optional non-MIT/BSD licenses" in sbom_doc
     assert "development toolchain also includes Apache-2.0 and MPL-2.0" in sbom_doc
+    assert "2026-08-26T00:00:00Z" in sbom_doc
 
     root_readme = text("README.md")
     assert "Every tool resolves live workspace state" not in root_readme
@@ -345,6 +362,11 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     assert "LLM Backend — Pythia & Synthesis" not in wiring
     assert "Savings Wire — Metering Spend and Provable Savings into Plutus" not in wiring
     assert "Perseus Ledger is the separate public product" in wiring
+    assert "Every MCP tool resolves live workspace state" not in wiring
+    assert "tool-specific freshness" in wiring
+
+    assert "escaping its sandbox" not in text("docs/vuln-response.md")
+    assert "illustrative syntax sample" in root_readme
 
     manifest = json.loads(text("manifest.json"))
     assert manifest["server"]["mcp_config"]["args"] == ["mcp", "serve"]

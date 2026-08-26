@@ -52,7 +52,7 @@ practice). The band sets the fix urgency:
 | Severity | CVSS | Fix target | Examples for Perseus |
 |---|---|---|---|
 | **Critical** | 9.0–10.0 | ≤ 7 days | Arbitrary code execution from an authored context file; secret exfiltration. |
-| **High** | 7.0–8.9 | ≤ 30 days | Directive resolution escaping its sandbox; SSRF via a resolver. |
+| **High** | 7.0–8.9 | ≤ 30 days | Directive resolution escaping its configured workspace or permission boundary; SSRF via a resolver. |
 | **Medium** | 4.0–6.9 | ≤ 90 days | Output-path handling flaw; DoS via a crafted context file. |
 | **Low** | 0.1–3.9 | next release | Info leak in verbose logs; hardening gaps with no direct exploit. |
 
