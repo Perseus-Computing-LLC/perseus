@@ -1,11 +1,11 @@
 {
   "serverInfo": {
     "name": "perseus",
-    "version": "1.0.27"
+    "version": "1.0.26"
   },
   "authentication": {
-    "required": false,
-    "schemes": []
+    "required": true,
+    "schemes": ["bearer"]
   },
   "tools": [
     {

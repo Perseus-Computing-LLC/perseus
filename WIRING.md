@@ -71,11 +71,18 @@ Print the exact config:
 
 ### SSE (remote agents, multi-machine)
 
+Set a bearer token in the protected Perseus config before launch. The SSE server refuses to bind without authentication unless the operator explicitly sets `mcp.allow_no_auth: true`.
+
+```yaml
+mcp:
+  sse_bearer_token: "<secret from your secret manager>"
+```
+
 ```bash
 ~/.local/bin/perseus mcp serve --transport sse --port 8420
 ```
 
-Then point remote assistants at `http://<host>:8420/sse`.
+Send that token as an `Authorization: Bearer …` header and point remote assistants at `http://<host>:8420/sse`.
 
 ### Available MCP Tools
 
