@@ -370,6 +370,28 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
 
     manifest = json.loads(text("manifest.json"))
     assert manifest["server"]["mcp_config"]["args"] == ["mcp", "serve"]
+    card = json.loads(text(".well-known/mcp/server-card.json"))
+    assert card["serverInfo"]["version"] == manifest["version"] == "1.0.26"
+    assert card["authentication"] == {"required": True, "schemes": ["bearer"]}
+    render_claims = text("scripts/render_claims.py")
+    assert render_claims.count('"perseus_pypi_version"') >= 3
+
+    export_control = text("docs/EXPORT-CONTROL.md")
+    for forbidden_legal_claim in ("self-classified as", "Conclusion:** EAR99", "No DDTC registration", "supports supply chain risk assessment", "provides export control posture"):
+        assert forbidden_legal_claim not in export_control
+    assert "not a legal determination" in export_control
+    assert "does not classify" in export_control
+    assert "v2.23.2" in export_control
+
+    claude_hook = text("integrations/claude-code/on_session_start.sh")
+    assert '$ROOT/perseus.py' not in claude_hook
+    assert "workspace-controlled" in claude_hook
+
+    for security_doc in ("docs/SECURITY-INDEX.md", "docs/SECURITY-MILESTONES.md"):
+        assert "2026-08-26" in text(security_doc)
+
+    assert "sse_bearer_token" in root_readme
+    assert "sse_bearer_token" in wiring
 
     hook = text("integrations/claude-code/on_session_start.sh")
     assert '"${PERSEUS[@]}" render' in hook

@@ -27,7 +27,8 @@ sed -n '1,20p' CLAUDE.md
 
 ## Requirements
 
-- `python -m pip install perseus-ctx==1.0.26`, or a reviewed local source checkout
+- `python -m pip install perseus-ctx==1.0.26` available on `PATH`
+- The hook deliberately does not execute a workspace-local `perseus.py`; contributors who run from source must install a reviewed wrapper outside the target workspace and place it on `PATH`
 - `.perseus/context.md` in the workspace (`perseus quickstart` creates it)
 
 The hook supports macOS and Linux. On Windows, use WSL or another environment that can execute the reviewed shell script.
