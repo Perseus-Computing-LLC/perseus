@@ -400,6 +400,15 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     assert "loopback-only SSE listener" in root_readme
     assert "SSE (loopback integrations)" in wiring
     assert "http://<host>:8420/sse" not in wiring
+    for stale_tool in ("perseus_render_source", "perseus_memory_search", "perseus_memory_narrative", "perseus_health_report", "perseus_read_file", "perseus_list_directory", "perseus_run_query"):
+        assert stale_tool not in wiring
+    for current_tool in ("perseus_get_context", "perseus_get_health", "perseus_read", "perseus_list", "perseus_tree", "perseus_vault", "perseus_capture"):
+        assert current_tool in wiring
+
+    detailed_quickstart = text("docs/quickstart.md")
+    assert "git checkout <full-commit-sha-you-reviewed>" in detailed_quickstart
+    assert "do not install from the mutable default branch" in detailed_quickstart
+    assert "python -m pip install -e ." in detailed_quickstart
 
     install = text("INSTALL.md")
     assert "uv tool install perseus-ctx==1.0.26" in install

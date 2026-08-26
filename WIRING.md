@@ -84,22 +84,21 @@ mcp:
 
 A local client sends that token as an `Authorization: Bearer …` header to `http://127.0.0.1:8420/sse`.
 
-### Available MCP Tools
+### Current MCP tools
 
-After wiring, the assistant gets these tools:
+The generated server card is the source of truth for current tool identifiers. Common entries include:
 
 | Tool | Resolves |
 |------|----------|
-| `perseus_render_source` | Full context rendering with all directives |
-| `perseus_memory_search` | Perseus Vault (FTS5 semantic search) |
-| `perseus_memory_narrative` | Project narrative |
-| `perseus_health_report` | Maintenance suggestions |
-| `perseus_oracle_suggest` | Pythia tool/skill recommendations |
-| `perseus_synthesize` | Cited synthesis claims across sources |
-| `perseus_read_file` | File contents with size guards |
-| `perseus_list_directory` | Directory listing |
-| `perseus_run_query` | Shell command execution (gated) |
-| … and 12+ more | Check `perseus mcp register` for the full registry |
+| `perseus_get_context` | Rendered workspace context |
+| `perseus_get_health` | Context-maintenance and doctor reports |
+| `perseus_read` | Explicitly allowed workspace file content |
+| `perseus_list` | Bounded directory entries |
+| `perseus_tree` | Bounded directory trees |
+| `perseus_vault` | Scoped Perseus Vault recall |
+| `perseus_capture` | Session checkpoint capture to Vault; state-mutating and marked destructive/non-read-only |
+
+Use `perseus mcp register` or inspect [the public server card](./.well-known/mcp/server-card.json) for the complete current registry. Do not copy tool names from historical examples.
 
 ---
 

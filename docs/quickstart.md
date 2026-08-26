@@ -55,10 +55,14 @@ perseus --version
 
 **Alternative — contributor source checkout:**
 
+A source install executes repository code. Pin and inspect the exact full commit before installation; do not install from the mutable default branch:
+
 ```bash
 git clone https://github.com/Perseus-Computing-LLC/perseus.git
 cd perseus
-pip install -e .
+git checkout <full-commit-sha-you-reviewed>
+git status --short
+python -m pip install -e .
 which perseus
 perseus --version
 ```
