@@ -1,0 +1,26 @@
+name: Public site smoke
+
+# The Pages deployment is sourced from main, so this check intentionally runs
+# after publication on a schedule (and on demand) rather than on pull requests.
+# The source checker catches an incomplete publication; the live checker catches
+# source-present/live-404 and stale/mixed-asset failures at the public hostname.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  mcp-reference:
+    name: Vault MCP reference is live
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the Pages source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Verify source publication
+        run: python3 scripts/check_mcp_reference.py
+      - name: Verify deployed reference
+        run: python3 scripts/check_live_mcp_reference.py
