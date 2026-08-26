@@ -9,13 +9,26 @@
   "claims": {
     "perseus_version": {
       "value": "1.0.27",
-      "source": "VERSION",
+      "source": "VERSION at repository SHA d2e857ba4ea96a7e5656d0e44bc5daab48e6cd36",
+      "status": "source-release-candidate",
+      "publishable": false,
+      "note": "The source tree is prepared for 1.0.27, but the public package registry has not published it. Do not use this value as a package badge."
+    },
+    "perseus_pypi_version": {
+      "value": "1.0.26",
+      "source": "https://pypi.org/pypi/perseus-ctx/json verified 2026-08-26",
       "status": "release",
       "publishable": true
     },
     "vault_version": {
       "value": "2.23.2",
       "source": "perseus-vault tag v2.23.2 at 9c829207a4b44a8e679ba912b4c1c5608c8f1e36; release and Sourcey artifact verification",
+      "status": "release",
+      "publishable": true
+    },
+    "ledger_version": {
+      "value": "1.2.4",
+      "source": "https://pypi.org/pypi/perseus-ledger/json and GitHub release v1.2.4 verified 2026-08-26",
       "status": "release",
       "publishable": true
     },

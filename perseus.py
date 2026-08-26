@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "cab0425-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "d2e857b-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -30129,17 +30129,15 @@ _KNOWN_VAULT_PATHS = [
     )
 ]
 
-# Copy-paste remediation shown when the memory connector is configured but the
-# binary is absent (#663). Perseus does not download/build a Rust binary
-# silently, so point at the install path instead.
+# Version-bound remediation shown when the memory connector is configured but
+# the binary is absent (#663). Perseus does not download or execute remote code.
 MEMORY_INSTALL_REMEDIATION = (
-    "Install Perseus Vault (the memory engine), then re-run `perseus doctor`. "
-    "Quickest (prebuilt binary, Linux/macOS): "
-    "`curl -sSf https://raw.githubusercontent.com/Perseus-Computing-LLC/"
-    "perseus-vault/main/scripts/install.sh | sh`. "
-    "Build from source (Windows / Intel macOS / no prebuilt): "
-    "`cargo install --git https://github.com/Perseus-Computing-LLC/perseus-vault`. "
-    "Or wire the connector automatically with `perseus quickstart --with-memory`."
+    "Install Perseus Vault from a verified release, then re-run `perseus doctor`. "
+    "Release: https://github.com/Perseus-Computing-LLC/perseus-vault/releases/tag/v2.23.2 . "
+    "The x86_64 Linux archive SHA-256 is "
+    "7143709aa6c9c29128e5daae47c13ddcc6ec56b35c7a605726b51f635309998e; "
+    "verify it before extraction. Other platforms and provenance are on the release page. "
+    "You can wire the connector with `perseus quickstart --with-memory`."
 )
 
 
@@ -36091,9 +36089,10 @@ def cmd_init(args, cfg):
         command = vault_cfg.get("command", ["perseus-vault", "serve"])
         binary_path = _find_vault_binary(command)
         if binary_path is None:
-            print(f"💡 Perseus Vault not found. For persistent cross-session memory (prebuilt binary):")
-            print(f"   curl -sSf https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus-vault/main/scripts/install.sh | sh")
-            print(f"   then re-run `perseus doctor` to confirm. (Windows/Intel-mac: build from source — see the repo.)")
+            print("Perseus Vault not found. Install a verified release from:")
+            print("   https://github.com/Perseus-Computing-LLC/perseus-vault/releases/tag/v2.23.2")
+            print("   x86_64 Linux archive SHA-256: 7143709aa6c9c29128e5daae47c13ddcc6ec56b35c7a605726b51f635309998e")
+            print("   Verify the archive before extraction, then re-run `perseus doctor`.")
         else:
             language = _detect_project_language(workspace)
             lang_note = f" (detected: {language})" if language else ""

@@ -91,5 +91,5 @@ perseus render .perseus/context.md --output .hermes.md  # Refresh output
 
 - The output file (`.hermes.md`, `CLAUDE.md`, `.cursorrules`, etc.) is a rendered snapshot — **commit it only if your assistant reads from the repo**. Most workflows run `perseus render` on session start instead.
 - `@memory` requires at least one checkpoint to produce output. Run `perseus checkpoint` a few times to see it populate.
-- `@agora` requires an Agora task board — run `perseus agora init` to create one.
+- `@agora` is a code-level compatibility directive for the file-backed task board. Run `perseus agora init` before using that directive; it is not a separate product.
 - See [`docs/CONTEXT_PACKS.md`](../../docs/CONTEXT_PACKS.md) for the full profile gallery and pack manifest reference.

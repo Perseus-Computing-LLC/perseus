@@ -1,0 +1,20 @@
+
+# Sample workspace briefing
+
+Rendered: 2026-08-26 16:49 UTC
+
+## Repository
+
+- Name: sample-api
+- Branch: main
+- API port: 3001
+- Tests: 894 passing
+- Last decision: review the webhook integration before release
+
+## Boundary
+
+This sample contains no secrets, customer data, network calls, or shell directives.
+
+## Durable memory
+
+Perseus Vault is optional and is not exercised by this static replay. The artifact demonstrates only a committed Perseus Context Engine render; it does not prove model behavior, memory retrieval, customer performance, or a live service.
