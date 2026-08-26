@@ -19,7 +19,7 @@ elif [ -f "$ROOT/perseus.py" ]; then
 fi
 
 if [ "${#PERSEUS[@]}" -eq 0 ]; then
-    echo "[Perseus] Not installed. Run: pip install perseus-ctx" >&2
+    echo "[Perseus] Not installed. Run: pip install perseus-ctx==1.0.26" >&2
     exit 0  # Don't block Claude — just skip
 fi
 
