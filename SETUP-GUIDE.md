@@ -630,10 +630,10 @@ cd ~/.perseus-vault && cargo build --release
 cp target/release/perseus-vault ~/.local/bin/perseus-vault
 
 # Verify
-perseus-vault --version   # expect "perseus-vault 2.23.1" (or later)
+perseus-vault --version   # expect "perseus-vault 2.23.2" (or later)
 ```
 
-> **Perseus Vault MCP surface:** Perseus Vault is an MCP JSON-RPC stdio server. The v2.23.1
+> **Perseus Vault MCP surface:** Perseus Vault is an MCP JSON-RPC stdio server. The v2.23.2
 > `--no-default-features` snapshot published in the [versioned API reference](https://perseus.observer/vault/mcp-reference/)
 > contains 173 unique canonical tools; advertised scope counts are release/profile-specific and are recorded in
 > [`metadata.json`](https://perseus.observer/vault/mcp-reference/metadata.json). Representative tools include

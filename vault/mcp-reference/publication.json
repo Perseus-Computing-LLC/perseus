@@ -1,25 +1,25 @@
 {
   "publication_path": "/vault/mcp-reference/",
-  "source_commit": "f48e528f89dfb8ce8c19c4a0714808a9d1fb728c",
-  "vault_version": "2.23.1",
+  "source_commit": "9c829207a4b44a8e679ba912b4c1c5608c8f1e36",
+  "vault_version": "2.23.2",
   "feature_profile": "--no-default-features",
   "tool_count": 173,
   "source_workflow_run": {
-    "id": 32897532973,
-    "url": "https://github.com/Perseus-Computing-LLC/perseus-vault/actions/runs/32897532973",
+    "id": 32925503445,
+    "url": "https://github.com/Perseus-Computing-LLC/perseus-vault/actions/runs/32925503445",
     "conclusion": "success"
   },
   "site_artifact": {
-    "id": 9581842001,
-    "sha256": "a192545ab3f9df8ab2525293f3ab1cc7dededc7dd29559c26b66cb189948d416",
-    "url": "https://api.github.com/repos/Perseus-Computing-LLC/perseus-vault/actions/artifacts/9581842001"
+    "id": 9591386754,
+    "sha256": "d7ee64de24a1c14f6bec7257b8d2b25ff892cec86c81680ddb408c12db18acb4",
+    "url": "https://api.github.com/repos/Perseus-Computing-LLC/perseus-vault/actions/artifacts/9591386754"
   },
   "snapshot_artifact": {
-    "id": 9581837639,
-    "sha256": "f3775c4d24f48e876cab5733345ef34ce96987ca03e78b72bb4bb6bddffadf16",
-    "url": "https://api.github.com/repos/Perseus-Computing-LLC/perseus-vault/actions/artifacts/9581837639"
+    "id": 9591384152,
+    "sha256": "be4eea7063e64fa1d792c2cdd4d44ece74c0371341bcf7a5ffd9793c32110df0",
+    "url": "https://api.github.com/repos/Perseus-Computing-LLC/perseus-vault/actions/artifacts/9591384152"
   },
-  "raw_snapshot_sha256": "bdafa2b26b47362ff9b6e340075f19d27286a7ef69459ffad6d7fbd3ad47b378",
+  "raw_snapshot_sha256": "38c5b138c661019747f1687db8f7215e397fe62477eb8836b1633cc0d9b21553",
   "generators": {
     "sourcey": "3.6.5",
     "mcp_parser": "0.4.1"
