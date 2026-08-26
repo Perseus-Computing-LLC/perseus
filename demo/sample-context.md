@@ -9,7 +9,7 @@ Rendered: @date format="YYYY-MM-DD HH:mm z"
 - Name: sample-api
 - Branch: main
 - API port: 3001
-- Tests: 894 passing
+- Test status: fixture value only
 - Last decision: review the webhook integration before release
 
 ## Boundary

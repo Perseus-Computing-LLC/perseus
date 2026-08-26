@@ -4,7 +4,8 @@
 
 | Version | Supported |
 |---|---|
-| 1.0.x (latest) | ✅ Active |
+| 1.0.26 (published) | ✅ Active |
+| 1.0.27 (source candidate) | Development only |
 | < 1.0.0 | ❌ Unsupported |
 
 ## Reporting a Vulnerability
@@ -59,10 +60,10 @@ Perseus does not require a Perseus-hosted API key for its default local render p
 
 | Vector | Risk | Mitigation |
 |---|---|---|
-| Malicious YAML in context files | Low | `yaml.safe_load()` only — no arbitrary code execution |
-| Directive injection via untrusted input | Medium | Directives are explicitly authored in `.perseus/context.md` — not user-submitted |
-| Output file overwrite | None | `perseus render --output` writes to the path you specify — this is the intended behavior |
-| Supply chain (PyPI) | Medium | SBOM published; signed SLSA build provenance on releases (see "Verifying releases") |
+| Malicious context or YAML input | Medium | YAML uses `safe_load()`, but enabled directives still act with the process permissions; review context sources and keep dangerous gates off |
+| Directive injection from an untrusted workspace | High | Treat workspace context as code-like configuration; trust the repository before enabling shell, agent, service-command, HTTP, or connector paths |
+| Output file overwrite or traversal | Medium | The CLI writes the operator-selected output path with current-user permissions; wrappers must constrain paths to their intended workspace |
+| Supply chain (PyPI) | Medium | SBOM published; 1.0.26 uses PyPI trusted publishing, while separate code-signing and SLSA attestations are not claimed |
 
 ### Trust boundaries
 
@@ -95,19 +96,21 @@ Perseus does not require a Perseus-hosted API key for its default local render p
 
 ## Verifying releases
 
-Published distributions carry **signed SLSA build provenance** at two layers:
+The published package currently uses PyPI trusted publishing, but this repository does **not** claim a SLSA provenance attestation or separate code-signing artifact for Perseus Context Engine 1.0.26. Trusted publishing authenticates the upload workflow; it is not the same as a downloadable SLSA or Sigstore attestation.
 
-- **GitHub Artifact Attestations** (Sigstore-signed) for the sdist and wheel —
-  verify a downloaded distribution was built by our publish workflow:
-  ```bash
-  gh attestation verify perseus_ctx-<version>-py3-none-any.whl \
-    --repo Perseus-Computing-LLC/perseus
-  ```
-- **PyPI PEP 740 attestations** — generated during trusted publishing and shown
-  as verified provenance on the [PyPI project page](https://pypi.org/p/perseus-ctx).
+Verify the selected package version and archive digest against PyPI before installation. For example:
 
-A successful verification confirms the artifact's origin (repo, workflow, commit)
-and integrity.
+```bash
+python - <<'PY'
+import hashlib, json, urllib.request
+version = "1.0.26"
+metadata = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/perseus-ctx/{version}/json"))
+for item in metadata["urls"]:
+    print(item["filename"], item["digests"]["sha256"])
+PY
+```
+
+A digest comparison verifies downloaded bytes against the package registry record. It does not certify runtime behavior or confer deployment authorization.
 
 ---
 

@@ -1,7 +1,7 @@
 # Perseus SBOM (Software Bill of Materials)
 ## For Federal Procurement Compliance
 
-**Package:** perseus-ctx v1.0.8
+**Package:** perseus-ctx v1.0.26
 **License:** MIT
 **Repository:** https://github.com/Perseus-Computing-LLC/perseus
 **Language:** Python 3.10+
@@ -81,8 +81,8 @@
 - [x] All dependencies are MIT-licensed — no copyleft risk
 - [x] pyyaml is widely audited, maintained, and CVE-tracked
 - [x] YAML parsing uses `yaml.safe_load()` — no arbitrary code execution risk
-- [ ] No code signing on PyPI releases (TODO)
-- [ ] No SLSA provenance attestations (TODO for FedRAMP)
+- [ ] No separate code-signing artifact for the published 1.0.26 package
+- [ ] No SLSA provenance attestation is claimed for the published 1.0.26 package
 
 ---
 
@@ -90,8 +90,8 @@
 
 - [x] Supplier name: Perseus Computing LLC
 - [x] Component name: perseus-ctx
-- [x] Version string: 1.0.8
-- [x] Unique identifier: pypi:perseus-ctx@1.0.8
+- [x] Version string: 1.0.26
+- [x] Unique identifier: pypi:perseus-ctx@1.0.26
 - [x] Dependency relationship: listed above
 - [x] SBOM author: Perseus Computing LLC
 - [x] Timestamp: included

@@ -10,15 +10,15 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 CONTEXT="$ROOT/.perseus/context.md"
 OUTPUT="$ROOT/CLAUDE.md"
 
-# Find Perseus
-PERSEUS=""
-if command -v perseus &>/dev/null; then
-    PERSEUS=perseus
+# Find Perseus without constructing a shell command string.
+PERSEUS=()
+if command -v perseus >/dev/null 2>&1; then
+    PERSEUS=("$(command -v perseus)")
 elif [ -f "$ROOT/perseus.py" ]; then
-    PERSEUS="python3 $ROOT/perseus.py"
+    PERSEUS=(python3 "$ROOT/perseus.py")
 fi
 
-if [ -z "$PERSEUS" ]; then
+if [ "${#PERSEUS[@]}" -eq 0 ]; then
     echo "[Perseus] Not installed. Run: pip install perseus-ctx" >&2
     exit 0  # Don't block Claude — just skip
 fi
@@ -31,7 +31,7 @@ fi
 echo "[Perseus] Resolving live context..."
 
 START=$(date +%s%3N 2>/dev/null || echo 0)
-$PERSEUS render "$CONTEXT" --output "$OUTPUT"
+"${PERSEUS[@]}" render "$CONTEXT" --output "$OUTPUT"
 ELAPSED=$(( $(date +%s%3N 2>/dev/null || echo 0) - START ))
 
 LINES=$(wc -l < "$OUTPUT" 2>/dev/null || echo 0)

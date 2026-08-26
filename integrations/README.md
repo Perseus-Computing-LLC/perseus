@@ -4,7 +4,7 @@ Perseus Context Engine renders plain markdown for the files that compatible assi
 
 | Integration | Surface | Installation boundary |
 |---|---|---|
-| [VS Code / Cursor](./vscode/) | Editor context | Install a reviewed `.vsix` or use the Marketplace listing |
+| [VS Code / Cursor](../editors/vscode/) | Editor context | Build and review the checked-in LSP extension; mutation commands remain gated |
 | [Claude Code](./claude-code/) | Session-start hook | Install the checked-in hook from a reviewed checkout |
 | [GitHub Action](./github-action/) | Repository workflow | Copy and review the checked-in workflow; commit and push remain off unless explicitly enabled |
 | [Invarium](./invarium.md) | Context regression testing | Follow its versioned package documentation |

@@ -36,8 +36,8 @@
       "properties": {
         "perseus.autoRender": {
           "type": "boolean",
-          "default": true,
-          "description": "Automatically render context when .perseus/context.md changes"
+          "default": false,
+          "description": "Render automatically after changes only in a trusted workspace (off by default)"
         },
         "perseus.executable": {
           "type": "string",
@@ -47,7 +47,7 @@
         "perseus.outputFile": {
           "type": "string",
           "default": ".hermes.md",
-          "description": "Output file for rendered context (CLAUDE.md, AGENTS.md, .cursorrules, or .hermes.md)"
+          "description": "Workspace-relative output file; traversal outside the workspace is rejected"
         },
         "perseus.assistant": {
           "type": "string",

@@ -20,9 +20,9 @@ This document provides the analysis and rationale for federal procurement and SB
 
 ## Product Descriptions
 
-### Perseus (perseus-ctx v1.0.8)
-- **Type:** Python CLI tool — live context engine for AI assistants
-- **Function:** Resolves directives (@query, @read, @services) into plain markdown output. Read-only — never writes to filesystem, never stores data, never makes network calls unless explicitly directed by user-authored directives.
+### Perseus Context Engine (perseus-ctx 1.0.26 published package)
+- **Type:** Python CLI and optional local service for rendering context for AI assistants
+- **Function:** Resolves operator-authored directives into markdown. The default render path is local; optional HTTP, shell, local-agent, service-command, checkpoint, cache, memory, and network features can read, write, execute, or transmit data when explicitly configured.
 - **Distribution:** PyPI (public package registry)
 - **Source:** https://github.com/Perseus-Computing-LLC/perseus (public, MIT license)
 
