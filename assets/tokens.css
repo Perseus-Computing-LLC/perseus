@@ -11,8 +11,8 @@
    ⚠ ROLE MAP (names kept for low churn; values re-tuned to kit):
      --amber* = Perseus primary accent  → VIOLET   (#a78bfa)
      --violet* = Vault / memory accent  → PERIWINKLE BLUE (#8b9cff)
-     --gold*   = Plutus accent          → GOLD     (#d9b45f)
-     --steel*  = MCTS / neutral accent
+     --gold*   = Ledger accent          → GOLD     (#d9b45f)
+     --steel*  = neutral accent
    So `.amber` renders violet, `.violet` renders blue — by design.
 
    Theme: [data-theme="dark"|"light"] on a root element.
@@ -46,12 +46,12 @@
   --violet-ink: #B7C2FF;
   --violet-soft: rgba(139, 156, 255, .12);
 
-  /* — Plutus accent (gold) — */
+  /* — Ledger accent (gold) — */
   --gold: #D9B45F;
   --gold-ink: #F0E2C2;
   --gold-soft: rgba(217, 180, 95, .12);
 
-  /* — MCTS / neutral accent — */
+  /* — neutral accent — */
   --steel: #8A93A8;
   --steel-soft: rgba(138, 147, 168, .12);
 
