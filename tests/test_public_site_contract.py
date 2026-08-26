@@ -262,15 +262,32 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     }
     assert "no data leaves your machine" not in package["long_description"]
     assert "optional transports" in package["long_description"]
+    assert package["version"] == "1.0.26"
+    server = json.loads(text("server.json"))
+    assert server["version"] == package["version"]
+    assert {item["version"] for item in server["packages"]} == {package["version"]}
 
     bootstrap = text("scripts/bootstrap.sh")
     assert "Engram" not in bootstrap
     assert 'command: ["vault"' not in bootstrap
     assert "@perseus v1.0.6" not in bootstrap
+    for required in ("SCRIPTS_DIR", "PERSEUS_BIN", '"$PERSEUS_BIN" quickstart', '"$PERSEUS_BIN" doctor', "version mismatch"):
+        assert required in bootstrap
 
-    integration = text("integrations/claude-code/README.md")
-    assert "raw.githubusercontent.com" not in integration
-    assert "reviewed checkout" in integration
+    for path in ("integrations/README.md", "integrations/claude-code/README.md"):
+        integration = text(path)
+        assert "raw.githubusercontent.com" not in integration
+        assert "reviewed checkout" in integration
+        assert "one curl" not in integration.lower()
+
+    detailed_quickstart = text("docs/quickstart.md")
+    for gate in ("allow_query_shell", "allow_agent_shell", "allow_remote_services_health", "allow_services_command"):
+        assert f"{gate}: false" in detailed_quickstart
+        assert f"{gate}: true" not in detailed_quickstart
+
+    root_readme = text("README.md")
+    for stale in ("Proven at enterprise scale", "Extensibility (Hephaestus)", "Perseus Vault (Μνήμη)", "Guide recommendations"):
+        assert stale not in root_readme
 
     reference = text("vault/mcp-reference/README.md")
     publication = json.loads(text("vault/mcp-reference/publication.json"))
@@ -282,6 +299,11 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
         content = text(path)
         assert "plaintext FTS5 index and metadata" in content
         assert "optional network transports" in content
+        if path.endswith("mcp-tools.html"):
+            assert "fonts.googleapis.com" not in content
+
+    for path in ("context-engine/index.html", "vault/index.html", "ledger/index.html"):
+        assert 'href="/#system" aria-current="page"' not in text(path)
 
 
 def test_one_public_contact_identity():

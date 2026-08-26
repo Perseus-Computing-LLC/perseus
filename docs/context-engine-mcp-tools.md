@@ -56,4 +56,3 @@ Opt-in only (excluded from the default set until added to `mcp.tool_allowlist`):
 |---|---|
 | `perseus_query` | Run a shell command and return stdout |
 | `perseus_agent` | Execute local agent subprocess |
-

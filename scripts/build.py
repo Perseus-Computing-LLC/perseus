@@ -422,31 +422,56 @@ def build(output_path: Path | None = None) -> None:
 
 
 def _check_version_sync(repo_root: Path) -> int:
-    """Validate that VERSION is synced to server.json and pyproject.toml.
+    """Validate source and published-package version surfaces.
 
-    Returns 0 if all in sync, 1 if drift detected.
+    VERSION and pyproject.toml describe the source candidate. Public package
+    metadata (manifest.json and server.json) must match the release marked
+    publishable in claims.json, which may intentionally lag the source candidate.
     """
-    version_path = repo_root / "VERSION"
-    version = version_path.read_text(encoding="utf-8").strip()
+    import json
+
+    version = (repo_root / "VERSION").read_text(encoding="utf-8").strip()
+    release_version = version
     errors = 0
 
-    # server.json
-    server_json_path = repo_root / "server.json"
-    if server_json_path.exists():
-        import json
+    claims_path = repo_root / "claims.json"
+    if claims_path.exists():
         try:
-            data = json.loads(server_json_path.read_text(encoding="utf-8"))
-            sv = data.get("version", "")
-            if sv != version:
+            claims = json.loads(claims_path.read_text(encoding="utf-8"))["claims"]
+            pypi = claims["perseus_pypi_version"]
+            if pypi.get("publishable") is not True:
+                raise ValueError("perseus_pypi_version is not publishable")
+            release_version = str(pypi["value"])
+        except Exception as exc:
+            print(f"VERSION DRIFT: could not resolve published package version: {exc}", file=sys.stderr)
+            errors += 1
+
+    for name in ("manifest.json", "server.json"):
+        path = repo_root / name
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if data.get("version") != release_version:
                 print(
-                    f"VERSION DRIFT: server.json version {sv!r} != VERSION {version!r}",
+                    f"VERSION DRIFT: {name} version {data.get('version')!r} "
+                    f"!= published package {release_version!r}",
                     file=sys.stderr,
                 )
                 errors += 1
+            if name == "server.json":
+                package_versions = {str(item.get("version", "")) for item in data.get("packages", [])}
+                if package_versions != {release_version}:
+                    print(
+                        f"VERSION DRIFT: server.json package versions {sorted(package_versions)!r} "
+                        f"!= published package {release_version!r}",
+                        file=sys.stderr,
+                    )
+                    errors += 1
         except Exception as exc:
-            print(f"WARNING: could not parse server.json: {exc}", file=sys.stderr)
+            print(f"VERSION DRIFT: could not parse {name}: {exc}", file=sys.stderr)
+            errors += 1
 
-    # pyproject.toml
     pyproject_path = repo_root / "pyproject.toml"
     if pyproject_path.exists():
         text = pyproject_path.read_text(encoding="utf-8")
@@ -468,7 +493,7 @@ def check() -> None:
 
     # Check version sync first
     if _check_version_sync(repo_root):
-        print("ERROR: version drift detected — sync VERSION to server.json / pyproject.toml", file=sys.stderr)
+        print("ERROR: version drift detected across source and published-package metadata", file=sys.stderr)
         sys.exit(1)
 
     output = render_artifact(repo_root)

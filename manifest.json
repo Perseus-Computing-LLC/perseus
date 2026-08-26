@@ -1,7 +1,7 @@
 {
   "manifest_version": "0.3",
   "name": "perseus",
-  "version": "1.0.27",
+  "version": "1.0.26",
   "display_name": "Perseus — Live Context for MCP Hosts",
   "description": "Perseus Context Engine prepares operator-selected workspace context for compatible AI agents before execution.",
   "long_description": "Perseus prepares current workspace context before an AI agent runs. It resolves operator-authored directives into a bounded artifact.\\n\\n- **Current context** — render explicitly allowed project and repository state\\n\\n- **MCP interface** — connect a compatible host to the Context Engine\\n\\n- **Local default path** — the default renderer uses local workspace sources; authored HTTP directives, optional transports, and external integrations can send operator-selected data to configured destinations\\n\\n- **Operator controlled** — shell and network modes require explicit configuration and retain the current user's permissions\\n\\n- **Perseus Vault integration** — optional governed durable memory through a local MCP backend; see the [versioned Vault MCP API reference](https://perseus.observer/vault/mcp-reference/) for its published surface\\n\\nInstall: `pip install perseus-ctx==1.0.26 && cd your-project && perseus quickstart`",
