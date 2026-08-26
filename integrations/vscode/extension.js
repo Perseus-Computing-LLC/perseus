@@ -1,5 +1,5 @@
 const vscode = require('vscode');
-const { exec, spawn } = require('child_process');
+const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
@@ -66,7 +66,7 @@ async function initWorkspace() {
     }
 
     return new Promise((resolve) => {
-        exec(`"${perseusBin}" init "${root}"`, (err, stdout, stderr) => {
+        execFile(perseusBin.command, [...perseusBin.argsPrefix, 'init', root], { cwd: root }, (err, stdout, stderr) => {
             if (err) {
                 outputChannel.appendLine(`Init error: ${stderr}`);
                 vscode.window.showErrorMessage(`Perseus init failed: ${stderr}`);
@@ -129,8 +129,11 @@ async function renderContext(workspaceRoot) {
 
     return new Promise((resolve) => {
         const t0 = Date.now();
-        exec(`"${perseusBin}" render "${contextFile}" --output "${outputFile}"`, 
-             { cwd: workspaceRoot }, (err, stdout, stderr) => {
+        execFile(
+            perseusBin.command,
+            [...perseusBin.argsPrefix, 'render', contextFile, '--output', outputFile],
+            { cwd: workspaceRoot },
+            (err, stdout, stderr) => {
             const elapsed = Date.now() - t0;
             if (err) {
                 outputChannel.appendLine(`Render error (${elapsed}ms): ${stderr}`);
@@ -163,18 +166,36 @@ function resolveOutputFile(root) {
 }
 
 async function findPerseus() {
-    return new Promise((resolve) => {
-        exec('which perseus 2>/dev/null || echo ""', (err, stdout) => {
-            const bin = stdout.trim();
-            if (bin) return resolve(bin);
-            // Fallback: check for perseus.py in workspace
-            const root = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
-            if (root && fs.existsSync(path.join(root, 'perseus.py'))) {
-                return resolve('python3 ' + path.join(root, 'perseus.py'));
+    const configured = vscode.workspace.getConfiguration('perseus').get('executable');
+    if (configured) {
+        return { command: configured, argsPrefix: [] };
+    }
+
+    const executableNames = process.platform === 'win32'
+        ? ['perseus.exe', 'perseus.cmd', 'perseus.bat']
+        : ['perseus'];
+    for (const directory of (process.env.PATH || '').split(path.delimiter)) {
+        if (!directory) continue;
+        for (const name of executableNames) {
+            const candidate = path.join(directory, name);
+            try {
+                fs.accessSync(candidate, fs.constants.X_OK);
+                return { command: candidate, argsPrefix: [] };
+            } catch (_) {
+                // Keep searching the operator's PATH.
             }
-            resolve(null);
-        });
-    });
+        }
+    }
+
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+    const sourceCandidate = root && path.join(root, 'perseus.py');
+    if (sourceCandidate && fs.existsSync(sourceCandidate)) {
+        return {
+            command: process.env.PERSEUS_PYTHON || (process.platform === 'win32' ? 'python' : 'python3'),
+            argsPrefix: [sourceCandidate]
+        };
+    }
+    return null;
 }
 
 function updateStatusBar(hasContext) {

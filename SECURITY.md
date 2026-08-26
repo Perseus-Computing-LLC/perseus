@@ -43,15 +43,17 @@ We support responsible disclosure and will credit reporters who follow this poli
 
 ## Security Model
 
-Perseus is a **read-only context rendering engine**. It does not:
+Perseus Context Engine is primarily a context renderer. It can write an explicitly selected output file and can also expose optional commands, services, hooks, and persistent state when the operator enables them. Those optional paths are part of the security boundary, not a sandbox.
 
-- Write to your filesystem (except the output file you explicitly specify)
-- Make network calls (except `@http` directives you explicitly author)
-- Execute arbitrary code (directives are resolved in a sandboxed interpreter)
-- Store credentials or secrets
-- Run as a daemon or persistent process
+Default posture:
 
-**Note:** Perseus can optionally expose network services via `perseus serve` (HTTP API) and `perseus mcp serve` (MCP stdio/SSE transport). These are disabled by default and require explicit opt-in. See the [serve documentation](docs/serve.md) for security considerations when enabling network access.
+- Local workspace sources are resolved without a Perseus-hosted service.
+- Shell, local-agent, service-command, and remote-health operations are disabled unless explicitly enabled.
+- Enabled commands run with the current user's permissions and are **not sandboxed**.
+- Authored HTTP directives, network transports, connectors, model providers, and external integrations can send operator-selected data to configured destinations.
+- Output, checkpoint, cache, and memory features write to paths selected by the operator or configuration.
+
+Perseus does not require a Perseus-hosted API key for its default local render path. It can read environment variables, local files, or provider credentials that the operator exposes to an enabled directive or integration, so secrets must remain outside committed context sources and rendered artifacts.
 
 ### Attack surface
 
@@ -64,9 +66,9 @@ Perseus is a **read-only context rendering engine**. It does not:
 
 ### Trust boundaries
 
-- **You author the directives.** Perseus resolves them. The assistant reads resolved output.
-- **Perseus never sees your assistant's conversation.** It renders before the session starts.
-- **Perseus never sees your API keys.** It runs locally, reads local files, writes local files.
+- **You author the directives.** Perseus resolves the operations that policy allows. The assistant reads the resulting artifact.
+- **Conversation data is not an implicit input.** A host or integration can still pass conversation-derived data if the operator configures that path.
+- **Credentials are operator-scoped inputs.** The default renderer does not require a Perseus-hosted credential, but enabled environment, file, HTTP, model-provider, and integration paths can access credentials exposed to the process.
 
 ---
 
@@ -77,7 +79,7 @@ Perseus is a **read-only context rendering engine**. It does not:
 | NIST SP 800-53 | Mapping in progress |
 | NIST AI RMF | Alignment documented |
 | EO 14028 (SBOM) | [SBOM published](./docs/SBOM.md) |
-| CMMC | Not applicable (read-only tool, no CUI handling) |
+| CMMC | Perseus Computing LLC reports a Level 2 self-assessment for its organizational environment. That company posture does not certify this software, authorize CUI handling in an arbitrary deployment, or confer an ATO. |
 
 ---
 

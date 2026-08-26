@@ -39,6 +39,11 @@
           "default": true,
           "description": "Automatically render context when .perseus/context.md changes"
         },
+        "perseus.executable": {
+          "type": "string",
+          "default": "",
+          "description": "Optional absolute path to the reviewed Perseus executable"
+        },
         "perseus.outputFile": {
           "type": "string",
           "default": ".hermes.md",

@@ -280,6 +280,24 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
         assert "reviewed checkout" in integration
         assert "one curl" not in integration.lower()
 
+    action = text("integrations/github-action/action.yml")
+    for required in ("default: 'false'", "perseus-ctx==1.0.26", "subprocess.run(", "relative_to(root)", "git add --"):
+        assert required in action
+    assert 'run: perseus render "${{ inputs.' not in action
+    assert 'git commit -m "${{ inputs.' not in action
+
+    extension = text("integrations/vscode/extension.js")
+    assert ("ex" + "ec(`") not in extension
+    assert "execFile(" in extension
+    assert "argsPrefix" in extension
+    assert "fs.accessSync" in extension
+
+    security_policy = text("SECURITY.md")
+    assert "not sandboxed" in security_policy
+    assert "sandboxed interpreter" not in security_policy
+    assert "never sees your API keys" not in security_policy
+    assert "Level 2 self-assessment" in security_policy
+
     detailed_quickstart = text("docs/quickstart.md")
     for gate in ("allow_query_shell", "allow_agent_shell", "allow_remote_services_health", "allow_services_command"):
         assert f"{gate}: false" in detailed_quickstart
@@ -288,6 +306,9 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     root_readme = text("README.md")
     for stale in ("Proven at enterprise scale", "Extensibility (Hephaestus)", "Perseus Vault (Μνήμη)", "Guide recommendations"):
         assert stale not in root_readme
+
+    assert "source candidate" in text("demo/index.html")
+    assert "not the published package release" in text("demo/index.html")
 
     reference = text("vault/mcp-reference/README.md")
     publication = json.loads(text("vault/mcp-reference/publication.json"))
