@@ -633,9 +633,12 @@ cp target/release/perseus-vault ~/.local/bin/perseus-vault
 perseus-vault --version   # expect "perseus-vault 2.23.1" (or later)
 ```
 
-> **Perseus Vault tool surface:** Perseus Vault is an MCP JSON-RPC stdio server exposing 169 canonical tools
-> across its five tiers — including `perseus_vault_remember`, `perseus_vault_recall`, `perseus_vault_get_entity`,
-> `perseus_vault_journal`, `perseus_vault_state_set`/`perseus_vault_state_get`, `perseus_vault_health`, and `perseus_vault_stats`.
+> **Perseus Vault MCP surface:** Perseus Vault is an MCP JSON-RPC stdio server. The v2.23.1
+> `--no-default-features` snapshot published in the [versioned API reference](https://perseus.observer/vault/mcp-reference/)
+> contains 173 unique canonical tools; advertised scope counts are release/profile-specific and are recorded in
+> [`metadata.json`](https://perseus.observer/vault/mcp-reference/metadata.json). Representative tools include
+> `perseus_vault_remember`, `perseus_vault_recall`, `perseus_vault_get_entity`, `perseus_vault_journal`,
+> `perseus_vault_state_set`/`perseus_vault_state_get`, `perseus_vault_health`, and `perseus_vault_stats`.
 > Search is SQLite FTS5 keyword by default; embedding/rerank are optional via
 > `perseus_vault_embed` and `perseus_vault_cohere`. No cloud LLM provider is required for core operation.
 >
@@ -661,7 +664,7 @@ perseus-vault --version   # expect "perseus-vault 2.23.1" (or later)
 > **Verification:** After installing Perseus Vault, restart `perseus watch`
 > (or re-render). The next `@memory` resolution uses Perseus Vault via MCP.
 > To confirm: run `perseus doctor` — it reports Perseus Vault connectivity.
-> If Perseus Vault is unreachable, Perseus falls back to local FTS5 silently.
+> If Perseus Vault is unreachable, Perseus reports a bounded degraded state and may use the configured local-only fallback; that fallback is not equivalent to durable Vault recall.
 
 ### Perseus Vault (PRIMARY — structured five-tier local memory)
 

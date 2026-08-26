@@ -38,7 +38,7 @@ adapters = ["langchain-core>=0.3", "llama-index-core>=0.12"]
 
 [project.urls]
 Homepage = "https://perseus.observer"
-Documentation = "https://github.com/Perseus-Computing-LLC/perseus/blob/main/docs/index.md"
+Documentation = "https://perseus.observer/docs/"
 Repository = "https://github.com/Perseus-Computing-LLC/perseus"
 "Release Notes" = "https://github.com/Perseus-Computing-LLC/perseus/releases"
 "Bug Tracker" = "https://github.com/Perseus-Computing-LLC/perseus/issues"

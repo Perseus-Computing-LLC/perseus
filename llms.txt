@@ -1,0 +1,24 @@
+# Perseus Computing
+
+> Open-source, local-first infrastructure for AI agents: verified context for the present, durable memory for the past, and evidence for what happened.
+
+## Current product family
+
+- [Perseus Context Engine](https://perseus.observer/context-engine/): resolve verified workspace state before an agent session.
+- [Perseus Vault](https://perseus.observer/vault/): durable, encrypted, time-aware memory through a local MCP server.
+- [Perseus Ledger](https://perseus.observer/ledger/): runtime-neutral, hash-chained evidence and provenance.
+
+## Developer entry points
+
+- [Documentation](https://perseus.observer/docs/)
+- [Perseus quickstart](https://github.com/Perseus-Computing-LLC/perseus/blob/main/QUICKSTART.md)
+- [Vault MCP API reference](https://perseus.observer/vault/mcp-reference/)
+- [Vault API metadata](https://perseus.observer/vault/mcp-reference/metadata.json)
+- [Benchmarks and methods](https://perseus.observer/benchmarks/)
+- [Perseus source](https://github.com/Perseus-Computing-LLC/perseus)
+- [Perseus Vault source](https://github.com/Perseus-Computing-LLC/perseus-vault)
+- [Perseus Ledger source](https://github.com/Perseus-Computing-LLC/ledger)
+
+## Evidence policy
+
+Public figures are tied to a committed report, release, or feature profile. The benchmark page distinguishes internal measurements, retrieval-only results, end-to-end QA, historical variants, and independent or third-party evidence.
