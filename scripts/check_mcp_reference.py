@@ -79,6 +79,22 @@ def validate(repo_root: Path) -> list[str]:
     if len(raw_names) != len(set(raw_names)) or len(rendered_names) != len(set(rendered_names)):
         errors.append('snapshot tool names are not unique')
 
+    for snapshot_name, tools in (("mcp.raw.json", raw_tools), ("mcp.render.json", rendered_tools)):
+        proof_frames = [item for item in tools if isinstance(item, dict) and item.get("name") == "perseus_vault_proof_frame"]
+        if len(proof_frames) != 1:
+            errors.append(f'{snapshot_name}: expected exactly one perseus_vault_proof_frame tool')
+            continue
+        annotations = proof_frames[0].get("annotations", {})
+        if annotations.get("readOnlyHint") is not False or annotations.get("destructiveHint") is not True:
+            errors.append(f'{snapshot_name}: zeroize-capable proof frame must be non-read-only and destructive')
+
+    source_raw_sha = metadata.get('source_raw_snapshot_sha256')
+    if not isinstance(source_raw_sha, str) or not re.fullmatch(r'[0-9a-f]{64}', source_raw_sha):
+        errors.append('metadata.json: invalid source_raw_snapshot_sha256')
+    corrections = metadata.get('publication_safety_corrections', [])
+    if not any(isinstance(item, dict) and item.get('tool') == 'perseus_vault_proof_frame' for item in corrections):
+        errors.append('metadata.json: missing proof-frame safety correction record')
+
     html = (route / 'mcp-tools.html').read_text(errors='replace') if (route / 'mcp-tools.html').is_file() else ''
     operation_ids = re.findall(r'id="operation-([^"]+)"', html)
     if isinstance(tool_count, int) and len(operation_ids) != tool_count:

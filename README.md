@@ -156,7 +156,7 @@ pip install perseus-ctx==1.0.26
 ~/.local/bin/perseus mcp serve                          # stdio (Claude Desktop, Claude Code, Cursor, Codex)
 ```
 
-For SSE, set a bearer token in the protected Perseus config before launch (the server refuses an unauthenticated bind unless the operator explicitly overrides that safeguard):
+For the loopback-only SSE listener, set a bearer token in the protected Perseus config before launch. The server binds to `127.0.0.1`, rejects non-loopback Host headers, and refuses an unauthenticated bind unless the operator explicitly overrides that safeguard. Multi-machine deployments need a separately reviewed authenticated proxy or tunnel:
 
 ```yaml
 mcp:
@@ -268,7 +268,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 
 ### Current MCP interface
 
-<!-- test-count: 2808 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
+<!-- test-count: 2809 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
 
 Perseus Context Engine exposes workspace-context operations over MCP. The current public interface centers on rendering and inspecting context, checking health, reading explicitly allowed workspace sources, and connecting to Perseus Vault for durable memory. Code-level compatibility identifiers are not separate Perseus products.
 
