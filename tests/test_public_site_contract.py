@@ -269,6 +269,10 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     assert "no data leaves your machine" not in package["long_description"]
     assert "optional transports" in package["long_description"]
     assert package["version"] == "1.0.26"
+    sbom = json.loads(text("sbom.cdx.json"))
+    assert sbom["metadata"]["component"]["version"] == package["version"]
+    assert sbom["metadata"]["component"]["bom-ref"] == f"perseus-ctx@{package['version']}"
+    assert sbom["dependencies"][0]["ref"] == f"perseus-ctx@{package['version']}"
     server = json.loads(text("server.json"))
     assert server["version"] == package["version"]
     assert {item["version"] for item in server["packages"]} == {package["version"]}
@@ -319,6 +323,18 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     assert "perseus-ctx==1.0.26" in support
     assert "copy-paste `perseus.py`" not in support
 
+    sbom_doc = text("docs/SBOM.md")
+    assert "Runtime/optional non-MIT/BSD licenses" in sbom_doc
+    assert "development toolchain also includes Apache-2.0 and MPL-2.0" in sbom_doc
+
+    root_readme = text("README.md")
+    assert "Every tool resolves live workspace state" not in root_readme
+    assert "Plugin sandboxing" not in root_readme
+    assert "permission gate, not a sandbox" in root_readme
+    assert "pip install perseus-ctx==1.0.26" in root_readme
+
+    assert "/opt/data" not in text("claims.json")
+
     manifest = json.loads(text("manifest.json"))
     assert manifest["server"]["mcp_config"]["args"] == ["mcp", "serve"]
 
@@ -331,7 +347,6 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
         assert f"{gate}: false" in detailed_quickstart
         assert f"{gate}: true" not in detailed_quickstart
 
-    root_readme = text("README.md")
     for stale in ("Proven at enterprise scale", "Extensibility (Hephaestus)", "Perseus Vault (Μνήμη)", "Guide recommendations"):
         assert stale not in root_readme
 

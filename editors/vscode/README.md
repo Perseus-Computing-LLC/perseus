@@ -57,11 +57,7 @@ last checkpoint's rendered summary.
 
 ## Known issues / pre-publication checklist
 
-- **`publisher: perseus` in `package.json` is a placeholder.** Before
-  submitting to the VSCode Marketplace it must be changed to a real
-  publisher ID matching a verified Azure DevOps account
-  (`vsce create-publisher <name>` if you don't have one). Beta testing
-  via `vsce package` + sideload `.vsix` works fine with the placeholder.
+- **`publisher: tcconnally` in `package.json` is the current package identifier.** Before any Marketplace submission, verify that it matches the intended Azure DevOps publisher account and complete the release checklist. Sideload a reviewed `.vsix` for pre-publication testing.
 - **No marketplace publish in this task.** Package and sideload only.
 - **No Electron extension-host tests yet.** This is a thin launcher; the real
   protocol surface is the LSP server tested in `tests/test_lsp.py`, including

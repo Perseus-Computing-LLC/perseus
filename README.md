@@ -12,12 +12,12 @@
 [![MCP Marketplace](https://img.shields.io/badge/MCP%20Marketplace-Indexed-blueviolet)](https://getlulu.dev/mcps/perseus-faa880)
 
 **Published on** [PyPI](https://pypi.org/project/perseus-ctx/) · [Official MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.Perseus-Computing-LLC/perseus) · [Glama](https://glama.ai/mcp/servers/Perseus-Computing-LLC/perseus) · [Smithery](https://smithery.ai/servers/tcconnally/perseus) · [Lulu MCPs](https://getlulu.dev/mcps/perseus-faa880)
-**`pip install perseus-ctx && cd your-project && perseus quickstart`**
+**`pip install perseus-ctx==1.0.26 && cd your-project && perseus quickstart`**
 
 Zero to rendered context in three lines — no config spelunking:
 
 ```bash
-pip install perseus-ctx                       # 1. install
+pip install perseus-ctx==1.0.26                       # 1. install
 cd your-project && perseus quickstart         # 2. scaffold .perseus/context.md + config
 perseus render .perseus/context.md -o AGENTS.md   # 3. write live context your agent reads
 ```
@@ -47,7 +47,7 @@ Perseus resolves and shapes the active working context; Perseus Vault owns durab
 ### Fastest path
 
 ```bash
-pip install perseus-ctx
+pip install perseus-ctx==1.0.26
 cd your-project
 perseus quickstart
 ```
@@ -143,7 +143,7 @@ Works with any MCP-compatible assistant.
 
 ## Wire Perseus to Your Assistant (MCP)
 
-Perseus implements the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP), exposing tools over stdio or SSE transport. Every tool resolves live workspace state at invocation time — no stale cache, no pre-computed snapshots.
+Perseus implements the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP), exposing tools over stdio or SSE transport. Most tools resolve workspace state when invoked, but freshness is tool-specific: the remote Perseus compatibility tool can cache results, waypoint data has a TTL, and explicit cache-enabled paths follow their configured policies.
 
 > **Stable launcher for MCP and schedulers:** Use `~/.local/bin/perseus` in shell commands. In JSON/YAML MCP `command` fields, replace `~` with your home directory because exec-style clients do not perform shell expansion. This install-managed launcher stays stable across package upgrades instead of baking a version-specific Python or Library path into background configuration. Interactive shell commands may still use `perseus`; verify the resolved entry point with `command -v perseus` when diagnosing an installation.
 
@@ -152,7 +152,7 @@ Perseus implements the [Model Context Protocol](https://modelcontextprotocol.io/
 ### Quick Start (MCP Server)
 
 ```bash
-pip install perseus-ctx
+pip install perseus-ctx==1.0.26
 ~/.local/bin/perseus mcp serve                          # stdio (Claude Desktop, Claude Code, Cursor, Codex)
 ~/.local/bin/perseus mcp serve --transport sse --port 8420  # SSE (remote agents, multi-machine)
 ```
@@ -359,7 +359,7 @@ Perseus is tested against edge cases that challenge the resolve-before-context c
 - **Context overflow protection** — `@read` and `@include` warn and truncate when files exceed `max_read_bytes` / `max_include_bytes` (512 KB default, `None` for unlimited).
 - **Transitive resolution** — `@include` on `.md` files recursively renders directives up to `max_include_depth` (default 5), with cycle detection.
 - **Integrity drift** — Optional `integrity_check` captures file mtimes before render and warns if any file changed mid-resolution.
-- **Plugin sandboxing** — Plugin directives with `executes_shell=True` are gated behind `allow_query_shell`, same as built-ins. Plugin errors are caught and surfaced as inline warnings — a broken plugin never breaks a render.
+- **Plugin permission gating** — Plugin directives with `executes_shell=True` are gated behind `allow_query_shell`, like built-ins. This is a permission gate, not a sandbox: enabled plugin code runs with the current user's permissions. Plugin errors are caught and surfaced as inline warnings.
 
 [Edge-case tests](tests/test_edge_cases.py) cover circular dependencies, race conditions, symlink escapes, and context overflow. These four config knobs live under `render:` in `~/.perseus/config.yaml`.
 
