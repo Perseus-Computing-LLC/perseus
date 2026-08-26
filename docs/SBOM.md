@@ -58,10 +58,11 @@
 | Total direct dependencies (runtime) | 1 |
 | Total transitive dependencies | 0 (pyyaml has no Python deps) |
 | Total optional dependencies | 1 (mcp) |
-| Dependencies with known CVEs | 0 |
-| Copyleft licenses (GPL/AGPL) | 0 |
-| Non-MIT/BSD licenses | 0 |
-| Foreign-owned dependencies | 0 |
+| Runtime/optional dependencies with known CVEs | Not asserted here; inspect the current dependency-audit workflow |
+| Runtime/optional copyleft licenses (GPL/AGPL) | 0 in the inventory above |
+| Runtime/optional non-MIT/BSD licenses | 0 in the inventory above |
+| Development-tool licenses | Include Apache-2.0 and MPL-2.0; not shipped as runtime dependencies |
+| Supplier ownership/jurisdiction | Not inferred by this SBOM |
 
 ---
 
@@ -78,7 +79,7 @@
 
 ## Security Assessment
 
-- [x] All dependencies are MIT-licensed — no copyleft risk
+- [x] Runtime and optional dependencies listed above are MIT-licensed; the development toolchain also includes Apache-2.0 and MPL-2.0 packages
 - [x] pyyaml is widely audited, maintained, and CVE-tracked
 - [x] YAML parsing uses `yaml.safe_load()` — no arbitrary code execution risk
 - [ ] No separate code-signing artifact for the published 1.0.26 package
