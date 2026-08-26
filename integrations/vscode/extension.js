@@ -121,7 +121,7 @@ function startWatching() {
 
     if (watcher) { watcher.dispose(); }
 
-    const contextFile = path.join(root, '.perseus', 'context.md');
+    const contextFile = resolveWithinWorkspace(root, path.join('.perseus', 'context.md'));
     if (!fs.existsSync(contextFile)) return;
 
     const pattern = new vscode.RelativePattern(path.join(root, '.perseus'), '**/*');
@@ -154,7 +154,7 @@ async function renderContext(workspaceRoot) {
     }
 
     const outputFile = resolveOutputFile(workspaceRoot);
-    const contextFile = path.join(workspaceRoot, '.perseus', 'context.md');
+    const contextFile = resolveWithinWorkspace(workspaceRoot, path.join('.perseus', 'context.md'));
 
     if (!fs.existsSync(contextFile)) {
         statusBar.text = '$(warning) Perseus: no context.md';
