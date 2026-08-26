@@ -371,9 +371,9 @@ footer.site { border-top: 1px solid var(--border-soft); background: var(--bg); }
 
 /* ============================================================
    Brand-kit refinements (defense-grade, 2026-07)
-   Gold = Plutus. Violet-tinted chrome. Framed surfaces.
+   Gold = Ledger. Violet-tinted chrome. Framed surfaces.
    ============================================================ */
-/* gold accents (Plutus) */
+/* gold accents (Ledger) */
 .eyebrow.gold { color: var(--gold); }
 .btn-gold { background: var(--gold); color: #221802; }
 .btn-gold:hover { opacity: .92; }
