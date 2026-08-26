@@ -68,7 +68,7 @@ for assistant profiles, refresh options, and security settings.
 
 **Perseus: the memory & context layer for AI agents. Load only the context they actually need.**
 
-Your agents re-read their whole notebook from page one on every call, and you're billed per word. Perseus hands them just the page they need: it resolves live workspace state into verified facts before the context window opens, and pairs with [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) for durable, encrypted memory. The latest completed paired confirmation is **82.0% (410/500) on LongMemEval-S** using the official-CoT answer prompt and evidence-structured candidate context, versus **83.2% (416/500)** for the matched full-context control (**-1.2 points**). This is a company-run internal result: the preregistered success rule failed, so it is not a superiority, independent-holdout, or production-promotion claim. The historical official-CoT mean is **79.0%** and the separately labeled plain-prompt result is **73.8%**. On LOCOMO (run on [Mem0's own harness](https://github.com/joelwk/memory-benchmarks)), the same local evaluation reports Perseus Vault **87.9%**, Mem0 Platform 82.2%, and Zep Cloud 33.8%. Local-first, air-gap ready, MIT.
+Your agents re-read their whole notebook from page one on every call, and you're billed per word. Perseus hands them just the page they need: it resolves live workspace state into verified facts before the context window opens, and pairs with [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) for durable, encrypted memory. The latest completed paired confirmation is **[82.0% (410/500) on LongMemEval-S](https://github.com/Perseus-Computing-LLC/perseus/blob/main/claims.json)** using the official-CoT answer prompt and evidence-structured candidate context, versus **83.2% (416/500)** for the matched full-context control (**-1.2 points**). This is a company-run internal result: the preregistered success rule failed, so it is not a superiority, independent-holdout, or production-promotion claim. The historical official-CoT mean is **79.0%** and the separately labeled plain-prompt result is **73.8%**. On LOCOMO (run on [Mem0's own harness](https://github.com/joelwk/memory-benchmarks)), the same local evaluation reports Perseus Vault **87.9%**, Mem0 Platform 82.2%, and Zep Cloud 33.8%. Local-first, air-gap ready, MIT.
 
 <!-- mcp-name: io.github.Perseus-Computing-LLC/perseus -->
 
@@ -80,7 +80,7 @@ Perseus is one platform with three layers. Each layer has a distinct job; togeth
 
 | Layer | What it does | Page |
 |---|---|---|
-| **Context engine** | Resolves live workspace state into a bounded, verified briefing before the model runs. | [perseus.observer/context-engine](https://perseus.observer/context-engine/) |
+| **Perseus Context Engine** | Resolves live workspace state into a bounded, verified briefing before the model runs. | [perseus.observer/context-engine](https://perseus.observer/context-engine/) |
 | **Perseus Vault** | Persists governed memory across sessions with local-first storage, retrieval, and confidence-aware records. | [perseus.observer/vault](https://perseus.observer/vault/) |
 | **Perseus Ledger** | Records hash-chained events and evidence so consequential work can be reconstructed and reviewed. | [perseus.observer/ledger](https://perseus.observer/ledger/) |
 
@@ -92,7 +92,7 @@ The [benchmarks desk](https://perseus.observer/benchmarks/) is the proof surface
 
 [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault) is the persistent memory backend for Perseus — a lightweight Rust MCP server with SQLite + FTS5. Zero network calls, no API keys. Offline dense/hybrid embeddings are **bundled by default** (the model is compiled into the binary), so semantic recall works zero-config with no external model download. Perseus Vault exposes a broad canonical MCP surface under `perseus_vault_*` names across structured entities, hybrid vector search, RAG, connectors, confidence decay, journal events, and state management. Representative tools include `perseus_vault_remember`, `perseus_vault_recall`, `perseus_vault_context`, `perseus_vault_traverse`, `perseus_vault_decay`, `perseus_vault_stats`, and `perseus_vault_health`.
 
-📄 [Product page →](https://perseus.observer/vault/) | ⭐ [Vault on GitHub →](https://github.com/Perseus-Computing-LLC/perseus-vault)
+📄 [Product page →](https://perseus.observer/vault/) | 📚 [Versioned MCP API reference →](https://perseus.observer/vault/mcp-reference/) | ⭐ [Vault on GitHub →](https://github.com/Perseus-Computing-LLC/perseus-vault)
 
 **Install** (prebuilt binary — Linux / macOS):
 ```bash
