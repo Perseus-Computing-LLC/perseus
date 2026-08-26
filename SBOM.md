@@ -39,6 +39,7 @@ Source of truth: `pyproject.toml` → `dependencies = ["pyyaml>=6.0.1"]`.
 | Extra    | Adds        | When needed |
 | :------- | :---------- | :---------- |
 | `[mcp]`  | `mcp`       | Only if using the external `mcp` package integration path. |
+| `[adapters]` | `langchain-core>=0.3`, `llama-index-core>=0.12` | Only for the optional LangChain and LlamaIndex context-adapter SDK paths. These packages bring their own transitive dependency graphs, which must be resolved and scanned for the exact installation environment. |
 | `[dev]`  | `pytest`, `coverage`, `hypothesis` | Development/testing only — never distributed. |
 
 ### Container / Iron Bank image

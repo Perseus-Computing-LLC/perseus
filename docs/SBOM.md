@@ -34,6 +34,10 @@
 | Package | Version | License | Type | Required For |
 |---|---|---|---|---|
 | mcp | * (latest) | MIT | Optional | MCP server mode |
+| langchain-core | >=0.3 | MIT | Optional | `[adapters]` LangChain context adapter |
+| llama-index-core | >=0.12 | MIT | Optional | `[adapters]` LlamaIndex context adapter |
+
+The adapter packages have transitive dependencies that vary with the resolver and installation date. Resolve and scan the exact environment before deployment; this summary does not claim a fixed transitive count for optional extras.
 
 ### Dev Dependencies (not in production)
 
@@ -57,7 +61,7 @@
 |---|---|
 | Total direct dependencies (runtime) | 1 |
 | Total transitive dependencies | 0 (pyyaml has no Python deps) |
-| Total optional dependencies | 1 (mcp) |
+| Total direct optional dependencies | 3 (mcp, langchain-core, llama-index-core) |
 | Runtime/optional dependencies with known CVEs | Not asserted here; inspect the current dependency-audit workflow |
 | Runtime/optional copyleft licenses (GPL/AGPL) | 0 in the inventory above |
 | Runtime/optional non-MIT/BSD licenses | 0 in the inventory above |

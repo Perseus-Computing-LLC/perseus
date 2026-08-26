@@ -1432,7 +1432,8 @@
     },
     {
       "annotations": {
-        "readOnlyHint": true
+        "destructiveHint": true,
+        "readOnlyHint": false
       },
       "description": "Proof frame: bounded, hash-cited evidence pack for external consumers (Qorx Zero borrow). Memory stays on-device; the consumer gets only a capped frame (top-N records + per-record source hashes + frame digest). Empty frame -> refusal, never invention. zeroize:true permanently blanks framed entities' bodies after framing (privacy end-state).",
       "inputSchema": {

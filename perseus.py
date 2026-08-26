@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "12a465b"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "a9dc22c-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -12630,6 +12630,9 @@ def _build_annotations(tool_name: str, spec) -> dict | None:
     if getattr(spec, 'reads_files', False) and not getattr(spec, 'executes_shell', False):
         hints["readOnlyHint"] = True
     if getattr(spec, 'mutates_state', False):
+        # A tool that writes or resets state must never also advertise itself as
+        # read-only, even when it reads files before mutating.
+        hints["readOnlyHint"] = False
         hints["destructiveHint"] = True
     # Sensitive tools are always marked destructive
     if tool_name in _MCP_SENSITIVE_TOOLS:
