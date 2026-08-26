@@ -16,6 +16,22 @@ const OUTPUT_FILES = {
     copilot: '.github/copilot-instructions.md'
 };
 
+function requireTrustedWorkspace() {
+    if (vscode.workspace.isTrusted) return true;
+    vscode.window.showWarningMessage('Perseus is disabled until this workspace is trusted.');
+    return false;
+}
+
+function resolveWithinWorkspace(root, rawPath) {
+    const resolvedRoot = path.resolve(root);
+    const resolved = path.resolve(resolvedRoot, rawPath);
+    const relative = path.relative(resolvedRoot, resolved);
+    if (!relative || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))) {
+        return resolved;
+    }
+    throw new Error(`Perseus path must remain inside the workspace: ${rawPath}`);
+}
+
 function activate(context) {
     outputChannel = vscode.window.createOutputChannel('Perseus');
     outputChannel.appendLine('Perseus context engine activated');
@@ -32,8 +48,13 @@ function activate(context) {
         vscode.commands.registerCommand('perseus.watch', startWatching)
     );
 
-    // Auto-start
+    // Auto-start only in a trusted workspace, and only when the operator opted in.
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+    if (!vscode.workspace.isTrusted) {
+        statusBar.text = '$(shield) Perseus: workspace not trusted';
+        statusBar.show();
+        return;
+    }
     if (workspaceRoot && fs.existsSync(path.join(workspaceRoot, '.perseus', 'context.md'))) {
         const config = vscode.workspace.getConfiguration('perseus');
         if (config.get('autoRender')) {
@@ -47,6 +68,7 @@ function activate(context) {
 }
 
 async function renderNow() {
+    if (!requireTrustedWorkspace()) return;
     const root = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
     if (!root) {
         vscode.window.showErrorMessage('Perseus: no workspace open');
@@ -56,6 +78,7 @@ async function renderNow() {
 }
 
 async function initWorkspace() {
+    if (!requireTrustedWorkspace()) return;
     const root = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
     if (!root) return;
 
@@ -81,6 +104,7 @@ async function initWorkspace() {
 }
 
 function startWatching() {
+    if (!requireTrustedWorkspace()) return;
     const root = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
     if (!root) return;
 
@@ -108,6 +132,7 @@ function startWatching() {
 }
 
 async function renderContext(workspaceRoot) {
+    if (!requireTrustedWorkspace()) return;
     statusBar.text = '$(sync~spin) Perseus: rendering...';
     statusBar.show();
 
@@ -155,20 +180,31 @@ function resolveOutputFile(root) {
     const assistant = config.get('assistant');
 
     if (assistant !== 'auto') {
-        return path.join(root, OUTPUT_FILES[assistant] || '.hermes.md');
+        return resolveWithinWorkspace(root, OUTPUT_FILES[assistant] || '.hermes.md');
     }
 
-    // Auto-detect from workspace files
-    for (const [name, file] of Object.entries(OUTPUT_FILES)) {
-        if (fs.existsSync(path.join(root, file))) return path.join(root, file);
+    // Auto-detect from fixed, workspace-relative output names.
+    for (const file of Object.values(OUTPUT_FILES)) {
+        const candidate = resolveWithinWorkspace(root, file);
+        if (fs.existsSync(candidate)) return candidate;
     }
-    return path.join(root, config.get('outputFile') || '.hermes.md');
+    return resolveWithinWorkspace(root, config.get('outputFile') || '.hermes.md');
 }
 
 async function findPerseus() {
     const configured = vscode.workspace.getConfiguration('perseus').get('executable');
     if (configured) {
-        return { command: configured, argsPrefix: [] };
+        if (!path.isAbsolute(configured)) {
+            vscode.window.showErrorMessage('Perseus executable must be an absolute path.');
+            return null;
+        }
+        try {
+            fs.accessSync(configured, fs.constants.X_OK);
+            return { command: configured, argsPrefix: [] };
+        } catch (_) {
+            vscode.window.showErrorMessage(`Perseus executable is not runnable: ${configured}`);
+            return null;
+        }
     }
 
     const executableNames = process.platform === 'win32'
@@ -187,14 +223,6 @@ async function findPerseus() {
         }
     }
 
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
-    const sourceCandidate = root && path.join(root, 'perseus.py');
-    if (sourceCandidate && fs.existsSync(sourceCandidate)) {
-        return {
-            command: process.env.PERSEUS_PYTHON || (process.platform === 'win32' ? 'python' : 'python3'),
-            argsPrefix: [sourceCandidate]
-        };
-    }
     return null;
 }
 
@@ -211,4 +239,4 @@ function deactivate() {
     if (outputChannel) outputChannel.dispose();
 }
 
-module.exports = { activate, deactivate };
+module.exports = { activate, deactivate, _test: { resolveWithinWorkspace } };

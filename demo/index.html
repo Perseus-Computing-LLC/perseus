@@ -54,7 +54,7 @@ Rendered: @date format=&quot;YYYY-MM-DD HH:mm z&quot;
 - Name: sample-api
 - Branch: main
 - API port: 3001
-- Tests: 894 passing
+- Test status: fixture value only
 - Last decision: review the webhook integration before release
 
 ## Boundary
@@ -65,7 +65,7 @@ Activate “Replay committed render” to load the generated output and its SHA-
   <div class="demo-controls"><button class="button button-primary" type="button" data-demo-run>Replay committed render</button><button class="button button-secondary" type="button" data-demo-reset disabled>Reset</button><p data-demo-status aria-live="polite">Idle. No network request has run.</p></div>
   <details class="demo-boundary"><summary>What this replay proves and does not prove</summary><p>The interaction proves that the public route can load and display the committed bounded excerpt and its metadata. The excerpt comes from a local Perseus Context Engine render and excludes the automatic compatibility memory pointer. It does not prove model behavior, memory retrieval, token savings, customer performance, or a live service.</p></details>
 </div></section>
-<section class="section"><div class="wrap install-layout"><div><p class="kicker">Run the real product</p><h2>Generate the same artifact in your own workspace.</h2><p>The real loop runs locally: author sources, render the briefing, inspect the output, then give that file to the assistant you already use.</p></div><div><div class="command"><code>pip install perseus-ctx
+<section class="section"><div class="wrap install-layout"><div><p class="kicker">Run the published product</p><h2>Generate a complete artifact in your own workspace.</h2><p>The real loop runs locally: author sources, render the briefing, inspect the output, then give that file to the assistant you already use.</p></div><div><div class="command"><code>pip install perseus-ctx
 perseus quickstart
 perseus render .perseus/context.md -o AGENTS.md</code><button type="button" data-copy="pip install perseus-ctx
 perseus quickstart

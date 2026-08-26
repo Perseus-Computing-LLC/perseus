@@ -258,7 +258,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 
 ### Current MCP interface
 
-<!-- test-count: 2807 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
+<!-- test-count: 2808 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
 
 Perseus Context Engine exposes workspace-context operations over MCP. The current public interface centers on rendering and inspecting context, checking health, reading explicitly allowed workspace sources, and connecting to Perseus Vault for durable memory. Code-level compatibility identifiers are not separate Perseus products.
 
@@ -386,7 +386,7 @@ Use the [public methods desk](https://perseus.observer/benchmarks/) and [`claims
 
 ## How Perseus Works
 
-You write this:
+The first line in this syntax example is the directive protocol marker, not the installed package version:
 
 ```markdown
 @perseus v1.0.8

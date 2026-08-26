@@ -285,6 +285,10 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
         assert required in action
     assert 'run: perseus render "${{ inputs.' not in action
     assert 'git commit -m "${{ inputs.' not in action
+    action_docs = text("integrations/github-action/README.md")
+    assert "uses: Perseus-Computing-LLC/perseus@main" not in action_docs
+    assert "contents: read" in action_docs
+    assert "commit` | `false`" in action_docs
 
     extension = text("integrations/vscode/extension.js")
     assert ("ex" + "ec(`") not in extension
@@ -297,6 +301,15 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     assert "sandboxed interpreter" not in security_policy
     assert "never sees your API keys" not in security_policy
     assert "Level 2 self-assessment" in security_policy
+    assert "does **not** claim a SLSA provenance attestation" in security_policy
+    assert "signed SLSA build provenance" not in security_policy
+
+    manifest = json.loads(text("manifest.json"))
+    assert manifest["server"]["mcp_config"]["args"] == ["mcp", "serve"]
+
+    hook = text("integrations/claude-code/on_session_start.sh")
+    assert '"${PERSEUS[@]}" render' in hook
+    assert "$PERSEUS render" not in hook
 
     detailed_quickstart = text("docs/quickstart.md")
     for gate in ("allow_query_shell", "allow_agent_shell", "allow_remote_services_health", "allow_services_command"):
