@@ -22,10 +22,8 @@ SCRIPTS_DIR="$("$PYTHON" -c 'import sysconfig; print(sysconfig.get_path("scripts
 PERSEUS_BIN="$SCRIPTS_DIR/perseus"
 [ -x "$PERSEUS_BIN" ] || fail "installed Perseus executable not found at $PERSEUS_BIN"
 VERSION_OUTPUT="$("$PERSEUS_BIN" --version)"
-case "$VERSION_OUTPUT" in
-  *"$PERSEUS_CTX_VERSION"*) ;;
-  *) fail "installed executable version mismatch: $VERSION_OUTPUT" ;;
-esac
+INSTALLED_VERSION="$(printf '%s\n' "$VERSION_OUTPUT" | "$PYTHON" -c 'import re, sys; match = re.search(r"\\bv?(\\d+\\.\\d+\\.\\d+)\\b", sys.stdin.read()); print(match.group(1) if match else "")')"
+[ "$INSTALLED_VERSION" = "$PERSEUS_CTX_VERSION" ] || fail "installed executable version mismatch: $VERSION_OUTPUT"
 
 cd "$WORKSPACE"
 info "Initializing Perseus Context Engine in $WORKSPACE"
