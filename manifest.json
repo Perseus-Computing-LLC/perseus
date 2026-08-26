@@ -1,7 +1,7 @@
 {
   "manifest_version": "0.3",
   "name": "perseus",
-  "version": "1.0.26",
+  "version": "1.0.27",
   "display_name": "Perseus — Live Context for MCP Hosts",
   "description": "Live workspace context engine for AI agents. Resolves project files, git state, services, and memory into ready-to-use context before every turn. Local-first, MCP-native.",
   "long_description": "Perseus eliminates cold-start orientation for AI agents. It is a compile-before-context engine that resolves directives (@file, @git, @memory, @services, @search) into a ready context block injected before every agent session.\\n\\n- **Zero orientation** — your agent receives project state immediately, without an orientation detour\\n\\n- **MCP-native** — works as an MCP server for live context resolution\\n\\n- **Local-first** — all resolution happens on your filesystem, no data leaves your machine\\n\\n- **Multi-assistant** — works with Claude Desktop, Claude Code, Cursor, Hermes Agent, and any MCP host\\n\\n- **Pairs with Perseus Vault** — persistent cross-session memory through a local MCP backend; see the [versioned Vault MCP API reference](https://perseus.observer/vault/mcp-reference/) for its published surface\\n\\nInstall: `pip install perseus-ctx && cd your-project && perseus quickstart`",

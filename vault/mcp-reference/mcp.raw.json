@@ -3,7 +3,7 @@
   "mcpVersion": "2025-06-18",
   "server": {
     "name": "perseus-vault",
-    "version": "2.23.1"
+    "version": "2.23.2"
   },
   "capabilities": {
     "tools": {

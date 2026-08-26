@@ -7,7 +7,7 @@ Persistent, encrypted, deterministic memory for AI agents. Local-first and MCP-n
 ### perseus-vault
 
 Path: `/vault/mcp-reference/mcp-tools.html`
-Version: 2.23.1
+Version: 2.23.2
 
 Persistent, encrypted, deterministic memory for AI agents. Local-first and MCP-native.
 
