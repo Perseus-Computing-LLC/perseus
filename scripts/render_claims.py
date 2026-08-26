@@ -229,11 +229,11 @@ def render_capability_matrix(registry: Mapping[str, Any], *, root: Path | None =
 # Each target maps a registry claim onto a machine field in a distribution file.
 # The regex exposes three groups: prefix, current value, suffix.
 TARGETS = [
-    ("manifest.json", "perseus_version", r'("version"\s*:\s*")([^"]*)(")'),
-    ("server.json", "perseus_version", r'("version"\s*:\s*")([^"]*)(")'),
+    ("manifest.json", "perseus_pypi_version", r'("version"\s*:\s*")([^"]*)(")'),
+    ("server.json", "perseus_pypi_version", r'("version"\s*:\s*")([^"]*)(")'),
     (
         ".well-known/mcp/server-card.json",
-        "perseus_version",
+        "perseus_pypi_version",
         r'("name"\s*:\s*"perseus"\s*,\s*"version"\s*:\s*")([^"]*)(")',
     ),
 ]

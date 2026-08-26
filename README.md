@@ -154,7 +154,17 @@ Perseus implements the [Model Context Protocol](https://modelcontextprotocol.io/
 ```bash
 pip install perseus-ctx==1.0.26
 ~/.local/bin/perseus mcp serve                          # stdio (Claude Desktop, Claude Code, Cursor, Codex)
-~/.local/bin/perseus mcp serve --transport sse --port 8420  # SSE (remote agents, multi-machine)
+```
+
+For SSE, set a bearer token in the protected Perseus config before launch (the server refuses an unauthenticated bind unless the operator explicitly overrides that safeguard):
+
+```yaml
+mcp:
+  sse_bearer_token: "<secret from your secret manager>"
+```
+
+```bash
+~/.local/bin/perseus mcp serve --transport sse --port 8420
 ```
 
 ### Assistant-Specific Wiring

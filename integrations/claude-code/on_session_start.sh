@@ -10,12 +10,11 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 CONTEXT="$ROOT/.perseus/context.md"
 OUTPUT="$ROOT/CLAUDE.md"
 
-# Find Perseus without constructing a shell command string.
+# Resolve only an installed executable. Never execute a workspace-controlled
+# perseus.py from a session-start hook.
 PERSEUS=()
 if command -v perseus >/dev/null 2>&1; then
     PERSEUS=("$(command -v perseus)")
-elif [ -f "$ROOT/perseus.py" ]; then
-    PERSEUS=(python3 "$ROOT/perseus.py")
 fi
 
 if [ "${#PERSEUS[@]}" -eq 0 ]; then
