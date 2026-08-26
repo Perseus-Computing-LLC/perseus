@@ -44,7 +44,7 @@ the model reads less, costs less, and answers better: long stuffed prompts measu
 <h2>Why you can trust this number</h2>
 <ol>
 <li><b>Dollars come from a meter, not a spreadsheet.</b> Every model call in both arms was
-recorded as a usage event in a Plutus ledger; the totals above are sums over that ledger,
+recorded as a usage event in Perseus Ledger; the totals above are sums over that ledger,
 reproducible with one line of SQL against the shipped ledger file:<br>
 <code>SELECT w.name, SUM(u.cost_micros)/1e6 AS usd FROM usage_events u JOIN workspaces w ON w.id=u.workspace_id GROUP BY w.id;</code></li>
 <li><b>Accuracy is graded by the benchmark's own judge</b>, not ours: LongMemEval's official
