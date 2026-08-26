@@ -233,23 +233,22 @@ perseus pack show
 
 ---
 
-## 5. LLM Backend — Pythia & Synthesis
+## 5. Optional LLM-backed directives
 
-Pythia (task suggestions) and Synthesis (cited claims) need an LLM. Quick setup:
+Some opt-in suggestion and cited-synthesis directives can call a configured model provider. They are not part of the default local render path. Configure them through the interactive setup, then verify the selected provider explicitly:
 
 ```bash
-# Interactive (recommended)
+# Interactive setup
 perseus quickstart
 
-# Non-interactive with auto-detection
+# Non-interactive setup with environment-based provider detection
 perseus quickstart --non-interactive
 
-# Verify
+# Verify the configured provider before enabling LLM-backed directives
 perseus llm ping
 ```
 
-See [QUICKSTART.md](./QUICKSTART.md) for Gemini free tier, Groq, and
-llama.cpp setup details.
+Review the provider's data path, credential scope, retention, and egress policy before enabling these directives. See [QUICKSTART.md](./QUICKSTART.md) for supported provider configuration.
 
 ---
 
@@ -333,47 +332,17 @@ perseus render .perseus/context.md --explain
 perseus trust
 ```
 
-## 9. Savings Wire — Metering Spend and Provable Savings into Plutus
+## 9. Optional usage evidence
 
-Perseus observes; it never brokers your LLM calls. The `plutus:` config block
-(default off) lets a deployment record real usage, and the counterfactual it
-replaced, into a [Plutus](https://github.com/Perseus-Computing-LLC/plutus)
-ledger whose totals a customer can re-derive by raw SQL.
+Perseus Ledger is the separate public product for provenance and usage evidence. Context Engine does not broker provider calls and this guide does not claim automatic or universal savings.
 
-```yaml
-# .perseus/config.yaml
-plutus:
-  enabled: true
-  db_path: ~/.plutus/perseus-ledger.db   # or endpoint: https://plutus.example
-  org: my-org
-  workspace: prod-agent
+For a bounded local evaluation, install the published Ledger package and inspect its demo before wiring provider usage:
+
+```bash
+python -m pip install perseus-ledger==1.2.4
+ledger demo
 ```
 
-Three levels of wiring, from zero-code to billing-grade:
+Any deployment that records costs or counterfactuals must bind the provider-reported actual usage, model and pricing version, defensible baseline, workspace scope, and evidence hashes in the same event. Estimated context reduction belongs in a separate estimate arm and must not be reported as provider-billed savings.
 
-1. **Spend only.** After each provider call, hand the SDK response to the
-   meter: `perseus.meter_response(cfg, response)`. Tokens and cost land in the
-   ledger, tagged workspace and task_type.
-
-2. **Provable savings on real calls (billing-grade).** If you know what the
-   call would have cost without Perseus, attach the counterfactual to the same
-   event: `perseus.meter_response(cfg, response, baseline_input_tokens=N)`
-   where N is the token count of the context you would have sent (for
-   example, the full-context prompt a Vault recall replaced). Plutus prices
-   the counterfactual from its published table, floors the actual at list
-   price, and hash-chains both, so the per-event saving is reconstructable
-   and tamper-evident (plutus #134). Requires plutus-agent > 1.0.1; an older
-   plutus-agent still meters spend and drops the baseline with one warning.
-
-3. **Zero-code reduction estimates.** `plutus.meter_memory_posture: true`
-   records one estimate-arm event per render: the memory block Perseus
-   actually injected versus the dump the legacy `always` posture would have
-   injected. These land in a dedicated workspace
-   (`plutus.estimates_workspace`, default `perseus-render-estimates`) and are
-   labeled `estimate-exact` (tiktoken installed) or `estimate-heuristic`, so
-   estimated context sizes never contaminate provider-billed spend. Costs one
-   vault call per render. There is also a direct helper for custom wiring:
-   `perseus.meter_context_reduction(cfg, actual_text=..., baseline_text=...)`.
-
-Estimates are for visibility; bills come from level 2. Never quote an
-estimate-arm figure as a measured saving.
+Some source-level compatibility APIs and configuration keys retain older internal identifiers. They are compatibility contracts, not separate Perseus products. New public integration guidance should use **Perseus Ledger** and its versioned package documentation.
