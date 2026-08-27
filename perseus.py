@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "b01bbc4"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "7884f43"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -31328,22 +31328,31 @@ def _scheduler_cron_source_matches(line, source) -> bool:
     import re as _re
     import shlex as _shlex
 
+    line_text = str(line)
     digest = _scheduler_source_marker(source)
     marker = _re.search(
         rf"(?:^|\s)#\s*perseus-render\s+source={_re.escape(digest)}(?:\s|$)",
-        str(line),
+        line_text,
     )
-    if marker:
-        return True
+    command_text = line_text[: marker.start()] if marker else line_text
     try:
-        tokens = _shlex.split(str(line), comments=False, posix=True)
+        tokens = _shlex.split(command_text, comments=True, posix=True)
     except ValueError:
         return False
     source_text = str(Path(source).expanduser().resolve())
-    return any(
-        token == "render" and index + 1 < len(tokens) and tokens[index + 1] == source_text
-        for index, token in enumerate(tokens)
-    )
+    for index, token in enumerate(tokens):
+        if token != "render" or index == 0 or index + 1 >= len(tokens):
+            continue
+        if tokens[index + 1] != source_text:
+            continue
+        launcher = Path(tokens[index - 1]).name.lower()
+        if launcher == "perseus":
+            return True
+        if launcher == "perseus.py" and index > 1:
+            interpreter = Path(tokens[index - 2]).name.lower()
+            if interpreter.startswith("python"):
+                return True
+    return False
 
 
 def _scheduler_cron_tag_matches(line, tag) -> bool:
