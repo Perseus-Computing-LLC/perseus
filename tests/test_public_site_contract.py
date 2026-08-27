@@ -472,6 +472,12 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     assert "security-events: write" not in codeql
     assert "upload: never" in codeql
 
+    skill = text("SKILL.md")
+    for stale_skill_marker in ("150+", "zero collisions", "perseus_query", "perseus_services", "perseus_memory"):
+        assert stale_skill_marker not in skill
+    assert "pip install perseus-ctx==1.0.26" in skill
+    assert "Tool names and schemas are generated from the checked-in server contract" in skill
+
     workflow_checkout_count = 0
     workflow_guard_count = 0
     for workflow_path in (ROOT / ".github" / "workflows").glob("*.yml"):
