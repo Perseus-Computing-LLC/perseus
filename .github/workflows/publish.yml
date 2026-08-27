@@ -140,7 +140,8 @@ jobs:
               mismatches["sbom dependencies"] = "missing, empty, or malformed"
           else:
               dependency_refs = [item.get("ref") for item in dependencies]
-              if not all(isinstance(ref, str) and ref for ref in dependency_refs):
+              valid_dependency_refs = all(isinstance(ref, str) and ref for ref in dependency_refs)
+              if not valid_dependency_refs:
                   mismatches["sbom dependency refs"] = dependency_refs
               else:
                   expected_dependency_refs = {expected_ref} | component_refs
@@ -148,7 +149,8 @@ jobs:
                       mismatches["sbom dependency refs"] = dependency_refs
 
               dependency_lists = [item.get("dependsOn") for item in dependencies]
-              if not all(isinstance(targets, list) for targets in dependency_lists):
+              valid_dependency_lists = all(isinstance(targets, list) for targets in dependency_lists)
+              if not valid_dependency_lists:
                   mismatches["sbom dependency targets"] = "missing or malformed"
               else:
                   dependency_targets = [
@@ -156,12 +158,27 @@ jobs:
                       for targets in dependency_lists
                       for target in targets
                   ]
-                  if not all(isinstance(target, str) and target for target in dependency_targets):
+                  valid_dependency_targets = all(
+                      isinstance(target, str) and target for target in dependency_targets
+                  )
+                  if not valid_dependency_targets:
                       mismatches["sbom dependency targets"] = dependency_targets
                   elif not set(dependency_targets) <= component_refs:
                       mismatches["sbom dependency targets"] = sorted(
                           set(dependency_targets) - component_refs
                       )
+                  elif valid_dependency_refs:
+                      expected_dependency_topology = {
+                          expected_ref: ["python", "pyyaml", "tomli"],
+                          "python": [],
+                          "pyyaml": [],
+                          "tomli": [],
+                      }
+                      actual_dependency_topology = {
+                          item["ref"]: item["dependsOn"] for item in dependencies
+                      }
+                      if actual_dependency_topology != expected_dependency_topology:
+                          mismatches["sbom dependency topology"] = actual_dependency_topology
           if mismatches:
               raise SystemExit(f"release metadata does not match {expected!r}: {mismatches}")
           print(f"All release metadata surfaces match {expected}")

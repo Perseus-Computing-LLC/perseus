@@ -2,6 +2,7 @@
 import argparse
 import shlex
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -172,8 +173,16 @@ def test_cron_tag_match_requires_exact_tag(tmp_path):
         f"# perseus-render source={digest}"
     )
     valid = (
-        f"/home/example/.local/bin/perseus render {shlex.quote(str(source))} --output /tmp/out "
+        f"{Path.home() / '.local' / 'bin' / 'perseus'} render {shlex.quote(str(source))} --output /tmp/out "
         f"# perseus-render source={digest}"
+    )
+    fake_stable = (
+        f"/tmp/perseus render {shlex.quote(str(source))} --output /tmp/out "
+        f"# perseus-render source={digest}"
+    )
+    fake_python = (
+        f"/usr/bin/python /tmp/perseus.py render {shlex.quote(str(source))} "
+        f"--output /tmp/out # perseus-render source={digest}"
     )
     embedded = (
         f"/usr/bin/echo perseus render {shlex.quote(str(source))} --output /tmp/out "
@@ -184,6 +193,8 @@ def test_cron_tag_match_requires_exact_tag(tmp_path):
         f"{shlex.quote(str(source))} --output /tmp/out # perseus-render source={digest}"
     )
     assert not perseus._scheduler_cron_source_matches(unrelated, source)
+    assert not perseus._scheduler_cron_source_matches(fake_stable, source)
+    assert not perseus._scheduler_cron_source_matches(fake_python, source)
     assert not perseus._scheduler_cron_source_matches(embedded, source)
     assert not perseus._scheduler_cron_source_matches(embedded_python, source)
     assert perseus._scheduler_cron_source_matches(valid, source)

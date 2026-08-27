@@ -173,6 +173,8 @@ def _scheduler_cron_source_matches(line, source) -> bool:
     """Match one render crontab line to exactly one canonical source path."""
     import re as _re
     import shlex as _shlex
+    import shutil as _shutil
+    import sys as _sys
 
     command_text, comment = _scheduler_cron_comment_parts(line)
     digest = _scheduler_source_marker(source)
@@ -194,14 +196,25 @@ def _scheduler_cron_source_matches(line, source) -> bool:
     else:
         command = tokens
     source_text = str(Path(source).expanduser().resolve())
-    if len(command) >= 3 and Path(command[0]).name.lower() == "perseus":
-        return command[1] == "render" and command[2].replace(r"\%", "%") == source_text
+    local_launcher = Path.home() / ".local" / "bin" / "perseus"
+    expected_launchers = {str(local_launcher), str(local_launcher.resolve())}
+    try:
+        path_launcher = _shutil.which("perseus")
+    except Exception:
+        path_launcher = None
+    if path_launcher:
+        expected_launchers.update({path_launcher, str(Path(path_launcher).resolve())})
+    if len(command) >= 3 and command[1] == "render":
+        launcher = str(Path(command[0]).resolve())
+        if launcher in expected_launchers:
+            return command[2].replace(r"\%", "%") == source_text
     if (
         len(command) >= 4
-        and Path(command[0]).name.lower().startswith("python")
-        and Path(command[1]).name.lower() == "perseus.py"
+        and Path(command[0]).resolve() == Path(_sys.executable).resolve()
+        and Path(command[1]).resolve() == Path(__file__).resolve()
+        and command[2] == "render"
     ):
-        return command[2] == "render" and command[3].replace(r"\%", "%") == source_text
+        return command[3].replace(r"\%", "%") == source_text
     return False
 
 
