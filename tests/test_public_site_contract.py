@@ -436,6 +436,16 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
         assert "langchain-core" in sbom_text
         assert "llama-index-core" in sbom_text
 
+    partner_guide = text("docs/design-partner-onboarding.md")
+    for retired_onboarding in ("/cloud/", "Cloud API", "Plutus", "plutus", "POST /api/accounts", "self-serve paid checkout"):
+        assert retired_onboarding not in partner_guide
+    for current_onboarding in ("does not offer a hosted account", "perseus-ctx==1.0.26", "perseus-ledger==1.2.4", "perseus mcp serve", "local-evaluation guide"):
+        assert current_onboarding in partner_guide
+
+    attributes = text(".gitattributes")
+    for fixture in ("demo/sample-context.md", "demo/sample-resolved.txt", "demo/sample-metadata.json"):
+        assert f"{fixture} text eol=lf" in attributes
+
     hook = text("integrations/claude-code/on_session_start.sh")
     assert '"${PERSEUS[@]}" render' in hook
     assert "$PERSEUS render" not in hook
