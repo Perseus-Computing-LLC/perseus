@@ -27,6 +27,11 @@ from reportlab.platypus import (
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "government" / "assets" / "Perseus-Computing-LLC-Capability-Statement.pdf"
+COMPATIBILITY_OUTS = [
+    ROOT / "government" / "assets" / "Perseus-Computing-LLC-Capability-Statement-Cyber-Networks.pdf",
+    ROOT / "government" / "assets" / "Perseus-Computing-LLC-Capability-Statement-C3BM.pdf",
+    ROOT / "government" / "assets" / "Perseus-Computing-LLC-Capability-Statement-Electronic-Systems.pdf",
+]
 CLAIMS = json.loads((ROOT / "claims.json").read_text(encoding="utf-8"))["claims"]
 
 PAPER = colors.HexColor("#F2EFE7")
@@ -181,6 +186,9 @@ def main():
         invariant=1,
     )
     doc.build(build_story(), onFirstPage=on_page, onLaterPages=on_page)
+    payload = OUT.read_bytes()
+    for alias in COMPATIBILITY_OUTS:
+        alias.write_bytes(payload)
     print(f"wrote {OUT}")
 
 

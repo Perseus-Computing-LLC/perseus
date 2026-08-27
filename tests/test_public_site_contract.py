@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -261,7 +262,7 @@ def test_demo_replay_artifact_is_hash_bound_and_claim_limited():
     assert "perseus_memory" not in output.decode("utf-8")
 
 
-def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
+def test_ancillary_public_surfaces_share_current_identity_and_boundaries(tmp_path):
     package = json.loads(text("manifest.json"))
     assert package["author"] == {
         "name": "Perseus Computing LLC",
@@ -424,6 +425,31 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     card_generator = text("scripts/generate_server_card.py")
     assert "Path(__file__).resolve().parents[1]" in card_generator
     assert 'Path(".well-known/mcp/server-card.json")' not in card_generator
+    assert "sys.path.insert(0, str(ROOT))" in card_generator
+    assert "--output" in card_generator
+    generated_card = tmp_path / "server-card.json"
+    generated = subprocess.run(
+        [sys.executable, "scripts/generate_server_card.py", "--output", str(generated_card)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert generated.returncode == 0, generated.stderr
+    assert generated_card.read_bytes() == (ROOT / ".well-known/mcp/server-card.json").read_bytes()
+
+    publish = text(".github/workflows/publish.yml")
+    for card_gate in ("scripts/generate_server_card.py", "cmp --silent", "generated-server-card"):
+        assert card_gate in publish
+
+    changelog = text("CHANGELOG.md")
+    assert "legacy `oracle` command remains" in changelog
+    assert "legacy `oracle` config key, log filename, and endpoint were removed entirely" not in changelog
+    data_model = text("spec/data-model.md")
+    assert "`oracle:` is not loaded or merged" in data_model
+    assert "`oracle:` remains accepted as a legacy alias" not in data_model
+    examples = text("docs/EXAMPLES.md")
+    assert "always reflects current repo state" not in examples
+    assert "configured sources available at render time" in examples
 
     install = text("INSTALL.md")
     assert "uv tool install perseus-ctx==1.0.26" in install
@@ -700,7 +726,7 @@ def test_publish_validator_rejects_duplicate_sbom_components(tmp_path):
     sbom = json.loads((ROOT / "sbom.cdx.json").read_text(encoding="utf-8"))
     (tmp_path / "sbom.cdx.json").write_text(json.dumps(sbom), encoding="utf-8")
     valid = subprocess.run(
-        ["python3", "-c", validator, "1.0.26"],
+        [sys.executable, "-c", validator, "1.0.26"],
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -710,7 +736,7 @@ def test_publish_validator_rejects_duplicate_sbom_components(tmp_path):
     sbom["components"].append(dict(sbom["components"][0]))
     (tmp_path / "sbom.cdx.json").write_text(json.dumps(sbom), encoding="utf-8")
     invalid = subprocess.run(
-        ["python3", "-c", validator, "1.0.26"],
+        [sys.executable, "-c", validator, "1.0.26"],
         cwd=tmp_path,
         capture_output=True,
         text=True,
