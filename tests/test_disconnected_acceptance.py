@@ -72,6 +72,11 @@ def test_linux_broker_workflow_binds_pid_identity_and_fails_closed_on_cleanup():
     assert "scripts/ci/run_disconnected_acceptance.sh" in isolated_workflow
 
     broker = (ROOT / "scripts" / "ci" / "run_disconnected_acceptance.sh").read_text(encoding="utf-8")
+    assert "mktemp -d -p /run" in broker
+    assert 'broker_pid_file="${broker_dir}/broker.pid"' in broker
+    assert 'broker_log="${broker_dir}/broker.log"' in broker
+    assert "/tmp/perseus-acceptance-broker-" not in broker
+    assert 'exec "${python_bin}" "$@" >"${log_file}" 2>&1' in broker
     assert "broker_start_time" in broker
     assert "broker_pid_file" in broker
     assert "broker_process_matches" in broker

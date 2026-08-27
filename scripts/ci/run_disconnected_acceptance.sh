@@ -5,10 +5,10 @@ workspace="${GITHUB_WORKSPACE:-$(pwd)}"
 run_id="${GITHUB_RUN_ID:-local-$$}"
 python_version="${PYTHON_VERSION:-$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')}"
 broker_root="/sys/fs/cgroup/perseus-acceptance-${run_id}-${python_version}"
-broker_dir="/run/perseus-acceptance-${run_id}-${python_version}"
+broker_dir="$(sudo mktemp -d -p /run "perseus-acceptance-${run_id}-${python_version}.XXXXXX")"
 broker_socket="${broker_dir}/broker.sock"
-broker_pid_file="/tmp/perseus-acceptance-broker-${run_id}-${python_version}.pid"
-broker_log="/tmp/perseus-acceptance-broker-${run_id}-${python_version}.log"
+broker_pid_file="${broker_dir}/broker.pid"
+broker_log="${broker_dir}/broker.log"
 broker_script="${workspace}/benchmark/disconnected_acceptance/cgroup_broker.py"
 cleanup_failed=0
 
@@ -55,12 +55,15 @@ cleanup() {
     if [ -e "${broker_socket}" ]; then
         sudo rm -f "${broker_socket}" || cleanup_failed=1
     fi
-    sudo rmdir "${broker_root}" 2>/dev/null || cleanup_failed=1
-    sudo rmdir "${broker_dir}" 2>/dev/null || cleanup_failed=1
-    sudo rm -f "${broker_pid_file}" "${broker_log}" || cleanup_failed=1
     if [ "${cleanup_failed}" -ne 0 ]; then
         echo "privileged cgroup broker cleanup failed" >&2
         sudo cat "${broker_log}" >&2 2>/dev/null || true
+    fi
+    sudo rm -f "${broker_pid_file}" "${broker_log}" || cleanup_failed=1
+    sudo rmdir "${broker_root}" 2>/dev/null || cleanup_failed=1
+    sudo rmdir "${broker_dir}" 2>/dev/null || cleanup_failed=1
+    if [ "${cleanup_failed}" -ne 0 ]; then
+        echo "privileged cgroup broker cleanup failed" >&2
         return 1
     fi
     return 0
@@ -77,22 +80,22 @@ if [ ! -f "${broker_script}" ]; then
     echo "trusted cgroup broker script is missing: ${broker_script}" >&2
     exit 1
 fi
-sudo mkdir -p "${broker_root}" "${broker_dir}"
+sudo mkdir -p "${broker_root}"
 sudo chmod 0755 "${broker_dir}"
-sudo rm -f "${broker_pid_file}"
 python_bin="$(command -v python)"
 sudo bash -c '
     set -euo pipefail
     umask 0022
     pid_file="$1"
-    python_bin="$2"
-    shift 2
+    log_file="$2"
+    python_bin="$3"
+    shift 3
     start_time="$(awk "{print \\$22}" "/proc/$$/stat")"
     printf "%s %s\\n" "$$" "${start_time}" >"${pid_file}"
-    exec "${python_bin}" "$@"
-' -- "${broker_pid_file}" "${python_bin}" "${broker_script}" \
+    exec "${python_bin}" "$@" >"${log_file}" 2>&1
+' -- "${broker_pid_file}" "${broker_log}" "${python_bin}" "${broker_script}" \
     --root "${broker_root}" --socket "${broker_socket}" --uid "$(id -u)" \
-    >"${broker_log}" 2>&1 &
+    &
 for _ in $(seq 1 50); do
     if [ -S "${broker_socket}" ] && broker_process_matches; then
         break
