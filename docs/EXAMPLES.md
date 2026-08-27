@@ -12,8 +12,8 @@ This page provides practical examples of how Perseus is used today, plus scenari
 
 **How it works:**
 - A project keeps a live `.perseus/context.md` (or similar) with `@query`, `@services`, `@waypoint`, and `@memory` blocks.
-- Before a new agent starts, a renderer pass produces an up‑to‑date snapshot.
-- The new agent receives a concise, verified context instead of a stale summary.
+- Before a new agent starts, a renderer pass produces a current snapshot.
+- The new agent receives concise rendered context with source boundaries instead of a stale summary.
 
 **Outcome:** Faster ramp‑up, fewer back‑and‑forth clarification cycles, and less “cold start” burn.
 
@@ -71,7 +71,7 @@ This page provides practical examples of how Perseus is used today, plus scenari
 **Example:** Preparing a launch plan that depends on live product readiness signals.
 
 **How Perseus helps:**
-- Pulls release notes, build status, and known issue lists into a single verified context.
+- Pulls release notes, build status, and known issue lists into a single context snapshot with source boundaries.
 
 **Benefit:** Reduced risk of messaging outdated or inaccurate launch details.
 
@@ -89,6 +89,6 @@ This page provides practical examples of how Perseus is used today, plus scenari
 **Example:** Weekly operational review.
 
 **How Perseus helps:**
-- Generates a verified summary of ongoing projects, system health, and key risks.
+- Generates a summary of ongoing projects, system health, and key risks from the configured sources.
 
-**Benefit:** Leadership gets accurate, live context without manual report prep.
+**Benefit:** Leadership gets a current context snapshot with source boundaries without manual report prep.

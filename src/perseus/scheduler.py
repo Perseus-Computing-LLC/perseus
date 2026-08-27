@@ -345,7 +345,7 @@ def cmd_systemd(args, cfg):
         print("Use `perseus launchd` on macOS.", file=sys.stderr)
         sys.exit(1)
     if sys.platform != "linux":
-        suffix = " Native Windows Task Scheduler support is deferred." if sys.platform == "win32" else ""
+        suffix = " Systemd support is deferred; use Windows Task Scheduler via `perseus schtasks create`." if sys.platform == "win32" else ""
         print(f"Error: `perseus systemd` is only supported on Linux.{suffix}", file=sys.stderr)
         sys.exit(1)
 

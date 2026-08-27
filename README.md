@@ -30,7 +30,7 @@ start (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, ...). Keep it live with
 
 ### What you get
 
-- **Live context before the first turn** — render verified workspace facts instead of making an assistant rediscover them.
+- **Live context before the first turn** — render current workspace values with their source and freshness boundaries instead of making an assistant rediscover them.
 - **One source, any assistant** — write `.perseus/context.md` once and render to `.hermes.md`, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, or another assistant context file.
 - **Local-first by default** — the core renderer reads your workspace locally; no account or hosted service is required.
 - **MCP-native when you need it** — expose the same live context as a stdio or SSE MCP server, with shell-executing tools opt-in.
@@ -82,7 +82,7 @@ Perseus is one platform with three layers. Each layer has a distinct job; togeth
 
 | Layer | What it does | Page |
 |---|---|---|
-| **Perseus Context Engine** | Resolves live workspace state into a bounded, verified briefing before the model runs. | [perseus.observer/context-engine](https://perseus.observer/context-engine/) |
+| **Perseus Context Engine** | Resolves configured workspace state into a bounded briefing with source and configuration boundaries before the model runs. | [perseus.observer/context-engine](https://perseus.observer/context-engine/) |
 | **Perseus Vault** | Persists governed memory across sessions with local-first storage, retrieval, and confidence-aware records. | [perseus.observer/vault](https://perseus.observer/vault/) |
 | **Perseus Ledger** | Records hash-chained events and evidence so consequential work can be reconstructed and reviewed. | [perseus.observer/ledger](https://perseus.observer/ledger/) |
 
@@ -349,7 +349,7 @@ See the [file-based Hermes integration guide](https://github.com/Perseus-Computi
 
 ## Why Perseus? (Proof, Hardening, and Enterprise Value)
 
-Perseus delivers verified, up-to-date context, eliminating the need for AI assistants to spend turns orienting themselves. Here's how it stands up:
+Perseus delivers context rendered from configured sources, with freshness limits made visible, so AI assistants spend fewer turns orienting themselves. Here's how it stands up:
 
 ### Performance & efficiency
 
@@ -357,12 +357,12 @@ Current public measurements belong in the [methods desk](https://perseus.observe
 
 ### Reliability & Security
 
-Perseus is tested against edge cases that challenge the resolve-before-context contract. The current security boundary and verified posture live in [SECURITY.md](SECURITY.md) and on the [public security page](https://perseus.observer/security/):
+Perseus is tested against edge cases that challenge the resolve-before-context contract. The current security boundary and documented posture live in [SECURITY.md](SECURITY.md) and on the [public security page](https://perseus.observer/security/):
 
 - **MCP SSE bearer-token auth** — `POST /message` requires Bearer token via `mcp.sse_bearer_token` config key (falls back to `serve.auth_token` for backward compat). Unauthenticated requests receive 401.
 - **Platform-portable MCP timeout** — `_call_tool()` uses `ThreadPoolExecutor` + `Future.result(timeout=...)` instead of Unix-only SIGALRM. Works on Windows, macOS, and Linux.
 
-**Platform support:** Perseus is developed and CI-tested on Linux. macOS is supported but not in CI. Windows core rendering and MCP transport work with known POSIX-specific shell, path, and LSP caveats; use WSL or your own scheduler where native scheduling is unavailable.
+**Platform support:** Perseus is developed and CI-tested on Linux. macOS is supported but not in CI. Windows core rendering, MCP transport, and Task Scheduler integration work with known POSIX-specific shell, path, and LSP caveats.
 - **Foreign resolver SSRF protection** — URL allowlist via `foreign_resolver.url_allowlist`, private-IP blocking (`block_private_ips`, default true), HMAC signature verification (`verify_signatures` now defaults to true, minimum 32-char secret). Redirects re-check destination IPs. Localhost (127.0.0.1, ::1) explicitly allowed for local testing.
 
 - **Workspace boundaries** — Symlink escapes (direct, relative, chained, to `/etc`) are all blocked. The trust-gate resolves symlinks to their real target before checking boundaries.

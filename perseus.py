@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "18158ed-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "7001631-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -31523,7 +31523,7 @@ def cmd_systemd(args, cfg):
         print("Use `perseus launchd` on macOS.", file=sys.stderr)
         sys.exit(1)
     if sys.platform != "linux":
-        suffix = " Native Windows Task Scheduler support is deferred." if sys.platform == "win32" else ""
+        suffix = " Systemd support is deferred; use Windows Task Scheduler via `perseus schtasks create`." if sys.platform == "win32" else ""
         print(f"Error: `perseus systemd` is only supported on Linux.{suffix}", file=sys.stderr)
         sys.exit(1)
 
