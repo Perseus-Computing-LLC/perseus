@@ -30,9 +30,9 @@ library (its single hard third-party import is `yaml`).
 | Component | Version | License | Role |
 | :-------- | :------ | :------ | :--- |
 | CPython   | >= 3.10 (image ships 3.12) | Python-2.0 (PSF) | Interpreter |
-| PyYAML    | >= 6.0.1 (tested 6.0.3)    | MIT              | YAML parsing/emitting — the only hard third-party runtime dependency |
+| PyYAML    | >= 6.0.1, <7 (tested 6.0.3) | MIT              | YAML parsing/emitting — the only hard third-party runtime dependency |
 
-Source of truth: `pyproject.toml` → `dependencies = ["pyyaml>=6.0.1"]`.
+Source of truth: `pyproject.toml` → `dependencies = ["pyyaml>=6.0.1,<7"]`.
 
 ### Optional extras (installed only on explicit opt-in)
 

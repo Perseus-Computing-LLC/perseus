@@ -82,7 +82,7 @@ mcp:
 ~/.local/bin/perseus mcp serve --transport sse --port 8420
 ```
 
-A local client sends that token as an `Authorization: Bearer …` header to `http://127.0.0.1:8420/sse`.
+A local client sends that token as an `Authorization: Bearer ***` header to `http://127.0.0.1:8420/sse`.
 
 ### Current MCP tools
 
@@ -247,8 +247,8 @@ perseus quickstart
 # Non-interactive setup with environment-based provider detection
 perseus quickstart --non-interactive
 
-# Verify the configured provider before enabling LLM-backed directives
-perseus llm ping
+# Verify the local setup before enabling LLM-backed directives
+perseus doctor
 ```
 
 Review the provider's data path, credential scope, retention, and egress policy before enabling these directives. See [QUICKSTART.md](./QUICKSTART.md) for supported provider configuration.
@@ -275,7 +275,7 @@ perseus install --target claude-code
 
 # 4. Verify everything
 perseus doctor
-perseus llm ping
+perseus doctor --json
 perseus pack validate
 
 # 5. Start coding — Claude Code gets fresh context every session
@@ -325,8 +325,8 @@ perseus trust audit --tail 20
 # Full health check
 perseus doctor
 
-# LLM reachability
-perseus llm ping
+# Full setup check
+perseus doctor
 
 # Directive coverage in your context
 perseus render .perseus/context.md --explain

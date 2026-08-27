@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "12f7cc2"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "73e4ef4-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -31281,6 +31281,20 @@ def _resolve_job(args, cfg):
     return tokens, "perseus-render", source_path.stem
 
 
+def _scheduler_shell_join(tokens) -> str:
+    """Quote argv tokens for cron and systemd command-line fields."""
+    import shlex as _shlex
+
+    return _shlex.join([str(token) for token in tokens])
+
+
+def _scheduler_xml_text(value) -> str:
+    """Escape a value inserted into a launchd plist text node."""
+    from xml.sax.saxutils import escape as _xml_escape
+
+    return _xml_escape(str(value))
+
+
 def _hygiene_schedule_minutes(cfg) -> int:
     """#693: scheduled-maintain cadence from the hygiene config (default nightly)."""
     hygiene = (cfg or {}).get("hygiene", {}) if isinstance(cfg, dict) else {}
@@ -31330,15 +31344,17 @@ def cmd_launchd(args, cfg):
     # Build the ProgramArguments <string> list from a version-stable launcher
     # so a Python minor-version upgrade does not strand the job (#430).
     prog_tokens = launcher + job_tokens
-    program_arguments = "\n".join(f"      <string>{tok}</string>" for tok in prog_tokens)
+    program_arguments = "\n".join(
+        f"      <string>{_scheduler_xml_text(tok)}</string>" for tok in prog_tokens
+    )
 
     content = LAUNCHD_TEMPLATE.format(
-        label=label,
+        label=_scheduler_xml_text(label),
         program_arguments=program_arguments,
-        workdir=str(workdir),
+        workdir=_scheduler_xml_text(workdir),
         interval=interval,
-        stdout_log=str(stdout_log),
-        stderr_log=str(stderr_log),
+        stdout_log=_scheduler_xml_text(stdout_log),
+        stderr_log=_scheduler_xml_text(stderr_log),
     )
 
     if plist_path.exists() and not args.force:
@@ -31357,7 +31373,7 @@ def cmd_launchd(args, cfg):
     print("Next steps:")
     print(f"  1. Load it:    launchctl load {plist_path}")
     print(f"  2. Start now:  launchctl start {label}")
-    print(f"  3. Check logs: tail -f {stdout_log} {stderr_log}")
+    print(f"  3. Check logs: {_scheduler_shell_join(['tail', '-f', stdout_log, stderr_log])}")
 
 
 # ─────────────────────────────── cron (POSIX) ────────────────────────────────
@@ -31400,7 +31416,7 @@ def cmd_cron(args, cfg):
         hours = every // 60
         schedule = f"0 */{hours} * * *"
 
-    cmd = " ".join(launcher + job_tokens)
+    cmd = _scheduler_shell_join(launcher + job_tokens)
     # Suppress crontab MAILTO noise; route stderr to /dev/null on success
     entries = [f"{schedule} {cmd} >/dev/null 2>&1  # {tag}"]
     if is_maintain:
@@ -31547,7 +31563,7 @@ def cmd_systemd(args, cfg):
         sys.exit(1)
 
     launcher, stable = _perseus_launcher()
-    exec_start = " ".join(launcher + job_tokens)
+    exec_start = _scheduler_shell_join(launcher + job_tokens)
 
     service_content = SYSTEMD_SERVICE_TEMPLATE.format(
         description=service_desc, exec_start=exec_start
@@ -50539,6 +50555,12 @@ def _main_impl():
     guide_sub = p_guide.add_subparsers(dest="guide_command", required=True)
     _add_guide_subcommands(guide_sub)
 
+    # ``oracle`` was the public name before the internal Guide/Pythia rename;
+    # retain it as a parser-level compatibility alias for existing scripts.
+    p_oracle = sub.add_parser("oracle", help="Compatibility alias for guide")
+    oracle_sub = p_oracle.add_subparsers(dest="guide_command", required=True)
+    _add_guide_subcommands(oracle_sub)
+
     # quickstart (Track B — one-command bootstrap)
     p_quickstart = sub.add_parser("quickstart", help="One-command bootstrap: scaffold, configure, verify")
     p_quickstart.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
@@ -50717,7 +50739,7 @@ def _main_impl():
         if getattr(args, "speculate", False):
             return cmd_explain(args, cfg)
         return cmd_bandit_cli(args, cfg)
-    elif args.command == "guide":
+    elif args.command in ("guide", "oracle"):
         rc = cmd_guide(args, cfg)
         if isinstance(rc, int):
             return rc
