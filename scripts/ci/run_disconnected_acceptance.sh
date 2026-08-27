@@ -25,7 +25,9 @@ broker_process_matches() {
 
 cleanup() {
     set +e
-    if [ -f "${broker_pid_file}" ] && broker_process_matches; then
+    if [ ! -f "${broker_pid_file}" ]; then
+        cleanup_failed=1
+    elif broker_process_matches; then
         read -r broker_pid _ <"${broker_pid_file}"
         sudo kill "${broker_pid}" 2>/dev/null || {
             sudo kill -0 "${broker_pid}" 2>/dev/null && cleanup_failed=1
@@ -46,15 +48,15 @@ cleanup() {
             fi
             sudo kill -0 "${broker_pid}" 2>/dev/null && cleanup_failed=1
         fi
-    elif [ -f "${broker_pid_file}" ]; then
+    else
         # A stale or mismatched identity is not safe to remove silently.
         cleanup_failed=1
     fi
     if [ -e "${broker_socket}" ]; then
         sudo rm -f "${broker_socket}" || cleanup_failed=1
     fi
-    sudo rmdir "${broker_root}" 2>/dev/null || true
-    sudo rmdir "${broker_dir}" 2>/dev/null || true
+    sudo rmdir "${broker_root}" 2>/dev/null || cleanup_failed=1
+    sudo rmdir "${broker_dir}" 2>/dev/null || cleanup_failed=1
     sudo rm -f "${broker_pid_file}" "${broker_log}" || cleanup_failed=1
     if [ "${cleanup_failed}" -ne 0 ]; then
         echo "privileged cgroup broker cleanup failed" >&2
