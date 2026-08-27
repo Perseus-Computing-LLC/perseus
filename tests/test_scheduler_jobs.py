@@ -154,7 +154,7 @@ def test_systemd_render_units_unchanged(tmp_path, monkeypatch, capsys):
     assert "Unit=perseus-render-ctx.service" in out
 
 
-def test_cron_tag_match_requires_exact_tag():
+def test_cron_tag_match_requires_exact_tag(tmp_path):
     assert perseus._scheduler_cron_tag_matches("0 3 * * 0 cmd  # perseus-hygiene", "perseus-hygiene")
     assert perseus._scheduler_cron_tag_matches(
         "0 3 * * 0 cmd  # perseus-hygiene-vacuum", "perseus-hygiene-vacuum"
@@ -162,6 +162,18 @@ def test_cron_tag_match_requires_exact_tag():
     assert not perseus._scheduler_cron_tag_matches(
         "0 3 * * 0 cmd  # perseus-hygiene-backup", "perseus-hygiene"
     )
+    source = tmp_path / "context.md"
+    digest = perseus._scheduler_source_marker(source)
+    unrelated = (
+        f"/usr/local/bin/other render {shlex.quote(str(source))} --output /tmp/out "
+        f"# perseus-render source={digest}"
+    )
+    valid = (
+        f"/home/example/.local/bin/perseus render {shlex.quote(str(source))} --output /tmp/out "
+        f"# perseus-render source={digest}"
+    )
+    assert not perseus._scheduler_cron_source_matches(unrelated, source)
+    assert perseus._scheduler_cron_source_matches(valid, source)
 
 
 @pytest.mark.parametrize("every", ["7", "24", "40", "300", "2880"])

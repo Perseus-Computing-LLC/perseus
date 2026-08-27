@@ -28,6 +28,7 @@
 | Package | Version | License | Type |
 |---|---|---|---|
 | pyyaml | >=6.0.1,<7 | MIT | Direct |
+| tomli | 2.2.1; Python <3.11 | MIT | Conditional direct |
 
 ### Optional Dependencies
 
@@ -59,8 +60,8 @@ The adapter packages have transitive dependencies that vary with the resolver an
 
 | Metric | Value |
 |---|---|
-| Total direct dependencies (runtime) | 1 |
-| Total transitive dependencies | 0 (pyyaml has no Python deps) |
+| Total direct dependencies (runtime) | 2 (tomli is conditional on Python <3.11) |
+| Total transitive dependencies | 0 (pyyaml and tomli have no Python deps) |
 | Total direct optional dependencies | 3 (mcp, langchain-core, llama-index-core) |
 | Runtime/optional dependencies with known CVEs | Not asserted here; inspect the current dependency-audit workflow |
 | Runtime/optional copyleft licenses (GPL/AGPL) | 0 in the inventory above |

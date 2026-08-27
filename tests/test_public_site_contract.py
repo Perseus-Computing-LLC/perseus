@@ -276,10 +276,16 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries(tmp_pat
     assert "no data leaves your machine" not in package["long_description"]
     assert "optional transports" in package["long_description"]
     assert package["version"] == "1.0.26"
+    pyproject = text("pyproject.toml")
+    assert 'tomli==2.2.1; python_version < "3.11"' in pyproject
+    runtime_requirements = text("requirements-runtime.txt")
+    assert 'tomli==2.2.1; python_version < "3.11"' in runtime_requirements
     sbom = json.loads(text("sbom.cdx.json"))
     assert sbom["metadata"]["component"]["version"] == package["version"]
     assert sbom["metadata"]["component"]["bom-ref"] == f"perseus-ctx@{package['version']}"
     assert sbom["dependencies"][0]["ref"] == f"perseus-ctx@{package['version']}"
+    assert "tomli" in {item["bom-ref"] for item in sbom["components"]}
+    assert "tomli" in {target for item in sbom["dependencies"] for target in item["dependsOn"]}
     server = json.loads(text("server.json"))
     assert server["version"] == package["version"]
     assert {item["version"] for item in server["packages"]} == {package["version"]}
@@ -744,6 +750,7 @@ def test_publish_validator_rejects_duplicate_sbom_components(tmp_path):
     )
     assert valid.returncode == 0, valid.stderr
 
+    base_sbom = json.loads(json.dumps(sbom))
     sbom["components"].append(dict(sbom["components"][0]))
     (tmp_path / "sbom.cdx.json").write_text(json.dumps(sbom), encoding="utf-8")
     invalid = subprocess.run(
@@ -754,6 +761,29 @@ def test_publish_validator_rejects_duplicate_sbom_components(tmp_path):
     )
     assert invalid.returncode != 0
     assert "sbom component refs" in invalid.stderr
+
+    malformed_cases = []
+    missing_targets = json.loads(json.dumps(base_sbom))
+    missing_targets["dependencies"][0].pop("dependsOn")
+    malformed_cases.append(missing_targets)
+    numeric_ref = json.loads(json.dumps(base_sbom))
+    numeric_ref["components"].append({"bom-ref": "123"})
+    numeric_ref["dependencies"].append({"ref": 123, "dependsOn": []})
+    malformed_cases.append(numeric_ref)
+    numeric_target = json.loads(json.dumps(base_sbom))
+    numeric_target["components"].append({"bom-ref": "123"})
+    numeric_target["dependencies"].append({"ref": "123", "dependsOn": [123]})
+    malformed_cases.append(numeric_target)
+    for malformed in malformed_cases:
+        (tmp_path / "sbom.cdx.json").write_text(json.dumps(malformed), encoding="utf-8")
+        malformed_result = subprocess.run(
+            [sys.executable, "-c", validator, "1.0.26"],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+        )
+        assert malformed_result.returncode != 0
+        assert "sbom dependency" in malformed_result.stderr
 
     for bounded_doc in ("README.md", "docs/EXAMPLES.md", "docs/use-cases.md"):
         claims_text = text(bounded_doc)
