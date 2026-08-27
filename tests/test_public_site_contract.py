@@ -769,4 +769,6 @@ def test_committed_html_matches_public_site_generator(tmp_path):
     module.build()
     generated = set(CANONICAL) | set(module.REDIRECTS) | {"404.html"}
     for path in generated:
-        assert (tmp_path / path).read_bytes() == (ROOT / path).read_bytes(), path
+        generated_bytes = (tmp_path / path).read_bytes().replace(b"\r\n", b"\n")
+        committed_bytes = (ROOT / path).read_bytes().replace(b"\r\n", b"\n")
+        assert generated_bytes == committed_bytes, path

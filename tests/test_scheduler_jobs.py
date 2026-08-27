@@ -1,5 +1,6 @@
 """#693 — scheduler job-spec generalization: `--job maintain` alongside render."""
 import argparse
+import shlex
 
 import pytest
 
@@ -77,7 +78,7 @@ def test_cron_render_entry_unchanged(tmp_path, monkeypatch, capsys):
     args = _ns(job="render", source=str(source), output=str(output), every="30", install=False)
     perseus.cmd_cron(args, cfg())
     out = capsys.readouterr().out
-    assert f"*/30 * * * * {launcher} render" in out
+    assert f"*/30 * * * * {shlex.quote(str(launcher))} render" in out
     assert "--output" in out
     assert "# perseus-render" in out
     assert "vacuum" not in out
@@ -106,7 +107,7 @@ def test_systemd_maintain_units(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "perseus-hygiene.service" in out
     assert "perseus-hygiene.timer" in out
-    assert f"ExecStart={launcher} vault maintain" in out
+    assert f"ExecStart={shlex.quote(str(launcher))} vault maintain" in out
     assert "OnUnitActiveSec=1440min" in out
     assert "Unit=perseus-hygiene.service" in out
 
@@ -123,6 +124,6 @@ def test_systemd_render_units_unchanged(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "perseus-render-ctx.service" in out
     assert "Description=Perseus context renderer" in out
-    assert f"ExecStart={launcher} render" in out
+    assert f"ExecStart={shlex.quote(str(launcher))} render" in out
     assert "OnUnitActiveSec=5min" in out
     assert "Unit=perseus-render-ctx.service" in out

@@ -22,11 +22,11 @@ from conftest import PY_VER, cfg, perseus, _capture_json, _seed_guide_log
 pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
 
 def test_launchd_subcommand_scaffolds_plist_on_macos(tmp_path, monkeypatch, capsys):
-    source = tmp_path / "project&<name" / ".perseus" / "context.md"
+    source = tmp_path / "project&name" / ".perseus" / "context.md"
     source.parent.mkdir(parents=True)
     source.write_text("@perseus\n", encoding="utf-8")
-    output = tmp_path / "output&<name" / "context.md"
-    fake_home = tmp_path / "home&<name"
+    output = tmp_path / "output&name" / "context.md"
+    fake_home = tmp_path / "home&name"
     monkeypatch.setattr(perseus.sys, "platform", "darwin")
     monkeypatch.setattr(perseus.Path, "home", staticmethod(lambda: fake_home))
     args = argparse.Namespace(source=str(source), output=str(output), interval=300, label="com.test.perseus", force=False)
@@ -41,6 +41,7 @@ def test_launchd_subcommand_scaffolds_plist_on_macos(tmp_path, monkeypatch, caps
     parsed = plistlib.loads(plist_body.encode("utf-8"))
     assert str(source.resolve()) in parsed["ProgramArguments"]
     assert str(output.resolve()) in parsed["ProgramArguments"]
+    assert perseus._scheduler_xml_text("a&<") == "a&amp;&lt;"
     assert shlex.quote(str(plist)) in capsys.readouterr().out
 
 
