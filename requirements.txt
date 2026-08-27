@@ -146,6 +146,7 @@ uvloop==0.22.1
 virtualenv==21.5.1
 watchfiles==1.2.0
 websockets==15.0.1
+wheel==0.48.0
 xxhash==3.7.0
 yara-python==4.5.4
 zstandard==0.25.0

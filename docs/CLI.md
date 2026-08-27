@@ -31,6 +31,7 @@
 | `perseus cron create SOURCE --output FILE [--every N] [--install]` | POSIX crontab entry generator/installer for macOS, Linux, and BSD cron. |
 | `perseus systemd create SOURCE --output FILE [--interval 5m] [--install] [--enable]` | Linux-only systemd `--user` service + timer scaffolder. |
 | `perseus launchd create SOURCE --output FILE [--interval 300] [--label LABEL] [--force]` | macOS-only LaunchAgent plist scaffolder. |
+| `perseus schtasks create SOURCE --output FILE [--every N] [--install]` | Windows Task Scheduler entry generator/installer. |
 | `perseus install --target {claude-code,cursor,gemini-cli,copilot} [--workspace PATH] [--dry-run]` | Install Perseus hooks into an AI assistant. |
 | `perseus update [--apply] [--check] [--auto on\|off]` | Check for and apply Perseus updates from git. |
 | `perseus mcp {serve,config,register}` | Run Perseus as an MCP server — expose directives as tools for any MCP-compatible assistant. |

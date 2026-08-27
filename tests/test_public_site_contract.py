@@ -651,6 +651,42 @@ def test_current_release_and_active_guidance_are_consistent():
     assert "| `perseus serve` | Start LSP" not in quickstart
     assert "perseus serve --lsp --stdio" in quickstart
 
+    publish = text(".github/workflows/publish.yml")
+    build_job = publish.split("\n  attest:\n", 1)[0]
+    assert "python -m pip install --upgrade pip" not in build_job
+    assert "pip install --upgrade pip build twine" not in build_job
+    assert "python -m pip install -r requirements.txt" in build_job
+    assert "id-token: write" not in build_job
+    assert "attestations: write" not in build_job
+    assert "\n  attest:\n" in publish
+    assert "attestations: write" in publish.split("\n  attest:\n", 1)[1].split("\n  publish:\n", 1)[0]
+
+    for bounded_doc in ("README.md", "docs/EXAMPLES.md", "docs/use-cases.md"):
+        claims_text = text(bounded_doc)
+        for absolute_claim in (
+            "verified workspace facts",
+            "bounded, verified briefing",
+            "verified, up-to-date context",
+            "all pulled and verified in real-time",
+            "most accurate information",
+            "single verified context",
+            "single, verified context",
+            "instant, verified",
+            "continuously updated intelligence",
+            "verified summary",
+            "accurate, live context",
+        ):
+            assert absolute_claim not in claims_text, bounded_doc
+
+    integration = text("spec/integration.md")
+    assert "perseus schtasks create .perseus/context.md" in integration
+    assert "Native Windows Task Scheduler scaffolding is not claimed" not in integration
+    cli = text("docs/CLI.md")
+    assert "perseus schtasks create SOURCE" in cli
+    scheduler = text("src/perseus/scheduler.py")
+    assert "Native Windows Task Scheduler support is deferred" not in scheduler
+    assert "perseus schtasks create" in scheduler
+
 
 def test_committed_html_matches_public_site_generator(tmp_path):
     module = load_generator()
