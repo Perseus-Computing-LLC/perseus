@@ -50,7 +50,8 @@ def test_compatibility_reference_default_tool_table_matches_get_all_mcp_tools():
 
 def test_compatibility_reference_prose_tool_surface_matches_table():
     section = _mcp_section()
-    assert "MCP tools resolve live state" in section, "compatibility MCP-surface sentence missing"
+    assert "Most MCP tools resolve configured sources" in section, "compatibility MCP-surface sentence missing"
+    assert "MCP tools resolve live state at invocation time" not in section
     optin_at = section.find("Opt-in only")
     default_rows = _table_tools(section[:optin_at])
     assert default_rows, "compatibility MCP tool table is empty"

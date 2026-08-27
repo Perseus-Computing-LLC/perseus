@@ -52,7 +52,7 @@ Verify: `bash scripts/release.sh --check`
 | Container build/run test skipped | Expected | Skipped when Docker is not available. Static container tests pass; manual Docker smoke verified. |
 | `zip` not installed | Minor | `.zip` release artifact skipped on this build host; tarball is the primary artifact. Install `zip` to produce both. |
 | `@session topic=` filter is partially implemented | Minor | `topic="..."` does keyword filtering but behavior may not match spec for all inputs. To be sharpened post-v1. |
-| Windows native Task Scheduler | Deferred | `perseus systemd`/`launchd`/`cron` cover Linux/macOS. Windows users: use WSL cron or invoke `perseus render` from your own scheduler. Explicitly deferred. |
+| Windows native Task Scheduler | Resolved | `perseus schtasks create` generates and optionally installs the Windows task; use WSL only when it is the chosen boundary. |
 | No external docs site | Deferred | `docs/` is in-repo markdown. A rendered docs site (GitHub Pages, ReadTheDocs) is a post-v1 item. |
 
 ---

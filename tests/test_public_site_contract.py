@@ -660,6 +660,8 @@ def test_current_release_and_active_guidance_are_consistent():
     assert "attestations: write" not in build_job
     assert "\n  attest:\n" in publish
     assert "attestations: write" in publish.split("\n  attest:\n", 1)[1].split("\n  publish:\n", 1)[0]
+    action_refs = re.findall(r"uses:\s+[^@\s]+@([0-9a-f]+)", publish)
+    assert action_refs and all(len(ref) == 40 for ref in action_refs)
 
     for bounded_doc in ("README.md", "docs/EXAMPLES.md", "docs/use-cases.md"):
         claims_text = text(bounded_doc)
@@ -678,6 +680,23 @@ def test_current_release_and_active_guidance_are_consistent():
         ):
             assert absolute_claim not in claims_text, bounded_doc
 
+    assert "All values below are current" not in text("AGENTS.md")
+    assert "All values are current" not in text("docs/quickstart.md")
+    assert "All values are current" not in text("spec/components.md")
+    assert "MCP tools resolve live state at invocation time" not in text("docs/context-engine-mcp-tools.md")
+    funding = text("funding.json")
+    assert "verified facts" not in funding
+    assert "durable, encrypted memory" not in funding
+    for capability_doc in (
+        "ROADMAP.md",
+        "docs/PERSEUS_PRODUCT_REPORT.md",
+        "spec/components.md",
+        "docs/RC_CHECKLIST.md",
+        "tasks/task-50-scheduler-parity.md",
+    ):
+        assert "Native Windows Task Scheduler support is deferred" not in text(capability_doc)
+        assert "Native Windows Task Scheduler integration is deferred" not in text(capability_doc)
+
     integration = text("spec/integration.md")
     assert "perseus schtasks create .perseus/context.md" in integration
     assert "Native Windows Task Scheduler scaffolding is not claimed" not in integration
@@ -685,6 +704,7 @@ def test_current_release_and_active_guidance_are_consistent():
     assert "perseus schtasks create SOURCE" in cli
     scheduler = text("src/perseus/scheduler.py")
     assert "Native Windows Task Scheduler support is deferred" not in scheduler
+    assert "Systemd support is deferred" in scheduler
     assert "perseus schtasks create" in scheduler
 
 

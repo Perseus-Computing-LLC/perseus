@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "7001631-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "1279cdd-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -31527,9 +31527,9 @@ def cmd_systemd(args, cfg):
         print(f"Error: `perseus systemd` is only supported on Linux.{suffix}", file=sys.stderr)
         sys.exit(1)
 
-    job_tokens, tag, _stem = _resolve_job(args, cfg)
+    job_tokens, tag, stem = _resolve_job(args, cfg)
     is_maintain = tag == "perseus-hygiene"
-    unit = "perseus-hygiene" if is_maintain else "perseus-render"
+    unit = "perseus-hygiene" if is_maintain else f"perseus-render-{stem}"
     service_desc = (
         "Perseus memory hygiene (vault maintain)" if is_maintain else "Perseus context renderer"
     )
@@ -31766,22 +31766,31 @@ def cmd_cron_uninstall(args, cfg):
 
 
 def cmd_systemd_uninstall(args, cfg):
-    """Remove a user-space systemd timer and service unit."""
+    """Remove render or hygiene user-space systemd units."""
     if sys.platform == "darwin" or sys.platform == "win32":
         print("Error: `perseus systemd` is only supported on Linux.", file=sys.stderr)
         sys.exit(1)
-    source_path = Path(args.source).expanduser().resolve()
-    label = f"perseus-render-{source_path.stem}"
+    job = getattr(args, "job", "render") or "render"
+    if job == "maintain":
+        label = "perseus-hygiene"
+    else:
+        if not getattr(args, "source", None):
+            print("Error: removing a render unit requires the source path.", file=sys.stderr)
+            sys.exit(1)
+        source_path = Path(args.source).expanduser().resolve()
+        label = f"perseus-render-{source_path.stem}"
     user_units = Path.home() / ".config" / "systemd" / "user"
     timer_path = user_units / f"{label}.timer"
     service_path = user_units / f"{label}.service"
     import subprocess as _sp
+    for unit_name in (f"{label}.timer", f"{label}.service"):
+        _sp.run(["systemctl", "--user", "stop", unit_name], capture_output=True)
     for p in [timer_path, service_path]:
         if p.exists():
             p.unlink()
             print(f"✔ Removed: {p}")
     _sp.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
-    print("Run: systemctl --user stop {label}.timer  # if still running")
+    print(f"Run: systemctl --user stop {label}.timer  # if still running")
 # ───────────────────────────── Cited synthesis ───────────────────────────────
 
 def _synthesis_rel_label(path: Path, workspace: Path) -> str:
@@ -50437,7 +50446,10 @@ def _main_impl():
     p_systemd_create.add_argument("--enable", action="store_true",
                            help="When combined with --install, run systemctl --user daemon-reload/enable/start")
     p_systemd_uninstall = systemd_sub.add_parser("uninstall", help="Remove systemd timer + service units")
-    p_systemd_uninstall.add_argument("source", help="Path to Perseus source file")
+    p_systemd_uninstall.add_argument("source", nargs="?", default=None,
+                                      help="Path to Perseus source file (required for --job render)")
+    p_systemd_uninstall.add_argument("--job", choices=["render", "maintain"], default="render",
+                                      help="Which units to remove (maintain removes the hygiene timer/service)")
 
     # health (Daedalus v1)
     p_health = sub.add_parser("health", help="Context maintenance heuristics report")
@@ -50682,8 +50694,6 @@ def _main_impl():
             cmd_systemd_uninstall(args, cfg)
         else:
             cmd_systemd(args, cfg)
-    elif args.command == "systemd":
-        cmd_systemd(args, cfg)
     elif args.command == "health":
         cmd_health(args, cfg)
     elif args.command == "doctor":

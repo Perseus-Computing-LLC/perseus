@@ -349,9 +349,9 @@ def cmd_systemd(args, cfg):
         print(f"Error: `perseus systemd` is only supported on Linux.{suffix}", file=sys.stderr)
         sys.exit(1)
 
-    job_tokens, tag, _stem = _resolve_job(args, cfg)
+    job_tokens, tag, stem = _resolve_job(args, cfg)
     is_maintain = tag == "perseus-hygiene"
-    unit = "perseus-hygiene" if is_maintain else "perseus-render"
+    unit = "perseus-hygiene" if is_maintain else f"perseus-render-{stem}"
     service_desc = (
         "Perseus memory hygiene (vault maintain)" if is_maintain else "Perseus context renderer"
     )
@@ -588,19 +588,28 @@ def cmd_cron_uninstall(args, cfg):
 
 
 def cmd_systemd_uninstall(args, cfg):
-    """Remove a user-space systemd timer and service unit."""
+    """Remove render or hygiene user-space systemd units."""
     if sys.platform == "darwin" or sys.platform == "win32":
         print("Error: `perseus systemd` is only supported on Linux.", file=sys.stderr)
         sys.exit(1)
-    source_path = Path(args.source).expanduser().resolve()
-    label = f"perseus-render-{source_path.stem}"
+    job = getattr(args, "job", "render") or "render"
+    if job == "maintain":
+        label = "perseus-hygiene"
+    else:
+        if not getattr(args, "source", None):
+            print("Error: removing a render unit requires the source path.", file=sys.stderr)
+            sys.exit(1)
+        source_path = Path(args.source).expanduser().resolve()
+        label = f"perseus-render-{source_path.stem}"
     user_units = Path.home() / ".config" / "systemd" / "user"
     timer_path = user_units / f"{label}.timer"
     service_path = user_units / f"{label}.service"
     import subprocess as _sp
+    for unit_name in (f"{label}.timer", f"{label}.service"):
+        _sp.run(["systemctl", "--user", "stop", unit_name], capture_output=True)
     for p in [timer_path, service_path]:
         if p.exists():
             p.unlink()
             print(f"✔ Removed: {p}")
     _sp.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
-    print("Run: systemctl --user stop {label}.timer  # if still running")
+    print(f"Run: systemctl --user stop {label}.timer  # if still running")

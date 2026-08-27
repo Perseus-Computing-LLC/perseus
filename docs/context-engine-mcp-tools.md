@@ -7,7 +7,10 @@ Sensitive operations are excluded from the default set and require explicit opt-
 ## Default and opt-in compatibility identifiers
 
 The table below documents the current default output of `_get_all_mcp_tools({})`. These are code-level compatibility identifiers for the Perseus Context Engine, not separate products.
-MCP tools resolve live state at invocation time, including the canonical Perseus Vault tool. Two additional sensitive tools — `perseus_query` (run a shell command) and `perseus_agent` (execute a local agent subprocess) — are **not** part of this default set: they require explicit `mcp.tool_allowlist` opt-in because they execute commands in the user's local shell (**not sandboxed, full user permissions apply**).
+Most MCP tools resolve configured sources when invoked, but remote compatibility
+paths, waypoint/session data, and explicitly cache-enabled paths may return
+bounded cached or persisted state. Check the tool contract and freshness metadata
+before relying on invocation-time state.
 
 | Tool | Description |
 |---|---|

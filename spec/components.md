@@ -73,7 +73,9 @@ Any standard `.md` file. Perseus activates when `@perseus` appears on the first 
 @perseus v0.4
 
 @prompt
-This document was rendered live. All values are current.
+This document is rendered from configured sources. Values are snapshots and
+may be stale; re-check source timestamps and critical records before relying on
+this context.
 @end
 
 # Session Context — @date format="YYYY-MM-DD HH:mm z"
@@ -705,8 +707,7 @@ Generates a crontab entry for periodic rendering. The print path is host-neutral
 `--install` works where `crontab` is available, including macOS, Linux, BSD, and
 WSL.
 Recommended over `perseus launchd` / `perseus systemd` when portability matters.
-Native Windows Task Scheduler integration is deferred; use WSL cron, the printed
-render command, or invoke `perseus render` from a Windows scheduler manually.
+Native Windows Task Scheduler integration is available through `perseus schtasks create`; use WSL cron only when that is the operator's chosen deployment boundary.
 
 ### CLI
 

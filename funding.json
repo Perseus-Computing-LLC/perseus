@@ -15,7 +15,7 @@
     {
       "guid": "perseus",
       "name": "Perseus",
-      "description": "The memory & context layer for AI agents: load only the context they actually need. Perseus resolves live workspace state into verified facts before the context window opens, and pairs with Perseus Vault for durable, encrypted memory. Works with any MCP host (Claude Code, Claude Desktop, Cursor, Codex, Hermes). Local-first, MIT.",
+      "description": "The memory & context layer for AI agents: load only the context they actually need. Perseus resolves configured workspace state into a bounded context before the context window opens, and pairs with Perseus Vault for durable memory. Vault's entity-body encryption does not cover its FTS5 index or all metadata; deployment operators must apply filesystem and disk controls for those surfaces. Works with any MCP host (Claude Code, Claude Desktop, Cursor, Codex, Hermes). Local-first, MIT.",
       "webpageUrl": {
         "url": "https://perseus.observer"
       },

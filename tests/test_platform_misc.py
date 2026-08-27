@@ -244,8 +244,8 @@ def test_cmd_systemd_prints_units_on_linux(tmp_path, monkeypatch, capsys):
     assert "[Service]" in out
     assert "[Timer]" in out
     assert "10min" in out
-    assert "perseus-render.service" in out
-    assert "perseus-render.timer" in out
+    assert "perseus-render-ctx.service" in out
+    assert "perseus-render-ctx.timer" in out
 
 
 def test_cmd_systemd_rejects_native_windows(tmp_path, monkeypatch, capsys):
@@ -263,6 +263,40 @@ def test_cmd_systemd_rejects_native_windows(tmp_path, monkeypatch, capsys):
     assert "only supported on Linux" in err
     assert "Task Scheduler" in err
     assert "deferred" in err
+
+
+@pytest.mark.parametrize(
+    ("job", "source", "label"),
+    [
+        ("render", "ctx.md", "perseus-render-ctx"),
+        ("maintain", None, "perseus-hygiene"),
+    ],
+)
+def test_cmd_systemd_uninstall_removes_created_units(tmp_path, monkeypatch, capsys, job, source, label):
+    monkeypatch.setattr(perseus.sys, "platform", "linux")
+    monkeypatch.setattr(perseus.Path, "home", classmethod(lambda cls: tmp_path))
+    unit_dir = tmp_path / ".config" / "systemd" / "user"
+    unit_dir.mkdir(parents=True)
+    (unit_dir / f"{label}.service").write_text("service", encoding="utf-8")
+    (unit_dir / f"{label}.timer").write_text("timer", encoding="utf-8")
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return argparse.Namespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(perseus.subprocess, "run", fake_run)
+    args = argparse.Namespace(
+        source=str(tmp_path / source) if source else None,
+        job=job,
+    )
+
+    perseus.cmd_systemd_uninstall(args, cfg())
+
+    assert not (unit_dir / f"{label}.service").exists()
+    assert not (unit_dir / f"{label}.timer").exists()
+    assert ["systemctl", "--user", "stop", f"{label}.timer"] in calls
+    assert f"stop {label}.timer" in capsys.readouterr().out
 # ── task-17: template gallery ────────────────────────────────────────────────
 
 def test_list_templates_returns_known_names():
