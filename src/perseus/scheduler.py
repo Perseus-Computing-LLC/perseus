@@ -204,9 +204,10 @@ def _scheduler_cron_source_matches(line, source) -> bool:
         configured_launchers, _ = _perseus_launcher()
     except (OSError, RuntimeError, TypeError, ValueError):
         configured_launchers = []
-    for configured_launcher in configured_launchers:
-        launcher_path = _pathlib.Path(configured_launcher)
-        expected_launchers.update({str(launcher_path), str(launcher_path.resolve())})
+    if len(configured_launchers) == 1:
+        for configured_launcher in configured_launchers:
+            launcher_path = _pathlib.Path(configured_launcher)
+            expected_launchers.update({str(launcher_path), str(launcher_path.resolve())})
     try:
         path_launcher = _shutil.which("perseus")
     except Exception:
