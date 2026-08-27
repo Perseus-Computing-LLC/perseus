@@ -184,7 +184,15 @@ def _scheduler_cron_source_matches(line, source) -> bool:
     ):
         return False
     try:
-        tokens = _shlex.split(command_text, comments=False, posix=True)
+        posix_tokens = _sys.platform != "win32"
+        tokens = _shlex.split(command_text, comments=False, posix=posix_tokens)
+        if not posix_tokens:
+            tokens = [
+                token[1:-1]
+                if len(token) >= 2 and token[0] == token[-1] and token[0] in "'\""
+                else token
+                for token in tokens
+            ]
     except ValueError:
         return False
     if tokens and tokens[0].startswith("@"):
