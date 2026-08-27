@@ -66,7 +66,10 @@ jobs:
           import json
           import pathlib
           import sys
-          import tomllib
+          try:
+              import tomllib
+          except ModuleNotFoundError:
+              import tomli as tomllib
 
           expected = sys.argv[1]
 
