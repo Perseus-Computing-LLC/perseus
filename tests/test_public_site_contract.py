@@ -706,6 +706,10 @@ def test_current_release_and_active_guidance_are_consistent():
     assert "Native Windows Task Scheduler scaffolding is not claimed" not in integration
     cli = text("docs/CLI.md")
     assert "perseus schtasks create SOURCE" in cli
+    assert "launchd create .perseus/context.md --output .hermes.md --interval 5m" not in text("docs/HERMES_INTEGRATION.md")
+    assert "launchd create .perseus/context.md --output .hermes.md --interval 300" in text("docs/HERMES_INTEGRATION.md")
+    assert "launchd create .perseus/context.md --output .hermes.md --interval 5m" not in integration
+    assert "launchd create .perseus/context.md --output .hermes.md --interval 300" in integration
     scheduler = text("src/perseus/scheduler.py")
     assert "Native Windows Task Scheduler support is deferred" not in scheduler
     assert "Systemd support is deferred" in scheduler
