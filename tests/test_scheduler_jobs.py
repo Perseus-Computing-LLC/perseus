@@ -2,6 +2,7 @@
 import argparse
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -155,7 +156,7 @@ def test_systemd_render_units_unchanged(tmp_path, monkeypatch, capsys):
     assert "Unit=perseus-render-ctx.service" in out
 
 
-def test_cron_tag_match_requires_exact_tag(tmp_path):
+def test_cron_tag_match_requires_exact_tag(tmp_path, monkeypatch):
     assert perseus._scheduler_cron_tag_matches("0 3 * * 0 cmd  # perseus-hygiene", "perseus-hygiene")
     assert perseus._scheduler_cron_tag_matches(
         "0 3 * * 0 cmd  # perseus-hygiene-vacuum", "perseus-hygiene-vacuum"
@@ -195,6 +196,13 @@ def test_cron_tag_match_requires_exact_tag(tmp_path):
     assert not perseus._scheduler_cron_source_matches(unrelated, source)
     assert not perseus._scheduler_cron_source_matches(fake_stable, source)
     assert not perseus._scheduler_cron_source_matches(fake_python, source)
+    monkeypatch.setattr(
+        perseus,
+        "_perseus_launcher",
+        lambda: ([sys.executable, str(Path(perseus.__file__).resolve())], False),
+    )
+    untagged_fallback = f"{sys.executable} render {shlex.quote(str(source))}"
+    assert not perseus._scheduler_cron_source_matches(untagged_fallback, source)
     assert not perseus._scheduler_cron_source_matches(embedded, source)
     assert not perseus._scheduler_cron_source_matches(embedded_python, source)
     assert perseus._scheduler_cron_source_matches(valid, source)
