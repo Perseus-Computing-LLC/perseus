@@ -450,6 +450,9 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries(tmp_pat
 
     test_workflow = text(".github/workflows/test.yml")
     assert "tomli==2.2.1" in test_workflow
+    audit_workflow = text(".github/workflows/audit.yml")
+    assert 'python-version: ["3.10", "3.12"]' in audit_workflow
+    assert 'python-version: "${{ matrix.python-version }}"' in audit_workflow
 
     card_generator = text("scripts/generate_server_card.py")
     assert "Path(__file__).resolve().parents[1]" in card_generator
