@@ -658,6 +658,10 @@ def test_current_release_and_active_guidance_are_consistent():
     assert "python -m pip install -r requirements.txt" in build_job
     assert "id-token: write" not in build_job
     assert "attestations: write" not in build_job
+    assert "python scripts/build.py\n" in build_job
+    assert "Verify published metadata matches the release tag" in build_job
+    for release_metadata in ("claims.json", "manifest.json", "server.json", "sbom.cdx.json"):
+        assert release_metadata in build_job
     assert "\n  attest:\n" in publish
     assert "attestations: write" in publish.split("\n  attest:\n", 1)[1].split("\n  publish:\n", 1)[0]
     action_refs = re.findall(r"uses:\s+[^@\s]+@([0-9a-f]+)", publish)
@@ -706,6 +710,21 @@ def test_current_release_and_active_guidance_are_consistent():
     assert "Native Windows Task Scheduler support is deferred" not in scheduler
     assert "Systemd support is deferred" in scheduler
     assert "perseus schtasks create" in scheduler
+    status = subprocess.check_output(
+        ["git", "-C", str(ROOT), "status", "--porcelain"], text=True
+    )
+    if not status.strip():
+        assert text("perseus.py").split("_PERSEUS_BUILD_SHA", 1)[1].splitlines()[0].find("-dirty") == -1
+    cli_source = text("src/perseus/cli.py")
+    assert cli_source.count('elif args.command == "launchd":') == 1
+    roadmap = text("ROADMAP.md")
+    assert "Current Perseus version: v1.0.6" not in roadmap
+    assert "Living Roadmap" not in roadmap
+    assert "perseus launchd` |" not in roadmap
+    assert "requirements.txt              ← pyyaml only; no other deps" not in roadmap
+    claude_example = text("examples/claude-code/README.md")
+    for stale_claim in ("always current", "always\ncurrent", "always knows"):
+        assert stale_claim not in claude_example
 
 
 def test_committed_html_matches_public_site_generator(tmp_path):

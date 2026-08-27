@@ -1,17 +1,15 @@
-@perseus v1.0.8
-<!-- Last updated: 2026-06-08 · Current Perseus version: v1.0.6 -->
+@perseus v1.0.27
+<!-- Last updated: 2026-08-27 · Source candidate: v1.0.27 · Published package: v1.0.26 -->
 
 @prompt
-This document is the single source of truth for the Perseus project.
-Every new session working on Perseus must read this file first.
-Do not ask the user what we're working on. Read this file. Then work.
-Do not propose architecture, new tasks, or "next steps" not already described here.
-The framework and plan belong to the project owner. Your job is to execute tasks.
+This is maintained project-planning context. Status markers are planning notes,
+not release proof; check the current CI, claims registry, and source before
+relying on a version or capability statement.
 @end
 
-> **Note to human readers:** This file is a live `@perseus` source document. The raw directive syntax (`@query`, `@prompt`, `@date`) is Perseus input — render with `perseus render ROADMAP.md` for plain markdown output. The phase numbering and task-IDs are internal sprint structure used by Perseus's own build process; treat the "✅ Complete" markers as the authoritative shipping status.
+> **Note to human readers:** This file is a `@perseus` source document. The raw directive syntax (`@query`, `@prompt`, `@date`) is Perseus input — render with `perseus render ROADMAP.md` for plain markdown output. Phase numbering and task IDs are internal planning structure; confirm shipping status against the release metadata and CI.
 
-# Perseus — Living Roadmap
+# Perseus — Project roadmap
 
 **Repo:** https://github.com/Perseus-Computing-LLC/perseus  
 **Workspace:** current repo checkout  
@@ -43,7 +41,7 @@ checkpoints feed it.
 |---|---|---|
 | **Renderer** | Resolves `@directive` blocks in `.md` files before context window | ✅ Complete |
 | **Checkpoints** | Lightweight explicit session recovery snapshots | ✅ Complete |
-| **Pythia** | Tool oracle — ranks approaches given task + live env | ✅ Complete |
+| **Pythia** | Tool oracle — ranks approaches given task + rendered environment context | ✅ Complete |
 | **Agora** | Async agent coordination substrate — task queue + `@agora` directive | ✅ Phase 5C |
 | **Health** | Deterministic context maintenance heuristics — `perseus health` + `@health` directive (Daedalus v1) | ✅ Phase 5E |
 | **Daedalus** | Local autonomous scoring model — Pythia without a round-trip (dataset + routing shipped; model training is a user step) | ✅ Phase 6 |
@@ -82,7 +80,7 @@ checkpoints feed it.
 | `perseus suggest "<task>"` | Emits structured Pythia prompt over live env snapshot |
 | `perseus suggest "<task>" --llm ollama` | Pipes Pythia prompt to local model, no round-trip |
 | `perseus init [--profile name] [workspace]` | Scaffolds `.perseus/context.md`; profiles also write `.perseus/pack.yaml` |
-| `perseus launchd` | Scaffolds macOS LaunchAgent plist for scheduled render |
+| `perseus launchd create` | Scaffolds a macOS LaunchAgent plist for scheduled render |
 
 ### Directives implemented
 
@@ -119,7 +117,8 @@ checkpoints feed it.
 ```
 <workspace>/
   perseus.py                    ← generated single-file artifact; canonical source in src/perseus/
-  requirements.txt              ← pyyaml only; no other deps
+  requirements.txt              ← pinned development/release toolchain
+  requirements-runtime.txt      ← minimal shipped runtime dependency set
   tests/
     conftest.py                 ← shared Perseus loader and test helpers
     test_*.py                   ← subsystem pytest files; must pass before any commit
