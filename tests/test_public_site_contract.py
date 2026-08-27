@@ -440,6 +440,8 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries(tmp_pat
     publish = text(".github/workflows/publish.yml")
     for card_gate in ("scripts/generate_server_card.py", "cmp --silent", "generated-server-card"):
         assert card_gate in publish
+    assert "except ModuleNotFoundError:" in publish
+    assert "import tomli as tomllib" in publish
 
     changelog = text("CHANGELOG.md")
     assert "legacy `oracle` command remains" in changelog
