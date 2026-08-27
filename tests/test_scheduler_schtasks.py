@@ -91,13 +91,13 @@ def test_schtasks_render_task_uses_minute_schedule(tmp_path, monkeypatch, capsys
         return _Proc(returncode=1 if "/Query" in argv else 0)
 
     monkeypatch.setattr(perseus.subprocess, "run", fake_run)
-    source = tmp_path / "ctx.md"
+    source = tmp_path / "ctx&file.md"
     source.write_text("@perseus\n", encoding="utf-8")
     output = tmp_path / "AGENTS.md"
     args = _ns(job="render", source=str(source), output=str(output), every="30", install=True)
     perseus.cmd_schtasks(args, cfg())
     out = capsys.readouterr().out
-    assert "Perseus\\render-ctx" in out
+    assert "Perseus\\render-ctx-file" in out
     assert any(
         "/SC" in command and "MINUTE" in command and "/MO" in command and "30" in command
         for command in calls
@@ -105,6 +105,12 @@ def test_schtasks_render_task_uses_minute_schedule(tmp_path, monkeypatch, capsys
     assert f'perseus schtasks uninstall "{source}" --job render' in out
     assert "vacuum" not in out
     assert any("/Create" in command for command in calls)
+
+    preview_args = _ns(job="render", source=str(source), output=str(output), every="30", install=False)
+    perseus.cmd_schtasks(preview_args, cfg())
+    preview = capsys.readouterr().out
+    assert f'"{source}"' in preview
+
 
 
 def test_cron_install_routes_to_schtasks_on_windows(tmp_path, monkeypatch, capsys):

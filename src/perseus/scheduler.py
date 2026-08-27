@@ -100,7 +100,7 @@ def _resolve_job(args, cfg):
     source_path = Path(args.source).expanduser().resolve()
     output_path = Path(args.output).expanduser().resolve()
     tokens = ["render", str(source_path), "--output", str(output_path)]
-    return tokens, "perseus-render", source_path.stem
+    return tokens, "perseus-render", _scheduler_safe_stem(source_path)
 
 
 def _scheduler_shell_join(tokens) -> str:
@@ -115,6 +115,43 @@ def _scheduler_xml_text(value) -> str:
     from xml.sax.saxutils import escape as _xml_escape
 
     return _xml_escape(str(value))
+
+
+def _scheduler_safe_stem(source) -> str:
+    """Return a portable scheduler identifier derived from a source path."""
+    import re as _re
+
+    stem = Path(source).stem
+    safe = _re.sub(r"[^A-Za-z0-9_.@-]+", "-", stem).strip(".-")
+    return safe or "context"
+
+
+def _scheduler_source_marker(source) -> str:
+    """Return a stable, shell-safe identity marker for a render source."""
+    import hashlib as _hashlib
+
+    canonical = str(Path(source).expanduser().resolve()).encode("utf-8")
+    return _hashlib.sha256(canonical).hexdigest()[:16]
+
+
+def _scheduler_cron_join(tokens) -> str:
+    """Quote argv and escape cron's special percent separator."""
+    return _scheduler_shell_join(tokens).replace("%", r"\%")
+
+
+def _scheduler_windows_quote(value) -> str:
+    """Quote a value for a copied Windows command when it needs protection."""
+    import re as _re
+
+    text = str(value)
+    if _re.fullmatch(r"[A-Za-z0-9_./:\\=-]+", text):
+        return text
+    return '"' + text.replace('"', '\\"') + '"'
+
+
+def _scheduler_windows_command(tokens) -> str:
+    """Render a Windows argv list with metacharacters kept inside quotes."""
+    return " ".join(_scheduler_windows_quote(token) for token in tokens)
 
 
 def _hygiene_schedule_minutes(cfg) -> int:
@@ -142,7 +179,7 @@ def cmd_launchd(args, cfg):
         output_path = Path(args.output).expanduser().resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
         workdir = _infer_workspace(source_path)
-        default_label = f"com.perseus.render.{source_path.stem}"
+        default_label = f"com.perseus.render.{_scheduler_safe_stem(source_path)}"
         interval = int(args.interval)
     else:
         # maintain: no source/output; run from HOME; default cadence comes
@@ -166,6 +203,9 @@ def cmd_launchd(args, cfg):
     # Build the ProgramArguments <string> list from a version-stable launcher
     # so a Python minor-version upgrade does not strand the job (#430).
     prog_tokens = launcher + job_tokens
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", label):
+        print("Error: --label may contain only letters, digits, '.', '_' and '-'.", file=sys.stderr)
+        sys.exit(1)
     program_arguments = "\n".join(
         f"      <string>{_scheduler_xml_text(tok)}</string>" for tok in prog_tokens
     )
@@ -186,15 +226,15 @@ def cmd_launchd(args, cfg):
     plist_path.write_text(content, encoding="utf-8")
 
     print(f"✔ Wrote LaunchAgent plist: {plist_path}")
-    print(f"  Launcher: {' '.join(launcher)}")
+    print(f"  Launcher: {_scheduler_shell_join(launcher)}")
     if not stable:
         print("  ⚠ Could not find a stable `perseus` launcher (~/.local/bin/perseus or on PATH);")
         print("    falling back to a version-specific path that may go stale after a Python upgrade.")
         print("    Install the console script (`pipx install perseus-ctx` or ensure ~/.local/bin is on PATH).")
     print()
     print("Next steps:")
-    print(f"  1. Load it:    launchctl load {plist_path}")
-    print(f"  2. Start now:  launchctl start {label}")
+    print(f"  1. Load it:    {_scheduler_shell_join(['launchctl', 'load', plist_path])}")
+    print(f"  2. Start now:  {_scheduler_shell_join(['launchctl', 'start', label])}")
     print(f"  3. Check logs: {_scheduler_shell_join(['tail', '-f', stdout_log, stderr_log])}")
 
 
@@ -224,6 +264,13 @@ def cmd_cron(args, cfg):
     if every <= 0:
         print("Error: --every must be > 0", file=sys.stderr)
         sys.exit(1)
+    if every > 60 and every % 60:
+        print(
+            "Error: cron supports intervals above 60 minutes only as whole hours; "
+            "use systemd or Task Scheduler for a 90-minute cadence.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     launcher, stable = _perseus_launcher()
 
@@ -238,9 +285,10 @@ def cmd_cron(args, cfg):
         hours = every // 60
         schedule = f"0 */{hours} * * *"
 
-    cmd = _scheduler_shell_join(launcher + job_tokens)
+    cmd = _scheduler_cron_join(launcher + job_tokens)
+    source_marker = "" if is_maintain else f" source={_scheduler_source_marker(args.source)}"
     # Suppress crontab MAILTO noise; route stderr to /dev/null on success
-    entries = [f"{schedule} {cmd} >/dev/null 2>&1  # {tag}"]
+    entries = [f"{schedule} {cmd} >/dev/null 2>&1  # {tag}{source_marker}"]
     if is_maintain:
         # Companion weekly VACUUM (hygiene.vacuum_every_runs at the nightly
         # default ≈ weekly). cron is stateless, so an explicit weekly entry
@@ -408,9 +456,9 @@ def cmd_systemd(args, cfg):
         print(f"✔ Wrote {timer_path}")
         print()
         print("Next steps:")
-        print("  systemctl --user daemon-reload")
-        print(f"  systemctl --user enable {unit}.timer")
-        print(f"  systemctl --user start {unit}.timer")
+        print(f"  {_scheduler_shell_join(['systemctl', '--user', 'daemon-reload'])}")
+        print(f"  {_scheduler_shell_join(['systemctl', '--user', 'enable', f'{unit}.timer'])}")
+        print(f"  {_scheduler_shell_join(['systemctl', '--user', 'start', f'{unit}.timer'])}")
         if getattr(args, "enable", False):
             for cmd in (
                 ["systemctl", "--user", "daemon-reload"],
@@ -445,8 +493,8 @@ def _schtasks_schedule(every_minutes: int) -> list:
 
 
 def _schtasks_tr(tokens: list) -> str:
-    """Quote a /TR command string (paths with spaces)."""
-    return " ".join(f'"{t}"' if " " in t else t for t in tokens)
+    """Quote every value in a /TR command string that needs protection."""
+    return " ".join(_scheduler_windows_quote(t) for t in tokens)
 
 
 def cmd_schtasks(args, cfg):
@@ -595,8 +643,13 @@ def cmd_cron_uninstall(args, cfg):
                 print("Error: removing a render entry requires the source path.", file=sys.stderr)
                 sys.exit(1)
             source = Path(args.source).expanduser().resolve()
-            marker = f"perseus render {source}"
-            filtered = [l for l in lines if marker not in l]
+            source_marker = f"# perseus-render source={_scheduler_source_marker(source)}"
+            quoted_marker = f"render {_scheduler_shell_join([source])}"
+            legacy_marker = f"perseus render {source}"
+            filtered = [
+                l for l in lines
+                if source_marker not in l and quoted_marker not in l and legacy_marker not in l
+            ]
             removed_what = f"the render entry for {source}"
         if len(filtered) == len(lines):
             print("No matching crontab entry found.")
@@ -621,11 +674,12 @@ def cmd_systemd_uninstall(args, cfg):
             print("Error: removing a render unit requires the source path.", file=sys.stderr)
             sys.exit(1)
         source_path = Path(args.source).expanduser().resolve()
-        label = f"perseus-render-{source_path.stem}"
+        label = f"perseus-render-{_scheduler_safe_stem(source_path)}"
     user_units = Path.home() / ".config" / "systemd" / "user"
     timer_path = user_units / f"{label}.timer"
     service_path = user_units / f"{label}.service"
     import subprocess as _sp
+    _sp.run(["systemctl", "--user", "disable", f"{label}.timer"], capture_output=True)
     for unit_name in (f"{label}.timer", f"{label}.service"):
         _sp.run(["systemctl", "--user", "stop", unit_name], capture_output=True)
     for p in [timer_path, service_path]:
@@ -633,4 +687,4 @@ def cmd_systemd_uninstall(args, cfg):
             p.unlink()
             print(f"✔ Removed: {p}")
     _sp.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
-    print(f"Run: systemctl --user stop {label}.timer  # if still running")
+    print(f"Run: {_scheduler_shell_join(['systemctl', '--user', 'stop', f'{label}.timer'])}  # if still running")
