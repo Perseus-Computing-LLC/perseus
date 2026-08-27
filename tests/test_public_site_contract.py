@@ -280,6 +280,8 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries(tmp_pat
     assert 'tomli==2.2.1; python_version < "3.11"' in pyproject
     runtime_requirements = text("requirements-runtime.txt")
     assert 'tomli==2.2.1; python_version < "3.11"' in runtime_requirements
+    lock = text("uv.lock")
+    assert 'name = "tomli", marker = "python_full_version < \'3.11\'", specifier = "==2.2.1"' in lock
     sbom = json.loads(text("sbom.cdx.json"))
     assert sbom["metadata"]["component"]["version"] == package["version"]
     assert sbom["metadata"]["component"]["bom-ref"] == f"perseus-ctx@{package['version']}"
@@ -341,6 +343,8 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries(tmp_pat
     assert "not sandboxed" in security_policy
     assert "sandboxed interpreter" not in security_policy
     assert "never sees your API keys" not in security_policy
+    assert "Perseus source has no native extensions" in security_policy
+    assert "No native extensions" not in security_policy
     assert "Level 2 self-assessment" in security_policy
     assert "does **not** claim a SLSA provenance attestation" in security_policy
     assert "signed SLSA build provenance" not in security_policy
@@ -784,6 +788,15 @@ def test_publish_validator_rejects_duplicate_sbom_components(tmp_path):
     numeric_target["components"].append({"bom-ref": "123"})
     numeric_target["dependencies"].append({"ref": "123", "dependsOn": [123]})
     malformed_cases.append(numeric_target)
+    stale_purl = json.loads(json.dumps(base_sbom))
+    stale_purl["components"][1]["purl"] = "pkg:pypi/pyyaml@0.0.0"
+    malformed_cases.append(stale_purl)
+    extra_component = json.loads(json.dumps(base_sbom))
+    extra_component["components"].append(
+        {"type": "library", "bom-ref": "extra", "name": "extra", "version": "1.0.0", "purl": "pkg:pypi/extra@1.0.0"}
+    )
+    extra_component["dependencies"].append({"ref": "extra", "dependsOn": []})
+    malformed_cases.append(extra_component)
     for malformed in malformed_cases:
         (tmp_path / "sbom.cdx.json").write_text(json.dumps(malformed), encoding="utf-8")
         malformed_result = subprocess.run(
@@ -793,7 +806,7 @@ def test_publish_validator_rejects_duplicate_sbom_components(tmp_path):
             text=True,
         )
         assert malformed_result.returncode != 0
-        assert "sbom dependency" in malformed_result.stderr
+        assert "sbom dependency" in malformed_result.stderr or "sbom component purls" in malformed_result.stderr
 
     for bounded_doc in ("README.md", "docs/EXAMPLES.md", "docs/use-cases.md"):
         claims_text = text(bounded_doc)

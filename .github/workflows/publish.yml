@@ -112,8 +112,14 @@ jobs:
                   for item in components
                   if isinstance(item, dict)
               }
+              component_purls = {
+                  str(item.get("bom-ref", "")): item.get("purl")
+                  for item in components
+                  if isinstance(item, dict)
+              }
           else:
               component_refs = set()
+              component_purls = {}
           if (
               not isinstance(components, list)
               or not components
@@ -122,6 +128,13 @@ jobs:
               or len(component_refs) != len(components)
           ):
               mismatches["sbom component refs"] = sorted(component_refs)
+          expected_component_purls = {
+              "python": "pkg:generic/python@3.12",
+              "pyyaml": "pkg:pypi/pyyaml@6.0.3",
+              "tomli": "pkg:pypi/tomli@2.2.1",
+          }
+          if component_purls != expected_component_purls:
+              mismatches["sbom component purls"] = component_purls
           dependencies = sbom.get("dependencies", [])
           if not isinstance(dependencies, list) or not dependencies or not all(isinstance(item, dict) for item in dependencies):
               mismatches["sbom dependencies"] = "missing, empty, or malformed"
