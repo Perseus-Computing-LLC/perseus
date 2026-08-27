@@ -62,7 +62,7 @@ spec/                   ← Normative design specifications
 
 ## Key Concepts
 
-**Resolve-before-context** — Perseus runs directives and hands the assistant a finished, accurate document. The assistant never sees a directive; only verified facts.
+**Resolve-before-context** — Perseus runs directives and hands the assistant a rendered document. The assistant never sees directive syntax; the output remains bounded by its sources, configuration, and runtime availability.
 
 **Directives** — Annotated references in a `.md` source file (`@query`, `@read`, `@env`, `@waypoint`, `@services`, `@skills`, `@session`, …). They're resolved at render time and replaced with their live values.
 

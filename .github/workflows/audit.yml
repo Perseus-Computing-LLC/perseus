@@ -67,6 +67,7 @@ jobs:
             https://github.com/google/osv-scanner/releases/download/v2.4.0/osv-scanner_linux_amd64 \
             -o "${archive}"
           printf '%s  %s\n' "${OSV_SCANNER_SHA256}" "${archive}" | sha256sum --check -
-          install -m 0755 "${archive}" /usr/local/bin/osv-scanner
+          install -m 0755 "${archive}" "${RUNNER_TEMP}/osv-scanner"
+          printf '%s\n' "${RUNNER_TEMP}" >>"${GITHUB_PATH}"
       - name: Audit dev/CI toolchain freeze against OSV (non-gating)
         run: osv-scanner scan source --no-resolve --lockfile requirements.txt
