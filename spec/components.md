@@ -711,8 +711,8 @@ render command, or invoke `perseus render` from a Windows scheduler manually.
 ### CLI
 
 ```bash
-perseus cron .perseus/context.md -o AGENTS.md --every 5
-perseus cron .perseus/context.md -o AGENTS.md --every 5 --install
+perseus cron create .perseus/context.md --output AGENTS.md --every 5
+perseus cron create .perseus/context.md --output AGENTS.md --every 5 --install
 ```
 
 `--every` accepts minutes; `1`, `60`, and `>60` are translated to the

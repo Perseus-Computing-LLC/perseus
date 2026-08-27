@@ -268,7 +268,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 
 ### Current MCP interface
 
-<!-- test-count: 2809 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
+<!-- test-count: 2810 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
 
 Perseus Context Engine exposes workspace-context operations over MCP. The current public interface centers on rendering and inspecting context, checking health, reading explicitly allowed workspace sources, and connecting to Perseus Vault for durable memory. Code-level compatibility identifiers are not separate Perseus products.
 
@@ -343,7 +343,7 @@ Keep it fresh with cron, launchd, systemd, or `perseus watch`:
 ~/.local/bin/perseus cron create .perseus/context.md --output AGENTS.md --every 5 --install
 ```
 
-See the [Integration Guide](https://github.com/Perseus-Computing-LLC/perseus/blob/main/docs/HERMES_INTEGRATION.md) for Hermes-specific auto-refresh setups and [adapter patterns](https://github.com/Perseus-Computing-LLC/perseus/blob/main/spec/integration.md) for full integration details.
+See the [file-based Hermes integration guide](https://github.com/Perseus-Computing-LLC/perseus/blob/main/docs/HERMES_INTEGRATION.md) for generated context-file setup and [adapter patterns](https://github.com/Perseus-Computing-LLC/perseus/blob/main/spec/integration.md) for full integration details.
 
 ---
 
@@ -733,7 +733,7 @@ To disable automatic recall pointers, set `perseus_vault.auto_inject: false`. Se
 | [**CLI Reference**](./docs/CLI.md) | Every command and flag |
 | [**Setup & Config Guide**](./SETUP-GUIDE.md) | The definitive setup, config, automation, and troubleshooting guide |
 | [**Directives Reference**](./docs/DIRECTIVES.md) | All directives with modifiers and examples |
-| [**Integration Guide**](./docs/HERMES_INTEGRATION.md) | Wire Perseus to Hermes via LLM routing |
+| [**File-based Hermes integration**](./docs/HERMES_INTEGRATION.md) | Generate context files for Hermes |
 | [**Adapter Patterns**](./spec/integration.md) | Wire Perseus to any AI assistant |
 | [**Container Runtime**](./docs/CONTAINER.md) | Docker and compose deployment |
 | [**Quickstart**](./docs/quickstart.md) | 5-minute setup walkthrough |
@@ -743,7 +743,7 @@ To disable automatic recall pointers, set `perseus_vault.auto_inject: false`. Se
 | [**Use Cases**](./docs/use-cases.md) | Real-world usage patterns |
 | [**Performance**](./docs/PERFORMANCE.md) | Benchmark methodology and results |
 | [**Agent Surfaces**](./docs/AGENT_SURFACES.md) | JSON contracts for agent consumption |
-| [**Deployment**](./docs/DEPLOYMENT.md) | Systemd, launchd, cron, Docker, CI |
+| [**Deployment**](./docs/DEPLOYMENT.md) | Current deployment guidance with pinned versions |
 | [**Security**](./SECURITY.md) | Trust model, workspace boundaries, secrets |
 | [**Roadmap**](./ROADMAP.md) | Living roadmap (live `@perseus` source) |
 

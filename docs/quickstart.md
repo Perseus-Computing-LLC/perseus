@@ -200,7 +200,7 @@ perseus render .perseus/context.md --output .hermes.md
 ### Option A — Watch mode (simplest, foreground)
 
 ```bash
-perseus watch .perseus/context.md --output .hermes.md
+perseus watch --source .perseus/context.md --output .hermes.md
 ```
 
 Re-renders whenever the source file changes.

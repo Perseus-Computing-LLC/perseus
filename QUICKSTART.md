@@ -134,7 +134,7 @@ Edit `.perseus/config.yaml` manually, or re-run `perseus quickstart` later.
 | Command | What it does |
 |---------|-------------|
 | `perseus render .perseus/context.md` | Refresh rendered context |
-| `perseus serve` | Start LSP for your editor (Claude Code, Cursor, etc.) |
+| `perseus serve --lsp --stdio` | Start LSP for your editor (Claude Code, Cursor, etc.) |
 | `perseus watch` | Auto-refresh context when sources change |
 | `perseus suggest "fix the login bug"` | Get ranked tool/skill suggestions |
 | `perseus synthesize "What's the auth flow?" --source src/auth.py` | Draft cited synthesis claims |

@@ -81,7 +81,7 @@ flows remain supported.
 Watch mode is useful for a foreground local workflow:
 
 ```bash
-perseus watch .perseus/context.md --output .hermes.md
+perseus watch --source .perseus/context.md --output .hermes.md
 ```
 
 For scheduled refresh, use the explicit scheduler subcommands. Verify the
