@@ -477,8 +477,8 @@ directive registry). Supports `--json` for CI/agent consumption.
 
 ### 11C: `--json` Agent Surfaces (task-28) ✅
 
-Add `--json` flag to 6 commands: `oracle infer-labels`, `oracle drift`,
-`llm ping`, `memory status`, `memory federation list`, `memory federation pull`.
+Add `--json` flag to 5 commands: `oracle infer-labels`, `oracle drift`,
+`memory status`, `memory federation list`, and `memory federation pull`.
 Stable JSON contracts for agent consumption, documented in
 `docs/AGENT_SURFACES.md` and linked from the README CLI reference.
 
@@ -1454,7 +1454,7 @@ quarter-by-quarter plan through 2031; that false precision has been removed.)
 
 ```
 Source document (.perseus/context.md)
-  @perseus v1.0.8
+  @perseus v1.0.27
   @query "git log --oneline -5"          ┐
   @read .env key="PORT"                  │  Directives resolved
   @waypoint ttl=86400                    │  before context window.
@@ -1466,14 +1466,14 @@ Source document (.perseus/context.md)
   Resolved markdown (facts, not instructions)
           │
           ▼
-  .hermes.md  ←── cron watchdog keeps this ≤5 min fresh
+  .hermes.md  ←── cron watchdog attempts a five-minute render cadence
           │
           ▼
   Hermes session start
   build_context_files_prompt()
           │
           ▼
-  AI context window — complete, accurate, zero pre-flight tax
+  AI context window — resolved snapshot; verify source freshness and completeness
 
   Waypoints: ~/.perseus/checkpoints/
   Cache:     ~/.perseus/cache/

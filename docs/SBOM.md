@@ -33,7 +33,7 @@
 
 | Package | Version | License | Type | Required For |
 |---|---|---|---|---|
-| mcp | * (latest) | MIT | Optional | MCP server mode |
+| mcp | unversioned (resolve exact environment) | MIT | Optional | MCP server mode |
 | langchain-core | >=0.3 | MIT | Optional | `[adapters]` LangChain context adapter |
 | llama-index-core | >=0.12 | MIT | Optional | `[adapters]` LlamaIndex context adapter |
 
@@ -76,7 +76,7 @@ The adapter packages have transitive dependencies that vary with the resolver an
 |---|---|
 | Build system | setuptools >=68 |
 | Wheel published to | PyPI |
-| Build reproducibility | requirements.txt lockable |
+| Build reproducibility | requirements.txt pins versions; wheel hashes are not embedded |
 | Code signing | Not implemented |
 
 ---
