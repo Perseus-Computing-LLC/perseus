@@ -48,7 +48,7 @@ Systemd and launchd scaffolds are available on their respective platforms:
 
 ```bash
 perseus systemd create .perseus/context.md --output .hermes.md --interval 5m
-perseus launchd create .perseus/context.md --output .hermes.md --interval 5m
+perseus launchd create .perseus/context.md --output .hermes.md --interval 300
 ```
 
 Use the generated file only where your Hermes workspace configuration expects a

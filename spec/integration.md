@@ -91,7 +91,7 @@ printed command and output path before installing a user service:
 perseus cron create .perseus/context.md --output .hermes.md --every 5
 perseus cron create .perseus/context.md --output .hermes.md --every 5 --install
 perseus systemd create .perseus/context.md --output .hermes.md --interval 5m
-perseus launchd create .perseus/context.md --output .hermes.md --interval 5m
+perseus launchd create .perseus/context.md --output .hermes.md --interval 300
 ```
 
 Native Windows Task Scheduler support is available through `schtasks create`:

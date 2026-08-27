@@ -508,7 +508,12 @@ def cmd_schtasks(args, cfg):
         print(f"✔ Created scheduled task {name}")
     print()
     print(f'Verify with: schtasks /Query /TN "{task_name}"')
-    print(f'Remove with: perseus schtasks uninstall --job {getattr(args, "job", "render")}')
+    if is_maintain:
+        cleanup = "perseus schtasks uninstall --job maintain"
+    else:
+        source = str(getattr(args, "source", "")).replace('"', '\\"')
+        cleanup = f'perseus schtasks uninstall "{source}" --job render'
+    print(f"Remove with: {cleanup}")
 
 
 def cmd_schtasks_uninstall(args, cfg):
