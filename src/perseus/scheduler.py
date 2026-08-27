@@ -190,10 +190,20 @@ def _scheduler_windows_quote(value) -> str:
 
 
 def _scheduler_windows_command(tokens) -> str:
-    """Render a Windows argv list with metacharacters kept inside quotes."""
-    import subprocess as _subprocess
+    """Render a Windows command line that is safe to paste into cmd.exe."""
+    import re as _re
 
-    return _subprocess.list2cmdline([str(token) for token in tokens])
+    def _cmd_quote(value):
+        text = str(value)
+        escaped = text.replace("^", "^^")
+        for character in "&|<>()":
+            escaped = escaped.replace(character, f"^{character}")
+        escaped = escaped.replace('"', '^"')
+        if not text or _re.search(r"[\s&|<>()^!\"]", text):
+            return f'"{escaped}"'
+        return escaped
+
+    return " ".join(_cmd_quote(token) for token in tokens)
 
 
 def _hygiene_schedule_minutes(cfg) -> int:
