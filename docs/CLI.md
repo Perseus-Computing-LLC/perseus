@@ -58,7 +58,7 @@ Agent-readable `--json` contracts for synthesis, oracle, memory, federation, and
 ## Quick Start
 
 ```bash
-pip install perseus-ctx
+python -m pip install perseus-ctx==1.0.26
 perseus init /workspace/myproject
 perseus render /workspace/myproject/.perseus/context.md --output CLAUDE.md
 ```

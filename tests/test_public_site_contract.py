@@ -449,7 +449,7 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     test_workflow = text(".github/workflows/test.yml")
     assert test_workflow.count("persist-credentials: false") >= 2
     assert "sudo " not in test_workflow
-    assert "--ignore=tests/test_disconnected_acceptance.py" in test_workflow
+    assert "-m \"not privileged_acceptance\"" in test_workflow
 
     disconnected_workflow = text(".github/workflows/disconnected-acceptance.yml")
     assert "pull_request" not in disconnected_workflow
@@ -472,11 +472,46 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     assert "security-events: write" not in codeql
     assert "upload: never" in codeql
 
+    registry = text(".github/workflows/mcp-registry.yml")
+    assert "workflow_dispatch" not in registry
+    assert "releases/latest/download" not in registry
+    for required_registry_guard in (
+        "github.event.release.tag_name",
+        "manifest.json",
+        "server.json",
+        "MCP_REGISTRY_VERSION",
+        "sha256sum --check",
+        "PUBLISHER_SHA256",
+        "v1.8.1",
+    ):
+        assert required_registry_guard in registry
+
     skill = text("SKILL.md")
     for stale_skill_marker in ("150+", "zero collisions", "perseus_query", "perseus_services", "perseus_memory"):
         assert stale_skill_marker not in skill
     assert "pip install perseus-ctx==1.0.26" in skill
     assert "Tool names and schemas are generated from the checked-in server contract" in skill
+
+    integration = text("spec/integration.md")
+    for stale_integration_marker in ("perseus_query", "perseus_services", "perseus_memory", "exposing all 24 directives"):
+        assert stale_integration_marker not in integration
+    assert "Adapter Conformance Matrix" in integration
+    assert "perseus cron create" in integration
+    assert "perseus systemd create" in integration
+    assert "perseus launchd create" in integration
+
+    for outreach_path in (
+        "outreach/tier1-messages.md",
+        "outreach/tier1-messages-thomas.md",
+        "reddit-variants/r-localllama.md",
+        "reddit-variants/r-opensource.md",
+        "reddit-variants/r-programming.md",
+        "reddit-variants/r-python.md",
+    ):
+        outreach = text(outreach_path)
+        for retired_outreach_claim in ("23,402", "301×", "301x", "150 writes", "120-agent", "zero collisions", "$295K", "295K"):
+            assert retired_outreach_claim not in outreach, outreach_path
+        assert "claims-safe" in outreach
 
     workflow_checkout_count = 0
     workflow_guard_count = 0

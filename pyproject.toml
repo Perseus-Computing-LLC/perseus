@@ -50,6 +50,7 @@ testpaths = ["tests"]
 addopts = "--strict-markers"
 markers = [
   "slow: tests that intentionally exercise slower end-to-end or benchmark paths",
+  "privileged_acceptance: tests that require the trusted cgroup broker and run only in the push-to-main acceptance workflow",
 ]
 
 [tool.setuptools]

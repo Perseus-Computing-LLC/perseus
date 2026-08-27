@@ -3038,15 +3038,6 @@ def _terminate_process_group(
         return cleanup_ok
     for sig, wait_time in ((signal.SIGTERM, 0.25), (signal.SIGKILL, 1.0)):
         _owned_processes(leader_pid, baseline_snapshot, known, run_token, token_fd)
-        if any(
-            isinstance(leader_identity, Mapping)
-            and identity.get("pgid") != leader_identity.get("pgid")
-            for identity in known.values()
-        ):
-            # Without a delegated cgroup, a changed PGID proves that the
-            # descendant left the only recorded process-group boundary; its
-            # token or prior ancestry does not restore containment proof.
-            cleanup_ok = False
         group_pgid: int | None = None
         leader_verified = False
         if leader_identity is not None:
@@ -3062,6 +3053,14 @@ def _terminate_process_group(
                 leader_verified = True
                 group_pgid = current_leader["pgid"]
                 _owned_processes(leader_pid, baseline_snapshot, known, run_token, token_fd)
+            if current_leader is not None and any(
+                identity.get("pgid") != leader_identity.get("pgid")
+                for identity in known.values()
+            ):
+                # A changed PGID is unsafe while the leader/descendant is live;
+                # a detached child that has already exited is fully accounted for
+                # by the final ownership/reaping checks below.
+                cleanup_ok = False
         if group_pgid is not None and leader_verified:
             try:
                 os.killpg(group_pgid, sig)
@@ -3144,6 +3143,8 @@ def _terminate_process_group(
             leader_identity=leader_identity,
             token_fd=token_fd,
         )
+        if alive and leader_identity is not None and identity.get("pgid") != leader_identity.get("pgid"):
+            cleanup_ok = False
         if alive and ownership:
             cleanup_ok = False
         elif alive and not ownership:

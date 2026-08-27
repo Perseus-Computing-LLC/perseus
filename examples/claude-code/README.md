@@ -16,8 +16,8 @@ rendered from a live source — not hand-edited and forgotten.
 ```
 
 Perseus resolves shell queries, git state, service health, and checkpoint
-waypoints before Claude Code ever sees the file. No stale data; no pre-flight
-tool calls burning context.
+waypoints before Claude Code sees the file. Freshness is explicit per directive
+and backend; a render is not a guarantee that every source is current.
 
 ## What this demonstrates
 
@@ -36,7 +36,7 @@ tool calls burning context.
 
 ```bash
 # Install Perseus
-pip install perseus-ctx
+pip install perseus-ctx==1.0.26
 
 # Render once to bootstrap CLAUDE.md
 perseus render .perseus/context.md --output CLAUDE.md

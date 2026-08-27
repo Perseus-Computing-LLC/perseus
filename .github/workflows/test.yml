@@ -96,7 +96,7 @@ jobs:
         # workflow; PR validation stays unprivileged and covers every other test.
         run: |
           export PERSEUS_ALLOW_DANGEROUS=1
-          coverage run -m pytest tests/ -q --ignore=tests/test_disconnected_acceptance.py
+          coverage run -m pytest tests/ -q -m "not privileged_acceptance"
           # Gate: baseline 56% (2026-08-12, 20503 stmts). fail-under 50 keeps
           # a 6-point cushion so routine refactors don't trip it, while a real
           # coverage regression still fails CI.
@@ -168,7 +168,7 @@ jobs:
         timeout-minutes: 15
         run: |
           $ErrorActionPreference = "Stop"
-          python -m pytest tests/ -q --durations=20 --ignore=tests/test_disconnected_acceptance.py
+          python -m pytest tests/ -q --durations=20 -m "not privileged_acceptance"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   adapters:
