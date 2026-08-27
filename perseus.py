@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "a8f2dcb"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "b01bbc4"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -31178,6 +31178,7 @@ def cmd_doctor(args, cfg) -> int:
     return exit_code
 # ─────────────────────────────── Scheduler ────────────────────────────────────
 # Cross-platform scheduling commands: launchd (macOS), cron (POSIX), systemd (Linux)
+import sys as _scheduler_sys
 
 LAUNCHD_TEMPLATE = """\
 <?xml version="1.0" encoding="UTF-8"?>
@@ -31479,6 +31480,14 @@ def cmd_cron(args, cfg):
     or ``--job maintain`` (hands-off memory hygiene).
     """
     job_tokens, tag, _stem = _resolve_job(args, cfg)
+    for field in ("source", "output"):
+        value = getattr(args, field, None)
+        if value is not None and any(char in str(value) for char in ("\n", "\r")):
+            print(
+                f"Error: {field} path must not contain line breaks.",
+                file=_scheduler_sys.stderr,
+            )
+            _scheduler_sys.exit(1)
     is_maintain = tag == "perseus-hygiene"
 
     raw_every = getattr(args, "every", None)
