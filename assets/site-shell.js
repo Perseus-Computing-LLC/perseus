@@ -30,6 +30,7 @@
       setMenu(menuButton.getAttribute("aria-expanded") !== "true");
     });
   }
+  setMenu(false);
   if (menu) {
     menu.querySelectorAll("a").forEach(function (link) {
       link.addEventListener("click", function () { setMenu(false); });

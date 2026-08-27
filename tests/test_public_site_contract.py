@@ -48,6 +48,7 @@ def test_canonical_pages_share_accessible_shell_and_metadata():
         assert '<main id="main">' in page
         assert 'class="site-header"' in page
         assert 'class="site-footer"' in page
+        assert 'data-mobile-menu aria-label="Mobile">' in page
         assert '<meta name="description"' in page
         assert '<meta name="twitter:card" content="summary_large_image">' in page
         assert f'<link rel="canonical" href="https://perseus.observer{route}">' in page
@@ -219,6 +220,9 @@ def test_shared_interactions_have_failure_feedback_and_reduced_motion():
     assert "prefers-reduced-motion" in css
     assert "scroll-margin-top" in css
     assert "focus-visible" in css
+    assert ".mobile-nav { display: none;" in css
+    assert ".mobile-nav { display: block; }" in css
+    assert "setMenu(false);" in js
 
 
 def test_runtime_and_bootstrap_do_not_recommend_mutable_remote_scripts():
@@ -347,6 +351,8 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries(tmp_pat
     sbom_doc = text("docs/SBOM.md")
     assert "Runtime/optional non-MIT/BSD licenses" in sbom_doc
     assert "development toolchain also includes Apache-2.0 and MPL-2.0" in sbom_doc
+    assert "setuptools==83.0.0" in sbom_doc
+    assert "setuptools >=68" not in sbom_doc
     assert "2026-08-26T00:00:00Z" in sbom_doc
 
     root_readme = text("README.md")
@@ -421,6 +427,9 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries(tmp_pat
     site_builder = text("scripts/build_public_site.py")
     assert "pip install perseus-ledger==1.2.4" in site_builder
     assert "pip install perseus-ledger\\n" not in site_builder
+
+    test_workflow = text(".github/workflows/test.yml")
+    assert "tomli==2.2.1" in test_workflow
 
     card_generator = text("scripts/generate_server_card.py")
     assert "Path(__file__).resolve().parents[1]" in card_generator

@@ -68,7 +68,7 @@ def header(current: str, cta_href: str = "/docs/", cta_label: str = "Start local
       <button class="icon-button menu-button" type="button" data-menu-button aria-label="Open navigation" aria-expanded="false" aria-controls="mobile-navigation"><span aria-hidden="true">Menu</span></button>
     </div>
   </div>
-  <nav class="mobile-nav" id="mobile-navigation" data-mobile-menu aria-label="Mobile" hidden>{mobile}<a href="{cta_href}">{cta_label}</a></nav>
+  <nav class="mobile-nav" id="mobile-navigation" data-mobile-menu aria-label="Mobile">{mobile}<a href="{cta_href}">{cta_label}</a></nav>
 </header>"""
 
 
