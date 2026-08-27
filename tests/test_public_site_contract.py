@@ -732,6 +732,9 @@ def test_current_release_and_active_guidance_are_consistent():
         assert stale_claim not in claude_example
     for active_doc in ("QUICKSTART.md", "WIRING.md", "ROADMAP.md"):
         assert "perseus llm ping" not in text(active_doc)
+    agent_surfaces = text("docs/AGENT_SURFACES.md")
+    assert "perseus llm ping" not in agent_surfaces
+    assert "perseus doctor --json" in agent_surfaces
     onboarding = text("docs/agent-onboarding-prompt.md")
     assert "pip install perseus-ctx==1.0.26" in onboarding
     assert "pip install perseus\n" not in onboarding
@@ -740,6 +743,18 @@ def test_current_release_and_active_guidance_are_consistent():
     assert "v1.0.6" not in text("spec/overview.md").splitlines()[2]
     assert "v1.0.6" not in text("spec/directives.md").splitlines()[0]
     assert "v1.0.6" not in text("spec/data-model.md").splitlines()[0]
+    roadmap = text("ROADMAP.md")
+    assert "perseus llm ping" not in roadmap
+    assert "at most five minutes fresh" not in roadmap
+    assert "complete, accurate" not in roadmap
+    sbom = text("SBOM.md")
+    assert "approved minimal" not in sbom
+    assert "The repository does not include an Iron Bank image" in sbom
+    assert "build/development toolchain" in sbom
+    assert "publication supply-chain surface" in sbom
+    assert "hermes-agent==0.17.0" not in sbom
+    assert "pillow==12.3.0" in sbom
+    assert "pillow==12.2.0" not in sbom
 
 
 def test_committed_html_matches_public_site_generator(tmp_path):

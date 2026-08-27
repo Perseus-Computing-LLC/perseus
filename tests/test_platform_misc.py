@@ -21,12 +21,12 @@ from conftest import PY_VER, cfg, perseus, _capture_json, _seed_guide_log
 
 pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
 
-def test_launchd_subcommand_scaffolds_plist_on_macos(tmp_path, monkeypatch):
+def test_launchd_subcommand_scaffolds_plist_on_macos(tmp_path, monkeypatch, capsys):
     source = tmp_path / "project&<name" / ".perseus" / "context.md"
     source.parent.mkdir(parents=True)
     source.write_text("@perseus\n", encoding="utf-8")
     output = tmp_path / "output&<name" / "context.md"
-    fake_home = tmp_path / "home"
+    fake_home = tmp_path / "home&<name"
     monkeypatch.setattr(perseus.sys, "platform", "darwin")
     monkeypatch.setattr(perseus.Path, "home", staticmethod(lambda: fake_home))
     args = argparse.Namespace(source=str(source), output=str(output), interval=300, label="com.test.perseus", force=False)
@@ -41,11 +41,12 @@ def test_launchd_subcommand_scaffolds_plist_on_macos(tmp_path, monkeypatch):
     parsed = plistlib.loads(plist_body.encode("utf-8"))
     assert str(source.resolve()) in parsed["ProgramArguments"]
     assert str(output.resolve()) in parsed["ProgramArguments"]
+    assert shlex.quote(str(plist)) in capsys.readouterr().out
 
 
 def test_cron_subcommand_prints_posix_crontab_entry(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(perseus.sys, "platform", "linux")
-    source = tmp_path / "project space" / ".perseus" / "context.md"
+    source = tmp_path / "project space" / ".perseus" / "context%file.md"
     source.parent.mkdir(parents=True)
     source.write_text("@perseus\n", encoding="utf-8")
     output = tmp_path / "output space" / "AGENTS.md"
@@ -56,8 +57,10 @@ def test_cron_subcommand_prints_posix_crontab_entry(tmp_path, monkeypatch, capsy
     out = capsys.readouterr().out
     assert "*/5 * * * *" in out
     assert " render " in out
-    assert shlex.quote(str(source.resolve())) in out
+    escaped_source = shlex.quote(str(source.resolve())).replace("%", r"\%")
+    assert escaped_source in out
     assert f"--output {shlex.quote(str(output.resolve()))}" in out
+    assert r"\%" in out
     assert "# perseus-render" in out
     assert "crontab -e" in out
 
@@ -240,7 +243,7 @@ def test_cmd_systemd_macos_redirects(tmp_path, monkeypatch, capsys):
 
 def test_cmd_systemd_prints_units_on_linux(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(perseus.sys, "platform", "linux")
-    src = tmp_path / "project space" / "ctx.md"
+    src = tmp_path / "project space" / "ctx file.md"
     src.parent.mkdir(parents=True)
     src.write_text("@perseus\n", encoding="utf-8")
     args = argparse.Namespace(source=str(src), output=str(tmp_path / "out.md"),
@@ -250,8 +253,8 @@ def test_cmd_systemd_prints_units_on_linux(tmp_path, monkeypatch, capsys):
     assert "[Service]" in out
     assert "[Timer]" in out
     assert "10min" in out
-    assert "perseus-render-ctx.service" in out
-    assert "perseus-render-ctx.timer" in out
+    assert "perseus-render-ctx-file.service" in out
+    assert "perseus-render-ctx-file.timer" in out
     assert shlex.quote(str(src.resolve())) in out
 
 
@@ -275,7 +278,7 @@ def test_cmd_systemd_rejects_native_windows(tmp_path, monkeypatch, capsys):
 @pytest.mark.parametrize(
     ("job", "source", "label"),
     [
-        ("render", "ctx.md", "perseus-render-ctx"),
+        ("render", "ctx file.md", "perseus-render-ctx-file"),
         ("maintain", None, "perseus-hygiene"),
     ],
 )
@@ -303,6 +306,7 @@ def test_cmd_systemd_uninstall_removes_created_units(tmp_path, monkeypatch, caps
     assert not (unit_dir / f"{label}.service").exists()
     assert not (unit_dir / f"{label}.timer").exists()
     assert ["systemctl", "--user", "stop", f"{label}.timer"] in calls
+    assert ["systemctl", "--user", "disable", f"{label}.timer"] in calls
     assert f"stop {label}.timer" in capsys.readouterr().out
 # ── task-17: template gallery ────────────────────────────────────────────────
 
@@ -603,3 +607,36 @@ def test_cron_command_invalid_every(tmp_path, capsys):
     except SystemExit:
         err = capsys.readouterr().err
         assert "must be an integer" in err
+
+    args.every = "90"
+    with pytest.raises(SystemExit):
+        perseus.cmd_cron(args, cfg())
+    assert "whole hours" in capsys.readouterr().err
+
+
+def test_cron_uninstall_matches_quoted_source_marker(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(perseus.sys, "platform", "linux")
+    source = tmp_path / "project space" / "ctx%file.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("@perseus\n", encoding="utf-8")
+    output = tmp_path / "output space" / "AGENTS.md"
+    state = {"crontab": ""}
+
+    def fake_run(argv, input=None, **kwargs):
+        if argv == ["crontab", "-l"]:
+            return argparse.Namespace(returncode=0, stdout=state["crontab"], stderr="")
+        if argv == ["crontab", "-"]:
+            state["crontab"] = input
+            return argparse.Namespace(returncode=0, stdout="", stderr="")
+        raise AssertionError(argv)
+
+    monkeypatch.setattr(perseus.subprocess, "run", fake_run)
+    args = argparse.Namespace(source=str(source), output=str(output), every="5", install=True)
+    perseus.cmd_cron(args, cfg())
+    assert "source=" in state["crontab"]
+
+    perseus.cmd_cron_uninstall(
+        argparse.Namespace(source=str(source), job="render"), cfg()
+    )
+    assert "# perseus-render" not in state["crontab"]
+    assert "Removed" in capsys.readouterr().out
