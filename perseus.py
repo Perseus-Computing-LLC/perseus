@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "1279cdd-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "61071a0-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -50723,8 +50723,6 @@ def _main_impl():
         cmd_init(args, cfg)
     elif args.command == "quickstart":
         return cmd_quickstart(args, cfg)
-    elif args.command == "launchd":
-        cmd_launchd(args, cfg)
     elif args.command == "install":
         return cmd_install(args, cfg)
     elif args.command == "mcp":

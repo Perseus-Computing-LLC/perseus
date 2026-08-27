@@ -58,6 +58,51 @@ jobs:
             exit 1
           fi
 
+      - name: Verify published metadata matches the release tag
+        run: |
+          set -euo pipefail
+          release_version="${GITHUB_REF_NAME#v}"
+          python3 - "$release_version" <<'PY'
+          import json
+          import pathlib
+          import sys
+          import tomllib
+
+          expected = sys.argv[1]
+
+          def load(name):
+              return json.loads(pathlib.Path(name).read_text(encoding="utf-8"))
+
+          claims = load("claims.json")["claims"]["perseus_pypi_version"]
+          if str(claims.get("value")) != expected or claims.get("publishable") is not True:
+              raise SystemExit(f"claims.json PyPI release is not publishable as {expected!r}")
+
+          manifest = load("manifest.json")
+          server = load("server.json")
+          card = load(".well-known/mcp/server-card.json")
+          sbom = load("sbom.cdx.json")
+          pyproject = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))
+          checks = {
+              "pyproject.toml": pyproject["project"]["version"],
+              "manifest.json": manifest.get("version"),
+              "server.json": server.get("version"),
+              "server-card": card.get("serverInfo", {}).get("version"),
+              "sbom": sbom.get("metadata", {}).get("component", {}).get("version"),
+          }
+          mismatches = {name: version for name, version in checks.items() if str(version) != expected}
+          package_versions = {str(item.get("version")) for item in server.get("packages", [])}
+          if package_versions != {expected}:
+              mismatches["server.json packages"] = sorted(package_versions)
+          if str(sbom.get("dependencies", [{}])[0].get("ref", "")) != f"perseus-ctx@{expected}":
+              mismatches["sbom dependency ref"] = sbom.get("dependencies", [{}])[0].get("ref")
+          if mismatches:
+              raise SystemExit(f"release metadata does not match {expected!r}: {mismatches}")
+          print(f"All release metadata surfaces match {expected}")
+          PY
+
+      - name: Rebuild generated artifact for this release
+        run: python scripts/build.py
+
       - name: Verify perseus.py is in sync with src/
         run: python scripts/build.py --check
 

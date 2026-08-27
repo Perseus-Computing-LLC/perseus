@@ -926,8 +926,6 @@ def _main_impl():
         cmd_init(args, cfg)
     elif args.command == "quickstart":
         return cmd_quickstart(args, cfg)
-    elif args.command == "launchd":
-        cmd_launchd(args, cfg)
     elif args.command == "install":
         return cmd_install(args, cfg)
     elif args.command == "mcp":

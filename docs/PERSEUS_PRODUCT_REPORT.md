@@ -1,7 +1,7 @@
 # Perseus Product Report
 
 **Date:** 2026-05-27  
-**Status:** All major development phases complete. Perseus v1.0.6 released.  
+**Status:** Historical baseline report for the v1.0.6 release; it is not the current release specification.
 **Test suite:** This baseline report predates the current candidate; see the live CI result and README for current platform details. Native Windows Task Scheduler support is documented separately.
 
 ---
