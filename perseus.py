@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "d631cd4"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "de46733"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -31362,7 +31362,15 @@ def _scheduler_cron_source_matches(line, source) -> bool:
     ):
         return False
     try:
-        tokens = _shlex.split(command_text, comments=False, posix=True)
+        posix_tokens = _sys.platform != "win32"
+        tokens = _shlex.split(command_text, comments=False, posix=posix_tokens)
+        if not posix_tokens:
+            tokens = [
+                token[1:-1]
+                if len(token) >= 2 and token[0] == token[-1] and token[0] in "'\""
+                else token
+                for token in tokens
+            ]
     except ValueError:
         return False
     if tokens and tokens[0].startswith("@"):
