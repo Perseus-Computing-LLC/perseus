@@ -634,7 +634,12 @@ def _schtasks_schedule(every_minutes: int) -> list:
     /SC DAILY (at 03:00, matching the cron backend's off-hours choice).
     """
     if every_minutes >= 1440:
-        days = max(1, every_minutes // 1440)
+        if every_minutes % 1440:
+            raise ValueError(
+                "Windows Task Scheduler supports daily cadence only for whole-day intervals; "
+                "use cron or systemd for this cadence."
+            )
+        days = every_minutes // 1440
         return ["/SC", "DAILY", "/MO", str(days), "/ST", "03:00"]
     return ["/SC", "MINUTE", "/MO", str(every_minutes)]
 
@@ -675,8 +680,13 @@ def cmd_schtasks(args, cfg):
         sys.exit(1)
 
     task_name = "Perseus\\hygiene" if is_maintain else f"Perseus\\render-{stem}"
+    try:
+        schedule = _schtasks_schedule(every)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
     commands = [
-        ["schtasks", "/Create", "/TN", task_name, "/TR", tr_cmd] + _schtasks_schedule(every)
+        ["schtasks", "/Create", "/TN", task_name, "/TR", tr_cmd] + schedule
     ]
     if is_maintain:
         hygiene = (cfg or {}).get("hygiene", {}) if isinstance(cfg, dict) else {}

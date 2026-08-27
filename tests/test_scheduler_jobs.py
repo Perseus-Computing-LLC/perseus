@@ -94,6 +94,12 @@ def test_cron_rejects_line_break_paths_before_install(tmp_path, monkeypatch, cap
     assert calls == []
 
 
+@pytest.mark.parametrize("every_minutes", [1441, 1500, 2879])
+def test_schtasks_rejects_non_day_cadences(every_minutes):
+    with pytest.raises(ValueError, match="whole-day"):
+        perseus._schtasks_schedule(every_minutes)
+
+
 def test_cron_render_entry_unchanged(tmp_path, monkeypatch, capsys):
     # #693 must be a pure generalization: the default render entry keeps its
     # exact shape and `# perseus-render` tag so installed entries still match.
