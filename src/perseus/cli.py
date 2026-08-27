@@ -649,7 +649,10 @@ def _main_impl():
     p_systemd_create.add_argument("--enable", action="store_true",
                            help="When combined with --install, run systemctl --user daemon-reload/enable/start")
     p_systemd_uninstall = systemd_sub.add_parser("uninstall", help="Remove systemd timer + service units")
-    p_systemd_uninstall.add_argument("source", help="Path to Perseus source file")
+    p_systemd_uninstall.add_argument("source", nargs="?", default=None,
+                                      help="Path to Perseus source file (required for --job render)")
+    p_systemd_uninstall.add_argument("--job", choices=["render", "maintain"], default="render",
+                                      help="Which units to remove (maintain removes the hygiene timer/service)")
 
     # health (Daedalus v1)
     p_health = sub.add_parser("health", help="Context maintenance heuristics report")
@@ -894,8 +897,6 @@ def _main_impl():
             cmd_systemd_uninstall(args, cfg)
         else:
             cmd_systemd(args, cfg)
-    elif args.command == "systemd":
-        cmd_systemd(args, cfg)
     elif args.command == "health":
         cmd_health(args, cfg)
     elif args.command == "doctor":

@@ -785,16 +785,17 @@ the single-file implementation while adding real release artifacts and platform
 smoke checks.
 
 **Status:** Complete. Installer bootstrap, release artifacts/versioning, and
-scheduler parity are all live. Native Windows Task Scheduler support is
-explicitly deferred; platform-agnostic render flows remain available everywhere.
+scheduler parity are shipped. Native Windows Task Scheduler support is provided
+by `perseus schtasks create`; platform-agnostic render flows remain available
+everywhere.
 
 - **18A Installer bootstrap (task-48) ✅:** Add a single-file install/update path
   that places Perseus on PATH and verifies `pyyaml`.
 - **18B Release artifacts and versioning (task-49) ✅:** Define version bump,
   changelog, checksum, and signed/hashed release artifact workflow.
-- **18C Cross-platform scheduler parity (task-50) ✅:** Close scheduling gaps,
-  document cron/launchd/systemd/Windows parity, and defer native Task Scheduler
-  while preserving platform-neutral render/cron text generation.
+- **18C Cross-platform scheduler parity (task-50) ✅:** Close scheduling gaps
+  and document cron/launchd/systemd/Windows Task Scheduler parity while
+  preserving platform-neutral render/cron text generation.
 
 ### Phase 19 — Assistant Adapter Ecosystem
 

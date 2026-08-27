@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-27  
 **Status:** All major development phases complete. Perseus v1.0.6 released.  
-**Test suite:** 813 tests — all passing (Linux, Python 3.10–3.12). Windows support is deferred; see the README for platform details.
+**Test suite:** This baseline report predates the current candidate; see the live CI result and README for current platform details. Native Windows Task Scheduler support is documented separately.
 
 ---
 
@@ -75,7 +75,7 @@ Claude Code, Cursor, Rovo Dev, or any assistant that can read a file or stdin.
 | Templates/init | complete | Starter scaffolds plus documented, tested product profiles exist |
 | Serve | complete | Loopback-first read-only HTTP view with optional bearer auth |
 | Inbox | complete | Point-to-point agent messages |
-| Cron/schedulers | complete | Host-neutral cron text generation, POSIX crontab install, macOS launchd, and Linux systemd are documented/tested; native Windows Task Scheduler is deferred |
+| Cron/schedulers | complete | Host-neutral cron text generation, POSIX crontab install, macOS launchd, Linux systemd, and native Windows Task Scheduler are documented/tested |
 | LSP/editor | complete | LSP baseline plus VSCode packaging docs and smoke checks |
 | Adapter conformance/profile gallery | complete | Offline fixtures and profile generation cover generic, Hermes, Codex, Claude Code, Cursor, and Rovo Dev |
 | Schema validation | complete | Built-in validator, no new dependency |
