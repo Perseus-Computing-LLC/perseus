@@ -86,11 +86,11 @@ Perseus does not require a Perseus-hosted API key for its default local render p
 
 ## Dependency Security
 
-- **Single runtime dependency:** PyYAML (MIT license, widely audited)
+- **Runtime dependencies:** PyYAML (unconditional) and tomli (Python <3.11 fallback), both MIT-licensed
 - **No native extensions** — pure Python
 - **SBOM published** at [docs/SBOM.md](./docs/SBOM.md)
-- We monitor [GitHub Advisory Database](https://github.com/advisories) for PyYAML CVEs
-- Dependency pinned with hash checking in progress
+- We monitor [GitHub Advisory Database](https://github.com/advisories) for PyYAML and tomli CVEs
+- Dependencies pinned with hash checking in progress
 
 ---
 

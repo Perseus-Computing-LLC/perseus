@@ -16,10 +16,11 @@ Perseus resolves and shapes the active working context; Perseus Vault owns durab
 ## 1. Prerequisites
 
 - Python **3.10+**
-- `pyyaml` — the only runtime dependency
+- `pyyaml` — the unconditional YAML runtime dependency
+- `tomli==2.2.1` — installed for Python <3.11 as the TOML parser fallback
 
 ```bash
-python3 -m pip install --user pyyaml
+python3 -m pip install --user 'pyyaml>=6.0.1,<7' 'tomli==2.2.1; python_version < "3.11"'
 ```
 
 ---
