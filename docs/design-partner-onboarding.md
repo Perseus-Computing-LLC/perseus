@@ -1,104 +1,136 @@
-# Design-Partner Onboarding & Feedback Cadence
+# Design-partner onboarding and feedback
 
-**Audience:** 5–10 high-fit design partners — CTO/founder-led teams running
-real LLM or agent workloads.
-**Tracking issue:** perseus#829
-**Rule:** Outreach must never advertise a self-serve paid checkout while it is
-disabled. Free covers teams of 10 or fewer — no card, no automatic charge;
-an optional donation is presented only after independently verified savings.
+**Audience:** Technical teams evaluating Perseus with a real, bounded agent or developer workflow.
+**Status:** Current local-evaluation guide.
+**Scope:** This guide covers software that runs in the evaluator's workspace. It does not offer a hosted account, a self-serve control plane, or a managed data service.
 
----
+Start with a non-sensitive workspace and keep the mission owner, system owner, and approving authority in control of data, keys, deployment, and operational decisions.
 
-## 1. One-page onboarding guide (send this to every design partner)
+## 1. One-page onboarding guide
 
-### Step 1 — Create your Perseus Cloud account
-Go to **https://perseus.observer/cloud/signup/** and register with your work
-email and a password. The Free starter tier includes 1,000 entities and
-1 workspace — no credit card required.
+### Step 1 — Choose a bounded evaluation
 
-### Step 2 — Verify your email
-Click the verification link we send you. The Cloud API confirms the address
-(`GET /api/accounts/verify`) before the workspace activates.
+Name one workflow, its input sources, the expected output, and the person who will review the result. Use synthetic or approved non-sensitive data until the team's security and data-handling review is complete.
 
-### Step 3 — Open your Cloud dashboard
-Log in at **https://perseus.observer/cloud/dashboard/**. This is your control
-surface: plan and seats, verified-savings recommendation, and the link to
-your ledger-backed audit receipt.
+Choose the component that owns the question:
 
-### Step 4 — Sign in to Plutus with Google
-Open **https://plutus.perseus.observer/auth/login** and use Google sign-in.
-Plutus is the metering and audit layer: it records usage into an append-only,
-hash-chained ledger and produces your tamper-evident savings receipt.
+- **Perseus Context Engine:** assemble current workspace context before an assistant starts work.
+- **Perseus Vault:** store and recall governed decisions, corrections, and time-valid facts locally.
+- **Perseus Ledger:** record supplied events, evidence links, and authority references for later review.
 
-### Step 5 — Create an API key
-From your Cloud account, create an API key
-(`POST /api/accounts/api-keys` against **https://cloud-api.perseus.observer**).
-Store it as an environment variable — it is shown once.
+These components have separate data paths and security boundaries. Do not treat one component's posture as a certification of another.
 
-### Step 6 — Record your first usage event
-Point one real workload at the API with your key — e.g. store and recall a
-memory (`POST /api/v1/remember`, `POST /api/v1/recall`) or meter an LLM call
-through Plutus. Your first metered event appears on the dashboard and in
-`GET /api/v1/usage`.
+### Step 2 — Install a reviewed release
 
-**You are done when:** you can see at least one metered usage event on your
-dashboard without anyone's help. If any step took help, that is a friction
-point — tell us (see feedback template below).
+For the Context Engine, install the reviewed PyPI release:
 
----
+```bash
+python -m pip install perseus-ctx==1.0.26
+```
 
-## 2. Outreach cadence
+For Vault, use the versioned release asset and checksum-verification procedure in the [Vault release documentation](https://github.com/Perseus-Computing-LLC/perseus-vault/releases/tag/v2.23.2). For Ledger, use the reviewed package version:
+
+```bash
+python -m pip install perseus-ledger==1.2.4
+```
+
+Do not install from a mutable branch or execute an unreviewed workspace checkout. Record the package or release version used for the evaluation.
+
+### Step 3 — Author the smallest useful source
+
+Create a source that contains only the facts and files needed for the selected workflow. Render it locally and inspect the output before giving it to an assistant:
+
+```bash
+mkdir -p .perseus
+perseus quickstart
+perseus render .perseus/context.md --output AGENTS.md
+```
+
+The output is an ordinary workspace artifact. Review its contents, permissions, and destination. The standard local path does not grant an assistant authority over the workspace.
+
+### Step 4 — Connect one local host
+
+Start with local MCP stdio rather than a network transport:
+
+```bash
+perseus mcp serve
+```
+
+If a network transport is required, follow the security documentation for authentication, loopback binding, proxying, and operator-owned key storage before exposing it beyond the local machine.
+
+### Step 5 — Run one representative task
+
+Run the selected workflow with an isolated workspace and a known reviewer. Compare the result with the team's existing process. Record what the system read, what it wrote, what the assistant received, and which actions remained under operator control.
+
+If the evaluation records events, use Ledger only for events and references supplied by the integration. A hash chain can show the integrity of a record; it does not prove that every source is true, authorize an action, or replace human review.
+
+If the evaluation stores durable memories, use Vault's documented lifecycle and key-management controls. Do not place credentials, tokens, classified data, or unapproved controlled information in the trial workspace.
+
+### Step 6 — Review and give feedback
+
+A useful review names the workflow and evidence rather than reporting a generic success message. Note whether the next task started with the expected context, whether the selected memories were relevant, or whether the recorded event could be reconstructed by another reviewer.
+
+**You are done when:** the team can reproduce the bounded run, identify the exact release and workspace boundary, inspect the resulting artifact or receipt, and explain what the run does not establish.
+
+## 2. Suggested feedback cadence
 
 | When | Channel | Purpose | Message spine |
 |------|---------|---------|---------------|
-| **Day 0** (signup) | Email | Welcome + the one-page guide above | "Here's the 10-minute path to your first metered event. Free covers your whole team (≤10 seats) — no card, no automatic charge, ever." |
-| **Day 3** | Email | Activation check | "Did you reach your first usage event? If anything snagged, reply with the step number — we fix onboarding friction within a week." If they activated: ask for the first feedback template. |
-| **Day 7** | Email or 20-min call | Feedback + value review | Walk their usage/audit receipt together; collect the feedback template; ask the willingness-to-pay signal. Mention the optional donation **only if** their dashboard shows independently verified savings. |
+| **Day 0** | Email or call | Confirm scope and data boundary | Name one workflow, one reviewer, one approved workspace, and one expected result. |
+| **Day 3** | Email | Check activation and friction | Ask which step failed or required help. Do not request secrets or raw sensitive artifacts. |
+| **Day 7** | Email or call | Review evidence and next step | Compare the bounded result with the existing process and decide whether another controlled run is justified. |
 
-Cadence rules:
-- Stop the sequence the moment a partner replies — every reply gets a human
-  response within one business day.
-- Never mention subscriptions, seat pricing, or checkout in Days 0–7.
-- Log every touch (date, channel, outcome) so gate evidence for the Team beta
-  (plutus#164) accumulates by construction.
+Stop the sequence when a team asks to pause. Keep notes about dates, channels, outcomes, and the evidence location without copying sensitive payloads into the notes.
 
----
+## 3. Feedback template
 
-## 3. Feedback template (copy into every Day 3/Day 7 touch)
+```text
+Team/workflow: ____________________   Date: __________
+Component and version: ______________________________
+Workspace/data boundary: ____________________________
+Reviewer: ___________________________________________
 
+1. What changed?
+   (What did the next task, recall, or review do differently?)
+
+2. One friction point
+   (Which step confused, slowed, or blocked the evaluation?)
+
+3. One observed result
+   (Use a reproducible behavior or bounded measurement. Include its
+   method and denominator when it is a number.)
+
+4. Evidence location
+   (Path, public URL, or digest for an approved artifact. Do not paste
+   credentials, tokens, controlled data, or raw sensitive payloads.)
+
+5. Boundary or safety concern
+   (What should remain disabled, local, authenticated, or human-reviewed?)
+
+6. Next step
+   [ ] Stop the evaluation
+   [ ] Repeat the same bounded run
+   [ ] Expand the approved source set
+   [ ] Request a technical review
+   [ ] Other: ____________________
 ```
-Partner: ____________________   Date: __________
 
-1. One friction point
-   (the single step that confused, slowed, or annoyed you most — with the
-   step number from the onboarding guide)
+## 4. Safety and claim boundaries
 
-2. One useful metric
-   (the number on your dashboard or audit receipt that mattered to you —
-   e.g. verified savings, tokens audited, efficiency number)
+- Use the minimum approved data set and keep credentials outside context sources and feedback notes.
+- The evaluator owns filesystem permissions, encryption, backups, network exposure, and key custody.
+- Local execution, MIT licensing, SBOM materials, a self-assessment, or a JCP record does not establish an ATO, facility clearance, classified-data authority, cross-domain approval, or independent certification.
+- A benchmark or design-partner observation is not a customer-wide performance claim. Keep the method, denominator, control, and limitation attached to every number.
+- Do not describe an illustrative artifact as a production receipt or an estimate as provider-billed savings.
 
-3. Willingness-to-pay signal
-   [ ] Would pay today, unprompted
-   [ ] Would pay if <specific gap> closed: __________
-   [ ] Would not pay — value not clear yet
-   [ ] Declined to answer
+## 5. Acceptance checklist
 
-Free-form (optional): anything you'd tell a peer about the product?
-```
+- [ ] One workflow, reviewer, expected result, and data boundary were recorded.
+- [ ] The exact package or release version was recorded.
+- [ ] The source set and rendered artifact were reviewed by a person.
+- [ ] The evaluation used an isolated, approved workspace.
+- [ ] Any network transport was authenticated and kept within the approved deployment boundary.
+- [ ] Feedback contains observations and evidence locations, not secrets or raw sensitive data.
+- [ ] Claims remain limited to the evaluated workflow and method.
 
-Route completed templates into the design-partner log; the friction points
-feed onboarding fixes, and the WTP signals feed the Team-beta gate
-("three explicit requests for >10 seats or advanced reporting").
-
----
-
-## 4. Acceptance checklist for this issue
-
-- [x] Guide covers: signup → verify email → Cloud dashboard → Plutus Google
-      sign-in → API-key creation → first usage event, with exact public URLs.
-- [x] Day 0 / Day 3 / Day 7 cadence defined.
-- [x] Feedback template: one friction point, one useful metric, WTP signal.
-- [x] Clear statement: Free covers teams of 10 or fewer; no card and no
-      automatic charge; optional donation only after verified savings.
-- [x] No self-serve paid checkout advertised anywhere in the outreach.
-- [x] No credentials in this document.
+This document supersedes older hosted-account onboarding instructions. The current product and security boundaries are maintained in the [documentation route](https://perseus.observer/docs/), [security policy](../SECURITY.md), and component source repositories.

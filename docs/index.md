@@ -13,14 +13,14 @@ Perseus is a live context engine for AI assistants. It solves the **cold-start p
 | Install and render your first context in 5 minutes | [Quickstart](./quickstart.md) |
 | Understand what Perseus is and how it works | [README](../README.md) |
 | **Full setup, config & automation guide** | **[Setup Guide](../SETUP-GUIDE.md)** |
-| Wire Perseus to a specific assistant (Hermes, Codex, Claude Code, Cursor, Rovo Dev) | [Integration guide](./HERMES_INTEGRATION.md) · [spec/integration.md](../spec/integration.md) |
+| Use generated context files with an assistant (Hermes, Codex, Claude Code, Cursor, Rovo Dev) | [File-based integration guide](./HERMES_INTEGRATION.md) · [spec/integration.md](../spec/integration.md) |
 | Use context packs and profiles | [Context Packs](./CONTEXT_PACKS.md) |
 | Understand decoder-backed memory compression | [Decoder-backed compression](./DECODER_BACKED_COMPRESSION.md) |
 | Run the offline semantic-density gate | [Semantic-density benchmark](../benchmark/semantic_density/README.md) |
 | Replay the serving slice against real Vault | [Real Vault density replay](../benchmark/real_vault_density/README.md) |
 | Measure whether startup memory is actually saving time | [Startup-Memory Benchmark](./startup-memory-benchmark.md) |
 | Deploy with Docker / run as a service | [Container deployment](./CONTAINER.md) |
-| Deploy the full ecosystem on Hermes (previous Vault format, LLM proxy, crons) | [Deployment Guide](./DEPLOYMENT.md) |
+| Deploy the pinned package or a reviewed source checkout | [Deployment Guide](./DEPLOYMENT.md) |
 | Enable cited synthesis (`@synthesize`) | [Cited Synthesis](./CITED_SYNTHESIS.md) |
 | Use the trust and security model | [Spec: permissions](../spec/components.md) |
 | Look up every directive | [spec/directives.md](../spec/directives.md) |
@@ -37,8 +37,8 @@ Perseus is a live context engine for AI assistants. It solves the **cold-start p
 docs/
   index.md              ← You are here — documentation hub
   quickstart.md         ← Shortest path from install to rendered context
-  HERMES_INTEGRATION.md ← Hermes Agent adapter
-  DEPLOYMENT.md         ← Full ecosystem deployment on Hermes
+  HERMES_INTEGRATION.md ← File-based assistant integration
+  DEPLOYMENT.md         ← Pinned package and service deployment
   CONTEXT_PACKS.md      ← Profiles, pack.yaml, gallery
   CONTAINER.md          ← Docker / compose deployment
   CITED_SYNTHESIS.md    ← @synthesize and cited claims
@@ -62,7 +62,7 @@ spec/                   ← Normative design specifications
 
 ## Key Concepts
 
-**Resolve-before-context** — Perseus runs directives and hands the assistant a finished, accurate document. The assistant never sees a directive; only verified facts.
+**Resolve-before-context** — Perseus runs directives and hands the assistant a rendered document. The assistant never sees directive syntax; the output remains bounded by its sources, configuration, and runtime availability.
 
 **Directives** — Annotated references in a `.md` source file (`@query`, `@read`, `@env`, `@waypoint`, `@services`, `@skills`, `@session`, …). They're resolved at render time and replaced with their live values.
 
@@ -78,6 +78,7 @@ spec/                   ← Normative design specifications
 
 ## Version
 
-Current release: **v1.0.6** — All 26 phases shipped. Tests all passing.
+Published package: **v1.0.26**. The repository `VERSION` file may identify an
+unreleased source candidate; verify the selected commit before installing it.
 
 <!-- trigger pages rebuild for funding.json -->

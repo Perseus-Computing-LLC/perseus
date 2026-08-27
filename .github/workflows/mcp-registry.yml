@@ -1,15 +1,13 @@
 name: Publish to MCP Registry
 
-# Publishes server.json to registry.modelcontextprotocol.io.
-# Runs after a GitHub Release, or on demand. Auth is GitHub OIDC (no token):
-# the workflow's identity proves ownership of the io.github.Perseus-Computing-LLC
-# namespace. PyPI package ownership is proven by the "mcp-name" marker in README.md
-# (the perseus-ctx long description).
+# Publishes the release-matched server.json to registry.modelcontextprotocol.io.
+# This is a release-only workflow. Auth is GitHub OIDC (no stored publisher
+# token); the release tag, package metadata, and server metadata must agree
+# before the publisher is invoked.
 
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,33 +18,69 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5 (2026-07-16)
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify release metadata
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          case "${RELEASE_TAG}" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::release tag must be a semantic vX.Y.Z tag" >&2; exit 1 ;;
+          esac
+          release_version="${RELEASE_TAG#v}"
+          manifest_version="$(python3 -c 'import json; print(json.load(open("manifest.json"))["version"])')"
+          server_version="$(python3 -c 'import json; print(json.load(open("server.json"))["version"])')"
+          package_versions="$(python3 -c 'import json; print(",".join(sorted({str(item["version"]) for item in json.load(open("server.json"))["packages"]})))')"
+          card_version="$(python3 -c 'import json; print(json.load(open(".well-known/mcp/server-card.json"))["serverInfo"]["version"])')"
+          sbom_version="$(python3 -c 'import json; print(json.load(open("sbom.cdx.json"))["metadata"]["component"]["version"])')"
+          if [ "${manifest_version}" != "${release_version}" ] || \
+             [ "${server_version}" != "${release_version}" ] || \
+             [ "${package_versions}" != "${release_version}" ]; then
+            echo "::error::release ${release_version} does not match manifest=${manifest_version}, server=${server_version}, packages=${package_versions}" >&2
+            exit 1
+          fi
+          if [ "${card_version}" != "${release_version}" ] || \
+             [ "${sbom_version}" != "${release_version}" ]; then
+            echo "::error::release ${release_version} does not match server-card=${card_version}, sbom=${sbom_version}" >&2
+            exit 1
+          fi
+          echo "MCP_REGISTRY_VERSION=${release_version}" >>"${GITHUB_ENV}"
 
       - name: Wait for PyPI to serve this version
-        # The release event triggers this workflow and publish.yml (PyPI)
-        # concurrently; the registry validates the package against PyPI and
-        # loses that race (observed on v1.0.15: "PyPI package 'perseus-ctx'
-        # not found (status: 404)"). Poll until the version in VERSION is
-        # live on PyPI before publishing, up to ~10 minutes.
         run: |
-          ver="$(tr -d '[:space:]' < VERSION)"
-          echo "waiting for perseus-ctx==$ver on PyPI"
-          for i in $(seq 1 60); do
-            if curl -fsS "https://pypi.org/pypi/perseus-ctx/$ver/json" > /dev/null 2>&1; then
-              echo "perseus-ctx $ver is live on PyPI"
+          set -euo pipefail
+          ver="${MCP_REGISTRY_VERSION}"
+          echo "waiting for perseus-ctx==${ver} on PyPI"
+          for _ in $(seq 1 60); do
+            if curl -fsS "https://pypi.org/pypi/perseus-ctx/${ver}/json" > /dev/null 2>&1; then
+              echo "perseus-ctx ${ver} is live on PyPI"
               exit 0
             fi
             sleep 10
           done
-          echo "::error::perseus-ctx $ver never appeared on PyPI after 10 minutes — check the 'Publish to PyPI' workflow, then re-run this one."
+          echo "::error::perseus-ctx ${ver} never appeared on PyPI after 10 minutes" >&2
           exit 1
 
-      - name: Install mcp-publisher
+      - name: Install pinned mcp-publisher
+        env:
+          PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
         run: |
-          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_amd64.tar.gz" \
-            | tar -xz mcp-publisher
+          set -euo pipefail
+          publisher_version="v1.8.1"
+          publisher_asset="mcp-publisher_linux_amd64.tar.gz"
+          archive="${RUNNER_TEMP}/${publisher_asset}"
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/${publisher_version}/${publisher_asset}" -o "${archive}"
+          printf '%s  %s\n' "${PUBLISHER_SHA256}" "${archive}" | sha256sum --check -
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}" --no-same-owner
+          test -x "${RUNNER_TEMP}/mcp-publisher"
+          printf '%s\n' "${RUNNER_TEMP}" >>"${GITHUB_PATH}"
 
       - name: Authenticate (GitHub OIDC)
-        run: ./mcp-publisher login github-oidc
+        run: mcp-publisher login github-oidc
 
-      - name: Publish server.json
-        run: ./mcp-publisher publish
+      - name: Publish release-matched server.json
+        run: mcp-publisher publish

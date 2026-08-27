@@ -1,12 +1,12 @@
 {
   "name": "Perseus Computing",
   "short_name": "Perseus",
-  "description": "Local-first context, memory, and evidence infrastructure for AI agents.",
+  "description": "Current context, governed memory, and reviewable evidence around the model.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#080b0d",
-  "theme_color": "#080b0d",
+  "background_color": "#f2efe7",
+  "theme_color": "#132124",
   "icons": [
     {
       "src": "/favicon.svg",

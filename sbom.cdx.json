@@ -3,16 +3,16 @@
   "specVersion": "1.5",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-07-06T00:00:00Z",
+    "timestamp": "2026-08-26T00:00:00Z",
     "authors": [{ "name": "Perseus Computing LLC", "email": "perseus@perseus.observer" }],
     "component": {
       "type": "application",
-      "bom-ref": "perseus-ctx@1.0.17",
+      "bom-ref": "perseus-ctx@1.0.26",
       "name": "perseus-ctx",
-      "version": "1.0.17",
-      "description": "Perseus — single-file, on-prem live context engine for AI agents.",
+      "version": "1.0.26",
+      "description": "Perseus Context Engine, a Python workspace-context renderer with optional MCP and integration surfaces.",
       "licenses": [{ "license": { "id": "MIT" } }],
-      "purl": "pkg:pypi/perseus-ctx@1.0.17",
+      "purl": "pkg:pypi/perseus-ctx@1.0.26",
       "externalReferences": [
         { "type": "website", "url": "https://perseus.observer" },
         { "type": "vcs", "url": "https://github.com/Perseus-Computing-LLC/perseus" }
@@ -21,7 +21,7 @@
     "properties": [
       {
         "name": "perseus:sbom:scope",
-        "value": "RUNTIME (distributed) dependencies only. The development/CI/packaging toolchain (pytest, mypy, poetry, twine, etc.) is documented separately in SBOM.md and is NOT part of any shipped artifact."
+        "value": "RUNTIME (distributed) dependencies only. PyYAML is unconditional; tomli is conditional for Python <3.11. The development/CI/packaging toolchain (pytest, mypy, poetry, twine, etc.) is documented separately in SBOM.md and is NOT part of any shipped artifact."
       }
     ]
   },
@@ -30,8 +30,8 @@
       "type": "application",
       "bom-ref": "python",
       "name": "python",
-      "version": ">=3.10",
-      "description": "CPython interpreter. The distributed container image ships 3.12.",
+      "version": "3.12",
+      "description": "CPython interpreter used by the reference distributed runtime image. The package supports Python >=3.10.",
       "licenses": [{ "license": { "id": "Python-2.0" } }],
       "purl": "pkg:generic/python@3.12"
     },
@@ -39,8 +39,8 @@
       "type": "library",
       "bom-ref": "pyyaml",
       "name": "PyYAML",
-      "version": ">=6.0.1",
-      "description": "YAML parser/emitter. The single hard third-party runtime dependency (pyproject.toml: pyyaml>=6.0.1). Reference/tested pin: 6.0.3.",
+      "version": "6.0.3",
+      "description": "YAML parser/emitter. The unconditional third-party runtime dependency; requirements-runtime.txt pins 6.0.3 and pyproject.toml permits >=6.0.1,<7.",
       "licenses": [{ "license": { "id": "MIT" } }],
       "purl": "pkg:pypi/pyyaml@6.0.3",
       "hashes": [
@@ -55,11 +55,21 @@
           "value": "SHA-256 is for the reference pin pyyaml 6.0.3 cp312 manylinux x86_64 wheel; the aarch64 wheel is 9149cad251584d5fb4981be1ecde53a1ca46c891a79788c0df828d2f166bda28."
         }
       ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "tomli",
+      "name": "tomli",
+      "version": "2.2.1",
+      "description": "TOML parser fallback used on Python <3.11 when stdlib tomllib is unavailable.",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "purl": "pkg:pypi/tomli@2.2.1"
     }
   ],
   "dependencies": [
-    { "ref": "perseus-ctx@1.0.17", "dependsOn": ["python", "pyyaml"] },
+    { "ref": "perseus-ctx@1.0.26", "dependsOn": ["python", "pyyaml", "tomli"] },
     { "ref": "pyyaml", "dependsOn": [] },
-    { "ref": "python", "dependsOn": [] }
+    { "ref": "python", "dependsOn": [] },
+    { "ref": "tomli", "dependsOn": [] }
   ]
 }

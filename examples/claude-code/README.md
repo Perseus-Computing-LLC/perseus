@@ -1,9 +1,9 @@
 # Perseus + Claude Code Example
 
-Keep your `CLAUDE.md` always current with Perseus's live context engine.
+Keep your generated `CLAUDE.md` refreshed from a Perseus context source.
 
 Claude Code reads `CLAUDE.md` at session start. With Perseus, that file is
-rendered from a live source — not hand-edited and forgotten.
+rendered from a configured source — not hand-edited and forgotten.
 
 ## How it works
 
@@ -16,8 +16,8 @@ rendered from a live source — not hand-edited and forgotten.
 ```
 
 Perseus resolves shell queries, git state, service health, and checkpoint
-waypoints before Claude Code ever sees the file. No stale data; no pre-flight
-tool calls burning context.
+waypoints before Claude Code sees the file. Freshness is explicit per directive
+and backend; a render is not a guarantee that every source is current.
 
 ## What this demonstrates
 
@@ -36,7 +36,7 @@ tool calls burning context.
 
 ```bash
 # Install Perseus
-pip install perseus-ctx
+pip install perseus-ctx==1.0.26
 
 # Render once to bootstrap CLAUDE.md
 perseus render .perseus/context.md --output CLAUDE.md
@@ -46,8 +46,9 @@ perseus render .perseus/context.md --output CLAUDE.md
 
 ## Keep it fresh automatically
 
-Add a cron entry to re-render every 5 minutes so `CLAUDE.md` is always
-current before you open a new Claude Code session:
+Add a cron entry to re-render every 5 minutes so `CLAUDE.md` is refreshed before
+you open a new Claude Code session. The file remains a snapshot whose freshness
+depends on the schedule and the configured sources:
 
 ```
 */5 * * * * cd /path/to/your/project && perseus render .perseus/context.md --output CLAUDE.md
@@ -92,8 +93,8 @@ output contains the expected heading, writes a checkpoint, and runs
    perseus memory update
    ```
 
-   Subsequent renders include a distilled project narrative so Claude Code
-   always knows what you've been working on.
+   Subsequent renders can include a distilled project narrative. Check its
+   timestamp and source before relying on it for current work.
 
 ## Notes
 

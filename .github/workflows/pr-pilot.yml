@@ -1,23 +1,17 @@
-name: PR Pilot — Autonomous Code Review
+# PR Pilot is intentionally read-only and disabled for pull requests.
+# The former agent path exposed a model key and write-capable token from a
+# pull_request workflow. Review automation must be enabled only in a trusted,
+# separately reviewed workflow when its credentials and write scope are needed.
 
-# SECURITY: this workflow must never execute PR-controlled code while it holds
-# secrets. PR Pilot only needs the PR diff, which it fetches through the GitHub
-# API (data, not code). We therefore check out the BASE ref (trusted code on the
-# target branch) and run the agent from there, passing only the PR number.
-#
-# Using `pull_request` (not `pull_request_target`) means forked PRs do not
-# receive secrets at all. Checking out the base ref additionally protects
-# against same-repo or compromised-write PRs that try to modify the workflow's
-# code path to exfiltrate GEMINI_API_KEY or abuse the write token.
+name: PR Pilot — Read-only metadata check
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
 
-# Least privilege: only what is needed to post a review.
 permissions:
   contents: read
-  pull-requests: write
+  pull-requests: read
 
 concurrency:
   group: pr-pilot-${{ github.event.pull_request.number }}
@@ -26,45 +20,23 @@ concurrency:
 jobs:
   review:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      # Check out the BASE ref (trusted), NOT the PR head. The PR's code is
-      # never installed or executed in this job.
+      # Read-only checkout of the base revision. No PR code is installed or run.
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5 (2026-07-16)
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha }}
 
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5 (2025-04-24)
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies (from trusted base ref)
-        run: pip install -e .
-
-      - name: Run PR Pilot Agent Chain
-        # The agent CLI reads PR context from GITHUB_EVENT_PATH and the PR diff
-        # from the API, so it never needs the PR's checked-out code.
-        #
-        # PR Pilot's agent chain is published separately; this repo currently
-        # ships only the product page. Resolve the entrypoint if it is present,
-        # otherwise skip cleanly so the check never red-X's a PR on missing
-        # optional tooling (and never blocks a merge). Also skip when no API key
-        # is available (e.g. forked PRs, which do not receive secrets).
+      - name: Confirm read-only review boundary
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [ -z "${GEMINI_API_KEY}" ]; then
-            echo "PR Pilot: GEMINI_API_KEY not available (forked PR?) — skipping autonomous review."
-            exit 0
-          fi
-          for entry in pr-pilot/cli.py src/cli.py src/perseus/pr_pilot.py; do
-            if [ -f "$entry" ]; then
-              echo "PR Pilot: running $entry"
-              exec python "$entry"
-            fi
-          done
-          echo "PR Pilot: agent entrypoint not found in this repo — skipping autonomous review."
-          echo "(Add pr-pilot/cli.py to enable Gemini-based PR review.)"
+          set -euo pipefail
+          test -n "${PR_NUMBER}"
+          test -n "${BASE_SHA}"
+          test -n "${HEAD_SHA}"
+          printf 'PR Pilot disabled: metadata-only check for PR #%s (base %s, head %s)\n' "${PR_NUMBER}" "${BASE_SHA}" "${HEAD_SHA}"
+          printf '%s\n' 'No PR-controlled code, model key, or write-capable credential is executed by this workflow.'

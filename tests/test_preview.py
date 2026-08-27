@@ -133,3 +133,15 @@ def test_perseus_budget_tool_is_read_only_annotated():
     and must carry readOnlyHint like the other pure read-only tools."""
     hints = perseus._build_annotations("perseus_budget", perseus.DIRECTIVE_REGISTRY.get("@budget"))
     assert hints and hints.get("readOnlyHint") is True
+
+
+def test_state_mutating_directive_tools_are_never_read_only_annotated():
+    assert perseus is not None
+    for tool_name, directive in (
+        ("perseus_capture", "@capture"),
+        ("perseus_context_diff", "@context-diff"),
+    ):
+        hints = perseus._build_annotations(tool_name, perseus.DIRECTIVE_REGISTRY.get(directive))
+        assert hints
+        assert hints.get("readOnlyHint") is False
+        assert hints.get("destructiveHint") is True

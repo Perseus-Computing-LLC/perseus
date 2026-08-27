@@ -1,26 +1,25 @@
 # Support
 
-Thank you for using Perseus! Here are the primary resources for getting help and reporting issues.
+## Documentation and usage
 
-## 1. Documentation & Usage
+Start with the [documentation directory](./docs/) and the repository [README](./README.md). Contributors should also read [CONTRIBUTING.md](./CONTRIBUTING.md).
 
-For questions on how to use Perseus, please consult the documentation:
-- **[Documentation Directory](./docs/)**: Contains guides, examples, and detailed specs.
-- **[AGENTS.md](./AGENTS.md)**: Guidelines for AI contributors.
-- **[ROADMAP.md](./ROADMAP.md)**: Current roadmap and future milestones.
+## Issues and requests
 
-## 2. Issues and Requests
+Search the [GitHub issue tracker](https://github.com/Perseus-Computing-LLC/perseus/issues) before filing a bug or feature request. Use the repository's issue templates and remove secrets, customer data, credentials, and controlled information from reproductions and logs.
 
-If you encounter a bug or have a feature request:
-- Search existing **[GitHub Issues](https://github.com/Perseus-Computing-LLC/perseus/issues)** to see if the topic is already being discussed.
-- If not, open a new issue using our structured templates for either bug reports or feature requests.
+Report suspected vulnerabilities through the private process in [SECURITY.md](./SECURITY.md), not a public issue.
 
-## 3. Installation & Single-File Design
+## Supported install boundary
 
-Perseus is designed as a **zero-dependency, single-file CLI engine** (relying only on Python's built-in libraries and `pyyaml` for parsing). 
-- You do not need to install it via `pip` or manage complex environment setups.
-- You can simply copy-paste `perseus.py` directly into your workspace or download it and run:
-  ```bash
-  python perseus.py --version
-  ```
-- If you want to contribute, please refer to the contribution guidelines.
+Perseus Context Engine requires Python and PyYAML. Use the published package for a supported install rather than copying `perseus.py` by itself:
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install 'perseus-ctx==1.0.26'
+perseus --version
+perseus doctor
+```
+
+The source candidate in this repository reports 1.0.27 and is not the published package release. If you are testing the source checkout, install its declared dependencies in an isolated environment and review the exact commit first.

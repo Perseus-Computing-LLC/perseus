@@ -12,9 +12,10 @@ This document describes its dependencies for federal procurement compliance.
 >    lint, type-check, and package Perseus (pytest, mypy, poetry, twine, …).
 >    None of these are present in the shipped artifact.
 >
-> Attack-surface and vulnerability analysis should be scoped to the **runtime**
-> set. The build/dev freeze is retained at the end of this document for
-> transparency, clearly labeled.
+> The runtime set describes the shipped footprint. The build/development toolchain
+> is also part of the publication supply-chain surface because `publish.yml`
+> executes it to create artifacts and attestations. Review both sets separately;
+> the build/dev freeze is retained at the end of this document for transparency.
 
 A machine-readable CycloneDX 1.5 SBOM of the runtime set is provided alongside
 this document: [`sbom.cdx.json`](sbom.cdx.json).
@@ -23,31 +24,33 @@ this document: [`sbom.cdx.json`](sbom.cdx.json).
 
 ## 1. Runtime dependencies (distributed)
 
-The distributed package `perseus-ctx` declares exactly one third-party runtime
-dependency. `perseus.py` is otherwise built entirely on the Python standard
-library (its single hard third-party import is `yaml`).
+The distributed package `perseus-ctx` declares PyYAML as an unconditional third-party
+runtime dependency and `tomli` for Python <3.11. `perseus.py` is otherwise built
+entirely on the Python standard library.
 
 | Component | Version | License | Role |
 | :-------- | :------ | :------ | :--- |
-| CPython   | >= 3.10 (image ships 3.12) | Python-2.0 (PSF) | Interpreter |
-| PyYAML    | >= 6.0.1 (tested 6.0.3)    | MIT              | YAML parsing/emitting — the only hard third-party runtime dependency |
+| CPython   | 3.12 (package supports >=3.10) | Python-2.0 (PSF) | Interpreter used by the reference runtime image |
+| PyYAML    | 6.0.3 (package constraint >=6.0.1, <7) | MIT | Unconditional YAML parsing/emitting |
+| tomli     | 2.2.1 (Python <3.11 only) | MIT | TOML parser fallback when stdlib `tomllib` is unavailable |
 
-Source of truth: `pyproject.toml` → `dependencies = ["pyyaml>=6.0.1"]`.
+Source of truth: `pyproject.toml` → `dependencies = ["pyyaml>=6.0.1,<7", 'tomli==2.2.1; python_version < "3.11"']`.
 
 ### Optional extras (installed only on explicit opt-in)
 
 | Extra    | Adds        | When needed |
 | :------- | :---------- | :---------- |
 | `[mcp]`  | `mcp`       | Only if using the external `mcp` package integration path. |
+| `[adapters]` | `langchain-core>=0.3`, `llama-index-core>=0.12` | Only for the optional LangChain and LlamaIndex context-adapter SDK paths. These packages bring their own transitive dependency graphs, which must be resolved and scanned for the exact installation environment. |
 | `[dev]`  | `pytest`, `coverage`, `hypothesis` | Development/testing only — never distributed. |
 
-### Container / Iron Bank image
+### Container / Iron Bank status
 
-The hardened container image ships **only** CPython 3.12 + PyYAML on an approved
-minimal base — it does **not** install the build/dev freeze below (it installs
-`requirements-runtime.txt`, which pins PyYAML alone). See `ironbank/` for the
-hardened Dockerfile, hardening manifest, and a pinned, hash-validated
-image-specific SBOM.
+The repository does not include an Iron Bank image, hardening manifest, or
+image-specific SBOM. It therefore makes no Iron Bank submission, approval, or
+deployment claim. `requirements-runtime.txt` describes the minimal runtime
+dependency set for a separately built image; any customer or container image
+needs its own image-specific SBOM.
 
 ---
 
@@ -59,11 +62,11 @@ image-specific SBOM.
 | Component Name | Provided | See runtime table above; machine-readable in `sbom.cdx.json`. |
 | Component Version | Provided | Pinned in `sbom.cdx.json`. |
 | Unique Identifier | Provided | Package URLs (purl) in `sbom.cdx.json`. |
-| Hash of Component | Provided | SHA-256 of the pinned PyYAML wheel in `sbom.cdx.json` and in `ironbank/hardening_manifest.yaml`. |
+| Hash of Component | Provided for reference pins | SHA-256 for the pinned PyYAML wheel is recorded in `sbom.cdx.json`; tomli is pinned by exact version. |
 | Relationship | Provided | Dependency graph in `sbom.cdx.json` (`dependencies`). |
 | Author / Timestamp | Provided | In `sbom.cdx.json` metadata. |
 | Format | Machine-readable | CycloneDX 1.5 JSON (`sbom.cdx.json`) + this human-readable summary. |
-| Depth | Complete for runtime | Runtime set is flat (PyYAML has no further hard runtime deps). |
+| Depth | Complete for runtime | Runtime set is flat (PyYAML and tomli have no further hard runtime deps). |
 | Distribution | Included | Committed in the repository. |
 | Access | Public | Publicly available in the Perseus repository. |
 | Frequency | On dependency change | Regenerated when `pyproject.toml` runtime deps change. |
@@ -75,8 +78,8 @@ image-specific SBOM.
 > ⚠️ **The packages below are the development, testing, and packaging toolchain.
 > They are NOT part of any shipped Perseus artifact** (not in `perseus.py`, not
 > in the pip package's runtime deps, not in the container image). They are listed
-> only for transparency into the build environment. Do **not** treat this list as
-> the product's attack surface — use §1 for that.
+> only for transparency into the build environment. Review it as part of the
+> publication supply-chain surface; it is not the shipped runtime footprint.
 
 This is a `pip freeze` of the full development virtual environment:
 
@@ -114,7 +117,7 @@ grpcio==1.80.0
 grpcio-health-checking==1.80.0
 grpcio-tools==1.80.0
 h11==0.16.0
-hermes-agent==0.17.0
+
 httpcore==1.0.9
 httptools==0.8.0
 httpx==0.28.1
@@ -165,7 +168,7 @@ pathspec==1.1.1
 pbs-installer==2026.6.10
 pdfminer.six==20260107
 pdfplumber==0.11.10
-pillow==12.2.0
+pillow==12.3.0
 pkginfo==1.12.1.2
 platformdirs==4.10.0
 pluggy==1.6.0
@@ -219,6 +222,7 @@ uvloop==0.22.1
 virtualenv==21.5.1
 watchfiles==1.2.0
 websockets==15.0.1
+wheel==0.48.0
 xxhash==3.7.0
 yara-python==4.5.4
 zstandard==0.25.0

@@ -1,5 +1,5 @@
 const vscode = require('vscode');
-const { exec, spawn } = require('child_process');
+const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
@@ -15,6 +15,33 @@ const OUTPUT_FILES = {
     hermes: '.hermes.md',
     copilot: '.github/copilot-instructions.md'
 };
+
+function requireTrustedWorkspace() {
+    if (vscode.workspace.isTrusted) return true;
+    vscode.window.showWarningMessage('Perseus is disabled until this workspace is trusted.');
+    return false;
+}
+
+function resolveWithinWorkspace(root, rawPath) {
+    const resolvedRoot = fs.realpathSync(root);
+    const resolved = path.resolve(resolvedRoot, rawPath);
+    const relative = path.relative(resolvedRoot, resolved);
+    if (relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) {
+        throw new Error(`Perseus path must remain inside the workspace: ${rawPath}`);
+    }
+
+    // Reject symlinks in every existing output-path component. This prevents a
+    // workspace-relative path from resolving to an external target.
+    let current = resolvedRoot;
+    for (const segment of relative.split(path.sep).filter(Boolean)) {
+        current = path.join(current, segment);
+        if (!fs.existsSync(current)) break;
+        if (fs.lstatSync(current).isSymbolicLink()) {
+            throw new Error(`Perseus output path cannot contain a symbolic link: ${rawPath}`);
+        }
+    }
+    return resolved;
+}
 
 function activate(context) {
     outputChannel = vscode.window.createOutputChannel('Perseus');
@@ -32,8 +59,13 @@ function activate(context) {
         vscode.commands.registerCommand('perseus.watch', startWatching)
     );
 
-    // Auto-start
+    // Auto-start only in a trusted workspace, and only when the operator opted in.
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+    if (!vscode.workspace.isTrusted) {
+        statusBar.text = '$(shield) Perseus: workspace not trusted';
+        statusBar.show();
+        return;
+    }
     if (workspaceRoot && fs.existsSync(path.join(workspaceRoot, '.perseus', 'context.md'))) {
         const config = vscode.workspace.getConfiguration('perseus');
         if (config.get('autoRender')) {
@@ -47,6 +79,7 @@ function activate(context) {
 }
 
 async function renderNow() {
+    if (!requireTrustedWorkspace()) return;
     const root = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
     if (!root) {
         vscode.window.showErrorMessage('Perseus: no workspace open');
@@ -56,17 +89,18 @@ async function renderNow() {
 }
 
 async function initWorkspace() {
+    if (!requireTrustedWorkspace()) return;
     const root = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
     if (!root) return;
 
     const perseusBin = await findPerseus();
     if (!perseusBin) {
-        vscode.window.showErrorMessage('Perseus not found. Install: pip install perseus-ctx');
+        vscode.window.showErrorMessage('Perseus not found. Install: pip install perseus-ctx==1.0.26');
         return;
     }
 
     return new Promise((resolve) => {
-        exec(`"${perseusBin}" init "${root}"`, (err, stdout, stderr) => {
+        execFile(perseusBin.command, [...perseusBin.argsPrefix, 'init', root], { cwd: root }, (err, stdout, stderr) => {
             if (err) {
                 outputChannel.appendLine(`Init error: ${stderr}`);
                 vscode.window.showErrorMessage(`Perseus init failed: ${stderr}`);
@@ -81,15 +115,15 @@ async function initWorkspace() {
 }
 
 function startWatching() {
+    if (!requireTrustedWorkspace()) return;
     const root = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
     if (!root) return;
 
     if (watcher) { watcher.dispose(); }
 
-    const contextFile = path.join(root, '.perseus', 'context.md');
+    const contextFile = resolveWithinWorkspace(root, path.join('.perseus', 'context.md'));
     if (!fs.existsSync(contextFile)) return;
 
-    const config = vscode.workspace.getConfiguration('perseus');
     const pattern = new vscode.RelativePattern(path.join(root, '.perseus'), '**/*');
 
     watcher = vscode.workspace.createFileSystemWatcher(pattern, false, false, false);
@@ -108,6 +142,7 @@ function startWatching() {
 }
 
 async function renderContext(workspaceRoot) {
+    if (!requireTrustedWorkspace()) return;
     statusBar.text = '$(sync~spin) Perseus: rendering...';
     statusBar.show();
 
@@ -119,7 +154,7 @@ async function renderContext(workspaceRoot) {
     }
 
     const outputFile = resolveOutputFile(workspaceRoot);
-    const contextFile = path.join(workspaceRoot, '.perseus', 'context.md');
+    const contextFile = resolveWithinWorkspace(workspaceRoot, path.join('.perseus', 'context.md'));
 
     if (!fs.existsSync(contextFile)) {
         statusBar.text = '$(warning) Perseus: no context.md';
@@ -129,8 +164,11 @@ async function renderContext(workspaceRoot) {
 
     return new Promise((resolve) => {
         const t0 = Date.now();
-        exec(`"${perseusBin}" render "${contextFile}" --output "${outputFile}"`, 
-             { cwd: workspaceRoot }, (err, stdout, stderr) => {
+        execFile(
+            perseusBin.command,
+            [...perseusBin.argsPrefix, 'render', contextFile, '--output', outputFile],
+            { cwd: workspaceRoot },
+            (err, stdout, stderr) => {
             const elapsed = Date.now() - t0;
             if (err) {
                 outputChannel.appendLine(`Render error (${elapsed}ms): ${stderr}`);
@@ -152,29 +190,50 @@ function resolveOutputFile(root) {
     const assistant = config.get('assistant');
 
     if (assistant !== 'auto') {
-        return path.join(root, OUTPUT_FILES[assistant] || '.hermes.md');
+        return resolveWithinWorkspace(root, OUTPUT_FILES[assistant] || '.hermes.md');
     }
 
-    // Auto-detect from workspace files
-    for (const [name, file] of Object.entries(OUTPUT_FILES)) {
-        if (fs.existsSync(path.join(root, file))) return path.join(root, file);
+    // Auto-detect from fixed, workspace-relative output names.
+    for (const file of Object.values(OUTPUT_FILES)) {
+        const candidate = resolveWithinWorkspace(root, file);
+        if (fs.existsSync(candidate)) return candidate;
     }
-    return path.join(root, config.get('outputFile') || '.hermes.md');
+    return resolveWithinWorkspace(root, config.get('outputFile') || '.hermes.md');
 }
 
 async function findPerseus() {
-    return new Promise((resolve) => {
-        exec('which perseus 2>/dev/null || echo ""', (err, stdout) => {
-            const bin = stdout.trim();
-            if (bin) return resolve(bin);
-            // Fallback: check for perseus.py in workspace
-            const root = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
-            if (root && fs.existsSync(path.join(root, 'perseus.py'))) {
-                return resolve('python3 ' + path.join(root, 'perseus.py'));
+    const configured = vscode.workspace.getConfiguration('perseus').get('executable');
+    if (configured) {
+        if (!path.isAbsolute(configured)) {
+            vscode.window.showErrorMessage('Perseus executable must be an absolute path.');
+            return null;
+        }
+        try {
+            fs.accessSync(configured, fs.constants.X_OK);
+            return { command: configured, argsPrefix: [] };
+        } catch (_) {
+            vscode.window.showErrorMessage(`Perseus executable is not runnable: ${configured}`);
+            return null;
+        }
+    }
+
+    const executableNames = process.platform === 'win32'
+        ? ['perseus.exe', 'perseus.cmd', 'perseus.bat']
+        : ['perseus'];
+    for (const directory of (process.env.PATH || '').split(path.delimiter)) {
+        if (!directory) continue;
+        for (const name of executableNames) {
+            const candidate = path.join(directory, name);
+            try {
+                fs.accessSync(candidate, fs.constants.X_OK);
+                return { command: candidate, argsPrefix: [] };
+            } catch (_) {
+                // Keep searching the operator's PATH.
             }
-            resolve(null);
-        });
-    });
+        }
+    }
+
+    return null;
 }
 
 function updateStatusBar(hasContext) {
@@ -190,4 +249,4 @@ function deactivate() {
     if (outputChannel) outputChannel.dispose();
 }
 
-module.exports = { activate, deactivate };
+module.exports = { activate, deactivate, _test: { resolveWithinWorkspace } };
