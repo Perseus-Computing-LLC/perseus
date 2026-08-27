@@ -168,7 +168,7 @@ These apply to every agent working in this repo. They are not up for discussion.
 1. **Edit source, regenerate artifact.** Edit `src/perseus/` modules, not `perseus.py`
    directly. Regenerate the single-file artifact with `python scripts/build.py`. Keep the
    generated root artifact committed. Do not add runtime dependencies without explicit approval.
-2. **`pyyaml` is the only dependency.** Do not add deps without explicit approval.
+2. **Runtime dependencies are version-conditional.** PyYAML is unconditional; `tomli==2.2.1` is used for Python <3.11. Do not add other runtime dependencies without explicit approval.
 3. **Tests before commit.** All existing tests must pass. New behavior needs new tests.
 4. **Spec follows code.** When behavior changes, update the relevant `spec/*.md`. The code
    is the truth.
@@ -523,7 +523,8 @@ that gap.
 - New directive: `@validate schema="path" ...@end` wrapping a block
 
 **Decision:** Phase 12 uses option **B** — a minimal built-in schema validator
-implemented in pure Python. `pyyaml` remains the only required dependency.
+implemented in pure Python. At that point, `pyyaml` remained the only required
+runtime dependency; current Python <3.11 installs also include conditional `tomli`.
 
 The proof-of-concept added `pykwalify` which violates constraint #2 ("pyyaml is
 the only dependency"). Rejected options:

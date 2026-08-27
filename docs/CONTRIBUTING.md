@@ -13,7 +13,7 @@ Perseus ships as a **single-file CLI** (`perseus.py`). This constraint is intent
   to regenerate `perseus.py` after making changes.
 - **The single-file design is about trust and inspectability** — anyone can read,
   audit, and `cp` the whole thing without `pip install`.
-- **`pyyaml` is the only runtime dependency.** Do not add runtime deps. Dev/test deps in `requirements.txt` are fine.
+- **Runtime dependencies are conditional by Python version:** PyYAML is unconditional; `tomli==2.2.1` is used for Python <3.11. Dev/test deps in `requirements.txt` are separate.
 - **Use `patch`, not `write_file` or full rewrites.** The file is ~10K lines; any whole-file replacement risks truncation and data loss.
 - **All tests must pass before committing.** Run `python -m pytest tests/ -q`.
 - **Spec follows code.** If your change modifies behavior, update `spec/*.md` to match.
