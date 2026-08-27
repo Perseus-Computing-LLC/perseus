@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "5b50595"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "54aeb0f-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -31351,7 +31351,7 @@ def _scheduler_cron_tag_matches(line, tag) -> bool:
 
     return bool(
         _re.search(
-            rf"(?:^|\s)#\s*{_re.escape(tag)}(?:\s|$|-)",
+            rf"(?:^|\s)#\s*{_re.escape(tag)}(?:\s|$)",
             str(line),
         )
     )
@@ -31494,13 +31494,29 @@ def cmd_cron(args, cfg):
     if every <= 0:
         print("Error: --every must be > 0", file=sys.stderr)
         sys.exit(1)
-    if every > 60 and every % 60:
+    if every < 60 and 60 % every:
         print(
-            "Error: cron supports intervals above 60 minutes only as whole hours; "
-            "use systemd or Task Scheduler for a 90-minute cadence.",
+            "Error: cron supports sub-hour intervals only when they divide 60 minutes; "
+            "use systemd or Task Scheduler for this cadence.",
             file=sys.stderr,
         )
         sys.exit(1)
+    if every > 60:
+        if every % 60:
+            print(
+                "Error: cron supports intervals above 60 minutes only as whole hours; "
+                "use systemd or Task Scheduler for this cadence.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        hours = every // 60
+        if 24 % hours:
+            print(
+                "Error: cron supports whole-hour intervals only when the hour step "
+                "divides one day; use systemd or Task Scheduler for this cadence.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     launcher, stable = _perseus_launcher()
 
@@ -31878,9 +31894,10 @@ def cmd_cron_uninstall(args, cfg):
         lines = result.stdout.split("\n")
         if job == "maintain":
             # Drops the nightly entry AND its weekly -vacuum companion.
+            hygiene_tags = ("perseus-hygiene", "perseus-hygiene-vacuum")
             filtered = [
                 l for l in lines
-                if not _scheduler_cron_tag_matches(l, "perseus-hygiene")
+                if not any(_scheduler_cron_tag_matches(l, tag) for tag in hygiene_tags)
             ]
             removed_what = "the perseus-hygiene entries"
         else:

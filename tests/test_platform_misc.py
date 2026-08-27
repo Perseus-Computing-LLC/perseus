@@ -680,3 +680,28 @@ def test_cron_uninstall_matches_quoted_source_marker(tmp_path, monkeypatch, caps
     )
     assert "# perseus-render" not in state["crontab"]
     assert "Removed" in capsys.readouterr().out
+
+
+def test_cron_maintain_uninstall_preserves_prefixed_tags(monkeypatch, capsys):
+    monkeypatch.setattr(perseus.sys, "platform", "linux")
+    state = {
+        "crontab": (
+            "0 1 * * * cmd  # perseus-hygiene\n"
+            "0 3 * * 0 cmd  # perseus-hygiene-vacuum\n"
+            "0 5 * * * cmd  # perseus-hygiene-backup\n"
+        )
+    }
+
+    def fake_run(argv, input=None, **kwargs):
+        if argv == ["crontab", "-l"]:
+            return argparse.Namespace(returncode=0, stdout=state["crontab"], stderr="")
+        if argv == ["crontab", "-"]:
+            state["crontab"] = input
+            return argparse.Namespace(returncode=0, stdout="", stderr="")
+        raise AssertionError(argv)
+
+    monkeypatch.setattr(perseus.subprocess, "run", fake_run)
+    perseus.cmd_cron_uninstall(argparse.Namespace(job="maintain"), cfg())
+
+    assert state["crontab"].strip() == "0 5 * * * cmd  # perseus-hygiene-backup"
+    assert "Removed" in capsys.readouterr().out
