@@ -96,7 +96,7 @@ def test_sitemap_contains_only_canonical_indexable_routes():
 def test_complete_html_inventory_is_canonical_redirect_404_or_declared_reference():
     module = load_generator()
     expected = set(CANONICAL) | set(module.REDIRECTS) | {"404.html"} | SPECIAL_PUBLIC_HTML
-    actual = {str(path.relative_to(ROOT)) for path in ROOT.rglob("*.html")}
+    actual = {path.relative_to(ROOT).as_posix() for path in ROOT.rglob("*.html")}
     assert actual == expected
 
 

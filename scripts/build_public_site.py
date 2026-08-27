@@ -49,11 +49,13 @@ def mark() -> str:
     return """<svg class="brand-mark" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M4 9h10M4 15h10M4 21h10M4 27h10"/><path d="m16 9 15 11M16 15l15 5M16 21l15-1M16 27l15-7"/><circle cx="32" cy="20" r="3"/></svg>"""
 
 
+def nav_link(key: str, href: str, label: str, current: str) -> str:
+    current_attr = ' aria-current="page"' if key == current and not href.startswith("/#") else ""
+    return f'<a href="{href}"{current_attr}>{label}</a>'
+
+
 def header(current: str, cta_href: str = "/docs/", cta_label: str = "Start locally") -> str:
-    links = "".join(
-        f'<a href="{href}"{(" aria-current=\"page\"" if key == current and not href.startswith("/#") else "")}>{label}</a>'
-        for key, href, label in NAV
-    )
+    links = "".join(nav_link(key, href, label, current) for key, href, label in NAV)
     mobile = "".join(f'<a href="{href}">{label}</a>' for _, href, label in NAV)
     return f"""
 <header class="site-header" data-site-nav>
@@ -167,10 +169,21 @@ def command(text: str, label: str = "Copy command") -> str:
     return f'<div class="command"><code>{escaped}</code><button type="button" data-copy="{html.escape(text, quote=True)}" aria-label="{label}">Copy</button><span class="copy-status" aria-live="polite"></span></div>'
 
 
+CONTEXT_INSTALL_COMMAND = command(
+    "pip install perseus-ctx==1.0.26\n"
+    "cd your-project && perseus quickstart\n"
+    "perseus render .perseus/context.md -o AGENTS.md"
+)
+LEDGER_INSTALL_COMMAND = command("pip install perseus-ledger==1.2.4\nledger demo")
+DOCS_CONTEXT_INSTALL_COMMAND = command("pip install perseus-ctx==1.0.26\nperseus quickstart")
+DOCS_LEDGER_INSTALL_COMMAND = command("pip install perseus-ledger==1.2.4\nledger demo")
+
+
 def write(path: str, content: str) -> None:
     target = ROOT / path
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content.strip() + "\n", encoding="utf-8")
+    # Write bytes so generated artifacts retain LF endings on Windows too.
+    target.write_bytes((content.strip() + "\n").encode("utf-8"))
 
 
 def redirect(title: str, destination: str, reason: str) -> str:
@@ -239,7 +252,7 @@ Tests: inspect the current CI record
 Checkpoint: review pending
 Sources: 4 verified</pre></div></div></div></section>
 <section class="section"><div class="wrap product-job"><div><p class="kicker">Product job</p><h2>Compile facts before they consume model time.</h2></div><div class="job-flow"><div><span>1</span><b>Author directives</b><p>Name the sources the workspace already trusts.</p></div><div><span>2</span><b>Resolve locally</b><p>Perseus reads them and applies explicit bounds.</p></div><div><span>3</span><b>Review the artifact</b><p>The agent starts from a file a person can inspect.</p></div></div></div></section>
-<section class="section" id="install"><div class="wrap install-layout"><div><p class="kicker">First render</p><h2>Three commands. No account.</h2><p>PyPI currently publishes `perseus-ctx` 1.0.26. The package root is the canonical current-version link.</p></div><div>{command("pip install perseus-ctx==1.0.26\ncd your-project && perseus quickstart\nperseus render .perseus/context.md -o AGENTS.md")}</div></div></section>
+<section class="section" id="install"><div class="wrap install-layout"><div><p class="kicker">First render</p><h2>Three commands. No account.</h2><p>PyPI currently publishes `perseus-ctx` 1.0.26. The package root is the canonical current-version link.</p></div><div>{CONTEXT_INSTALL_COMMAND}</div></div></section>
 <section class="section"><div class="wrap boundary-layout"><div><p class="kicker">Boundary</p><h2>Read-only by default does not mean permission-free.</h2><p>The standard renderer reads local sources and writes only the output path you name. Authored HTTP directives, network service modes, and shell-capable operations are separate opt-ins. They inherit the operator account's permissions.</p><a class="text-link" href="/security/#context-engine">Context Engine security details →</a></div><dl class="boundary-table"><div><dt>Stores</dt><dd>No independent long-term memory. Rendered output is a normal file.</dd></div><div><dt>Sends</dt><dd>No conversation or model prompt on the local render path.</dd></div><div><dt>Controls</dt><dd>You author directives and choose every optional network or execution surface.</dd></div></dl></div></section>
 """
 
@@ -254,7 +267,7 @@ VAULT = """
 LEDGER = f"""
 <section class="product-hero ledger-hero"><div class="wrap product-hero-grid"><div><p class="kicker">Evidence / recorded activity</p><h1>Keep a record that survives the dashboard.</h1><p class="lead">Perseus Ledger records supplied events, evidence links, and authority references in an append-only hash chain. It helps reviewers reconstruct what the system reported and check whether the chain still holds.</p><div class="actions"><a class="button button-primary" href="#install">Record one event</a><a class="text-link" href="https://github.com/Perseus-Computing-LLC/ledger" rel="noopener">Read source ↗</a></div></div><div class="event-chain"><div><time>09:41:02</time><b>context.render</b><code>a7c1…8e2</code></div><div><time>09:41:04</time><b>agent.action</b><code>c20f…3b9</code></div><div><time>09:41:06</time><b>review.accepted</b><code>9f83…a11</code></div><p>Chain status: <strong>verified</strong></p></div></div></section>
 <section class="section"><div class="wrap product-job"><div><p class="kicker">Product job</p><h2>Preserve the path from event to evidence.</h2></div><div class="principle-list"><div><b>Record</b><p>Capture the actor, boundary, configuration, action, and result supplied by the integration.</p></div><div><b>Link</b><p>Attach evidence and authority references without pretending the link proves their truth.</p></div><div><b>Verify</b><p>Check the recorded chain and produce a bounded receipt for review.</p></div></div></div></section>
-<section class="section" id="install"><div class="wrap install-layout"><div><p class="kicker">Local demo</p><h2>Install `perseus-ledger` 1.2.4 and open the local console.</h2><p>Perseus Ledger is runtime-neutral. It does not require Perseus Context Engine or Perseus Vault.</p></div><div>{command('pip install perseus-ledger==1.2.4\nledger demo')}</div></div></section>
+<section class="section" id="install"><div class="wrap install-layout"><div><p class="kicker">Local demo</p><h2>Install `perseus-ledger` 1.2.4 and open the local console.</h2><p>Perseus Ledger is runtime-neutral. It does not require Perseus Context Engine or Perseus Vault.</p></div><div>{LEDGER_INSTALL_COMMAND}</div></div></section>
 <section class="section"><div class="wrap boundary-layout"><div><p class="kicker">Claim boundary</p><h2>A chain proves integrity of the record, not truth of the world.</h2><p>Ledger can show whether recorded entries were changed and which references were supplied. It does not validate every source, confer authority, authorize an action, or replace human review.</p><a class="text-link" href="https://github.com/Perseus-Computing-LLC/ledger/blob/main/docs/ledger-integrity.md" rel="noopener">Read the integrity contract ↗</a></div><dl class="boundary-table"><div><dt>Stores</dt><dd>Events and supporting fields in a local SQLite-backed chain by default.</dd></div><div><dt>Accepts</dt><dd>Events from any runtime through documented SDK, CLI, MCP, or HTTP paths.</dd></div><div><dt>Does not do</dt><dd>Grant mission authority, certify safety, or turn an assertion into evidence.</dd></div></dl></div></section>
 """
 
@@ -276,7 +289,7 @@ BENCHMARKS = """
 
 DOCS = f"""
 <section class="page-intro docs-intro"><div class="wrap intro-grid"><div><p class="kicker">Technical evaluator start</p><h1>Run one useful path before reading everything.</h1></div><p class="lead">Choose the component that owns your problem. These commands point to current public packages or release roots; the repositories remain authoritative for implementation detail.</p></div></section>
-<section class="section"><div class="wrap setup-list"><article><span>01 / current context</span><h2>Perseus Context Engine</h2><p>Current PyPI release: 1.0.26.</p>{command("pip install perseus-ctx==1.0.26\nperseus quickstart")}<div class="inline-links"><a href="/context-engine/">Product boundary →</a><a href="{SOURCE}/blob/main/QUICKSTART.md">Full quickstart ↗</a></div></article><article><span>02 / governed memory</span><h2>Perseus Vault</h2><p>Current release: v2.23.2. The command below is for x86_64 Linux and verifies the release-bound SHA-256 before extraction.</p>{command(VAULT_LINUX_INSTALL)}<div class="inline-links"><a href="/vault/">Product boundary →</a><a href="https://github.com/Perseus-Computing-LLC/perseus-vault/releases/tag/v2.23.2">Other platforms and provenance ↗</a></div></article><article><span>03 / reviewable evidence</span><h2>Perseus Ledger</h2><p>Current PyPI release: 1.2.4.</p>{command('pip install perseus-ledger==1.2.4\nledger demo')}<div class="inline-links"><a href="/ledger/">Product boundary →</a><a href="https://github.com/Perseus-Computing-LLC/ledger">Source ↗</a></div></article></div></section>
+<section class="section"><div class="wrap setup-list"><article><span>01 / current context</span><h2>Perseus Context Engine</h2><p>Current PyPI release: 1.0.26.</p>{DOCS_CONTEXT_INSTALL_COMMAND}<div class="inline-links"><a href="/context-engine/">Product boundary →</a><a href="{SOURCE}/blob/main/QUICKSTART.md">Full quickstart ↗</a></div></article><article><span>02 / governed memory</span><h2>Perseus Vault</h2><p>Current release: v2.23.2. The command below is for x86_64 Linux and verifies the release-bound SHA-256 before extraction.</p>{command(VAULT_LINUX_INSTALL)}<div class="inline-links"><a href="/vault/">Product boundary →</a><a href="https://github.com/Perseus-Computing-LLC/perseus-vault/releases/tag/v2.23.2">Other platforms and provenance ↗</a></div></article><article><span>03 / reviewable evidence</span><h2>Perseus Ledger</h2><p>Current PyPI release: 1.2.4.</p>{DOCS_LEDGER_INSTALL_COMMAND}<div class="inline-links"><a href="/ledger/">Product boundary →</a><a href="https://github.com/Perseus-Computing-LLC/ledger">Source ↗</a></div></article></div></section>
 <section class="section" id="integrations"><div class="wrap"><div class="section-heading"><p class="kicker">Integration paths</p><h2>Connect through the interface your host already supports.</h2><p>Start with local stdio. Treat adapters as interfaces to the same components, not separate Perseus products.</p></div><div class="integration-table"><div><b>MCP host</b><p>Use the local stdio command for Claude Code, Cursor, Hermes Agent, or another compatible host.</p><code>perseus mcp serve</code></div><div><b>Perseus Vault MCP</b><p>Connect the local binary and use the release-bound API entry.</p><a href="/vault/mcp-reference/">API entry →</a></div><div><b>Framework adapters</b><p>Use maintained source adapters only after checking their current repository and package status.</p><a href="https://github.com/Perseus-Computing-LLC/perseus-vault/tree/main/integrations">Adapter source ↗</a></div></div></div></section>
 <section class="section"><div class="wrap source-register"><div><p class="kicker">Evaluation desk</p><h2>Follow the evidence you need.</h2></div><div><a href="/security/">Data, keys, transports, and limits →</a><a href="/benchmarks/">Methods and artifacts →</a><a href="/government/">Defense and procurement posture →</a><a href="/demo/">Replay a bounded product artifact →</a></div></div></section>
 """
