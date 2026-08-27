@@ -165,7 +165,7 @@ def _scheduler_cron_source_matches(line, source) -> bool:
     for index, token in enumerate(tokens):
         if token != "render" or index == 0 or index + 1 >= len(tokens):
             continue
-        if tokens[index + 1] != source_text:
+        if tokens[index + 1].replace(r"\%", "%") != source_text:
             continue
         launcher = Path(tokens[index - 1]).name.lower()
         if launcher == "perseus":
