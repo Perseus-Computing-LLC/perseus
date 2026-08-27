@@ -65,6 +65,35 @@ def test_cron_subcommand_prints_posix_crontab_entry(tmp_path, monkeypatch, capsy
     assert "crontab -e" in out
 
 
+def test_cron_install_deduplicates_only_the_same_render_source(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(perseus.sys, "platform", "linux")
+    monkeypatch.setattr(perseus, "_perseus_launcher", lambda: (["/usr/bin/perseus"], True))
+    source_a = tmp_path / "a.md"
+    source_b = tmp_path / "b.md"
+    source_a.write_text("@perseus\n", encoding="utf-8")
+    source_b.write_text("@perseus\n", encoding="utf-8")
+    current = {"text": ""}
+
+    def fake_run(argv, **kwargs):
+        if argv == ["crontab", "-l"]:
+            return argparse.Namespace(returncode=0, stdout=current["text"], stderr="")
+        if argv == ["crontab", "-"]:
+            current["text"] = kwargs["input"]
+            return argparse.Namespace(returncode=0, stdout="", stderr="")
+        raise AssertionError(argv)
+
+    monkeypatch.setattr(perseus.subprocess, "run", fake_run)
+    for source in (source_a, source_b):
+        args = argparse.Namespace(
+            source=str(source), output=str(source.with_suffix(".out")), every="5", install=True
+        )
+        perseus.cmd_cron(args, cfg())
+
+    assert current["text"].count("# perseus-render source=") == 2
+    assert "a.md" in current["text"]
+    assert "b.md" in current["text"]
+
+
 def test_cron_subcommand_prints_on_native_windows_for_wsl_or_remote_use(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(perseus.sys, "platform", "win32")
     source = tmp_path / "context.md"
@@ -246,7 +275,8 @@ def test_cmd_systemd_prints_units_on_linux(tmp_path, monkeypatch, capsys):
     src = tmp_path / "project space" / "ctx file.md"
     src.parent.mkdir(parents=True)
     src.write_text("@perseus\n", encoding="utf-8")
-    args = argparse.Namespace(source=str(src), output=str(tmp_path / "out.md"),
+    output = tmp_path / "out%n.md"
+    args = argparse.Namespace(source=str(src), output=str(output),
                               interval="10m", install=False, enable=False)
     perseus.cmd_systemd(args, cfg())
     out = capsys.readouterr().out
@@ -256,6 +286,7 @@ def test_cmd_systemd_prints_units_on_linux(tmp_path, monkeypatch, capsys):
     assert "perseus-render-ctx-file.service" in out
     assert "perseus-render-ctx-file.timer" in out
     assert shlex.quote(str(src.resolve())) in out
+    assert shlex.quote(str(output.resolve())).replace("%", "%%") in out
 
 
 def test_cmd_systemd_rejects_native_windows(tmp_path, monkeypatch, capsys):

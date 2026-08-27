@@ -30,8 +30,8 @@ library (its single hard third-party import is `yaml`).
 
 | Component | Version | License | Role |
 | :-------- | :------ | :------ | :--- |
-| CPython   | >= 3.10 (image ships 3.12) | Python-2.0 (PSF) | Interpreter |
-| PyYAML    | >= 6.0.1, <7 (tested 6.0.3) | MIT              | YAML parsing/emitting — the only hard third-party runtime dependency |
+| CPython   | 3.12 (package supports >=3.10) | Python-2.0 (PSF) | Interpreter used by the reference runtime image |
+| PyYAML    | 6.0.3 (package constraint >=6.0.1, <7) | MIT              | YAML parsing/emitting — the only hard third-party runtime dependency |
 
 Source of truth: `pyproject.toml` → `dependencies = ["pyyaml>=6.0.1,<7"]`.
 
@@ -221,6 +221,7 @@ uvloop==0.22.1
 virtualenv==21.5.1
 watchfiles==1.2.0
 websockets==15.0.1
+wheel==0.48.0
 xxhash==3.7.0
 yara-python==4.5.4
 zstandard==0.25.0
