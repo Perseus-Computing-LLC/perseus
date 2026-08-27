@@ -18,6 +18,20 @@ from conftest import PY_VER, cfg, perseus, _capture_json, _seed_guide_log
 
 pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
 
+def test_oracle_alias_dispatches_to_guide(monkeypatch):
+    seen = {}
+
+    def fake_guide(args, config):
+        seen["args"] = args
+        return 0
+
+    monkeypatch.setattr(perseus, "cmd_guide", fake_guide)
+    monkeypatch.setattr(perseus.sys, "argv", ["perseus", "oracle", "log"])
+
+    assert perseus._main_impl() == 0
+    assert seen["args"].guide_command == "log"
+
+
 def test_build_guide_snapshot_collects_expected_keys(monkeypatch, tmp_path):
     monkeypatch.setattr(perseus, "resolve_skills", lambda *a, **k: "skills")
     monkeypatch.setattr(perseus, "resolve_session", lambda *a, **k: "sessions")

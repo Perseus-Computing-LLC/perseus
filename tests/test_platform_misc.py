@@ -4,7 +4,9 @@ import importlib.util
 import io
 import json
 import os
+import plistlib
 import select
+import shlex
 import socket
 import subprocess
 import sys
@@ -20,10 +22,10 @@ from conftest import PY_VER, cfg, perseus, _capture_json, _seed_guide_log
 pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
 
 def test_launchd_subcommand_scaffolds_plist_on_macos(tmp_path, monkeypatch):
-    source = tmp_path / ".perseus" / "context.md"
+    source = tmp_path / "project&<name" / ".perseus" / "context.md"
     source.parent.mkdir(parents=True)
     source.write_text("@perseus\n", encoding="utf-8")
-    output = tmp_path / ".rovodev" / "context.md"
+    output = tmp_path / "output&<name" / "context.md"
     fake_home = tmp_path / "home"
     monkeypatch.setattr(perseus.sys, "platform", "darwin")
     monkeypatch.setattr(perseus.Path, "home", staticmethod(lambda: fake_home))
@@ -36,14 +38,17 @@ def test_launchd_subcommand_scaffolds_plist_on_macos(tmp_path, monkeypatch):
     assert "<key>StartInterval</key>" in plist_body
     assert "<integer>300</integer>" in plist_body
     assert "com.test.perseus" in plist_body
+    parsed = plistlib.loads(plist_body.encode("utf-8"))
+    assert str(source.resolve()) in parsed["ProgramArguments"]
+    assert str(output.resolve()) in parsed["ProgramArguments"]
 
 
 def test_cron_subcommand_prints_posix_crontab_entry(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(perseus.sys, "platform", "linux")
-    source = tmp_path / ".perseus" / "context.md"
+    source = tmp_path / "project space" / ".perseus" / "context.md"
     source.parent.mkdir(parents=True)
     source.write_text("@perseus\n", encoding="utf-8")
-    output = tmp_path / "AGENTS.md"
+    output = tmp_path / "output space" / "AGENTS.md"
     args = argparse.Namespace(source=str(source), output=str(output), every="5", install=False)
 
     perseus.cmd_cron(args, cfg())
@@ -51,8 +56,8 @@ def test_cron_subcommand_prints_posix_crontab_entry(tmp_path, monkeypatch, capsy
     out = capsys.readouterr().out
     assert "*/5 * * * *" in out
     assert " render " in out
-    assert str(source.resolve()) in out
-    assert f"--output {output.resolve()}" in out
+    assert shlex.quote(str(source.resolve())) in out
+    assert f"--output {shlex.quote(str(output.resolve()))}" in out
     assert "# perseus-render" in out
     assert "crontab -e" in out
 
@@ -235,7 +240,8 @@ def test_cmd_systemd_macos_redirects(tmp_path, monkeypatch, capsys):
 
 def test_cmd_systemd_prints_units_on_linux(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(perseus.sys, "platform", "linux")
-    src = tmp_path / "ctx.md"
+    src = tmp_path / "project space" / "ctx.md"
+    src.parent.mkdir(parents=True)
     src.write_text("@perseus\n", encoding="utf-8")
     args = argparse.Namespace(source=str(src), output=str(tmp_path / "out.md"),
                               interval="10m", install=False, enable=False)
@@ -246,6 +252,7 @@ def test_cmd_systemd_prints_units_on_linux(tmp_path, monkeypatch, capsys):
     assert "10min" in out
     assert "perseus-render-ctx.service" in out
     assert "perseus-render-ctx.timer" in out
+    assert shlex.quote(str(src.resolve())) in out
 
 
 def test_cmd_systemd_rejects_native_windows(tmp_path, monkeypatch, capsys):

@@ -27,7 +27,7 @@
 
 | Package | Version | License | Type |
 |---|---|---|---|
-| pyyaml | >=6.0.1 | MIT | Direct |
+| pyyaml | >=6.0.1,<7 | MIT | Direct |
 
 ### Optional Dependencies
 
