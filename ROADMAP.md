@@ -46,9 +46,9 @@ checkpoints feed it.
 | **Health** | Deterministic context maintenance heuristics — `perseus health` + `@health` directive (Daedalus v1) | ✅ Phase 5E |
 | **Daedalus** | Local autonomous scoring model — Pythia without a round-trip (dataset + routing shipped; model training is a user step) | ✅ Phase 6 |
 | **Mnēmē** | Narrative project memory — distills checkpoints + Pythia log into a per-workspace narrative | ✅ Phase 7 |
-|| **Federation** | Cross-workspace Mnēmē narrative aggregation via subscribable manifest | ✅ Phase 8.2 |
-|| **Decentralized Fed.** | Remote transport, cryptographic identity, provenance chains, cross-org context sharing | 🔨 Phase 27 |
-|| **Templates** | Starter scaffolds for generic/hermes/rovodev/claude-code/cursor via `perseus init --template` | ✅ Phase 8 |
+| **Federation** | Cross-workspace Mnēmē narrative aggregation via subscribable manifest | ✅ Phase 8.2 |
+| **Decentralized Fed.** | Remote transport, cryptographic identity, provenance chains, cross-org context sharing | 🔨 Phase 27 |
+| **Templates** | Starter scaffolds for generic/hermes/rovodev/claude-code/cursor via `perseus init --template` | ✅ Phase 8 |
 | **Serve** | Read-only HTTP view of workspace state | ✅ Phase 8 |
 | **Inbox** | Per-workspace point-to-point message store + `@inbox` directive | ✅ Phase 8 |
 | **Cron** | Cross-platform scheduler (macOS/Linux/BSD) — bridges launchd + systemd | ✅ Phase 8 |
@@ -56,7 +56,7 @@ checkpoints feed it.
 | **Hephaestus** | Extensibility architecture — plugin directives, macros, hooks, format adapters, pipe syntax | ✅ Phase 24 |
 | **MCP Integration** | Expose every directive as an MCP tool for universal AI client compatibility | ✅ Phase 25 |
 | **Security Hardening** | MCP SSE auth, Windows timeout, SSRF protection, build robustness | ✅ Phase 26 |
-|| _Exploratory_ | Undated, non-committed directions (federation mesh, context packs, autonomy, model-aware/intent-driven context, enterprise, native apps, …) | 📋 see [Exploratory](#exploratory--directional-not-committed-no-dates) |
+| _Exploratory_ | Undated, non-committed directions (federation mesh, context packs, autonomy, model-aware/intent-driven context, enterprise, native apps, …) | 📋 see [Exploratory](#exploratory--directional-not-committed-no-dates) |
 
 ---
 

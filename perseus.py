@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "c2ec182"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "bcda7e8-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -31686,7 +31686,12 @@ def cmd_schtasks(args, cfg):
         print(f"✔ Created scheduled task {name}")
     print()
     print(f'Verify with: schtasks /Query /TN "{task_name}"')
-    print(f'Remove with: perseus schtasks uninstall --job {getattr(args, "job", "render")}')
+    if is_maintain:
+        cleanup = "perseus schtasks uninstall --job maintain"
+    else:
+        source = str(getattr(args, "source", "")).replace('"', '\\"')
+        cleanup = f'perseus schtasks uninstall "{source}" --job render'
+    print(f"Remove with: {cleanup}")
 
 
 def cmd_schtasks_uninstall(args, cfg):
