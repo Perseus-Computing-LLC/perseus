@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "896eab8"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "1279a12"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -31382,9 +31382,10 @@ def _scheduler_cron_source_matches(line, source) -> bool:
         configured_launchers, _ = _perseus_launcher()
     except (OSError, RuntimeError, TypeError, ValueError):
         configured_launchers = []
-    for configured_launcher in configured_launchers:
-        launcher_path = _pathlib.Path(configured_launcher)
-        expected_launchers.update({str(launcher_path), str(launcher_path.resolve())})
+    if len(configured_launchers) == 1:
+        for configured_launcher in configured_launchers:
+            launcher_path = _pathlib.Path(configured_launcher)
+            expected_launchers.update({str(launcher_path), str(launcher_path.resolve())})
     try:
         path_launcher = _shutil.which("perseus")
     except Exception:
