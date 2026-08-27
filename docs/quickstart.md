@@ -16,10 +16,11 @@ Perseus resolves and shapes the active working context; Perseus Vault owns durab
 ## 1. Prerequisites
 
 - Python **3.10+**
-- `pyyaml` — the only runtime dependency
+- `pyyaml` — the unconditional YAML runtime dependency
+- `tomli==2.2.1` — installed for Python <3.11 as the TOML parser fallback
 
 ```bash
-python3 -m pip install --user pyyaml
+python3 -m pip install --user 'pyyaml>=6.0.1,<7' 'tomli==2.2.1; python_version < "3.11"'
 ```
 
 ---
@@ -44,10 +45,10 @@ rm -f ~/.local/share/perseus/perseus.py
 
 ```bash
 # fast isolated install
-uv tool install perseus-ctx
+uv tool install perseus-ctx==1.0.26
 
 # or standard pip install
-pip install perseus-ctx
+pip install perseus-ctx==1.0.26
 
 which perseus
 perseus --version
@@ -55,10 +56,14 @@ perseus --version
 
 **Alternative — contributor source checkout:**
 
+A source install executes repository code. Pin and inspect the exact full commit before installation; do not install from the mutable default branch:
+
 ```bash
 git clone https://github.com/Perseus-Computing-LLC/perseus.git
 cd perseus
-pip install -e .
+git checkout <full-commit-sha-you-reviewed>
+git status --short
+python -m pip install -e .
 which perseus
 perseus --version
 ```
@@ -83,24 +88,21 @@ mkdir -p ~/.perseus
 
 ```yaml
 # ~/.perseus/config.yaml
-# ⚠ CRITICAL: render.allow_query_shell must be true for @query to work.
-# trust.allow_query_shell controls audit display only — NOT the render gate.
+# Safe default: shell and network operations remain disabled.
 render:
-  allow_query_shell: true        # ← REQUIRED to enable @query directives
-  allow_agent_shell: true        # ← REQUIRED to enable @agent directives
-  allow_remote_services_health: true
-  allow_services_command: true   # ← REQUIRED for command-type @services checks
+  allow_query_shell: false
+  allow_agent_shell: false
+  allow_remote_services_health: false
+  allow_services_command: false
   parallel_services: true
   services_timeout_s: 3
 
 trust:
-  allow_query_shell: true        # controls audit display only
+  allow_query_shell: false
   allow_outside_workspace: false
   redact_secrets: true
 
 # Optional: assistant integration (Hermes Agent)
-guide:
-  skill_dir: ~/.hermes/skills
 assistant:
   sessions_dir: ~/.hermes/sessions
 ```
@@ -149,7 +151,9 @@ Open `.perseus/context.md`. It's a standard `.md` file beginning with `@perseus`
 @perseus v0.4
 
 @prompt
-This document was rendered live by Perseus. All values below are current.
+This document is rendered from configured sources. Values are snapshots and
+may be stale; re-check source timestamps and critical records before relying on
+this context.
 @end
 
 # Context — @date format="YYYY-MM-DD HH:mm z"
@@ -163,8 +167,8 @@ This document was rendered live by Perseus. All values below are current.
 ## Session History
 @session count=5
 
-## What's Running
-@query "docker ps --format 'table {{.Names}}\t{{.Status}}'" @cache ttl=60
+## Repository layout
+@tree depth=2
 
 ## Environment
 @env NODE_ENV fallback="development"
@@ -199,7 +203,7 @@ perseus render .perseus/context.md --output .hermes.md
 ### Option A — Watch mode (simplest, foreground)
 
 ```bash
-perseus watch .perseus/context.md --output .hermes.md
+perseus watch --source .perseus/context.md --output .hermes.md
 ```
 
 Re-renders whenever the source file changes.
@@ -208,17 +212,17 @@ Re-renders whenever the source file changes.
 
 ```bash
 # Print a crontab entry
-~/.local/bin/perseus cron .perseus/context.md --output .hermes.md --every 5
+~/.local/bin/perseus cron create .perseus/context.md --output .hermes.md --every 5
 
 # Install it (macOS/Linux)
-~/.local/bin/perseus cron .perseus/context.md --output .hermes.md --every 5 --install
+~/.local/bin/perseus cron create .perseus/context.md --output .hermes.md --every 5 --install
 ```
 
 ### Option C — systemd / launchd
 
 ```bash
-~/.local/bin/perseus systemd .perseus/context.md --output .hermes.md   # Linux
-~/.local/bin/perseus launchd .perseus/context.md --output .hermes.md   # macOS
+~/.local/bin/perseus systemd create .perseus/context.md --output .hermes.md   # Linux
+~/.local/bin/perseus launchd create .perseus/context.md --output .hermes.md   # macOS
 ```
 
 ---

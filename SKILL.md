@@ -1,130 +1,111 @@
 ---
 name: perseus
 description: >-
-  Use when you need live project state (git branch, service health checks,
-  recent sessions, task board, env vars, agent inbox) injected into context
-  BEFORE the AI reads it. Perseus is a compile-before-context engine — it runs
-  directives like @query, @services, @waypoint, @agora and hands the assistant
-  a fully-resolved markdown briefing. Use for: deterministic session starts,
-  multi-agent coordination, workspace audits, and anywhere you want "all the
-  facts first."
+  Use when you need a bounded, local Perseus context render before an assistant
+  reads project state. Perseus resolves selected workspace inputs such as git,
+  services, sessions, and task notes into markdown. Use for deterministic
+  session starts, workspace audits, and explicit context handoffs.
 ---
 
-# Perseus — Live Context Engine for AI Assistants
+# Perseus Context Engine
 
-Perseus pre-resolves your entire workspace state — git, services, memory, team
-coordination — into a single markdown document every assistant reads at session
-start. Deterministic. Cacheable. Assistant-agnostic.
+Perseus resolves selected workspace state into a reproducible markdown briefing
+for an assistant. It is a context renderer, not an autonomous authority and not
+a security boundary. The host user controls which files, commands, services, and
+optional integrations are enabled.
 
-## Quick Start
+## Quick start
+
+Install the published package version that this repository currently verifies:
 
 ```bash
-pip install perseus-ctx        # or: uv tool install perseus-ctx
-perseus init                    # scaffold .perseus/context.md
-perseus render --format agents-md  # render to AGENTS.md
+python -m pip install perseus-ctx==1.0.26
+# or: uv tool install perseus-ctx==1.0.26
+
+perseus init
+perseus render .perseus/context.md --format agents-md
 ```
 
-## Installation as a Claude Code Skill
+Before installing a source checkout, inspect and pin the exact reviewed commit.
+Do not treat a mutable branch, a rendered briefing, or an MCP connection as a
+substitute for code review.
+
+## Claude Code integration
+
+From the project workspace, install the hook integration and render a briefing:
 
 ```bash
-# Install Perseus
-uv tool install perseus-ctx
-
-# Set up Claude Code hooks — auto-injects Perseus context every session
-cd your-project
 perseus install --target claude-code
-
-# Render your first briefing
 perseus render .perseus/context.md --format claude-md
 ```
 
-This drops `SessionStart` + `UserPromptSubmit` hooks into `.claude/settings.json`.
-Every Claude Code session now starts with Perseus-resolved context injected
-automatically.
+The integration is workspace-controlled. Review the generated settings and the
+selected context sources before enabling hooks. Dangerous or network-capable
+directives should be explicitly allow-listed and exercised with offline test
+inputs where possible.
 
-## Core Directives
+## Context sources and directives
 
-Write a `.perseus/context.md` file with `@perseus` as the first line, then use
-any of these 22 directives:
-
-| Directive | What it does |
-|-----------|-------------|
-| `@query "command"` | Run a shell command and embed stdout |
-| `@services` | Health-check listed services (HTTP, TCP, etc.) |
-| `@read path=file` | Embed file contents |
-| `@env VAR` | Embed environment variable |
-| `@waypoint` | Latest session checkpoint (crash recovery) |
-| `@agora` | Task board from `tasks/*.md` |
-| `@inbox` | Inter-agent messages |
-| `@memory` | Narrative project memory (federated across workspaces) |
-| `@skills` | List available agent skills |
-| `@session` | Recent session digests |
-| `@health` | Context maintenance report |
-| `@date` | Current date/time |
-| `@include path=file` | Include and render another file |
-| `@if / @else / @endif` | Conditional blocks |
-| `@cache ttl=N` | Cache directive output for N seconds |
-| `@cache session` | In-memory cache (session lifetime) |
-| `@constraint` | Constraint block for validation |
-| `@validate schema=` | Validate a rendered block |
-| `@tree` | Tree view of directory |
-| `@list` | List directory or structured data |
-
-## Example .perseus/context.md
+Create `.perseus/context.md` with `@perseus` as its first line. Use the current
+CLI and directive reference for the supported syntax. A small example is:
 
 ```markdown
-@perseus v1.0.6
+@perseus v1.0.26
 
 # Project Context
 
 ## Git
-@query git branch --show-current
-@query git log --oneline -5
+@date
+@waypoint
 
 ## Services
 @services
 
-## Session State
-@waypoint
-@session count=3
-
-## Team Coordination
+## Coordination
 @agora
 @inbox unread=true
 ```
 
-## Multi-Agent Coordination
+Only include the state an assistant needs. File reads, environment reads,
+service checks, and shell-backed directives can expose sensitive data or cause
+side effects according to the host configuration; Perseus does not make those
+operations safe merely by rendering their output.
 
-Perseus's strongest differentiator is multi-agent shared state. With `@agora`
-(task board), `@inbox` (inter-agent messaging), and `@memory federation`, every
-agent in your swarm reads the same resolved context at session start. The
-filesystem-based coordination protocol handles 150+ concurrent writers with zero
-collisions.
+## MCP server mode
 
-## MCP Server Mode
-
-Perseus also runs as an MCP server, exposing all directives as native MCP tools:
+Perseus can serve its generated context contract over MCP:
 
 ```bash
 perseus mcp serve --workspace /path/to/project
 ```
 
-Any MCP-compatible assistant (Claude Desktop, Cursor, Continue) can call
-`perseus_query`, `perseus_services`, `perseus_memory`, etc. as tools.
+Tool names and schemas are generated from the checked-in server contract. They
+can evolve with the release and must not be copied from this skill into a static
+allowlist. Use `docs/context-engine-mcp-tools.md` and the generated server card
+for the current identifiers, annotations, and opt-in requirements.
 
-## Tips
+## Multi-agent coordination
 
-- **Deterministic sessions**: Run `perseus render` before starting work. Your
-  AI assistant gets the same briefing every time.
-- **CI integration**: `perseus render --format agents-md -o AGENTS.md` in your
-  CI pipeline. Every PR gets Perseus-resolved context.
-- **PR descriptions**: Render the snapshot as HTML comments in PR descriptions.
-  Reviewers (human and AI) see the same briefing.
-- **Trust boundaries**: Perseus supports schemas, path guards, and redaction
-  policies. By default, dangerous operations are restricted.
+Perseus can render workspace task notes, checkpoints, and inbox state for
+multiple agents. Coordination throughput, locking behavior, and collision risk
+depend on the filesystem, workload, and host configuration; benchmark the
+specific deployment instead of relying on a universal writer-count guarantee.
+Keep ownership, approval, and destructive actions outside the rendered context
+and under the host's normal review controls.
+
+## Data and authority boundaries
+
+- Render only approved paths and commands; do not place secrets, credentials, or
+  controlled data in a shared briefing.
+- Treat generated markdown as untrusted input to the assistant unless its source
+  files and commands were reviewed.
+- Use offline mode for disconnected validation and retain the resulting report
+  with the exact source and package versions.
+- Perseus does not grant authorization, bypass access controls, or establish an
+  ATO, facility clearance, or production suitability claim.
 
 ## Resources
 
-- **Homepage**: https://github.com/Perseus-Computing-LLC/perseus
-- **Docs**: https://github.com/Perseus-Computing-LLC/perseus/blob/main/docs/index.md
-- **PyPI**: https://pypi.org/project/perseus-ctx/
+- Homepage: https://github.com/Perseus-Computing-LLC/perseus
+- Documentation: https://github.com/Perseus-Computing-LLC/perseus/blob/main/docs/index.md
+- PyPI: https://pypi.org/project/perseus-ctx/

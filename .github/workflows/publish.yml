@@ -14,8 +14,9 @@ name: Publish to PyPI
 #
 # To cut a release: bump VERSION + pyproject.toml + CHANGELOG, merge to main,
 # then publish a GitHub Release tagged vX.Y.Z (matching VERSION). This workflow
-# verifies the tag matches VERSION, that perseus.py is in sync with src/, builds
-# the sdist+wheel, and uploads them via OIDC.
+# verifies the tag, checks the generated artifact, builds the sdist+wheel with
+# the committed toolchain freeze, and uploads them via OIDC. Attestation runs in
+# a separate job so the build job has no OIDC or attestation-write permission.
 
 on:
   release:
@@ -30,28 +31,26 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write      # sign build provenance via Sigstore (OIDC)
-      attestations: write  # write the attestation to the repo's store
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5 (2026-07-16)
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5 (2025-04-24)
         with:
           python-version: "3.12"
 
-      - name: Install runtime dependencies
-        # build.py --check runs a smoke test that imports the built perseus.py,
-        # whose only hard third-party import is PyYAML. Install it before the
-        # check step so the smoke test can actually run.
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-runtime.txt
+      - name: Install committed toolchain freeze
+        # requirements.txt pins build, setuptools, wheel, twine, PyYAML, and
+        # their transitive toolchain. Do not upgrade pip or resolve a mutable
+        # release tool while the artifact is being prepared.
+        run: python -m pip install -r requirements.txt
 
       - name: Verify version matches the release tag
         run: |
-          set -e
-          file_ver="$(cat VERSION)"
+          set -euo pipefail
+          file_ver="$(tr -d '[:space:]' < VERSION)"
           tag="${GITHUB_REF_NAME#v}"
           echo "VERSION file=$file_ver  release tag=$tag"
           if [ "$file_ver" != "$tag" ]; then
@@ -59,21 +58,155 @@ jobs:
             exit 1
           fi
 
+      - name: Verify published metadata matches the release tag
+        run: |
+          set -euo pipefail
+          release_version="${GITHUB_REF_NAME#v}"
+          python3 - "$release_version" <<'PY'
+          import json
+          import pathlib
+          import sys
+          try:
+              import tomllib
+          except ModuleNotFoundError:
+              import tomli as tomllib
+
+          expected = sys.argv[1]
+
+          def load(name):
+              return json.loads(pathlib.Path(name).read_text(encoding="utf-8"))
+
+          claims = load("claims.json")["claims"]["perseus_pypi_version"]
+          if str(claims.get("value")) != expected or claims.get("publishable") is not True:
+              raise SystemExit(f"claims.json PyPI release is not publishable as {expected!r}")
+
+          manifest = load("manifest.json")
+          server = load("server.json")
+          card = load(".well-known/mcp/server-card.json")
+          sbom = load("sbom.cdx.json")
+          pyproject = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))
+          checks = {
+              "pyproject.toml": pyproject["project"]["version"],
+              "manifest.json": manifest.get("version"),
+              "server.json": server.get("version"),
+              "server-card": card.get("serverInfo", {}).get("version"),
+              "sbom": sbom.get("metadata", {}).get("component", {}).get("version"),
+          }
+          mismatches = {name: version for name, version in checks.items() if str(version) != expected}
+          package_versions = {str(item.get("version")) for item in server.get("packages", [])}
+          if package_versions != {expected}:
+              mismatches["server.json packages"] = sorted(package_versions)
+          component = sbom.get("metadata", {}).get("component", {})
+          component_ref = str(component.get("bom-ref", ""))
+          expected_ref = f"perseus-ctx@{expected}"
+          if component_ref != expected_ref:
+              mismatches["sbom component bom-ref"] = component_ref
+          component_purl = str(component.get("purl", ""))
+          expected_purl = f"pkg:pypi/perseus-ctx@{expected}"
+          if component_purl != expected_purl:
+              mismatches["sbom component purl"] = component_purl
+          components = sbom.get("components", [])
+          if isinstance(components, list):
+              component_refs = {
+                  str(item.get("bom-ref", ""))
+                  for item in components
+                  if isinstance(item, dict)
+              }
+              component_purls = {
+                  str(item.get("bom-ref", "")): item.get("purl")
+                  for item in components
+                  if isinstance(item, dict)
+              }
+          else:
+              component_refs = set()
+              component_purls = {}
+          if (
+              not isinstance(components, list)
+              or not components
+              or not all(isinstance(item, dict) for item in components)
+              or any(not isinstance(item.get("bom-ref"), str) or not item.get("bom-ref") for item in components)
+              or len(component_refs) != len(components)
+          ):
+              mismatches["sbom component refs"] = sorted(component_refs)
+          expected_component_purls = {
+              "python": "pkg:generic/python@3.12",
+              "pyyaml": "pkg:pypi/pyyaml@6.0.3",
+              "tomli": "pkg:pypi/tomli@2.2.1",
+          }
+          if component_purls != expected_component_purls:
+              mismatches["sbom component purls"] = component_purls
+          dependencies = sbom.get("dependencies", [])
+          if not isinstance(dependencies, list) or not dependencies or not all(isinstance(item, dict) for item in dependencies):
+              mismatches["sbom dependencies"] = "missing, empty, or malformed"
+          else:
+              dependency_refs = [item.get("ref") for item in dependencies]
+              valid_dependency_refs = all(isinstance(ref, str) and ref for ref in dependency_refs)
+              if not valid_dependency_refs:
+                  mismatches["sbom dependency refs"] = dependency_refs
+              else:
+                  expected_dependency_refs = {expected_ref} | component_refs
+                  if set(dependency_refs) != expected_dependency_refs or len(dependency_refs) != len(set(dependency_refs)):
+                      mismatches["sbom dependency refs"] = dependency_refs
+
+              dependency_lists = [item.get("dependsOn") for item in dependencies]
+              valid_dependency_lists = all(isinstance(targets, list) for targets in dependency_lists)
+              if not valid_dependency_lists:
+                  mismatches["sbom dependency targets"] = "missing or malformed"
+              else:
+                  dependency_targets = [
+                      target
+                      for targets in dependency_lists
+                      for target in targets
+                  ]
+                  valid_dependency_targets = all(
+                      isinstance(target, str) and target for target in dependency_targets
+                  )
+                  if not valid_dependency_targets:
+                      mismatches["sbom dependency targets"] = dependency_targets
+                  elif not set(dependency_targets) <= component_refs:
+                      mismatches["sbom dependency targets"] = sorted(
+                          set(dependency_targets) - component_refs
+                      )
+                  elif valid_dependency_refs:
+                      expected_dependency_topology = {
+                          expected_ref: ["python", "pyyaml", "tomli"],
+                          "python": [],
+                          "pyyaml": [],
+                          "tomli": [],
+                      }
+                      actual_dependency_topology = {
+                          item["ref"]: item["dependsOn"] for item in dependencies
+                      }
+                      if actual_dependency_topology != expected_dependency_topology:
+                          mismatches["sbom dependency topology"] = actual_dependency_topology
+          if mismatches:
+              raise SystemExit(f"release metadata does not match {expected!r}: {mismatches}")
+          print(f"All release metadata surfaces match {expected}")
+          PY
+
+      - name: Verify generated server card
+        run: |
+          set -euo pipefail
+          generated_server_card="$(mktemp)"
+          trap 'rm -f "$generated_server_card"' EXIT
+          python scripts/generate_server_card.py --output "$generated_server_card"
+          if ! cmp --silent "$generated_server_card" .well-known/mcp/server-card.json; then
+            echo "::error::generated-server-card differs from the committed card"
+            diff -u .well-known/mcp/server-card.json "$generated_server_card"
+            exit 1
+          fi
+
+      - name: Rebuild generated artifact for this release
+        run: python scripts/build.py
+
       - name: Verify perseus.py is in sync with src/
         run: python scripts/build.py --check
 
       - name: Build sdist and wheel
         run: |
-          python -m pip install --upgrade pip build twine
+          set -euo pipefail
           python -m build
           python -m twine check dist/*
-
-      # Sigstore-signed SLSA build provenance for the sdist + wheel. Verifiable
-      # with: gh attestation verify <dist-file> --repo Perseus-Computing-LLC/perseus
-      - name: Attest build provenance for distributions
-        uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018  # v1 (2024-11-05)
-        with:
-          subject-path: 'dist/*'
 
       - name: Upload distribution artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4 (2025-03-19)
@@ -81,9 +214,29 @@ jobs:
           name: dist
           path: dist/
 
+  attest:
+    name: Attest verified distribution
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4 (2025-04-24)
+        with:
+          name: dist
+          path: dist/
+
+      - name: Attest build provenance for distributions
+        uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018  # v1 (2024-11-05)
+        with:
+          subject-path: 'dist/*'
+
   publish:
     name: Publish to PyPI (OIDC)
-    needs: build
+    needs: [build, attest]
     runs-on: ubuntu-latest
     environment:
       name: pypi

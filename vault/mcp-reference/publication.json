@@ -19,7 +19,7 @@
     "sha256": "be4eea7063e64fa1d792c2cdd4d44ece74c0371341bcf7a5ffd9793c32110df0",
     "url": "https://api.github.com/repos/Perseus-Computing-LLC/perseus-vault/actions/artifacts/9591384152"
   },
-  "raw_snapshot_sha256": "38c5b138c661019747f1687db8f7215e397fe62477eb8836b1633cc0d9b21553",
+  "raw_snapshot_sha256": "fbd5680d8315d1c63adaa8ff6e967f0cb1b5ea0dd9bc8a6d69569999545ac9b1",
   "generators": {
     "sourcey": "3.6.5",
     "mcp_parser": "0.4.1"
@@ -32,6 +32,13 @@
       "llms-full.txt",
       "sitemap.xml"
     ],
-    "relative_html_assets_preserved": true
-  }
+    "relative_html_assets_preserved": true,
+    "safety_corrections": [
+      {
+        "tool": "perseus_vault_proof_frame",
+        "reason": "corrected unsafe read-only annotation for zeroize-capable operation"
+      }
+    ]
+  },
+  "source_raw_snapshot_sha256": "38c5b138c661019747f1687db8f7215e397fe62477eb8836b1633cc0d9b21553"
 }

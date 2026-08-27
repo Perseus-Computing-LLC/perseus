@@ -1,24 +1,28 @@
 # Perseus Computing
 
-> Open-source, local-first infrastructure for AI agents: verified context for the present, durable memory for the past, and evidence for what happened.
+> Perseus is the system around the model: current context, governed memory, and reviewable evidence for consequential agent work.
 
-## Current product family
+## Platform components
 
-- [Perseus Context Engine](https://perseus.observer/context-engine/): resolve verified workspace state before an agent session.
-- [Perseus Vault](https://perseus.observer/vault/): durable, encrypted, time-aware memory through a local MCP server.
-- [Perseus Ledger](https://perseus.observer/ledger/): runtime-neutral, hash-chained evidence and provenance.
+- [Perseus Context Engine](https://perseus.observer/context-engine/): resolves current workspace state into a bounded briefing.
+- [Perseus Vault](https://perseus.observer/vault/): preserves governed, time-valid memory in a local service.
+- [Perseus Ledger](https://perseus.observer/ledger/): records supplied events, evidence links, and authority references in a verifiable chain.
 
-## Developer entry points
+## Evaluate
 
-- [Documentation](https://perseus.observer/docs/)
-- [Perseus quickstart](https://github.com/Perseus-Computing-LLC/perseus/blob/main/QUICKSTART.md)
-- [Vault MCP API reference](https://perseus.observer/vault/mcp-reference/)
-- [Vault API metadata](https://perseus.observer/vault/mcp-reference/metadata.json)
-- [Benchmarks and methods](https://perseus.observer/benchmarks/)
-- [Perseus source](https://github.com/Perseus-Computing-LLC/perseus)
-- [Perseus Vault source](https://github.com/Perseus-Computing-LLC/perseus-vault)
-- [Perseus Ledger source](https://github.com/Perseus-Computing-LLC/ledger)
+- [Security and deployment boundary](https://perseus.observer/security/)
+- [Methods and evidence](https://perseus.observer/benchmarks/)
+- [Current releases and setup paths](https://perseus.observer/docs/)
+- [Bounded product replay](https://perseus.observer/demo/)
+- [Defense and Government workshare](https://perseus.observer/government/)
+- [Vault API release entry](https://perseus.observer/vault/mcp-reference/)
+
+## Source
+
+- [Perseus Context Engine](https://github.com/Perseus-Computing-LLC/perseus)
+- [Perseus Vault](https://github.com/Perseus-Computing-LLC/perseus-vault)
+- [Perseus Ledger](https://github.com/Perseus-Computing-LLC/ledger)
 
 ## Evidence policy
 
-Public figures are tied to a committed report, release, or feature profile. The benchmark page distinguishes internal measurements, retrieval-only results, end-to-end QA, historical variants, and independent or third-party evidence.
+Public figures keep their method, denominator, control, company-run or independent status, limitation, and source. Product behavior, benchmark evidence, security documentation, and procurement posture are separate claim classes.

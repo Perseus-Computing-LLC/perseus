@@ -904,6 +904,16 @@ def test_authenticated_transport_identity_reaches_mcp_structured_content(tmp_pat
     assert result["structuredContent"] == payload
 
 
+def test_agent_projection_release_is_advertised_as_state_changing():
+    assert perseus is not None
+    c = cfg()
+    c["mcp"] = {"tool_allowlist": ["perseus_agent_projection_release"]}
+    advertised = {tool["name"]: tool for tool in perseus._get_all_mcp_tools(c)}
+    annotations = advertised["perseus_agent_projection_release"]["annotations"]
+    assert annotations["readOnlyHint"] is False
+    assert annotations["destructiveHint"] is True
+
+
 def test_context_mcp_output_schemas_are_closed_and_structured_content_matches(tmp_path):
     names = {
         "perseus_context_rank",

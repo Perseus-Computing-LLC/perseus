@@ -1,37 +1,34 @@
-# Perseus — Claude Code Hook
+# Perseus Context Engine hook for Claude Code
 
-Pre-resolves live workspace state before every Claude Code session.
+This hook renders current workspace context before a Claude Code session.
 
-## Install (one line)
+## Install from a reviewed checkout
+
+Clone or check out the repository revision you intend to trust, inspect the hook, then install that checked-in file:
 
 ```bash
-mkdir -p .claude/hooks && \
-curl -fsSL https://raw.githubusercontent.com/Perseus-Computing-LLC/perseus/main/integrations/claude-code/on_session_start.sh \
-  -o .claude/hooks/on_session_start.sh && \
-chmod +x .claude/hooks/on_session_start.sh
+mkdir -p .claude/hooks
+install -m 0755 integrations/claude-code/on_session_start.sh \
+  .claude/hooks/on_session_start.sh
 ```
+
+Do not download and execute a mutable `main`-branch script.
 
 ## What happens
 
-Every time you run `claude` in this repo:
-
-1. Perseus reads `.perseus/context.md`
-2. Resolves all `@query`, `@services`, `@skills`, `@waypoint` directives
-3. Writes live, verified facts to `CLAUDE.md`
-4. Claude opens with the workspace already oriented — zero discovery calls
+The hook reads `.perseus/context.md`, resolves the enabled directives, and writes the rendered artifact to `CLAUDE.md`. Shell and network directives remain subject to the Context Engine security gates and run with the current user's permissions when enabled.
 
 ## Verify
 
 ```bash
 bash .claude/hooks/on_session_start.sh
-# → [Perseus] → 298 lines · 20KB · 1251ms
-# → [Perseus] Claude will open with live context
-cat CLAUDE.md | head -20
+sed -n '1,20p' CLAUDE.md
 ```
 
 ## Requirements
 
-- `pip install perseus-ctx` or `perseus.py` in repo root
-- `.perseus/context.md` in workspace (run `perseus init` to scaffold)
+- `python -m pip install perseus-ctx==1.0.26` available on `PATH`
+- The hook deliberately does not execute a workspace-local `perseus.py`; contributors who run from source must install a reviewed wrapper outside the target workspace and place it on `PATH`
+- `.perseus/context.md` in the workspace (`perseus quickstart` creates it)
 
-Works on macOS, Linux, and Windows (Git Bash / WSL).
+The hook supports macOS and Linux. On Windows, use WSL or another environment that can execute the reviewed shell script.

@@ -682,6 +682,9 @@ def _build_annotations(tool_name: str, spec) -> dict | None:
     if getattr(spec, 'reads_files', False) and not getattr(spec, 'executes_shell', False):
         hints["readOnlyHint"] = True
     if getattr(spec, 'mutates_state', False):
+        # A tool that writes or resets state must never also advertise itself as
+        # read-only, even when it reads files before mutating.
+        hints["readOnlyHint"] = False
         hints["destructiveHint"] = True
     # Sensitive tools are always marked destructive
     if tool_name in _MCP_SENSITIVE_TOOLS:
@@ -944,7 +947,7 @@ _CONTEXT_CONTRACT_MCP_TOOLS: list[dict] = [
             "budget": {"type": "object"}, "integrations": {"type": "object"},
         },
         output_schema=_context_contract_output_schema(),
-        annotations={"readOnlyHint": True},
+        annotations={"readOnlyHint": False, "destructiveHint": True},
     ),
     _tool_schema(
         "perseus_agent_projection_revoke",

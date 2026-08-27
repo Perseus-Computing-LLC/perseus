@@ -193,33 +193,21 @@ per subscription.
 
 When the manifest has no subscriptions, the command returns `[]`.
 
-## `perseus llm ping --json`
+## `perseus doctor --json`
 
-Verifies the configured LLM provider and reports health.
-
-Success:
-
-```json
-{
-  "provider": "hermes",
-  "model": "default",
-  "url": "http://localhost:8080",
-  "latency_ms": 42,
-  "status": "ok",
-  "error": null
-}
-```
-
-Failure:
+Runs the supported local readiness checks and reports their status. It does not
+perform an LLM network request; provider reachability must be verified through
+the configured integration itself.
 
 ```json
 {
-  "provider": "hermes",
-  "model": "default",
-  "url": "http://localhost:8080",
-  "latency_ms": 42,
-  "status": "error",
-  "error": "LLM request failed: connection refused"
+  "perseus_version": "1.0.27",
+  "workspace": "/workspace/project",
+  "checks": [
+    {"id": "config", "status": "ok", "value": "valid"}
+  ],
+  "summary": {"ok": 1, "warn": 0, "error": 0},
+  "exit": 0
 }
 ```
 

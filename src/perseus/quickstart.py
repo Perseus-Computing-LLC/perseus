@@ -242,7 +242,7 @@ def cmd_quickstart(args, cfg) -> int:
     launcher = _perseus_command_string()
     print("Perseus ready! Next steps:")
     print(f"  {launcher} render {context_file}        — refresh context")
-    print(f"  {launcher} serve                         — start LSP for your editor")
+    print(f"  {launcher} serve --lsp --stdio          — start the LSP for your editor")
     print(f"  {launcher} suggest \"<task>\"             — get task suggestions")
     print(f"  {launcher} doctor --workspace {workspace}  — health check")
     print()

@@ -649,7 +649,10 @@ def _main_impl():
     p_systemd_create.add_argument("--enable", action="store_true",
                            help="When combined with --install, run systemctl --user daemon-reload/enable/start")
     p_systemd_uninstall = systemd_sub.add_parser("uninstall", help="Remove systemd timer + service units")
-    p_systemd_uninstall.add_argument("source", help="Path to Perseus source file")
+    p_systemd_uninstall.add_argument("source", nargs="?", default=None,
+                                      help="Path to Perseus source file (required for --job render)")
+    p_systemd_uninstall.add_argument("--job", choices=["render", "maintain"], default="render",
+                                      help="Which units to remove (maintain removes the hygiene timer/service)")
 
     # health (Daedalus v1)
     p_health = sub.add_parser("health", help="Context maintenance heuristics report")
@@ -733,6 +736,12 @@ def _main_impl():
     p_guide = sub.add_parser("guide", help="Guide log labeling and dataset export")
     guide_sub = p_guide.add_subparsers(dest="guide_command", required=True)
     _add_guide_subcommands(guide_sub)
+
+    # ``oracle`` was the public name before the internal Guide/Pythia rename;
+    # retain it as a parser-level compatibility alias for existing scripts.
+    p_oracle = sub.add_parser("oracle", help="Compatibility alias for guide")
+    oracle_sub = p_oracle.add_subparsers(dest="guide_command", required=True)
+    _add_guide_subcommands(oracle_sub)
 
     # quickstart (Track B — one-command bootstrap)
     p_quickstart = sub.add_parser("quickstart", help="One-command bootstrap: scaffold, configure, verify")
@@ -894,8 +903,6 @@ def _main_impl():
             cmd_systemd_uninstall(args, cfg)
         else:
             cmd_systemd(args, cfg)
-    elif args.command == "systemd":
-        cmd_systemd(args, cfg)
     elif args.command == "health":
         cmd_health(args, cfg)
     elif args.command == "doctor":
@@ -914,7 +921,7 @@ def _main_impl():
         if getattr(args, "speculate", False):
             return cmd_explain(args, cfg)
         return cmd_bandit_cli(args, cfg)
-    elif args.command == "guide":
+    elif args.command in ("guide", "oracle"):
         rc = cmd_guide(args, cfg)
         if isinstance(rc, int):
             return rc
@@ -925,8 +932,6 @@ def _main_impl():
         cmd_init(args, cfg)
     elif args.command == "quickstart":
         return cmd_quickstart(args, cfg)
-    elif args.command == "launchd":
-        cmd_launchd(args, cfg)
     elif args.command == "install":
         return cmd_install(args, cfg)
     elif args.command == "mcp":

@@ -33,7 +33,7 @@ including whether Windows is supported directly or via a fallback.
 
 1. Scheduler docs match implemented commands.
 2. Platform-specific command help is accurate.
-3. Windows is either supported with tests or explicitly documented as deferred.
+3. Windows Task Scheduler is supported with tests and documented as `perseus schtasks create`.
 4. Smoke checks cover generated scheduler output.
 5. No stale README claims remain.
 

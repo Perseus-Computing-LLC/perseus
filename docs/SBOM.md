@@ -1,7 +1,7 @@
 # Perseus SBOM (Software Bill of Materials)
 ## For Federal Procurement Compliance
 
-**Package:** perseus-ctx v1.0.8
+**Package:** perseus-ctx v1.0.26
 **License:** MIT
 **Repository:** https://github.com/Perseus-Computing-LLC/perseus
 **Language:** Python 3.10+
@@ -16,7 +16,7 @@
 | Supplier | Perseus Computing LLC |
 | Supplier Contact | perseus@perseus.observer |
 | SBOM Author | Perseus Computing LLC |
-| Timestamp | 2026-06-20T14:08:00-05:00 |
+| Timestamp | 2026-08-26T00:00:00Z |
 | SBOM Format | NTIA Minimum Elements + SPDX Lite |
 
 ---
@@ -27,13 +27,18 @@
 
 | Package | Version | License | Type |
 |---|---|---|---|
-| pyyaml | >=6.0.1 | MIT | Direct |
+| pyyaml | >=6.0.1,<7 | MIT | Direct |
+| tomli | 2.2.1; Python <3.11 | MIT | Conditional direct |
 
 ### Optional Dependencies
 
 | Package | Version | License | Type | Required For |
 |---|---|---|---|---|
-| mcp | * (latest) | MIT | Optional | MCP server mode |
+| mcp | unversioned (resolve exact environment) | MIT | Optional | MCP server mode |
+| langchain-core | >=0.3 | MIT | Optional | `[adapters]` LangChain context adapter |
+| llama-index-core | >=0.12 | MIT | Optional | `[adapters]` LlamaIndex context adapter |
+
+The adapter packages have transitive dependencies that vary with the resolver and installation date. Resolve and scan the exact environment before deployment; this summary does not claim a fixed transitive count for optional extras.
 
 ### Dev Dependencies (not in production)
 
@@ -55,13 +60,14 @@
 
 | Metric | Value |
 |---|---|
-| Total direct dependencies (runtime) | 1 |
-| Total transitive dependencies | 0 (pyyaml has no Python deps) |
-| Total optional dependencies | 1 (mcp) |
-| Dependencies with known CVEs | 0 |
-| Copyleft licenses (GPL/AGPL) | 0 |
-| Non-MIT/BSD licenses | 0 |
-| Foreign-owned dependencies | 0 |
+| Total direct dependencies (runtime) | 2 (tomli is conditional on Python <3.11) |
+| Total transitive dependencies | 0 (pyyaml and tomli have no Python deps) |
+| Total direct optional dependencies | 3 (mcp, langchain-core, llama-index-core) |
+| Runtime/optional dependencies with known CVEs | Not asserted here; inspect the current dependency-audit workflow |
+| Runtime/optional copyleft licenses (GPL/AGPL) | 0 in the inventory above |
+| Runtime/optional non-MIT/BSD licenses | 0 in the inventory above |
+| Development-tool licenses | Include Apache-2.0 and MPL-2.0; not shipped as runtime dependencies |
+| Supplier ownership/jurisdiction | Not inferred by this SBOM |
 
 ---
 
@@ -69,20 +75,20 @@
 
 | Field | Value |
 |---|---|
-| Build system | setuptools >=68 |
+| Build system | setuptools==83.0.0 |
 | Wheel published to | PyPI |
-| Build reproducibility | requirements.txt lockable |
+| Build reproducibility | requirements.txt pins versions; wheel hashes are not embedded |
 | Code signing | Not implemented |
 
 ---
 
 ## Security Assessment
 
-- [x] All dependencies are MIT-licensed — no copyleft risk
+- [x] Runtime and optional dependencies listed above are MIT-licensed; the development toolchain also includes Apache-2.0 and MPL-2.0 packages
 - [x] pyyaml is widely audited, maintained, and CVE-tracked
 - [x] YAML parsing uses `yaml.safe_load()` — no arbitrary code execution risk
-- [ ] No code signing on PyPI releases (TODO)
-- [ ] No SLSA provenance attestations (TODO for FedRAMP)
+- [ ] No separate code-signing artifact for the published 1.0.26 package
+- [ ] No SLSA provenance attestation is claimed for the published 1.0.26 package
 
 ---
 
@@ -90,8 +96,8 @@
 
 - [x] Supplier name: Perseus Computing LLC
 - [x] Component name: perseus-ctx
-- [x] Version string: 1.0.8
-- [x] Unique identifier: pypi:perseus-ctx@1.0.8
+- [x] Version string: 1.0.26
+- [x] Unique identifier: pypi:perseus-ctx@1.0.26
 - [x] Dependency relationship: listed above
 - [x] SBOM author: Perseus Computing LLC
 - [x] Timestamp: included

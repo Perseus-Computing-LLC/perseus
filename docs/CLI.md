@@ -28,9 +28,10 @@
 | `perseus init [--template name \| --profile name] <workspace>` | Scaffold `.perseus/context.md`; profiles also write `.perseus/pack.yaml`. |
 | `perseus serve [--port N] [--host H] [--generate-token]` | Read-only HTTP view of workspace state on `http://127.0.0.1:7991/`; optional static bearer auth via `serve.auth_token`. |
 | `perseus serve --lsp --stdio\|--tcp PORT [--allow-lsp-mutations]` | Run as a Language Server Protocol server for editor integration. Mutation commands are opt-in. |
-| `perseus cron SOURCE --output FILE [--every N] [--install]` | POSIX crontab entry generator/installer for macOS, Linux, and BSD cron. |
-| `perseus systemd SOURCE --output FILE [--interval 5m] [--install] [--enable]` | Linux-only systemd `--user` service + timer scaffolder. |
-| `perseus launchd SOURCE --output FILE [--interval 300] [--label LABEL] [--force]` | macOS-only LaunchAgent plist scaffolder. |
+| `perseus cron create SOURCE --output FILE [--every N] [--install]` | POSIX crontab entry generator/installer for macOS, Linux, and BSD cron. |
+| `perseus systemd create SOURCE --output FILE [--interval 5m] [--install] [--enable]` | Linux-only systemd `--user` service + timer scaffolder. |
+| `perseus launchd create SOURCE --output FILE [--interval 300] [--label LABEL] [--force]` | macOS-only LaunchAgent plist scaffolder. |
+| `perseus schtasks create SOURCE --output FILE [--every N] [--install]` | Windows Task Scheduler entry generator/installer. |
 | `perseus install --target {claude-code,cursor,gemini-cli,copilot} [--workspace PATH] [--dry-run]` | Install Perseus hooks into an AI assistant. |
 | `perseus update [--apply] [--check] [--auto on\|off]` | Check for and apply Perseus updates from git. |
 | `perseus mcp {serve,config,register}` | Run Perseus as an MCP server — expose directives as tools for any MCP-compatible assistant. |
@@ -58,7 +59,7 @@ Agent-readable `--json` contracts for synthesis, oracle, memory, federation, and
 ## Quick Start
 
 ```bash
-pip install perseus-ctx
+python -m pip install perseus-ctx==1.0.26
 perseus init /workspace/myproject
 perseus render /workspace/myproject/.perseus/context.md --output CLAUDE.md
 ```

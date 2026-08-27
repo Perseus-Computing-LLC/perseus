@@ -1,8 +1,6 @@
 # Wiring Perseus — Live Context for AI Assistants
 
-Perseus resolves your project state *before* the AI assistant sees it. This
-guide covers every way to wire Perseus into your workflow so context stays
-live-loaded — no stale files, no "discover what's running" preambles.
+Perseus resolves project state before an AI assistant sees it. This guide covers supported integration patterns and documents how each one refreshes its context. Freshness is tool-specific: some paths resolve files at invocation time, while remote compatibility and waypoint features can use bounded caches or persisted snapshots.
 
 ## Context, memory, and session terms
 
@@ -30,10 +28,9 @@ Perseus resolves and shapes the active working context; Perseus Vault owns durab
 
 ---
 
-## 1. MCP Server — Live Tools at Invocation Time
+## 1. MCP server — tool-specific freshness
 
-Every MCP tool resolves live workspace state when called — no stale cache, no
-pre-computed snapshots.
+Most workspace-reading MCP tools resolve their source when called. Remote compatibility tools, waypoint/session data, and explicitly cache-enabled paths can use bounded cached or persisted state. Check each tool's contract in the generated MCP reference before relying on invocation-time freshness.
 
 ### stdio (Claude Desktop, Claude Code, Cursor, Codex)
 
@@ -72,37 +69,43 @@ Print the exact config:
 ~/.local/bin/perseus mcp config
 ```
 
-### SSE (remote agents, multi-machine)
+### SSE (loopback integrations)
+
+The built-in SSE listener binds to `127.0.0.1` and accepts only loopback Host headers. Set a bearer token in the protected Perseus config before launch. The server refuses to bind without authentication unless the operator explicitly sets `mcp.allow_no_auth: true`. For multi-machine use, put a separately reviewed authenticated reverse proxy or tunnel in front of the loopback listener; the direct `<host>:8420` path is not supported.
+
+```yaml
+mcp:
+  sse_bearer_token: "<secret from your secret manager>"
+```
 
 ```bash
 ~/.local/bin/perseus mcp serve --transport sse --port 8420
 ```
 
-Then point remote assistants at `http://<host>:8420/sse`.
+A local client sends that token as an `Authorization: Bearer ***` header to `http://127.0.0.1:8420/sse`.
 
-### Available MCP Tools
+### Current MCP tools
 
-After wiring, the assistant gets these tools:
+The generated server card is the source of truth for current tool identifiers. Common entries include:
 
 | Tool | Resolves |
 |------|----------|
-| `perseus_render_source` | Full context rendering with all directives |
-| `perseus_memory_search` | Perseus Vault (FTS5 semantic search) |
-| `perseus_memory_narrative` | Project narrative |
-| `perseus_health_report` | Maintenance suggestions |
-| `perseus_oracle_suggest` | Pythia tool/skill recommendations |
-| `perseus_synthesize` | Cited synthesis claims across sources |
-| `perseus_read_file` | File contents with size guards |
-| `perseus_list_directory` | Directory listing |
-| `perseus_run_query` | Shell command execution (gated) |
-| … and 12+ more | Check `perseus mcp register` for the full registry |
+| `perseus_get_context` | Rendered workspace context |
+| `perseus_get_health` | Context-maintenance and doctor reports |
+| `perseus_read` | Explicitly allowed workspace file content |
+| `perseus_list` | Bounded directory entries |
+| `perseus_tree` | Bounded directory trees |
+| `perseus_vault` | Scoped Perseus Vault recall |
+| `perseus_capture` | Session checkpoint capture to Vault; state-mutating and marked destructive/non-read-only |
+
+Use `perseus mcp register` or inspect [the public server card](./.well-known/mcp/server-card.json) for the complete current registry. Do not copy tool names from historical examples.
 
 ---
 
 ## 2. Editor Hooks — Context Before Every Session
 
 `perseus install` injects Perseus context rendering into your AI assistant's
-startup hook, so every new session starts with live context.
+startup hook, so every new session starts with a rendered context snapshot.
 
 ```bash
 # Claude Code
@@ -233,23 +236,22 @@ perseus pack show
 
 ---
 
-## 5. LLM Backend — Pythia & Synthesis
+## 5. Optional LLM-backed directives
 
-Pythia (task suggestions) and Synthesis (cited claims) need an LLM. Quick setup:
+Some opt-in suggestion and cited-synthesis directives can call a configured model provider. They are not part of the default local render path. Configure them through the interactive setup, then verify the selected provider explicitly:
 
 ```bash
-# Interactive (recommended)
+# Interactive setup
 perseus quickstart
 
-# Non-interactive with auto-detection
+# Non-interactive setup with environment-based provider detection
 perseus quickstart --non-interactive
 
-# Verify
-perseus llm ping
+# Verify the local setup before enabling LLM-backed directives
+perseus doctor
 ```
 
-See [QUICKSTART.md](./QUICKSTART.md) for Gemini free tier, Groq, and
-llama.cpp setup details.
+Review the provider's data path, credential scope, retention, and egress policy before enabling these directives. See [QUICKSTART.md](./QUICKSTART.md) for supported provider configuration.
 
 ---
 
@@ -273,7 +275,7 @@ perseus install --target claude-code
 
 # 4. Verify everything
 perseus doctor
-perseus llm ping
+perseus doctor --json
 perseus pack validate
 
 # 5. Start coding — Claude Code gets fresh context every session
@@ -323,8 +325,8 @@ perseus trust audit --tail 20
 # Full health check
 perseus doctor
 
-# LLM reachability
-perseus llm ping
+# Full setup check
+perseus doctor
 
 # Directive coverage in your context
 perseus render .perseus/context.md --explain
@@ -333,47 +335,17 @@ perseus render .perseus/context.md --explain
 perseus trust
 ```
 
-## 9. Savings Wire — Metering Spend and Provable Savings into Plutus
+## 9. Optional usage evidence
 
-Perseus observes; it never brokers your LLM calls. The `plutus:` config block
-(default off) lets a deployment record real usage, and the counterfactual it
-replaced, into a [Plutus](https://github.com/Perseus-Computing-LLC/plutus)
-ledger whose totals a customer can re-derive by raw SQL.
+Perseus Ledger is the separate public product for provenance and usage evidence. Context Engine does not broker provider calls and this guide does not claim automatic or universal savings.
 
-```yaml
-# .perseus/config.yaml
-plutus:
-  enabled: true
-  db_path: ~/.plutus/perseus-ledger.db   # or endpoint: https://plutus.example
-  org: my-org
-  workspace: prod-agent
+For a bounded local evaluation, install the published Ledger package and inspect its demo before wiring provider usage:
+
+```bash
+python -m pip install perseus-ledger==1.2.4
+ledger demo
 ```
 
-Three levels of wiring, from zero-code to billing-grade:
+Any deployment that records costs or counterfactuals must bind the provider-reported actual usage, model and pricing version, defensible baseline, workspace scope, and evidence hashes in the same event. Estimated context reduction belongs in a separate estimate arm and must not be reported as provider-billed savings.
 
-1. **Spend only.** After each provider call, hand the SDK response to the
-   meter: `perseus.meter_response(cfg, response)`. Tokens and cost land in the
-   ledger, tagged workspace and task_type.
-
-2. **Provable savings on real calls (billing-grade).** If you know what the
-   call would have cost without Perseus, attach the counterfactual to the same
-   event: `perseus.meter_response(cfg, response, baseline_input_tokens=N)`
-   where N is the token count of the context you would have sent (for
-   example, the full-context prompt a Vault recall replaced). Plutus prices
-   the counterfactual from its published table, floors the actual at list
-   price, and hash-chains both, so the per-event saving is reconstructable
-   and tamper-evident (plutus #134). Requires plutus-agent > 1.0.1; an older
-   plutus-agent still meters spend and drops the baseline with one warning.
-
-3. **Zero-code reduction estimates.** `plutus.meter_memory_posture: true`
-   records one estimate-arm event per render: the memory block Perseus
-   actually injected versus the dump the legacy `always` posture would have
-   injected. These land in a dedicated workspace
-   (`plutus.estimates_workspace`, default `perseus-render-estimates`) and are
-   labeled `estimate-exact` (tiktoken installed) or `estimate-heuristic`, so
-   estimated context sizes never contaminate provider-billed spend. Costs one
-   vault call per render. There is also a direct helper for custom wiring:
-   `perseus.meter_context_reduction(cfg, actual_text=..., baseline_text=...)`.
-
-Estimates are for visibility; bills come from level 2. Never quote an
-estimate-arm figure as a measured saving.
+Some source-level compatibility APIs and configuration keys retain older internal identifiers. They are compatibility contracts, not separate Perseus products. New public integration guidance should use **Perseus Ledger** and its versioned package documentation.

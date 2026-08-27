@@ -62,45 +62,36 @@ def _fixture():
 
 def test_linux_broker_workflow_binds_pid_identity_and_fails_closed_on_cleanup():
     workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-    start = workflow.index("      - name: Start privileged cgroup containment broker")
-    verify = workflow.index("      - name: Verify build artifact is in sync", start)
-    stop = workflow.index("      - name: Stop privileged cgroup containment broker", verify)
-    windows = workflow.index("  test-windows:", stop)
-    startup = workflow[start:verify]
-    cleanup = workflow[stop:windows]
+    assert "sudo " not in workflow
+    assert "-m \"not privileged_acceptance\"" in workflow
 
-    assert "broker_start_time" in startup
-    assert "broker_pid_file" in startup
-    assert "sudo kill -0" in startup
-    assert "echo $!" not in startup
-    assert "broker_process_matches" in startup
-    assert "set +e" not in cleanup
-    assert "broker_process_matches" in cleanup
-    assert "sudo kill -0" in cleanup
-    assert "cleanup_failed=0" in cleanup
-    assert "exit 1" in cleanup
-    assert 'if [ ! -f "${broker_pid_file}" ]; then' in cleanup
-    assert cleanup.index('if [ ! -f "${broker_pid_file}" ]; then') < cleanup.index(
-        'elif broker_process_matches; then'
-    )
-    assert cleanup.index('cleanup_failed=1', cleanup.index('if [ ! -f "${broker_pid_file}" ]; then')) < cleanup.index(
-        'elif broker_process_matches; then'
-    )
-    assert (
-        'else\n'
-        '            if ! read -r broker_pid broker_start_time <"${broker_pid_file}" || ! [[\n'
-        '              "${broker_pid}" =~ ^[0-9]+$ && "${broker_start_time}" =~ ^[0-9]+$\n'
-        '            ]]; then\n'
-        '              cleanup_failed=1\n'
-        '            else\n'
-        '              # A nonmatching identity record is unverified even if the old PID exited.\n'
-        '              cleanup_failed=1\n'
-        '            fi'
-    ) in cleanup
-    assert cleanup.index('sudo cat "${broker_log}" >&2 || true') < cleanup.index(
-        'sudo rm -f "${broker_pid_file}" "${broker_log}"'
-    )
-    for line in cleanup.splitlines():
+    isolated_workflow = (ROOT / ".github" / "workflows" / "disconnected-acceptance.yml").read_text(encoding="utf-8")
+    assert "pull_request" not in isolated_workflow
+    assert "workflow_dispatch" not in isolated_workflow
+    assert "branches: [main, master]" in isolated_workflow
+    assert "scripts/ci/run_disconnected_acceptance.sh" in isolated_workflow
+
+    broker = (ROOT / "scripts" / "ci" / "run_disconnected_acceptance.sh").read_text(encoding="utf-8")
+    assert "mktemp -d -p /run" in broker
+    assert 'broker_pid_file="${broker_dir}/broker.pid"' in broker
+    assert 'broker_log="${broker_dir}/broker.log"' in broker
+    assert "/tmp/perseus-acceptance-broker-" not in broker
+    assert 'exec "${python_bin}" "$@" >"${log_file}" 2>&1' in broker
+    assert 'python_candidate="/usr/bin/python3"' in broker
+    assert "command -v python" not in broker
+    assert 'git -C "${workspace}" cat-file blob' in broker
+    assert 'sudo tee "${broker_script}"' in broker
+    assert 'actual_script_sha="$(sudo sha256sum "${broker_script}"' in broker
+    assert 'broker_script="${broker_dir}/cgroup_broker.py"' in broker
+    assert "broker_start_time" in broker
+    assert "broker_pid_file" in broker
+    assert "broker_process_matches" in broker
+    assert "sudo kill -0" in broker
+    assert 'if [ ! -f "${broker_pid_file}" ]; then' in broker
+    assert "cleanup_failed=1" in broker
+    assert 'sudo rmdir "${broker_root}" 2>/dev/null || true' not in broker
+    assert 'sudo rmdir "${broker_dir}" 2>/dev/null || true' not in broker
+    for line in broker.splitlines():
         if any(command in line for command in ("sudo kill", "sudo rm", "sudo rmdir")):
             assert "|| true" not in line
 
@@ -157,6 +148,7 @@ def test_offline_guard_covers_send_and_name_service_variants():
         perseus.deactivate_offline_mode()
 
 
+@pytest.mark.privileged_acceptance
 def test_disconnected_harness_emits_claim_bounded_machine_report(tmp_path, monkeypatch):
     _enable_test_only_disk_guard(monkeypatch)
     report = harness.run_acceptance(ROOT, output_dir=tmp_path)
@@ -622,6 +614,7 @@ def test_immutable_staged_file_is_owner_read_only_and_digest_bound(tmp_path):
         harness._stage_file(tmp_path, "source.bin", workspace)
 
 
+@pytest.mark.privileged_acceptance
 def test_declared_bundle_requires_and_executes_digest_bound_operation(tmp_path):
     bundle = tmp_path / "upgrade.json"
     (tmp_path / "perseus.py").write_bytes((ROOT / "perseus.py").read_bytes())
@@ -675,6 +668,7 @@ def test_backup_restore_reports_digest_comparison(tmp_path):
     assert restored["restored_digest"] == restored["backup_digest"]
 
 
+@pytest.mark.privileged_acceptance
 def test_successful_child_finalizes_owned_process_group_before_return(tmp_path):
     if os.name != "posix":
         pytest.skip("process-group assertion is POSIX-specific")
@@ -1284,6 +1278,7 @@ def test_workload_query_and_restart_count_are_exercised(tmp_path, monkeypatch):
     assert report["workload_query_digest"] == harness._sha("query-used-by-every-cell")
 
 
+@pytest.mark.privileged_acceptance
 def test_operation_receipt_must_bind_action_version_digest_query_and_persistence(tmp_path):
     bundle = tmp_path / "upgrade.json"
     (tmp_path / "perseus.py").write_bytes((ROOT / "perseus.py").read_bytes())
@@ -1311,6 +1306,7 @@ def test_operation_receipt_must_bind_action_version_digest_query_and_persistence
     assert checked["reason"] == "upgrade_operation_receipt_invalid"
 
 
+@pytest.mark.privileged_acceptance
 def test_receipt_rejects_arbitrary_decoy_state_file(tmp_path):
     (tmp_path / "perseus.py").write_bytes((ROOT / "perseus.py").read_bytes())
     bundle = tmp_path / "upgrade.json"
@@ -1341,6 +1337,7 @@ def test_receipt_rejects_arbitrary_decoy_state_file(tmp_path):
     assert checked["reason"] == "upgrade_operation_receipt_invalid"
 
 
+@pytest.mark.privileged_acceptance
 def test_restore_requires_post_restore_state_binding(tmp_path, monkeypatch):
     _enable_test_only_disk_guard(monkeypatch)
     real_render = harness._run_render
@@ -1476,6 +1473,7 @@ def test_seccomp_contains_nested_python_s_descendant(tmp_path, monkeypatch):
     assert result["status"] == "resource_limit"
 
 
+@pytest.mark.privileged_acceptance
 def test_adapter_requires_bound_machine_receipt(tmp_path):
     runtime = tmp_path / "perseus.py"
     runtime.write_bytes((ROOT / "perseus.py").read_bytes())
@@ -1504,6 +1502,7 @@ def test_adapter_requires_bound_machine_receipt(tmp_path):
     assert checked["reason"] == "adapter_operation_receipt_invalid"
 
 
+@pytest.mark.privileged_acceptance
 def test_render_binds_execution_to_manifest_digest(tmp_path, monkeypatch):
     _enable_test_only_disk_guard(monkeypatch)
     state = tmp_path / "state"
@@ -2125,6 +2124,7 @@ def test_incomplete_runtime_manifest_returns_bounded_acceptance_error(tmp_path, 
         harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
 
 
+@pytest.mark.privileged_acceptance
 def test_workload_query_has_an_executed_and_bound_flow_cell(tmp_path, monkeypatch):
     _enable_test_only_disk_guard(monkeypatch)
     report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
@@ -2154,6 +2154,7 @@ def test_restore_binding_includes_restored_state_digest(tmp_path):
     assert restored["result_binding"]["restored_digest"] == restored["restored_digest"]
 
 
+@pytest.mark.privileged_acceptance
 def test_flow_commitment_binds_complete_publication_projection(tmp_path, monkeypatch):
     _enable_test_only_disk_guard(monkeypatch)
     report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
@@ -2209,6 +2210,7 @@ def test_report_commitment_requires_fixture_binding(tmp_path):
         harness._validate_report_commitments(report)
 
 
+@pytest.mark.privileged_acceptance
 def test_report_validator_requires_exact_network_flow_projection(tmp_path, monkeypatch):
     _enable_test_only_disk_guard(monkeypatch)
     report = harness.run_acceptance(ROOT, output_dir=tmp_path / "evidence")
@@ -3164,6 +3166,7 @@ def test_staged_argv_rejects_unbound_script_path(tmp_path):
         )
 
 
+@pytest.mark.privileged_acceptance
 def test_operation_command_executes_staged_bundle_path(tmp_path):
     runtime = tmp_path / "perseus.py"
     runtime.write_bytes((ROOT / "perseus.py").read_bytes())
