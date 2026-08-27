@@ -126,19 +126,29 @@ jobs:
           if not isinstance(dependencies, list) or not dependencies or not all(isinstance(item, dict) for item in dependencies):
               mismatches["sbom dependencies"] = "missing, empty, or malformed"
           else:
-              dependency_refs = [str(item.get("ref", "")) for item in dependencies]
-              expected_dependency_refs = {expected_ref} | component_refs
-              if set(dependency_refs) != expected_dependency_refs or "" in dependency_refs or len(dependency_refs) != len(set(dependency_refs)):
+              dependency_refs = [item.get("ref") for item in dependencies]
+              if not all(isinstance(ref, str) and ref for ref in dependency_refs):
                   mismatches["sbom dependency refs"] = dependency_refs
-              dependency_targets = {
-                  str(target)
-                  for item in dependencies
-                  for target in item.get("dependsOn", [])
-              }
-              if any(not isinstance(item.get("dependsOn", []), list) for item in dependencies):
-                  mismatches["sbom dependency targets"] = "malformed"
-              elif not dependency_targets <= component_refs:
-                  mismatches["sbom dependency targets"] = sorted(dependency_targets - component_refs)
+              else:
+                  expected_dependency_refs = {expected_ref} | component_refs
+                  if set(dependency_refs) != expected_dependency_refs or len(dependency_refs) != len(set(dependency_refs)):
+                      mismatches["sbom dependency refs"] = dependency_refs
+
+              dependency_lists = [item.get("dependsOn") for item in dependencies]
+              if not all(isinstance(targets, list) for targets in dependency_lists):
+                  mismatches["sbom dependency targets"] = "missing or malformed"
+              else:
+                  dependency_targets = [
+                      target
+                      for targets in dependency_lists
+                      for target in targets
+                  ]
+                  if not all(isinstance(target, str) and target for target in dependency_targets):
+                      mismatches["sbom dependency targets"] = dependency_targets
+                  elif not set(dependency_targets) <= component_refs:
+                      mismatches["sbom dependency targets"] = sorted(
+                          set(dependency_targets) - component_refs
+                      )
           if mismatches:
               raise SystemExit(f"release metadata does not match {expected!r}: {mismatches}")
           print(f"All release metadata surfaces match {expected}")

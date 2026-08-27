@@ -21,7 +21,7 @@
     "properties": [
       {
         "name": "perseus:sbom:scope",
-        "value": "RUNTIME (distributed) dependencies only. The development/CI/packaging toolchain (pytest, mypy, poetry, twine, etc.) is documented separately in SBOM.md and is NOT part of any shipped artifact."
+        "value": "RUNTIME (distributed) dependencies only. PyYAML is unconditional; tomli is conditional for Python <3.11. The development/CI/packaging toolchain (pytest, mypy, poetry, twine, etc.) is documented separately in SBOM.md and is NOT part of any shipped artifact."
       }
     ]
   },
@@ -40,7 +40,7 @@
       "bom-ref": "pyyaml",
       "name": "PyYAML",
       "version": "6.0.3",
-      "description": "YAML parser/emitter. The single hard third-party runtime dependency; requirements-runtime.txt pins 6.0.3 and pyproject.toml permits >=6.0.1,<7.",
+      "description": "YAML parser/emitter. The unconditional third-party runtime dependency; requirements-runtime.txt pins 6.0.3 and pyproject.toml permits >=6.0.1,<7.",
       "licenses": [{ "license": { "id": "MIT" } }],
       "purl": "pkg:pypi/pyyaml@6.0.3",
       "hashes": [
@@ -55,11 +55,21 @@
           "value": "SHA-256 is for the reference pin pyyaml 6.0.3 cp312 manylinux x86_64 wheel; the aarch64 wheel is 9149cad251584d5fb4981be1ecde53a1ca46c891a79788c0df828d2f166bda28."
         }
       ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "tomli",
+      "name": "tomli",
+      "version": "2.2.1",
+      "description": "TOML parser fallback used on Python <3.11 when stdlib tomllib is unavailable.",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "purl": "pkg:pypi/tomli@2.2.1"
     }
   ],
   "dependencies": [
-    { "ref": "perseus-ctx@1.0.26", "dependsOn": ["python", "pyyaml"] },
+    { "ref": "perseus-ctx@1.0.26", "dependsOn": ["python", "pyyaml", "tomli"] },
     { "ref": "pyyaml", "dependsOn": [] },
-    { "ref": "python", "dependsOn": [] }
+    { "ref": "python", "dependsOn": [] },
+    { "ref": "tomli", "dependsOn": [] }
   ]
 }
