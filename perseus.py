@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "7884f43"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "3369dce"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -31343,7 +31343,7 @@ def _scheduler_cron_source_matches(line, source) -> bool:
     for index, token in enumerate(tokens):
         if token != "render" or index == 0 or index + 1 >= len(tokens):
             continue
-        if tokens[index + 1] != source_text:
+        if tokens[index + 1].replace(r"\%", "%") != source_text:
             continue
         launcher = Path(tokens[index - 1]).name.lower()
         if launcher == "perseus":
