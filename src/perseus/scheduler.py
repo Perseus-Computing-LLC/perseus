@@ -145,47 +145,73 @@ def _scheduler_systemd_join(tokens) -> str:
     return _scheduler_shell_join([str(token).replace("%", "%%") for token in tokens])
 
 
+def _scheduler_cron_comment_parts(line):
+    """Split a crontab line at its first unquoted comment marker."""
+    text = str(line)
+    in_single = False
+    in_double = False
+    escaped = False
+    for index, char in enumerate(text):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\" and not in_single:
+            escaped = True
+            continue
+        if char == "'" and not in_double:
+            in_single = not in_single
+            continue
+        if char == '"' and not in_single:
+            in_double = not in_double
+            continue
+        if char == "#" and not in_single and not in_double and (index == 0 or text[index - 1].isspace()):
+            return text[:index], text[index + 1 :].lstrip()
+    return text, None
+
+
 def _scheduler_cron_source_matches(line, source) -> bool:
     """Match one render crontab line to exactly one canonical source path."""
     import re as _re
     import shlex as _shlex
 
-    line_text = str(line)
+    command_text, comment = _scheduler_cron_comment_parts(line)
     digest = _scheduler_source_marker(source)
-    marker = _re.search(
-        rf"(?:^|\s)#\s*perseus-render\s+source={_re.escape(digest)}(?:\s|$)",
-        line_text,
-    )
-    command_text = line_text[: marker.start()] if marker else line_text
+    if comment is not None and not _re.match(
+        rf"^perseus-render\s+source={_re.escape(digest)}(?:\s|$)",
+        comment,
+    ):
+        return False
     try:
-        tokens = _shlex.split(command_text, comments=True, posix=True)
+        tokens = _shlex.split(command_text, comments=False, posix=True)
     except ValueError:
         return False
+    if tokens and tokens[0].startswith("@"):
+        command = tokens[1:]
+    elif len(tokens) >= 6 and all(
+        _re.fullmatch(r"[0-9*/?,\-]+", token) for token in tokens[:5]
+    ):
+        command = tokens[5:]
+    else:
+        command = tokens
     source_text = str(Path(source).expanduser().resolve())
-    for index, token in enumerate(tokens):
-        if token != "render" or index == 0 or index + 1 >= len(tokens):
-            continue
-        if tokens[index + 1].replace(r"\%", "%") != source_text:
-            continue
-        launcher = Path(tokens[index - 1]).name.lower()
-        if launcher == "perseus":
-            return True
-        if launcher == "perseus.py" and index > 1:
-            interpreter = Path(tokens[index - 2]).name.lower()
-            if interpreter.startswith("python"):
-                return True
+    if len(command) >= 3 and Path(command[0]).name.lower() == "perseus":
+        return command[1] == "render" and command[2].replace(r"\%", "%") == source_text
+    if (
+        len(command) >= 4
+        and Path(command[0]).name.lower().startswith("python")
+        and Path(command[1]).name.lower() == "perseus.py"
+    ):
+        return command[2] == "render" and command[3].replace(r"\%", "%") == source_text
     return False
 
 
 def _scheduler_cron_tag_matches(line, tag) -> bool:
-    """Match a complete scheduler tag, not a similarly-prefixed comment."""
+    """Match a complete scheduler tag in an unquoted crontab comment."""
     import re as _re
 
-    return bool(
-        _re.search(
-            rf"(?:^|\s)#\s*{_re.escape(tag)}(?:\s|$)",
-            str(line),
-        )
+    _command, comment = _scheduler_cron_comment_parts(line)
+    return comment is not None and bool(
+        _re.match(rf"^{_re.escape(tag)}(?:\s|$)", comment)
     )
 
 

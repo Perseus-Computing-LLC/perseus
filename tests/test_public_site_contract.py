@@ -359,6 +359,16 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries(tmp_pat
     assert "development toolchain also includes Apache-2.0 and MPL-2.0" in sbom_doc
     assert "setuptools==83.0.0" in sbom_doc
     assert "setuptools >=68" not in sbom_doc
+    for dependency_doc in (
+        "SBOM.md",
+        "SECURITY.md",
+        "docs/quickstart.md",
+        "docs/CONTRIBUTING.md",
+        "ROADMAP.md",
+    ):
+        dependency_text = text(dependency_doc).lower()
+        assert "pyyaml only" not in dependency_text
+        assert "tomli" in dependency_text
     assert "2026-08-26T00:00:00Z" in sbom_doc
 
     root_readme = text("README.md")

@@ -162,6 +162,9 @@ def test_cron_tag_match_requires_exact_tag(tmp_path):
     assert not perseus._scheduler_cron_tag_matches(
         "0 3 * * 0 cmd  # perseus-hygiene-backup", "perseus-hygiene"
     )
+    assert not perseus._scheduler_cron_tag_matches(
+        "/usr/bin/echo '# perseus-hygiene'", "perseus-hygiene"
+    )
     source = tmp_path / "context.md"
     digest = perseus._scheduler_source_marker(source)
     unrelated = (
@@ -172,7 +175,17 @@ def test_cron_tag_match_requires_exact_tag(tmp_path):
         f"/home/example/.local/bin/perseus render {shlex.quote(str(source))} --output /tmp/out "
         f"# perseus-render source={digest}"
     )
+    embedded = (
+        f"/usr/bin/echo perseus render {shlex.quote(str(source))} --output /tmp/out "
+        f"# perseus-render source={digest}"
+    )
+    embedded_python = (
+        f"/usr/bin/wrapper /usr/bin/python /opt/perseus.py render "
+        f"{shlex.quote(str(source))} --output /tmp/out # perseus-render source={digest}"
+    )
     assert not perseus._scheduler_cron_source_matches(unrelated, source)
+    assert not perseus._scheduler_cron_source_matches(embedded, source)
+    assert not perseus._scheduler_cron_source_matches(embedded_python, source)
     assert perseus._scheduler_cron_source_matches(valid, source)
 
 
