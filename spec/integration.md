@@ -1,342 +1,183 @@
-# Integrating Perseus with an AI Assistant
+# Integrating Perseus with an AI assistant
 
-Perseus is assistant-agnostic. There are two integration paths:
+**Status:** Current adapter and MCP integration guide.
+**Scope:** Local, user-controlled context rendering and live MCP access. Perseus
+is not an authorization layer, a hosted service, or a substitute for review of
+the files and commands it is configured to read.
 
-1. **Render-to-file** — Perseus resolves `@directive` blocks in a source document, writes plain markdown to a file your assistant reads at session start.
-2. **MCP server** — Your assistant calls Perseus tools directly over the Model Context Protocol for live, on-demand workspace state.
+Perseus has two complementary integration paths:
 
-The two paths are complementary — use render-to-file for baseline context, MCP for dynamic queries.
+1. **Render to a file:** Resolve selected `@directive` blocks into markdown that
+   an assistant reads at session start.
+2. **MCP server:** Let an MCP-compatible assistant request the generated,
+   versioned Perseus contract for live workspace state.
 
----
+## Prerequisites
 
-## Path A: Render-to-File
+Install the published package version verified by this repository, or inspect a
+source checkout and pin the exact reviewed commit before installing it:
 
-The core pattern is simple:
+```bash
+python -m pip install perseus-ctx==1.0.26
+# or: uv tool install perseus-ctx==1.0.26
+```
 
-1. Write a live context source file with `@perseus` directives
-2. Render it on a schedule or at session start
-3. Point your assistant at the rendered markdown output
+Review the source paths, commands, and trust profile in `.perseus/context.md`.
+File reads, environment reads, service checks, and shell-backed directives may
+expose data or have side effects under the host user's configuration.
 
-The rendered output is plain markdown. No special file format is required.
+## Path A: render to a file
 
-Phase 15 cited synthesis is deliberately separate from this render path.
-`perseus synthesize` can draft compact claims from source files, but only
-explicitly, only with exact citations, and without changing ordinary rendered
-context.
-
-### The Pattern
+The basic flow is:
 
 ```text
-source.md with @perseus directives
-    ↓ perseus render --output <assistant-specific-file>
+.perseus/context.md with @perseus directives
+    ↓ perseus render --output <assistant-file>
 plain markdown output
     ↓
-assistant reads that file at session start
+assistant reads the selected file
 ```
 
-The `@prompt ... @end` block is how you embed assistant-specific instructions in the context source itself.
-
-Phase 16 product profiles provide a higher-level entry point:
+Create a source file whose first line is `@perseus`, then render it on demand:
 
 ```bash
-perseus init --profile generic
-perseus pack validate
+perseus init
+perseus render .perseus/context.md --output live-context.md
 ```
 
-Profiles write `.perseus/context.md` plus `.perseus/pack.yaml`, which records
-the assistant target, rendered output path, trust profile, and optional
-synthesis source packs. Existing `perseus init --template` and direct render
+Render directly to the conventional file used by an assistant:
+
+```bash
+perseus render .perseus/context.md --output CLAUDE.md
+perseus render .perseus/context.md --output AGENTS.md
+perseus render .perseus/context.md --output .hermes.md
+```
+
+The output is ordinary markdown. Treat it as generated input: review the
+source and the rendered output before sharing it with an assistant or storing
+it in a repository.
+
+### Adapter Conformance Matrix
+
+The checked-in adapter fixtures define the expected output path for each
+profile. Keep this table synchronized with `perseus.PRODUCT_PROFILES` and the
+fixture directories:
+
+| Profile | Output | Fixture |
+|---|---|---|
+| claude-code | `CLAUDE.md` | `tests/fixtures/adapters/claude-code/` |
+| codex | `AGENTS.md` | `tests/fixtures/adapters/codex/` |
+| cursor | `.cursorrules` | `tests/fixtures/adapters/cursor/` |
+| generic | `live-context.md` | `tests/fixtures/adapters/generic/` |
+| hermes | `.hermes.md` | `tests/fixtures/adapters/hermes/` |
+| rovodev | `AGENTS.md` | `tests/fixtures/adapters/rovodev/` |
+
+Use `perseus init --profile <profile>` when a product profile should scaffold
+its source and pack files. Existing direct `perseus init` and `perseus render`
 flows remain supported.
 
-### Per-Assistant Output Files
+### Refresh options
 
-| Assistant | Output file | Command |
-|---|---|---|
-| Claude Code | `CLAUDE.md` | `perseus render .perseus/context.md --output CLAUDE.md` |
-| Hermes Agent | `.hermes.md` | `perseus render .perseus/context.md --output .hermes.md` |
-| Cursor | `.cursorrules` | `perseus render .perseus/context.md --output .cursorrules` |
-| Codex | `AGENTS.md` | `perseus render .perseus/context.md --output AGENTS.md` |
-| Rovo Dev | `AGENTS.md` | `perseus render .perseus/context.md --output AGENTS.md` |
-| Generic | Any filename | `perseus render .perseus/context.md --output live-context.md` |
-
----
-
-## Path B: MCP Server
-
-Perseus implements the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP),
-exposing all 24 directives as tools over stdio or SSE transport. Your assistant calls
-`perseus_services`, `perseus_query`, `perseus_memory`, etc. directly — live state,
-no pre-rendered files.
-
-### Starting the MCP Server
+Watch mode is useful for a foreground local workflow:
 
 ```bash
-~/.local/bin/perseus mcp serve                          # stdio (default)
-~/.local/bin/perseus mcp serve --transport sse --port 8420  # SSE for remote agents
-~/.local/bin/perseus mcp serve --workspace /path/to/project  # scope to a specific workspace
+perseus watch .perseus/context.md --output .hermes.md
 ```
 
-### Assistant-Specific MCP Config
+For scheduled refresh, use the explicit scheduler subcommands. Verify the
+printed command and output path before installing a user service:
 
-**Hermes Agent** (`~/.hermes/config.yaml`):
-
-```yaml
-mcp_servers:
-  perseus:
-    transport: stdio
-    command: /home/yourname/.local/bin/perseus
-    args: ["mcp", "serve"]
+```bash
+perseus cron create .perseus/context.md --output .hermes.md --every 5
+perseus cron create .perseus/context.md --output .hermes.md --every 5 --install
+perseus systemd create .perseus/context.md --output .hermes.md --interval 5m
+perseus launchd create .perseus/context.md --output .hermes.md --interval 5m
 ```
 
-Verify: `hermes mcp test perseus`. Tools appear as `mcp_perseus_*` in session.
+Native Windows Task Scheduler scaffolding is not claimed here; use the printed
+render command, WSL, or a scheduler managed by the host administrator.
 
-**Claude Desktop** (`claude_desktop_config.json`):
+## Path B: MCP server
+
+Start the server in the workspace whose state it may inspect:
+
+```bash
+~/.local/bin/perseus mcp serve --workspace /path/to/project
+```
+
+The default transport is stdio. SSE is available for a deliberately configured
+loopback integration:
+
+```bash
+~/.local/bin/perseus mcp serve --transport sse --port 8420 --workspace /path/to/project
+```
+
+Tool names, argument schemas, and read/write annotations are generated from
+the checked-in server contract. They can change between releases. Use
+`docs/context-engine-mcp-tools.md` and `.well-known/mcp/server-card.json` for
+the current identifiers and opt-in requirements rather than copying names from
+an old integration document.
+
+### Example MCP configuration
+
+A stdio configuration should invoke the reviewed executable and pass an explicit
+workspace when the assistant supports it:
 
 ```json
 {
   "mcpServers": {
     "perseus": {
-      "command": "/Users/yourname/.local/bin/perseus",
+      "command": "/home/yourname/.local/bin/perseus",
       "args": ["mcp", "serve", "--workspace", "/path/to/workspace"]
     }
   }
 }
 ```
 
-**Claude Code** (`.mcp.json` in project root):
-
-```json
-{
-  "mcpServers": {
-    "perseus": {
-      "command": "/Users/yourname/.local/bin/perseus",
-      "args": ["mcp", "serve"]
-    }
-  }
-}
-```
-
-**Cursor** (`.cursor/mcp.json`):
-
-```json
-{
-  "mcpServers": {
-    "perseus": {
-      "command": "/Users/yourname/.local/bin/perseus",
-      "args": ["mcp", "serve"]
-    }
-  }
-}
-```
-
-**Codex** (`~/.codex/config.toml` or `.mcp.json`):
-
-```json
-{
-  "mcpServers": {
-    "perseus": {
-      "command": "/Users/yourname/.local/bin/perseus",
-      "args": ["mcp", "serve"]
-    }
-  }
-}
-```
-
-**Rovo Dev** (`.mcp.json` in repo root):
-
-```json
-{
-  "mcpServers": {
-    "perseus": {
-      "command": "/Users/yourname/.local/bin/perseus",
-      "args": ["mcp", "serve"]
-    }
-  }
-}
-```
-
-Rovo Dev also reads `AGENTS.md` at session start — pair MCP tools with rendered context
-for a complete setup: MCP for live queries (service health, env vars, task board), rendered
-`AGENTS.md` for baseline context (project constraints, roadmap, recent decisions).
-
-### Combining Both Paths
-
-The recommended setup for most projects:
-
-1. **Render-to-file** for baseline context — `perseus cron/render --output AGENTS.md` every 5 minutes
-2. **MCP server** for on-demand queries — `perseus_services`, `perseus_query`, `perseus_memory`
-3. The assistant reads `AGENTS.md` at session start (immediate orientation) and calls MCP tools for dynamic state (service health, git status, skill listings)
-
----
-
-## Auto-Injection Approaches
-
-### Cron / scheduled render
-Prints a POSIX crontab entry on any host and can install it where `crontab` is
-available (macOS, Linux, BSD, WSL).
-
-```bash
-~/.local/bin/perseus render .perseus/context.md --output AGENTS.md
-~/.local/bin/perseus cron .perseus/context.md --output AGENTS.md --every 5
-~/.local/bin/perseus cron .perseus/context.md --output AGENTS.md --every 5 --install
-```
-
-Use this when you want periodic refresh regardless of assistant. Native
-Windows Task Scheduler support is explicitly deferred; Windows users should use
-WSL cron, the printed `perseus render` command, or invoke `perseus render` from
-their own scheduler.
-
-### macOS LaunchAgent / launchd
-Perseus provides a helper for Mac users:
-
-```bash
-~/.local/bin/perseus launchd .perseus/context.md --output AGENTS.md
-```
-
-This scaffolds a LaunchAgent plist that periodically refreshes the rendered output.
-
-### systemd timer (Linux)
-
-Perseus scaffolds user-space systemd units for Linux users:
-
-```bash
-# Print the .service and .timer files to stdout
-~/.local/bin/perseus systemd .perseus/context.md --output AGENTS.md --interval 5m
-
-# Write them to ~/.config/systemd/user/ and print activation commands
-~/.local/bin/perseus systemd .perseus/context.md --output AGENTS.md --interval 5m --install
-
-# Combined: write + run systemctl --user daemon-reload/enable/start
-~/.local/bin/perseus systemd .perseus/context.md --output AGENTS.md --install --enable
-```
-
-Interval accepts `Nm` / `Nh` / `Ns` shorthand or any systemd time spec.
-Falls back to a clear redirect message on macOS (use `perseus launchd` instead).
-
-### Scheduler parity
-
-| Platform | Perseus command | Support level |
-|---|---|---|
-| POSIX cron | `perseus cron SOURCE --output FILE [--every N] [--install]` | Prints a crontab line on any host; `--install` requires `crontab`. |
-| macOS launchd | `perseus launchd SOURCE --output FILE [--interval N]` | Supported on macOS; writes a LaunchAgent plist. |
-| Linux systemd | `perseus systemd SOURCE --output FILE [--interval 5m] [--install] [--enable]` | Supported on Linux; writes/starts user service + timer units. |
-| Native Windows Task Scheduler | none | Deferred; use WSL cron, the printed render command, or a manual `perseus render` invocation. |
-
-### Git hook
-A pre-commit or post-checkout hook can refresh rendered context for local workflows.
-
----
-
-## Per-Assistant Notes (Render-to-File)
-
-### Hermes Agent
-Hermes commonly uses `.hermes.md` as the rendered output file.
-
-```bash
-perseus render .perseus/context.md --output .hermes.md
-```
-
-Hermes can read that file at session start, or a cron watchdog can keep it fresh.
-For MCP integration (recommended for dynamic state), see Path B above.
-
-### Claude Code / claude.ai Projects
-Render to `CLAUDE.md` or another project knowledge file Claude reads.
-
-```bash
-perseus render .perseus/context.md --output CLAUDE.md
-```
-
-### Rovo Dev
-Render to `AGENTS.md` in the repo root.
-
-```bash
-perseus render .perseus/context.md --output AGENTS.md
-```
-
-Rovo Dev reads `AGENTS.md` at session start.
-
-### Cursor
-Render to `.cursorrules` or another Cursor-readable context file.
-
-```bash
-perseus render .perseus/context.md --output .cursorrules
-```
-
-### Generic
-Any assistant with file access can use Perseus. Pick any output filename and point the assistant at it.
-
-```bash
-perseus render .perseus/context.md --output live-context.md
-```
-
----
-
-## Adapter Conformance Matrix
-
-The Phase 19A harness keeps adapter docs, product profiles, context packs, and
-render outputs aligned. Each fixture is offline and deterministic.
-
-| Adapter | Output file | MCP support | Trust profile | Fixture |
-|---|---|---|---|---|
-| generic | `live-context.md` | Yes (stdio) | `balanced` | `tests/fixtures/adapters/generic/` |
-| hermes | `.hermes.md` | Yes (config.yaml) | `balanced` | `tests/fixtures/adapters/hermes/` |
-| codex | `AGENTS.md` | Yes (.mcp.json) | `balanced` | `tests/fixtures/adapters/codex/` |
-| claude-code | `CLAUDE.md` | Yes (.mcp.json) | `balanced` | `tests/fixtures/adapters/claude-code/` |
-| cursor | `.cursorrules` | Yes (.mcp.json) | `balanced` | `tests/fixtures/adapters/cursor/` |
-| rovodev | `AGENTS.md` | Yes (.mcp.json) | `balanced` | `tests/fixtures/adapters/rovodev/` |
-
-Run the conformance harness with:
-
-```bash
-python -m pytest tests/test_adapter_conformance.py -q
-```
-
----
-
-## Workspace-Local Integration
-
-A workspace can carry its own context source and config:
-
-```text
-/workspace/myproject/
-  .perseus/
-    context.md
-    config.yaml
-```
-
-`perseus render .perseus/context.md --output <file>` loads the workspace-local config automatically.
-
----
-
-## Example Context Source
-
-```markdown
-@perseus v0.4
-
-@prompt
-This context was rendered live by Perseus.
-Trust the rendered output and skip orientation.
-@end
-
-# Session Context — @date format="YYYY-MM-DD HH:mm z"
-
-## Recent Work
-@session count=5
-
-## Active Waypoint
-@waypoint ttl=86400
-
-## Services
-@services
-  - name: Local API
-    url: http://localhost:8000/health
-
-## Available Skills
-@skills flag_stale=true
-
-## Active Tasks
-@agora status=open,in_progress
-
-## Project Memory
-@memory focus="recent"
-```
+Use the assistant's normal configuration location for Hermes Agent, Claude
+Desktop, Claude Code, Cursor, Codex, or another MCP client. Do not put tokens or
+credentials in this file. Check the client documentation for its exact config
+path, then verify the server with the client's test command where available.
+
+### Transport and trust boundaries
+
+- Prefer stdio for a local assistant; it avoids opening a network listener.
+- If SSE is needed, bind it to an administrator-approved interface and protect
+  it with the host's authentication and network controls. A port number is not
+  an access-control policy.
+- The server can read selected files, environment values, and service state.
+  Minimize the configured paths and commands.
+- Shell-backed or network-capable operations require explicit configuration;
+  an MCP tool annotation does not sandbox the host process.
+- Keep production, controlled, and personal data out of demonstration fixtures.
+
+## Combining both paths
+
+A conservative setup renders a reviewed baseline and uses MCP only for selected
+live checks:
+
+1. Render `.perseus/context.md` to the assistant's knowledge file.
+2. Inspect the output for secrets, uncontrolled paths, and unexpected commands.
+3. Start MCP with an explicit workspace only when live state is needed.
+4. Re-run `perseus doctor` after changing configuration.
+5. Retain the exact package/source version alongside any evidence or report.
+
+## Troubleshooting
+
+- **Empty output:** Check the source path, the first `@perseus` line, and the
+  directive configuration. An empty result is not evidence that a backend is
+  healthy or available.
+- **Unavailable integration:** Inspect the command and error report separately;
+  do not replace an unavailable result with a clean empty result.
+- **Unexpected data:** Stop the render, remove the source or command that
+  exposes it, and rotate any credential that was accidentally included.
+- **MCP schema drift:** Regenerate or read the current server card and use the
+  release-matched reference rather than an archived tool list.
+
+## Related references
+
+- [Directives](../docs/DIRECTIVES.md)
+- [Quickstart](../docs/quickstart.md)
+- [Context packs](../docs/CONTEXT_PACKS.md)
+- [Product contract](../docs/PRODUCT_CONTRACT.md)
+- [Generated MCP reference](../docs/context-engine-mcp-tools.md)
