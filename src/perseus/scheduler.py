@@ -144,6 +144,41 @@ def _scheduler_systemd_join(tokens) -> str:
     return _scheduler_shell_join([str(token).replace("%", "%%") for token in tokens])
 
 
+def _scheduler_cron_source_matches(line, source) -> bool:
+    """Match one render crontab line to exactly one canonical source path."""
+    import re as _re
+    import shlex as _shlex
+
+    digest = _scheduler_source_marker(source)
+    marker = _re.search(
+        rf"(?:^|\s)#\s*perseus-render\s+source={_re.escape(digest)}(?:\s|$)",
+        str(line),
+    )
+    if marker:
+        return True
+    try:
+        tokens = _shlex.split(str(line), comments=False, posix=True)
+    except ValueError:
+        return False
+    source_text = str(Path(source).expanduser().resolve())
+    return any(
+        token == "render" and index + 1 < len(tokens) and tokens[index + 1] == source_text
+        for index, token in enumerate(tokens)
+    )
+
+
+def _scheduler_cron_tag_matches(line, tag) -> bool:
+    """Match a complete scheduler tag, not a similarly-prefixed comment."""
+    import re as _re
+
+    return bool(
+        _re.search(
+            rf"(?:^|\s)#\s*{_re.escape(tag)}(?:\s|$|-)",
+            str(line),
+        )
+    )
+
+
 def _scheduler_windows_quote(value) -> str:
     """Quote a value for a copied Windows command when it needs protection."""
     import re as _re
@@ -156,7 +191,9 @@ def _scheduler_windows_quote(value) -> str:
 
 def _scheduler_windows_command(tokens) -> str:
     """Render a Windows argv list with metacharacters kept inside quotes."""
-    return " ".join(_scheduler_windows_quote(token) for token in tokens)
+    import subprocess as _subprocess
+
+    return _subprocess.list2cmdline([str(token) for token in tokens])
 
 
 def _hygiene_schedule_minutes(cfg) -> int:
@@ -330,16 +367,16 @@ def cmd_cron(args, cfg):
         # #693: dedup hygiene globally but identify render entries by source so
         # independent context files can each have one scheduled entry.
         if is_maintain:
-            duplicate = "# perseus-hygiene" in current
-        else:
-            source_marker = f"# perseus-render source={_scheduler_source_marker(args.source)}"
-            render_markers = (
-                source_marker,
-                f"render {_scheduler_shell_join([Path(args.source).expanduser().resolve()])}",
-                f"render {_scheduler_cron_join([Path(args.source).expanduser().resolve()])}",
-                f"perseus render {Path(args.source).expanduser().resolve()}",
+            duplicate = any(
+                _scheduler_cron_tag_matches(line, "perseus-hygiene")
+                for line in current.splitlines()
             )
-            duplicate = any(marker in current for marker in render_markers)
+        else:
+            source = Path(args.source).expanduser().resolve()
+            duplicate = any(
+                _scheduler_cron_source_matches(line, source)
+                for line in current.splitlines()
+            )
         if duplicate:
             print(f"> ⚠ A {tag} entry already exists in crontab. Remove it first or edit by hand.")
             print(current)
@@ -569,7 +606,7 @@ def cmd_schtasks(args, cfg):
     if not getattr(args, "install", False):
         print("# Run these to install the Windows Scheduled Task(s):")
         for c in commands:
-            print("  " + " ".join(f'"{t}"' if (" " in t and not t.startswith('"')) else t for t in c))
+            print("  " + _scheduler_windows_command(c))
         print()
         print("Or install automatically with: perseus schtasks ... --install")
         return
@@ -653,20 +690,17 @@ def cmd_cron_uninstall(args, cfg):
         lines = result.stdout.split("\n")
         if job == "maintain":
             # Drops the nightly entry AND its weekly -vacuum companion.
-            filtered = [l for l in lines if "# perseus-hygiene" not in l]
+            filtered = [
+                l for l in lines
+                if not _scheduler_cron_tag_matches(l, "perseus-hygiene")
+            ]
             removed_what = "the perseus-hygiene entries"
         else:
             if not getattr(args, "source", None):
                 print("Error: removing a render entry requires the source path.", file=sys.stderr)
                 sys.exit(1)
             source = Path(args.source).expanduser().resolve()
-            source_marker = f"# perseus-render source={_scheduler_source_marker(source)}"
-            quoted_marker = f"render {_scheduler_shell_join([source])}"
-            legacy_marker = f"perseus render {source}"
-            filtered = [
-                l for l in lines
-                if source_marker not in l and quoted_marker not in l and legacy_marker not in l
-            ]
+            filtered = [l for l in lines if not _scheduler_cron_source_matches(l, source)]
             removed_what = f"the render entry for {source}"
         if len(filtered) == len(lines):
             print("No matching crontab entry found.")
