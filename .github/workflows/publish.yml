@@ -103,12 +103,21 @@ jobs:
           if component_purl != expected_purl:
               mismatches["sbom component purl"] = component_purl
           components = sbom.get("components", [])
-          component_refs = {
-              str(item.get("bom-ref", ""))
-              for item in components
-              if isinstance(item, dict)
-          }
-          if not isinstance(components, list) or not component_refs or "" in component_refs:
+          if isinstance(components, list):
+              component_refs = {
+                  str(item.get("bom-ref", ""))
+                  for item in components
+                  if isinstance(item, dict)
+              }
+          else:
+              component_refs = set()
+          if (
+              not isinstance(components, list)
+              or not components
+              or not all(isinstance(item, dict) for item in components)
+              or any(not isinstance(item.get("bom-ref"), str) or not item.get("bom-ref") for item in components)
+              or len(component_refs) != len(components)
+          ):
               mismatches["sbom component refs"] = sorted(component_refs)
           dependencies = sbom.get("dependencies", [])
           if not isinstance(dependencies, list) or not dependencies or not all(isinstance(item, dict) for item in dependencies):

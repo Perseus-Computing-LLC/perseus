@@ -2,7 +2,9 @@ import hashlib
 import importlib.util
 import json
 import re
+import shutil
 import subprocess
+import textwrap
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -676,6 +678,45 @@ def test_current_release_and_active_guidance_are_consistent():
     assert "attestations: write" in publish.split("\n  attest:\n", 1)[1].split("\n  publish:\n", 1)[0]
     action_refs = re.findall(r"uses:\s+[^@\s]+@([0-9a-f]+)", publish)
     assert action_refs and all(len(ref) == 40 for ref in action_refs)
+
+
+def test_publish_validator_rejects_duplicate_sbom_components(tmp_path):
+    publish = text(".github/workflows/publish.yml")
+    start_marker = '          python3 - "$release_version" <<\'PY\'\n'
+    start = publish.index(start_marker) + len(start_marker)
+    end = publish.index("\n          PY", start)
+    validator = textwrap.dedent(publish[start:end])
+
+    for name in ("claims.json", "manifest.json", "server.json", ".well-known/mcp/server-card.json"):
+        destination = tmp_path / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(ROOT / name, destination)
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(
+        pyproject.replace('version = "1.0.27"', 'version = "1.0.26"', 1),
+        encoding="utf-8",
+    )
+
+    sbom = json.loads((ROOT / "sbom.cdx.json").read_text(encoding="utf-8"))
+    (tmp_path / "sbom.cdx.json").write_text(json.dumps(sbom), encoding="utf-8")
+    valid = subprocess.run(
+        ["python3", "-c", validator, "1.0.26"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert valid.returncode == 0, valid.stderr
+
+    sbom["components"].append(dict(sbom["components"][0]))
+    (tmp_path / "sbom.cdx.json").write_text(json.dumps(sbom), encoding="utf-8")
+    invalid = subprocess.run(
+        ["python3", "-c", validator, "1.0.26"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert invalid.returncode != 0
+    assert "sbom component refs" in invalid.stderr
 
     for bounded_doc in ("README.md", "docs/EXAMPLES.md", "docs/use-cases.md"):
         claims_text = text(bounded_doc)
