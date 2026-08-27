@@ -3,7 +3,8 @@ name: CodeQL
 # Static analysis (SAST) for the Python source. Complements audit.yml, which
 # only covers *dependency* CVEs — CodeQL scans our own code for injection,
 # path-traversal, and similar defects. Free for this public repo. Findings
-# surface in the repo's Security tab; this workflow does not gate merges.
+# surface in local job artifacts; PR analysis is deliberately read-only and does
+# not upload SARIF or request security-events write permission.
 
 on:
   push:
@@ -15,7 +16,6 @@ on:
 
 permissions:
   contents: read
-  security-events: write
 
 jobs:
   analyze:
@@ -34,3 +34,4 @@ jobs:
         uses: github/codeql-action/analyze@c4dd10e44af883a891fe31ced449bcb4a6728b9b  # v3 (2026-08-04)
         with:
           category: "/language:python"
+          upload: never
