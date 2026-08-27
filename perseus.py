@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "dbaca59"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "b2f8147"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -31317,6 +31317,11 @@ def _scheduler_cron_join(tokens) -> str:
     return _scheduler_shell_join(tokens).replace("%", r"\%")
 
 
+def _scheduler_systemd_join(tokens) -> str:
+    """Quote argv and escape systemd's percent specifier introducer."""
+    return _scheduler_shell_join([str(token).replace("%", "%%") for token in tokens])
+
+
 def _scheduler_windows_quote(value) -> str:
     """Quote a value for a copied Windows command when it needs protection."""
     import re as _re
@@ -31500,8 +31505,20 @@ def cmd_cron(args, cfg):
             print("Error: `crontab` not found in PATH. Install cron first.", file=sys.stderr)
             sys.exit(1)
 
-        # #693: dedup per-tag so a render entry and a hygiene entry coexist.
-        if f"# {tag}" in current:
+        # #693: dedup hygiene globally but identify render entries by source so
+        # independent context files can each have one scheduled entry.
+        if is_maintain:
+            duplicate = "# perseus-hygiene" in current
+        else:
+            source_marker = f"# perseus-render source={_scheduler_source_marker(args.source)}"
+            render_markers = (
+                source_marker,
+                f"render {_scheduler_shell_join([Path(args.source).expanduser().resolve()])}",
+                f"render {_scheduler_cron_join([Path(args.source).expanduser().resolve()])}",
+                f"perseus render {Path(args.source).expanduser().resolve()}",
+            )
+            duplicate = any(marker in current for marker in render_markers)
+        if duplicate:
             print(f"> ⚠ A {tag} entry already exists in crontab. Remove it first or edit by hand.")
             print(current)
             sys.exit(1)
@@ -31611,7 +31628,7 @@ def cmd_systemd(args, cfg):
         sys.exit(1)
 
     launcher, stable = _perseus_launcher()
-    exec_start = _scheduler_shell_join(launcher + job_tokens)
+    exec_start = _scheduler_systemd_join(launcher + job_tokens)
 
     service_content = SYSTEMD_SERVICE_TEMPLATE.format(
         description=service_desc, exec_start=exec_start
@@ -31770,7 +31787,7 @@ def cmd_schtasks_uninstall(args, cfg):
         if not getattr(args, "source", None):
             print("Error: removing a render task requires the source path.", file=sys.stderr)
             sys.exit(1)
-        stem = Path(args.source).expanduser().resolve().stem
+        stem = _scheduler_safe_stem(args.source)
         names = [f"Perseus\\render-{stem}"]
     removed = 0
     for name in names:
