@@ -68,8 +68,8 @@ def test_cron_subcommand_prints_posix_crontab_entry(tmp_path, monkeypatch, capsy
 def test_cron_install_deduplicates_only_the_same_render_source(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(perseus.sys, "platform", "linux")
     monkeypatch.setattr(perseus, "_perseus_launcher", lambda: (["/usr/bin/perseus"], True))
-    source_a = tmp_path / "a.md"
-    source_b = tmp_path / "b.md"
+    source_a = tmp_path / "context"
+    source_b = tmp_path / "context-old"
     source_a.write_text("@perseus\n", encoding="utf-8")
     source_b.write_text("@perseus\n", encoding="utf-8")
     current = {"text": ""}
@@ -90,8 +90,16 @@ def test_cron_install_deduplicates_only_the_same_render_source(tmp_path, monkeyp
         perseus.cmd_cron(args, cfg())
 
     assert current["text"].count("# perseus-render source=") == 2
-    assert "a.md" in current["text"]
-    assert "b.md" in current["text"]
+    assert str(source_a.resolve()) in current["text"]
+    assert str(source_b.resolve()) in current["text"]
+
+    perseus.cmd_cron_uninstall(
+        argparse.Namespace(job="render", source=str(source_a)), cfg()
+    )
+    marker_a = f"# perseus-render source={perseus._scheduler_source_marker(source_a)}"
+    marker_b = f"# perseus-render source={perseus._scheduler_source_marker(source_b)}"
+    assert marker_a not in current["text"]
+    assert marker_b in current["text"]
 
 
 def test_cron_subcommand_prints_on_native_windows_for_wsl_or_remote_use(tmp_path, monkeypatch, capsys):
