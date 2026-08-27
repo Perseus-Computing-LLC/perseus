@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "1a8fffd"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "896eab8"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -31373,23 +31373,32 @@ def _scheduler_cron_source_matches(line, source) -> bool:
         command = tokens[5:]
     else:
         command = tokens
-    source_text = str(Path(source).expanduser().resolve())
-    local_launcher = Path.home() / ".local" / "bin" / "perseus"
+    import pathlib as _pathlib
+
+    source_text = str(_pathlib.Path(source).expanduser().resolve())
+    local_launcher = _pathlib.Path.home() / ".local" / "bin" / "perseus"
     expected_launchers = {str(local_launcher), str(local_launcher.resolve())}
+    try:
+        configured_launchers, _ = _perseus_launcher()
+    except (OSError, RuntimeError, TypeError, ValueError):
+        configured_launchers = []
+    for configured_launcher in configured_launchers:
+        launcher_path = _pathlib.Path(configured_launcher)
+        expected_launchers.update({str(launcher_path), str(launcher_path.resolve())})
     try:
         path_launcher = _shutil.which("perseus")
     except Exception:
         path_launcher = None
     if path_launcher:
-        expected_launchers.update({path_launcher, str(Path(path_launcher).resolve())})
+        expected_launchers.update({path_launcher, str(_pathlib.Path(path_launcher).resolve())})
     if len(command) >= 3 and command[1] == "render":
-        launcher = str(Path(command[0]).resolve())
+        launcher = str(_pathlib.Path(command[0]).resolve())
         if launcher in expected_launchers:
             return command[2].replace(r"\%", "%") == source_text
     if (
         len(command) >= 4
-        and Path(command[0]).resolve() == Path(_sys.executable).resolve()
-        and Path(command[1]).resolve() == Path(__file__).resolve()
+        and _pathlib.Path(command[0]).resolve() == _pathlib.Path(_sys.executable).resolve()
+        and _pathlib.Path(command[1]).resolve() == _pathlib.Path(__file__).resolve()
         and command[2] == "render"
     ):
         return command[3].replace(r"\%", "%") == source_text
