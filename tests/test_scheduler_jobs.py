@@ -1,6 +1,7 @@
 """#693 — scheduler job-spec generalization: `--job maintain` alongside render."""
 import argparse
 import shlex
+import subprocess
 
 import pytest
 
@@ -65,6 +66,30 @@ def test_cron_render_requires_source_and_output(tmp_path, monkeypatch, capsys):
     with pytest.raises(SystemExit):
         perseus.cmd_cron(args, cfg())
     assert "requires a source file and --output" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("bad_field", ["source", "output"])
+def test_cron_rejects_line_break_paths_before_install(tmp_path, monkeypatch, capsys, bad_field):
+    _fake_local_bin(tmp_path, monkeypatch)
+    source = tmp_path / "context.md"
+    output = tmp_path / "AGENTS.md"
+    if bad_field == "source":
+        source = tmp_path / "context\n-injected.md"
+    else:
+        output = tmp_path / "AGENTS\r-injected.md"
+    args = _ns(job="render", source=str(source), output=str(output), every="30", install=True)
+    calls = []
+
+    def fake_run(*run_args, **run_kwargs):
+        calls.append((run_args, run_kwargs))
+        return subprocess.CompletedProcess(run_args[0], 0, stdout="", stderr="")
+
+    monkeypatch.setattr(perseus.subprocess, "run", fake_run)
+    with pytest.raises(SystemExit):
+        perseus.cmd_cron(args, cfg())
+
+    assert "line break" in capsys.readouterr().err
+    assert calls == []
 
 
 def test_cron_render_entry_unchanged(tmp_path, monkeypatch, capsys):

@@ -74,7 +74,7 @@ The adapter packages have transitive dependencies that vary with the resolver an
 
 | Field | Value |
 |---|---|
-| Build system | setuptools >=68 |
+| Build system | setuptools==83.0.0 |
 | Wheel published to | PyPI |
 | Build reproducibility | requirements.txt pins versions; wheel hashes are not embedded |
 | Code signing | Not implemented |

@@ -1,5 +1,6 @@
 # ─────────────────────────────── Scheduler ────────────────────────────────────
 # Cross-platform scheduling commands: launchd (macOS), cron (POSIX), systemd (Linux)
+import sys as _scheduler_sys
 
 LAUNCHD_TEMPLATE = """\
 <?xml version="1.0" encoding="UTF-8"?>
@@ -301,6 +302,14 @@ def cmd_cron(args, cfg):
     or ``--job maintain`` (hands-off memory hygiene).
     """
     job_tokens, tag, _stem = _resolve_job(args, cfg)
+    for field in ("source", "output"):
+        value = getattr(args, field, None)
+        if value is not None and any(char in str(value) for char in ("\n", "\r")):
+            print(
+                f"Error: {field} path must not contain line breaks.",
+                file=_scheduler_sys.stderr,
+            )
+            _scheduler_sys.exit(1)
     is_maintain = tag == "perseus-hygiene"
 
     raw_every = getattr(args, "every", None)
