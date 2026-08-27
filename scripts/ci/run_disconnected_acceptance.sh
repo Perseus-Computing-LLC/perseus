@@ -2,14 +2,34 @@
 set -euo pipefail
 
 workspace="${GITHUB_WORKSPACE:-$(pwd)}"
+workspace="$(realpath -e "${workspace}")"
 run_id="${GITHUB_RUN_ID:-local-$$}"
-python_version="${PYTHON_VERSION:-$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')}"
+if [[ ! "${run_id}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+    echo "invalid run identity" >&2
+    exit 1
+fi
+
+python_candidate="/usr/bin/python3"
+if [ ! -x "${python_candidate}" ]; then
+    echo "trusted system Python is unavailable: ${python_candidate}" >&2
+    exit 1
+fi
+python_bin="$(realpath -e "${python_candidate}")"
+python_owner="$(stat -c '%u' "${python_bin}")"
+python_mode="$(stat -c '%a' "${python_bin}")"
+if [ "${python_owner}" != "0" ] || (( (8#${python_mode}) & 18 )); then
+    echo "trusted system Python has unsafe ownership or mode" >&2
+    exit 1
+fi
+python_version="$("${python_bin}" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+
 broker_root="/sys/fs/cgroup/perseus-acceptance-${run_id}-${python_version}"
 broker_dir="$(sudo mktemp -d -p /run "perseus-acceptance-${run_id}-${python_version}.XXXXXX")"
 broker_socket="${broker_dir}/broker.sock"
 broker_pid_file="${broker_dir}/broker.pid"
 broker_log="${broker_dir}/broker.log"
-broker_script="${workspace}/benchmark/disconnected_acceptance/cgroup_broker.py"
+script_repo_path="benchmark/disconnected_acceptance/cgroup_broker.py"
+broker_script="${broker_dir}/cgroup_broker.py"
 cleanup_failed=0
 
 broker_process_matches() {
@@ -59,7 +79,7 @@ cleanup() {
         echo "privileged cgroup broker cleanup failed" >&2
         sudo cat "${broker_log}" >&2 2>/dev/null || true
     fi
-    sudo rm -f "${broker_pid_file}" "${broker_log}" || cleanup_failed=1
+    sudo rm -f "${broker_pid_file}" "${broker_log}" "${broker_script}" || cleanup_failed=1
     sudo rmdir "${broker_root}" 2>/dev/null || cleanup_failed=1
     sudo rmdir "${broker_dir}" 2>/dev/null || cleanup_failed=1
     if [ "${cleanup_failed}" -ne 0 ]; then
@@ -76,13 +96,19 @@ finish() {
 }
 trap finish EXIT
 
-if [ ! -f "${broker_script}" ]; then
-    echo "trusted cgroup broker script is missing: ${broker_script}" >&2
+commit_sha="$(git -C "${workspace}" rev-parse --verify HEAD^{commit})"
+git -C "${workspace}" cat-file -e "${commit_sha}:${script_repo_path}"
+expected_script_sha="$(git -C "${workspace}" cat-file blob "${commit_sha}:${script_repo_path}" | sha256sum | cut -d' ' -f1)"
+git -C "${workspace}" cat-file blob "${commit_sha}:${script_repo_path}" | sudo tee "${broker_script}" >/dev/null
+sudo chmod 0555 "${broker_script}"
+actual_script_sha="$(sudo sha256sum "${broker_script}" | cut -d' ' -f1)"
+if [ "${actual_script_sha}" != "${expected_script_sha}" ]; then
+    echo "trusted broker materialization digest mismatch" >&2
     exit 1
 fi
+
 sudo mkdir -p "${broker_root}"
 sudo chmod 0755 "${broker_dir}"
-python_bin="$(command -v python)"
 sudo bash -c '
     set -euo pipefail
     umask 0022

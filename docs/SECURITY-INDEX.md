@@ -25,7 +25,7 @@ access privileges) and is the map an auditor or contributor should start from.
 |---|---|---|
 | Runtime dependency CVE scanning | `.github/workflows/audit.yml` (`pip-audit`, `requirements-runtime.txt`) | **Gating** on push/PR + weekly — the shipped surface must be CVE-free |
 | Dev/CI toolchain CVE scanning | `.github/workflows/audit.yml` (`osv-scanner`, static lockfile scan of `requirements.txt`) | Non-gating, for visibility |
-| Static analysis (SAST) | `.github/workflows/codeql.yml` (CodeQL, Python, `security-extended`) | Non-gating, weekly + push/PR; findings in the Security tab |
+| Static analysis (SAST) | `.github/workflows/codeql.yml` (CodeQL, Python, `security-extended`) | Non-gating, weekly + push/PR; read-only job artifacts, SARIF upload disabled |
 | Private vulnerability reporting | GitHub Security → Private Vulnerability Reporting | **Enabled** — reports arrive as private advisories |
 
 ## 3. Access & privileges register

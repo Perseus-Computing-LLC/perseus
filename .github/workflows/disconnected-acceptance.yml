@@ -2,8 +2,9 @@ name: Disconnected acceptance
 
 # This workflow is intentionally push-only. The acceptance harness needs a
 # privileged cgroup broker; it must never run on attacker-controlled PR code.
-# Pull-request validation in test.yml remains unprivileged and excludes only
-# this Linux-only acceptance file.
+# Pull-request validation in test.yml remains unprivileged and runs all acceptance
+# cases except the explicitly marked privileged probes. The pinned dependencies
+# are installed only in this trusted push workflow.
 
 on:
   push:
@@ -31,10 +32,15 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install pinned test dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install pyyaml jsonschema pytest coverage hypothesis tiktoken
+          python -m pip install \
+            PyYAML==6.0.3 \
+            coverage==7.15.3 \
+            hypothesis==6.165.1 \
+            jsonschema==4.26.0 \
+            pytest==9.1.1 \
+            tiktoken==0.14.0
 
       - name: Verify build artifact is in sync
         run: python scripts/build.py --check
