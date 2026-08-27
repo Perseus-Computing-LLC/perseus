@@ -62,45 +62,25 @@ def _fixture():
 
 def test_linux_broker_workflow_binds_pid_identity_and_fails_closed_on_cleanup():
     workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-    start = workflow.index("      - name: Start privileged cgroup containment broker")
-    verify = workflow.index("      - name: Verify build artifact is in sync", start)
-    stop = workflow.index("      - name: Stop privileged cgroup containment broker", verify)
-    windows = workflow.index("  test-windows:", stop)
-    startup = workflow[start:verify]
-    cleanup = workflow[stop:windows]
+    assert "sudo " not in workflow
+    assert "--ignore=tests/test_disconnected_acceptance.py" in workflow
 
-    assert "broker_start_time" in startup
-    assert "broker_pid_file" in startup
-    assert "sudo kill -0" in startup
-    assert "echo $!" not in startup
-    assert "broker_process_matches" in startup
-    assert "set +e" not in cleanup
-    assert "broker_process_matches" in cleanup
-    assert "sudo kill -0" in cleanup
-    assert "cleanup_failed=0" in cleanup
-    assert "exit 1" in cleanup
-    assert 'if [ ! -f "${broker_pid_file}" ]; then' in cleanup
-    assert cleanup.index('if [ ! -f "${broker_pid_file}" ]; then') < cleanup.index(
-        'elif broker_process_matches; then'
-    )
-    assert cleanup.index('cleanup_failed=1', cleanup.index('if [ ! -f "${broker_pid_file}" ]; then')) < cleanup.index(
-        'elif broker_process_matches; then'
-    )
-    assert (
-        'else\n'
-        '            if ! read -r broker_pid broker_start_time <"${broker_pid_file}" || ! [[\n'
-        '              "${broker_pid}" =~ ^[0-9]+$ && "${broker_start_time}" =~ ^[0-9]+$\n'
-        '            ]]; then\n'
-        '              cleanup_failed=1\n'
-        '            else\n'
-        '              # A nonmatching identity record is unverified even if the old PID exited.\n'
-        '              cleanup_failed=1\n'
-        '            fi'
-    ) in cleanup
-    assert cleanup.index('sudo cat "${broker_log}" >&2 || true') < cleanup.index(
-        'sudo rm -f "${broker_pid_file}" "${broker_log}"'
-    )
-    for line in cleanup.splitlines():
+    isolated_workflow = (ROOT / ".github" / "workflows" / "disconnected-acceptance.yml").read_text(encoding="utf-8")
+    assert "pull_request" not in isolated_workflow
+    assert "workflow_dispatch" not in isolated_workflow
+    assert "branches: [main, master]" in isolated_workflow
+    assert "scripts/ci/run_disconnected_acceptance.sh" in isolated_workflow
+
+    broker = (ROOT / "scripts" / "ci" / "run_disconnected_acceptance.sh").read_text(encoding="utf-8")
+    assert "broker_start_time" in broker
+    assert "broker_pid_file" in broker
+    assert "broker_process_matches" in broker
+    assert "sudo kill -0" in broker
+    assert 'if [ ! -f "${broker_pid_file}" ]; then' in broker
+    assert "cleanup_failed=1" in broker
+    assert 'sudo rmdir "${broker_root}" 2>/dev/null || true' not in broker
+    assert 'sudo rmdir "${broker_dir}" 2>/dev/null || true' not in broker
+    for line in broker.splitlines():
         if any(command in line for command in ("sudo kill", "sudo rm", "sudo rmdir")):
             assert "|| true" not in line
 

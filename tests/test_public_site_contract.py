@@ -468,6 +468,10 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     assert "GEMINI_API_KEY" not in pr_pilot
     assert "secrets." not in pr_pilot
 
+    codeql = text(".github/workflows/codeql.yml")
+    assert "security-events: write" not in codeql
+    assert "upload: never" in codeql
+
     workflow_checkout_count = 0
     workflow_guard_count = 0
     for workflow_path in (ROOT / ".github" / "workflows").glob("*.yml"):
