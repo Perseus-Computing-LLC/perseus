@@ -111,6 +111,11 @@ def test_schtasks_render_task_uses_minute_schedule(tmp_path, monkeypatch, capsys
     preview = capsys.readouterr().out
     assert f'"{source}"' in preview
 
+    calls.clear()
+    perseus.cmd_schtasks_uninstall(_ns(job="render", source=str(source)), cfg())
+    deleted = [c[c.index("/TN") + 1] for c in calls if "/Delete" in c]
+    assert deleted == ["Perseus\\render-ctx-file"]
+
 
 
 def test_cron_install_routes_to_schtasks_on_windows(tmp_path, monkeypatch, capsys):
