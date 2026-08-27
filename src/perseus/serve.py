@@ -2452,5 +2452,5 @@ def cmd_init(args, cfg):
     else:
         print(f"  1. Edit {context_file} to add project-specific @services and @query blocks")
         print(f"  2. Run: perseus render {context_file}   — refresh your rendered context")
-        print(f"  3. Run: perseus serve                    — start the LSP for your editor")
+        print(f"  3. Run: perseus serve --lsp --stdio     — start the LSP for your editor")
         print(f"  Docs & more commands: https://perseus.observer/docs")

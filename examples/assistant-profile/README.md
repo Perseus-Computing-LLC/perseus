@@ -70,9 +70,10 @@ profile: claude-code   # was hermes — now writes CLAUDE.md instead of .hermes.
 **Set up automatic refresh so the output file stays current:**
 ```bash
 # Refresh every 30 minutes via cron
-perseus cron --schedule "*/30 * * * *" \
-  --source .perseus/context.md \
-  --output .hermes.md
+perseus cron create .perseus/context.md \
+  --output .hermes.md \
+  --every 30 \
+  --install
 ```
 
 **Build up the project narrative over time:**

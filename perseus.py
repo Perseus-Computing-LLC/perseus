@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "e728872"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "8afe494-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -32687,7 +32687,7 @@ def cmd_quickstart(args, cfg) -> int:
     launcher = _perseus_command_string()
     print("Perseus ready! Next steps:")
     print(f"  {launcher} render {context_file}        — refresh context")
-    print(f"  {launcher} serve                         — start LSP for your editor")
+    print(f"  {launcher} serve --lsp --stdio          — start the LSP for your editor")
     print(f"  {launcher} suggest \"<task>\"             — get task suggestions")
     print(f"  {launcher} doctor --workspace {workspace}  — health check")
     print()
@@ -36141,7 +36141,7 @@ def cmd_init(args, cfg):
     else:
         print(f"  1. Edit {context_file} to add project-specific @services and @query blocks")
         print(f"  2. Run: perseus render {context_file}   — refresh your rendered context")
-        print(f"  3. Run: perseus serve                    — start the LSP for your editor")
+        print(f"  3. Run: perseus serve --lsp --stdio     — start the LSP for your editor")
         print(f"  Docs & more commands: https://perseus.observer/docs")
 """Deterministic, visibility-safe context routing decisions (#890).
 

@@ -562,6 +562,74 @@ def test_one_public_contact_identity():
     assert not re.search(r"mailto:(?!perseus@perseus\.observer)", combined)
 
 
+def test_current_release_and_active_guidance_are_consistent():
+    manifest = json.loads(text("manifest.json"))
+    server = json.loads(text("server.json"))
+    card = json.loads(text(".well-known/mcp/server-card.json"))
+    sbom = json.loads(text("sbom.cdx.json"))
+    published_version = manifest["version"]
+    assert server["version"] == published_version
+    assert {item["version"] for item in server["packages"]} == {published_version}
+    assert card["serverInfo"]["version"] == published_version
+    assert sbom["metadata"]["component"]["version"] == published_version
+
+    card_generator = text("scripts/generate_server_card.py")
+    assert "manifest.json" in card_generator
+    assert '"version": manifest["version"]' in card_generator
+    assert '"version": "1.0.26"' not in card_generator
+
+    registry = text(".github/workflows/mcp-registry.yml")
+    assert "github.event.release.tag_name" in registry
+    assert "MCP_REGISTRY_VERSION" in registry
+    assert "manifest.json" in registry
+    assert "server.json" in registry
+    assert "source_version" not in registry
+    assert "< VERSION" not in registry
+
+    audit = text(".github/workflows/audit.yml")
+    assert "15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a" in audit
+    assert "sha256sum --check" in audit
+    assert "releases/latest" not in audit
+
+    hermes = text("docs/HERMES_INTEGRATION.md")
+    for stale_hermes_surface in ("hermes proxy start", "perseus llm ping", "--llm hermes", "LLM-augmented"):
+        assert stale_hermes_surface not in hermes
+    assert "file-based" in hermes.lower()
+    assert "provider routing" in hermes.lower()
+    assert "Wire Perseus to Hermes via LLM routing" not in text("README.md")
+    assert "Full ecosystem deployment on Hermes" not in text("docs/index.md")
+
+    for path in ("spec/integration.md", "docs/quickstart.md"):
+        guidance = text(path)
+        assert "perseus watch .perseus/context.md" not in guidance
+        assert "perseus watch --source .perseus/context.md --output" in guidance
+    assert "serve --lsp --stdio" in text("src/perseus/quickstart.py")
+    assert "serve --lsp --stdio" in text("src/perseus/serve.py")
+    assert "serve                         — start LSP for your editor" not in text("src/perseus/quickstart.py")
+    assert "perseus serve                    — start the LSP for your editor" not in text("src/perseus/serve.py")
+
+    deployment = text("docs/DEPLOYMENT.md").lower()
+    assert "auto-update" not in deployment
+    assert "update --apply" not in deployment
+    assert "/workspace/perseus/perseus.py" not in deployment
+    assert "pinned package" in deployment
+    assert "manual review" in deployment
+    assert "full ecosystem deployment on hermes" not in text("docs/index.md").lower()
+    assert "| [**Deployment**](./docs/DEPLOYMENT.md) | Current deployment guidance" in text("README.md")
+
+    for path in ("spec/components.md", "examples/assistant-profile/README.md"):
+        guidance = text(path)
+        assert "perseus cron .perseus/context.md" not in guidance
+        assert "perseus cron --schedule" not in guidance
+        assert "perseus cron create .perseus/context.md" in guidance
+    cli_guidance = text("docs/CLI.md")
+    assert "perseus cron SOURCE" not in cli_guidance
+    assert "perseus cron create SOURCE" in cli_guidance
+    quickstart = text("QUICKSTART.md")
+    assert "| `perseus serve` | Start LSP" not in quickstart
+    assert "perseus serve --lsp --stdio" in quickstart
+
+
 def test_committed_html_matches_public_site_generator(tmp_path):
     module = load_generator()
     setattr(module, "ROOT", tmp_path)

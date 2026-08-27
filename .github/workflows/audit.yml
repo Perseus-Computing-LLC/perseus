@@ -58,9 +58,15 @@ jobs:
         with:
           persist-credentials: false
       - name: Install osv-scanner
+        env:
+          OSV_SCANNER_SHA256: 15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0
         run: |
-          curl -sSL -o /usr/local/bin/osv-scanner \
-            https://github.com/google/osv-scanner/releases/download/v2.4.0/osv-scanner_linux_amd64
-          chmod +x /usr/local/bin/osv-scanner
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/osv-scanner_linux_amd64"
+          curl -fsSL --retry 3 --retry-all-errors \
+            https://github.com/google/osv-scanner/releases/download/v2.4.0/osv-scanner_linux_amd64 \
+            -o "${archive}"
+          printf '%s  %s\n' "${OSV_SCANNER_SHA256}" "${archive}" | sha256sum --check -
+          install -m 0755 "${archive}" /usr/local/bin/osv-scanner
       - name: Audit dev/CI toolchain freeze against OSV (non-gating)
         run: osv-scanner scan source --no-resolve --lockfile requirements.txt
