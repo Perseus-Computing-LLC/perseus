@@ -251,9 +251,10 @@ assistant:                               # task-01 (legacy `hermes:` migrated he
   sessions_dir: ~/.hermes/sessions
 ```
 
-Legacy configs using `oracle:` are still accepted for compatibility. Perseus
-merges those values into `guide:` and emits a deprecation warning so existing
-workspaces keep working while operators migrate.
+The legacy `oracle` CLI command remains as a parser-level compatibility alias
+for existing scripts. A top-level `oracle:` config section is not loaded or
+merged into `guide:`; it remains inert as an unknown section. New workspaces
+should use `guide:` directly.
 
 Render block also accepts:
 
@@ -302,9 +303,8 @@ silently rewrite user state unless a migration is explicitly documented.
 - `hermes:` remains accepted as a legacy alias for `assistant:`. Values are
   merged into `assistant:` at load time. If both sections are present, explicit
   `assistant:` values take precedence except for legacy-only keys.
-- `oracle:` remains accepted as a legacy alias for `guide:`. Perseus emits a
-  deprecation warning to stderr and normalizes old `provider` / `model` fields
-  to `llm_provider` / `ollama_model`.
+- `oracle:` is not loaded or merged into `guide:`. It remains inert as an
+  unknown top-level section; migrate its values to `guide:` explicitly.
 - Unknown top-level config sections and future fields inside known sections are
   preserved in the loaded config unless a command explicitly validates that
   section.
@@ -315,9 +315,7 @@ Migration example:
 # legacy
 hermes:
   context_file: AGENTS.md
-oracle:
-  provider: ollama
-  model: llama3
+# `oracle:` is inert; move its values explicitly to `guide:`.
 
 # preferred
 assistant:
@@ -329,8 +327,8 @@ guide:
 
 ### Legacy State Files
 
-- `oracle_log.jsonl` is migrated once to `guide_log.jsonl` when the Guide log
-  path is first resolved and the new file does not already exist.
+- `oracle_log.jsonl` is not migrated; it remains in place as inert legacy state.
+  New Guide activity uses `guide_log.jsonl`.
 - Checkpoints without an explicit `version` field remain readable. Future
   checkpoint fields are ignored by recovery and shown by diff output when they
   change.
