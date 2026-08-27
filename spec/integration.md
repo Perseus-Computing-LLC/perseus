@@ -94,8 +94,11 @@ perseus systemd create .perseus/context.md --output .hermes.md --interval 5m
 perseus launchd create .perseus/context.md --output .hermes.md --interval 5m
 ```
 
-Native Windows Task Scheduler scaffolding is not claimed here; use the printed
-render command, WSL, or a scheduler managed by the host administrator.
+Native Windows Task Scheduler support is available through `schtasks create`:
+
+```text
+perseus schtasks create .perseus/context.md --output .hermes.md --every 5
+```
 
 ## Path B: MCP server
 
