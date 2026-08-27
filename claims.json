@@ -9,7 +9,14 @@
   "claims": {
     "perseus_version": {
       "value": "1.0.27",
-      "source": "VERSION",
+      "source": "VERSION at repository SHA d2e857ba4ea96a7e5656d0e44bc5daab48e6cd36",
+      "status": "source-release-candidate",
+      "publishable": false,
+      "note": "The source tree is prepared for 1.0.27, but the public package registry has not published it. Do not use this value as a package badge."
+    },
+    "perseus_pypi_version": {
+      "value": "1.0.26",
+      "source": "https://pypi.org/pypi/perseus-ctx/json verified 2026-08-26",
       "status": "release",
       "publishable": true
     },
@@ -19,10 +26,16 @@
       "status": "release",
       "publishable": true
     },
+    "ledger_version": {
+      "value": "1.2.4",
+      "source": "https://pypi.org/pypi/perseus-ledger/json and GitHub release v1.2.4 verified 2026-08-26",
+      "status": "release",
+      "publishable": true
+    },
     "jcp_dd2345": {
       "value": "Approved",
       "detail": "approved 2026-08-18; valid through 2031-08-18; this readiness credential does not grant technical-data access, CMMC/SPRS status, facility clearance, classified access, ATO, or partner fit",
-      "source": "/opt/data/work/govcon-engagements-jcp-20260818/STATUS.md + Vault decision jcp-credential-opportunity-gate-2026-08-18",
+      "source": "JCP approval record retained under controlled administrative custody; public claim is limited to approval status and validity dates",
       "status": "verified-readiness",
       "label": "readiness",
       "publishable": true
@@ -97,11 +110,12 @@
     "longmemeval_cot": {
       "value": "82.0%",
       "detail": "latest completed full 500-question paired internal confirmation (410/500) using the official-CoT answer prompt, evidence-structured candidate context, and a matched full-context control at 83.2% (416/500); delta -1.2 percentage points; 38 gains vs 44 regressions; execution and custody accepted, preregistered success rule failed, no automatic promotion; official evaluator cross-check unavailable locally",
-      "source": "/opt/data/benchmarks/longmemeval-1132-confirmation-20260822-r3/acceptance_report.json + candidate/main/qa_report.json",
-      "status": "accepted-with-exceptions",
+      "source": "internal custody artifact; sanitized public report not yet published",
+      "status": "accepted-internal-confirmation",
+      "evidence_access": "internal-only",
       "label": "measured-paired-confirmation",
       "publishable": true,
-      "note": "This is not an independent holdout estimate, a product-superiority claim, or production authorization. The provider-free attribution rerun in /opt/data/benchmarks/longmemeval-1132-free-attribution-20260822-r4 has no final report yet and is not used as a score."
+      "note": "This is not an independent holdout estimate, a product-superiority claim, or production authorization. A provider-free attribution rerun remains incomplete and is not used as a score."
     },
     "longmemeval_retrieval_recall10": {
       "value": "99.2%",
@@ -189,6 +203,7 @@
     },
     "temporal_correctness": {
       "value": "13/13",
+      "detail": "13 of 13 deterministic temporal-gauntlet fixture cases passed; no external control or baseline; this validates the committed fixture contract only and does not establish customer-workload accuracy or production authorization",
       "source": "perseus-vault/benchmark/temporal/gauntlet_report.json",
       "status": "signed",
       "label": "measured",

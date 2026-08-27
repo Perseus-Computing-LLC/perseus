@@ -36,24 +36,24 @@
       "properties": {
         "perseus.autoRender": {
           "type": "boolean",
-          "default": true,
-          "description": "Automatically render context when .perseus/context.md changes"
+          "default": false,
+          "description": "Render automatically after changes only in a trusted workspace (off by default)"
+        },
+        "perseus.executable": {
+          "type": "string",
+          "default": "",
+          "description": "Optional absolute path to the reviewed Perseus executable"
         },
         "perseus.outputFile": {
           "type": "string",
           "default": ".hermes.md",
-          "description": "Output file for rendered context (CLAUDE.md, AGENTS.md, .cursorrules, or .hermes.md)"
+          "description": "Workspace-relative output file; traversal outside the workspace is rejected"
         },
         "perseus.assistant": {
           "type": "string",
           "default": "auto",
           "enum": ["auto", "claude", "cursor", "codex", "hermes", "copilot"],
           "description": "Target AI assistant (auto-detects from workspace files)"
-        },
-        "perseus.showStatusBar": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show Perseus render status in the status bar"
         }
       }
     }

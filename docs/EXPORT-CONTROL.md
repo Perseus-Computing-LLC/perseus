@@ -1,144 +1,61 @@
-# Export Control Self-Classification — Perseus & Perseus Vault
+# Export-control engineering inventory
 
 **Prepared by:** Perseus Computing LLC
-**Date:** 2026-06-20
-**Classification:** UNCLASSIFIED
-**Jurisdiction:** United States
+**Updated:** 2026-08-26
+**Status:** Informational engineering inventory; not a legal determination, commodity classification, license decision, certification, or procurement approval
 
----
+## Purpose and limits
 
-## Executive Summary
+This document identifies public product facts that an export-control professional may need. It does not classify Perseus Context Engine, Perseus Vault, or a customer deployment under the EAR or ITAR. Do not rely on it to determine an ECCN, EAR99 status, ITAR jurisdiction, license exception, destination eligibility, denied-party result, or topic-specific restriction.
 
-Both Perseus (perseus-ctx) and Perseus Vault are **MIT-licensed, publicly available open source software**.
-Under the Export Administration Regulations (EAR) 15 CFR §§ 730-774 and the International
-Traffic in Arms Regulations (ITAR) 22 CFR §§ 120-130, both products are self-classified as
-**EAR99** — not subject to export licensing requirements.
+Public source availability and an open-source license do not by themselves settle every export-control question. Encryption functionality, binaries, hosted services, technical assistance, destinations, end users, and end uses can require separate analysis. Obtain qualified counsel or an official BIS/DDTC determination when a transaction needs one.
 
-This document provides the analysis and rationale for federal procurement and SBIR submissions.
+## Current public components
 
----
+### Perseus Context Engine
 
-## Product Descriptions
+- Published package reviewed here: `perseus-ctx` 1.0.26.
+- Public Python source under the MIT license.
+- Default local render path reads operator-selected workspace sources and writes the selected output file.
+- Optional HTTP, MCP SSE, shell, local-agent, service-command, checkpoint, cache, memory, and network features change the data and execution boundary when enabled.
 
-### Perseus (perseus-ctx v1.0.8)
-- **Type:** Python CLI tool — live context engine for AI assistants
-- **Function:** Resolves directives (@query, @read, @services) into plain markdown output. Read-only — never writes to filesystem, never stores data, never makes network calls unless explicitly directed by user-authored directives.
-- **Distribution:** PyPI (public package registry)
-- **Source:** https://github.com/Perseus-Computing-LLC/perseus (public, MIT license)
+### Perseus Vault
 
-### Perseus Vault (v2.2.0)
-- **Type:** Rust binary — persistent memory MCP server for AI agents
-- **Function:** Stores, searches, and retrieves structured entities via JSON-RPC 2.0 over stdio. Includes AES-256-GCM encryption (standard commercial algorithm). As of v2.2, a public ONNX embedding model (all-MiniLM-L6-v2) is bundled into the binary by default for offline semantic search (no network, no key); a lean build without it is available. No cryptographic key management — keys are user-provided.
-- **Distribution:** GitHub Releases (public binary downloads)
-- **Source:** https://github.com/Perseus-Computing-LLC/perseus-vault (public, MIT license)
+- Current public release reviewed here: v2.23.2.
+- Public Rust source under the MIT license.
+- Stores and retrieves structured memory through local and optional network interfaces.
+- Uses standard cryptographic libraries, including AES-256-GCM functionality, with operator-supplied key material and deployment-specific custody.
+- Release artifacts and optional feature builds must be evaluated by exact version and configuration; this inventory does not classify them.
 
----
+### Perseus Ledger
 
-## EAR Analysis
+- Current public package referenced by this site: `perseus-ledger` 1.2.4.
+- Separate provenance and usage-evidence product.
+- Any deployment that records provider usage, customer data, or controlled technical information needs its own data-flow and jurisdiction review.
 
-### Jurisdiction: EAR99
+## Facts for a classification review
 
-Per 15 CFR § 734.3(b), items subject to the EAR include all items in the United States
-unless specifically excluded. The following analysis determines whether Perseus or Perseus Vault
-fall under a more restrictive ECCN (Export Control Classification Number).
+A reviewer should confirm at least:
 
-### ECCN Review
+1. the exact source revision, package, binary, feature set, and cryptographic functions;
+2. whether the transaction distributes source, object code, hosted access, technical assistance, or a combination;
+3. the destination, end user, ownership/control parties, and intended end use;
+4. sanctions, denied-party, military-intelligence, and prohibited end-use restrictions;
+5. whether customer inputs include export-controlled technical data or defense articles/services;
+6. whether a DoD solicitation, JCP-controlled distribution statement, contract clause, or program security classification imposes additional limits; and
+7. whether a notification, classification request, license, exception, or other filing is required.
 
-| ECCN Category | Applicable? | Rationale |
-|---|---|---|
-| **3A001** (electronics) | No | No electronic components or hardware |
-| **3D001** (software for 3A) | No | Not development/production software for controlled electronics |
-| **4A003** (computers) | No | Not a computer or computing system |
-| **4D001** (software for 4A) | No | Not operating system or development software for controlled computers |
-| **5A002** (cryptography) | Reviewed below | See cryptography analysis |
-| **5D002** (cryptographic software) | Reviewed below | See cryptography analysis |
-| **9A004** (spacecraft) | No | No aerospace applications |
+## Procurement boundary
 
-### Cryptography Analysis (ECCN 5D002)
+This inventory does not:
 
-Perseus Vault includes AES-256-GCM encryption via the `aes-gcm` Rust crate (v0.10). Under
-EAR Category 5 Part 2, cryptographic software may require classification under 5D002.
+- establish EAR99, an ECCN, ITAR status, or a no-license-required conclusion;
+- authorize access to JCP-controlled, export-controlled, classified, or CUI material;
+- demonstrate CMMC certification or applicability, FedRAMP authorization, an ATO/cATO, facility clearance, GSA Schedule qualification, or contract eligibility; or
+- replace transaction-specific legal review, screening, or customer security controls.
 
-**However**, per 15 CFR § 740.13(b)(1) and Supplement No. 8 to Part 742, "publicly
-available" encryption source code is **not subject to the EAR** when it is:
+Perseus Computing LLC reports separate organizational and procurement records on the public government page. Those records do not classify the software or a future deployment for export-control purposes.
 
-1. Published on a publicly accessible website (GitHub — ✅)
-2. Available for free distribution (MIT license — ✅)
-3. Not restricted to specific countries or persons (public repo — ✅)
+## Recommended evidence package
 
-Both Perseus and Perseus Vault source code are publicly available on GitHub under MIT license.
-The AES-256-GCM implementation is via a standard, publicly available open-source crate.
-No proprietary or classified encryption algorithms are used.
-
-**Conclusion:** EAR99. Encryption component falls under the public availability exclusion.
-
-### De Minimis Analysis
-
-The only non-US component is the `aes-gcm` Rust crate, which is also publicly available
-open source. No controlled foreign content above the de minimis threshold (25% for most
-countries, 10% for embargoed destinations).
-
----
-
-## ITAR Analysis
-
-### USML Review
-
-Per 22 CFR § 121.1 (United States Munitions List), ITAR controls apply to defense
-articles and services. Neither Perseus nor Perseus Vault:
-
-- Are specifically designed, developed, configured, adapted, or modified for a
-  military application (Category I-XXI)
-- Contain classified information
-- Are listed on the USML
-
-Both products are **general-purpose AI infrastructure tools** with no military-specific
-features, no weapons interfaces, no fire control integration, and no classified data handling.
-
-**Conclusion:** Not subject to ITAR. No DDTC registration or export license required.
-
-### ITAR Note for SBIR
-
-Some DoD SBIR topics carry ITAR restrictions because the TOPIC involves defense
-articles, not because the offeror's technology is ITAR-controlled. In such cases,
-offerors must disclose any use of foreign nationals and comply with topic-level
-export control requirements. Perseus Computing LLC is US-owned and US-operated
-(all development in the United States, no foreign nationals on the codebase).
-
----
-
-## OFAC / Sanctions
-
-Neither product is designed for use in, or exported to, comprehensively sanctioned
-countries (Cuba, Iran, North Korea, Syria, Crimea region of Ukraine). As public
-open source software, standard EAR99 treatment applies.
-
----
-
-## Summary
-
-| Product | ECCN | ITAR | License Required | Encryption Registration |
-|---|---|---|---|---|
-| Perseus (perseus-ctx) | EAR99 | Not applicable | No | No |
-| Perseus Vault | EAR99 | Not applicable | No | No (public availability exclusion) |
-
----
-
-## For Federal Procurement
-
-This self-classification supports:
-
-- **SBIR proposal submissions** — provides ITAR/EAR disclosure required by DoD topics
-- **CMMC compliance** — confirms no foreign-controlled technology
-- **FedRAMP authorization** — supports supply chain risk assessment
-- **GSA Schedule qualification** — provides export control posture
-
-**Certification:** I certify that this self-classification has been prepared in good
-faith based on a reasonable understanding of the EAR and ITAR. Perseus Computing LLC
-is a US-owned small business. All development is performed in the United States by
-US persons.
-
----
-
-*This document is not legal advice. For formal export classification, consult an
-export control attorney or submit a Commodity Classification request to BIS.*
+For counsel or an official classification request, provide the exact release hashes, source tree, SBOM, cryptographic-function inventory, deployment diagram, data-flow description, feature flags, distribution method, proposed destinations/end users/end uses, and any solicitation or contract clauses. Keep the resulting legal determination outside this engineering document and update public claims only from the authoritative record.

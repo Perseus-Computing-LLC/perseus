@@ -4,7 +4,8 @@
 
 | Version | Supported |
 |---|---|
-| 1.0.x (latest) | ✅ Active |
+| 1.0.26 (published) | ✅ Active |
+| 1.0.27 (source candidate) | Development only |
 | < 1.0.0 | ❌ Unsupported |
 
 ## Reporting a Vulnerability
@@ -43,30 +44,32 @@ We support responsible disclosure and will credit reporters who follow this poli
 
 ## Security Model
 
-Perseus is a **read-only context rendering engine**. It does not:
+Perseus Context Engine is primarily a context renderer. It can write an explicitly selected output file and can also expose optional commands, services, hooks, and persistent state when the operator enables them. Those optional paths are part of the security boundary, not a sandbox.
 
-- Write to your filesystem (except the output file you explicitly specify)
-- Make network calls (except `@http` directives you explicitly author)
-- Execute arbitrary code (directives are resolved in a sandboxed interpreter)
-- Store credentials or secrets
-- Run as a daemon or persistent process
+Default posture:
 
-**Note:** Perseus can optionally expose network services via `perseus serve` (HTTP API) and `perseus mcp serve` (MCP stdio/SSE transport). These are disabled by default and require explicit opt-in. See the [serve documentation](docs/serve.md) for security considerations when enabling network access.
+- Local workspace sources are resolved without a Perseus-hosted service.
+- Shell, local-agent, service-command, and remote-health operations are disabled unless explicitly enabled.
+- Enabled commands run with the current user's permissions and are **not sandboxed**.
+- Authored HTTP directives, network transports, connectors, model providers, and external integrations can send operator-selected data to configured destinations.
+- Output, checkpoint, cache, and memory features write to paths selected by the operator or configuration.
+
+Perseus does not require a Perseus-hosted API key for its default local render path. It can read environment variables, local files, or provider credentials that the operator exposes to an enabled directive or integration, so secrets must remain outside committed context sources and rendered artifacts.
 
 ### Attack surface
 
 | Vector | Risk | Mitigation |
 |---|---|---|
-| Malicious YAML in context files | Low | `yaml.safe_load()` only — no arbitrary code execution |
-| Directive injection via untrusted input | Medium | Directives are explicitly authored in `.perseus/context.md` — not user-submitted |
-| Output file overwrite | None | `perseus render --output` writes to the path you specify — this is the intended behavior |
-| Supply chain (PyPI) | Medium | SBOM published; signed SLSA build provenance on releases (see "Verifying releases") |
+| Malicious context or YAML input | Medium | YAML uses `safe_load()`, but enabled directives still act with the process permissions; review context sources and keep dangerous gates off |
+| Directive injection from an untrusted workspace | High | Treat workspace context as code-like configuration; trust the repository before enabling shell, agent, service-command, HTTP, or connector paths |
+| Output file overwrite or traversal | Medium | The CLI writes the operator-selected output path with current-user permissions; wrappers must constrain paths to their intended workspace |
+| Supply chain (PyPI) | Medium | SBOM published; 1.0.26 uses PyPI trusted publishing, while separate code-signing and SLSA attestations are not claimed |
 
 ### Trust boundaries
 
-- **You author the directives.** Perseus resolves them. The assistant reads resolved output.
-- **Perseus never sees your assistant's conversation.** It renders before the session starts.
-- **Perseus never sees your API keys.** It runs locally, reads local files, writes local files.
+- **You author the directives.** Perseus resolves the operations that policy allows. The assistant reads the resulting artifact.
+- **Conversation data is not an implicit input.** A host or integration can still pass conversation-derived data if the operator configures that path.
+- **Credentials are operator-scoped inputs.** The default renderer does not require a Perseus-hosted credential, but enabled environment, file, HTTP, model-provider, and integration paths can access credentials exposed to the process.
 
 ---
 
@@ -77,35 +80,37 @@ Perseus is a **read-only context rendering engine**. It does not:
 | NIST SP 800-53 | Mapping in progress |
 | NIST AI RMF | Alignment documented |
 | EO 14028 (SBOM) | [SBOM published](./docs/SBOM.md) |
-| CMMC | Not applicable (read-only tool, no CUI handling) |
+| CMMC | Perseus Computing LLC reports a Level 2 self-assessment for its organizational environment. That company posture does not certify this software, authorize CUI handling in an arbitrary deployment, or confer an ATO. |
 
 ---
 
 ## Dependency Security
 
-- **Single runtime dependency:** PyYAML (MIT license, widely audited)
-- **No native extensions** — pure Python
+- **Runtime dependencies:** PyYAML (unconditional) and tomli (Python <3.11 fallback), both MIT-licensed
+- **Perseus source has no native extensions**; PyYAML may install a platform-specific compiled extension wheel
 - **SBOM published** at [docs/SBOM.md](./docs/SBOM.md)
-- We monitor [GitHub Advisory Database](https://github.com/advisories) for PyYAML CVEs
-- Dependency pinned with hash checking in progress
+- We monitor [GitHub Advisory Database](https://github.com/advisories) for PyYAML and tomli CVEs
+- Dependencies pinned with hash checking in progress
 
 ---
 
 ## Verifying releases
 
-Published distributions carry **signed SLSA build provenance** at two layers:
+The published package currently uses PyPI trusted publishing, but this repository does **not** claim a SLSA provenance attestation or separate code-signing artifact for Perseus Context Engine 1.0.26. Trusted publishing authenticates the upload workflow; it is not the same as a downloadable SLSA or Sigstore attestation.
 
-- **GitHub Artifact Attestations** (Sigstore-signed) for the sdist and wheel —
-  verify a downloaded distribution was built by our publish workflow:
-  ```bash
-  gh attestation verify perseus_ctx-<version>-py3-none-any.whl \
-    --repo Perseus-Computing-LLC/perseus
-  ```
-- **PyPI PEP 740 attestations** — generated during trusted publishing and shown
-  as verified provenance on the [PyPI project page](https://pypi.org/p/perseus-ctx).
+Verify the selected package version and archive digest against PyPI before installation. For example:
 
-A successful verification confirms the artifact's origin (repo, workflow, commit)
-and integrity.
+```bash
+python - <<'PY'
+import hashlib, json, urllib.request
+version = "1.0.26"
+metadata = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/perseus-ctx/{version}/json"))
+for item in metadata["urls"]:
+    print(item["filename"], item["digests"]["sha256"])
+PY
+```
+
+A digest comparison verifies downloaded bytes against the package registry record. It does not certify runtime behavior or confer deployment authorization.
 
 ---
 

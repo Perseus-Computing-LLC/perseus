@@ -5,7 +5,7 @@ the processes, and who holds which privileges. This satisfies OSTIF
 best-practices **step 6** (an updated knowledgebase tracking security efforts and
 access privileges) and is the map an auditor or contributor should start from.
 
-*Last reviewed: 2026-07-10.*
+*Last reviewed: 2026-08-26.*
 
 ---
 
@@ -25,7 +25,7 @@ access privileges) and is the map an auditor or contributor should start from.
 |---|---|---|
 | Runtime dependency CVE scanning | `.github/workflows/audit.yml` (`pip-audit`, `requirements-runtime.txt`) | **Gating** on push/PR + weekly — the shipped surface must be CVE-free |
 | Dev/CI toolchain CVE scanning | `.github/workflows/audit.yml` (`osv-scanner`, static lockfile scan of `requirements.txt`) | Non-gating, for visibility |
-| Static analysis (SAST) | `.github/workflows/codeql.yml` (CodeQL, Python, `security-extended`) | Non-gating, weekly + push/PR; findings in the Security tab |
+| Static analysis (SAST) | `.github/workflows/codeql.yml` (CodeQL, Python, `security-extended`) | Non-gating, weekly + push/PR; read-only job artifacts, SARIF upload disabled |
 | Private vulnerability reporting | GitHub Security → Private Vulnerability Reporting | **Enabled** — reports arrive as private advisories |
 
 ## 3. Access & privileges register
@@ -35,8 +35,8 @@ access can be reviewed and revoked. No keys or tokens appear here.
 
 | Privilege | Holder(s) | Notes |
 |---|---|---|
-| Repository admin | Thomas Connally (`tcconnally`), Mark Thrailkill | Both hold repo admin as of 2026-07-10. |
-| Merge to protected `main` | via PR + required `test (3.12)` check | ✅ Verified 2026-07-10: `main` is protected and requires the `test (3.12)` status check. No direct pushes. |
+| Repository admin | Thomas Connally (`tcconnally`), Mark Thrailkill | Both hold repo admin as last reviewed 2026-08-26. |
+| Merge to protected `main` | via PR + required checks | Branch protection and required-check names must be verified live before each merge; this document does not attest to their current API state. |
 | Release / publish (PyPI) | `[CONFIRM]` — PyPI trusted publishing | Publishing via OIDC trusted-publisher, not long-lived tokens |
 | Release signing / provenance | *none yet* | SLSA provenance / signed releases are a tracked milestone (§ SECURITY-MILESTONES) |
 | Security disclosure — primary handler | Thomas Connally (perseus@perseus.observer) | See [`vuln-response.md`](./vuln-response.md) |

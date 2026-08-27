@@ -13,3 +13,12 @@ perseus.py text eol=lf
 # their text bytes stable across Linux and Windows checkouts.
 vault/mcp-reference/** text eol=lf
 vault/mcp-reference/**/*.png binary -eol
+
+# Hash-bound demo inputs and outputs must remain byte-stable across checkouts.
+demo/sample-context.md text eol=lf
+demo/sample-resolved.txt text eol=lf
+demo/sample-metadata.json text eol=lf
+
+# Generated capability statements contain binary PDF structure. Do not apply
+# text whitespace or line-ending rules to them.
+*.pdf binary -eol

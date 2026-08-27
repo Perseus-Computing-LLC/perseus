@@ -1,17 +1,15 @@
-@perseus v1.0.8
-<!-- Last updated: 2026-06-08 · Current Perseus version: v1.0.6 -->
+@perseus v1.0.27
+<!-- Last updated: 2026-08-27 · Source candidate: v1.0.27 · Published package: v1.0.26 -->
 
 @prompt
-This document is the single source of truth for the Perseus project.
-Every new session working on Perseus must read this file first.
-Do not ask the user what we're working on. Read this file. Then work.
-Do not propose architecture, new tasks, or "next steps" not already described here.
-The framework and plan belong to the project owner. Your job is to execute tasks.
+This is maintained project-planning context. Status markers are planning notes,
+not release proof; check the current CI, claims registry, and source before
+relying on a version or capability statement.
 @end
 
-> **Note to human readers:** This file is a live `@perseus` source document. The raw directive syntax (`@query`, `@prompt`, `@date`) is Perseus input — render with `perseus render ROADMAP.md` for plain markdown output. The phase numbering and task-IDs are internal sprint structure used by Perseus's own build process; treat the "✅ Complete" markers as the authoritative shipping status.
+> **Note to human readers:** This file is a `@perseus` source document. The raw directive syntax (`@query`, `@prompt`, `@date`) is Perseus input — render with `perseus render ROADMAP.md` for plain markdown output. Phase numbering and task IDs are internal planning structure; confirm shipping status against the release metadata and CI.
 
-# Perseus — Living Roadmap
+# Perseus — Project roadmap
 
 **Repo:** https://github.com/Perseus-Computing-LLC/perseus  
 **Workspace:** current repo checkout  
@@ -43,14 +41,14 @@ checkpoints feed it.
 |---|---|---|
 | **Renderer** | Resolves `@directive` blocks in `.md` files before context window | ✅ Complete |
 | **Checkpoints** | Lightweight explicit session recovery snapshots | ✅ Complete |
-| **Pythia** | Tool oracle — ranks approaches given task + live env | ✅ Complete |
+| **Pythia** | Tool oracle — ranks approaches given task + rendered environment context | ✅ Complete |
 | **Agora** | Async agent coordination substrate — task queue + `@agora` directive | ✅ Phase 5C |
 | **Health** | Deterministic context maintenance heuristics — `perseus health` + `@health` directive (Daedalus v1) | ✅ Phase 5E |
 | **Daedalus** | Local autonomous scoring model — Pythia without a round-trip (dataset + routing shipped; model training is a user step) | ✅ Phase 6 |
 | **Mnēmē** | Narrative project memory — distills checkpoints + Pythia log into a per-workspace narrative | ✅ Phase 7 |
-|| **Federation** | Cross-workspace Mnēmē narrative aggregation via subscribable manifest | ✅ Phase 8.2 |
-|| **Decentralized Fed.** | Remote transport, cryptographic identity, provenance chains, cross-org context sharing | 🔨 Phase 27 |
-|| **Templates** | Starter scaffolds for generic/hermes/rovodev/claude-code/cursor via `perseus init --template` | ✅ Phase 8 |
+| **Federation** | Cross-workspace Mnēmē narrative aggregation via subscribable manifest | ✅ Phase 8.2 |
+| **Decentralized Fed.** | Remote transport, cryptographic identity, provenance chains, cross-org context sharing | 🔨 Phase 27 |
+| **Templates** | Starter scaffolds for generic/hermes/rovodev/claude-code/cursor via `perseus init --template` | ✅ Phase 8 |
 | **Serve** | Read-only HTTP view of workspace state | ✅ Phase 8 |
 | **Inbox** | Per-workspace point-to-point message store + `@inbox` directive | ✅ Phase 8 |
 | **Cron** | Cross-platform scheduler (macOS/Linux/BSD) — bridges launchd + systemd | ✅ Phase 8 |
@@ -58,7 +56,7 @@ checkpoints feed it.
 | **Hephaestus** | Extensibility architecture — plugin directives, macros, hooks, format adapters, pipe syntax | ✅ Phase 24 |
 | **MCP Integration** | Expose every directive as an MCP tool for universal AI client compatibility | ✅ Phase 25 |
 | **Security Hardening** | MCP SSE auth, Windows timeout, SSRF protection, build robustness | ✅ Phase 26 |
-|| _Exploratory_ | Undated, non-committed directions (federation mesh, context packs, autonomy, model-aware/intent-driven context, enterprise, native apps, …) | 📋 see [Exploratory](#exploratory--directional-not-committed-no-dates) |
+| _Exploratory_ | Undated, non-committed directions (federation mesh, context packs, autonomy, model-aware/intent-driven context, enterprise, native apps, …) | 📋 see [Exploratory](#exploratory--directional-not-committed-no-dates) |
 
 ---
 
@@ -82,7 +80,7 @@ checkpoints feed it.
 | `perseus suggest "<task>"` | Emits structured Pythia prompt over live env snapshot |
 | `perseus suggest "<task>" --llm ollama` | Pipes Pythia prompt to local model, no round-trip |
 | `perseus init [--profile name] [workspace]` | Scaffolds `.perseus/context.md`; profiles also write `.perseus/pack.yaml` |
-| `perseus launchd` | Scaffolds macOS LaunchAgent plist for scheduled render |
+| `perseus launchd create` | Scaffolds a macOS LaunchAgent plist for scheduled render |
 
 ### Directives implemented
 
@@ -119,7 +117,8 @@ checkpoints feed it.
 ```
 <workspace>/
   perseus.py                    ← generated single-file artifact; canonical source in src/perseus/
-  requirements.txt              ← pyyaml only; no other deps
+  requirements.txt              ← pinned development/release toolchain
+  requirements-runtime.txt      ← minimal shipped runtime dependency set
   tests/
     conftest.py                 ← shared Perseus loader and test helpers
     test_*.py                   ← subsystem pytest files; must pass before any commit
@@ -169,7 +168,7 @@ These apply to every agent working in this repo. They are not up for discussion.
 1. **Edit source, regenerate artifact.** Edit `src/perseus/` modules, not `perseus.py`
    directly. Regenerate the single-file artifact with `python scripts/build.py`. Keep the
    generated root artifact committed. Do not add runtime dependencies without explicit approval.
-2. **`pyyaml` is the only dependency.** Do not add deps without explicit approval.
+2. **Runtime dependencies are version-conditional.** PyYAML is unconditional; `tomli==2.2.1` is used for Python <3.11. Do not add other runtime dependencies without explicit approval.
 3. **Tests before commit.** All existing tests must pass. New behavior needs new tests.
 4. **Spec follows code.** When behavior changes, update the relevant `spec/*.md`. The code
    is the truth.
@@ -428,7 +427,7 @@ Phase 6 (done):   task-06 Daedalus — dataset curation (oracle accept/reject/lo
 Phase 7 (done):   task-12 Mnēmē — narrative project memory, @memory directive, auto-update on checkpoint
 Phase 8 (done):   task-15/16/17/18 — @agent, @inbox, template gallery, perseus serve, perseus cron
 Phase 8.2 (done): task-19 Mnēmē federation — manifest, 4 CLI subcommands, @memory federation directive
-Phase 8.3 (done): Hermes integration — `hermes` provider alias, `perseus llm ping`, docs/HERMES_INTEGRATION.md
+Phase 8.3 (done): Hermes integration — `hermes` provider alias and file-based provider guidance in docs/HERMES_INTEGRATION.md
 Phase 9 (done):   task-20/21/22 — `perseus oracle infer-labels`, `memory.pattern_extractor: daedalus`, `perseus oracle drift` + `@drift`
 Phase 10 (done):  task-23/24 — LSP server (`perseus serve --lsp`), VSCode extension (`editors/vscode/`)
 Phase 11 (done):   Internal hardening — DIRECTIVE_REGISTRY (task-25 ✅), doctor (task-26 ✅),
@@ -478,8 +477,8 @@ directive registry). Supports `--json` for CI/agent consumption.
 
 ### 11C: `--json` Agent Surfaces (task-28) ✅
 
-Add `--json` flag to 6 commands: `oracle infer-labels`, `oracle drift`,
-`llm ping`, `memory status`, `memory federation list`, `memory federation pull`.
+Add `--json` flag to 5 commands: `oracle infer-labels`, `oracle drift`,
+`memory status`, `memory federation list`, and `memory federation pull`.
 Stable JSON contracts for agent consumption, documented in
 `docs/AGENT_SURFACES.md` and linked from the README CLI reference.
 
@@ -524,7 +523,8 @@ that gap.
 - New directive: `@validate schema="path" ...@end` wrapping a block
 
 **Decision:** Phase 12 uses option **B** — a minimal built-in schema validator
-implemented in pure Python. `pyyaml` remains the only required dependency.
+implemented in pure Python. At that point, `pyyaml` remained the only required
+runtime dependency; current Python <3.11 installs also include conditional `tomli`.
 
 The proof-of-concept added `pykwalify` which violates constraint #2 ("pyyaml is
 the only dependency"). Rejected options:
@@ -785,16 +785,17 @@ the single-file implementation while adding real release artifacts and platform
 smoke checks.
 
 **Status:** Complete. Installer bootstrap, release artifacts/versioning, and
-scheduler parity are all live. Native Windows Task Scheduler support is
-explicitly deferred; platform-agnostic render flows remain available everywhere.
+scheduler parity are shipped. Native Windows Task Scheduler support is provided
+by `perseus schtasks create`; platform-agnostic render flows remain available
+everywhere.
 
 - **18A Installer bootstrap (task-48) ✅:** Add a single-file install/update path
   that places Perseus on PATH and verifies `pyyaml`.
 - **18B Release artifacts and versioning (task-49) ✅:** Define version bump,
   changelog, checksum, and signed/hashed release artifact workflow.
-- **18C Cross-platform scheduler parity (task-50) ✅:** Close scheduling gaps,
-  document cron/launchd/systemd/Windows parity, and defer native Task Scheduler
-  while preserving platform-neutral render/cron text generation.
+- **18C Cross-platform scheduler parity (task-50) ✅:** Close scheduling gaps
+  and document cron/launchd/systemd/Windows Task Scheduler parity while
+  preserving platform-neutral render/cron text generation.
 
 ### Phase 19 — Assistant Adapter Ecosystem
 
@@ -1454,7 +1455,7 @@ quarter-by-quarter plan through 2031; that false precision has been removed.)
 
 ```
 Source document (.perseus/context.md)
-  @perseus v1.0.8
+  @perseus v1.0.27
   @query "git log --oneline -5"          ┐
   @read .env key="PORT"                  │  Directives resolved
   @waypoint ttl=86400                    │  before context window.
@@ -1466,14 +1467,14 @@ Source document (.perseus/context.md)
   Resolved markdown (facts, not instructions)
           │
           ▼
-  .hermes.md  ←── cron watchdog keeps this ≤5 min fresh
+  .hermes.md  ←── cron watchdog attempts a five-minute render cadence
           │
           ▼
   Hermes session start
   build_context_files_prompt()
           │
           ▼
-  AI context window — complete, accurate, zero pre-flight tax
+  AI context window — resolved snapshot; verify source freshness and completeness
 
   Waypoints: ~/.perseus/checkpoints/
   Cache:     ~/.perseus/cache/

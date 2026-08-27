@@ -4,7 +4,9 @@ import importlib.util
 import io
 import json
 import os
+import plistlib
 import select
+import shlex
 import socket
 import subprocess
 import sys
@@ -19,12 +21,12 @@ from conftest import PY_VER, cfg, perseus, _capture_json, _seed_guide_log
 
 pytestmark = pytest.mark.skipif(PY_VER < (3, 10), reason="Perseus requires Python 3.10+")
 
-def test_launchd_subcommand_scaffolds_plist_on_macos(tmp_path, monkeypatch):
-    source = tmp_path / ".perseus" / "context.md"
+def test_launchd_subcommand_scaffolds_plist_on_macos(tmp_path, monkeypatch, capsys):
+    source = tmp_path / "project&name" / ".perseus" / "context.md"
     source.parent.mkdir(parents=True)
     source.write_text("@perseus\n", encoding="utf-8")
-    output = tmp_path / ".rovodev" / "context.md"
-    fake_home = tmp_path / "home"
+    output = tmp_path / "output&name" / "context.md"
+    fake_home = tmp_path / "home&name"
     monkeypatch.setattr(perseus.sys, "platform", "darwin")
     monkeypatch.setattr(perseus.Path, "home", staticmethod(lambda: fake_home))
     args = argparse.Namespace(source=str(source), output=str(output), interval=300, label="com.test.perseus", force=False)
@@ -36,14 +38,19 @@ def test_launchd_subcommand_scaffolds_plist_on_macos(tmp_path, monkeypatch):
     assert "<key>StartInterval</key>" in plist_body
     assert "<integer>300</integer>" in plist_body
     assert "com.test.perseus" in plist_body
+    parsed = plistlib.loads(plist_body.encode("utf-8"))
+    assert str(source.resolve()) in parsed["ProgramArguments"]
+    assert str(output.resolve()) in parsed["ProgramArguments"]
+    assert perseus._scheduler_xml_text("a&<") == "a&amp;&lt;"
+    assert shlex.quote(str(plist)) in capsys.readouterr().out
 
 
 def test_cron_subcommand_prints_posix_crontab_entry(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(perseus.sys, "platform", "linux")
-    source = tmp_path / ".perseus" / "context.md"
+    source = tmp_path / "project space" / ".perseus" / "context%file.md"
     source.parent.mkdir(parents=True)
     source.write_text("@perseus\n", encoding="utf-8")
-    output = tmp_path / "AGENTS.md"
+    output = tmp_path / "output space" / "AGENTS.md"
     args = argparse.Namespace(source=str(source), output=str(output), every="5", install=False)
 
     perseus.cmd_cron(args, cfg())
@@ -51,10 +58,49 @@ def test_cron_subcommand_prints_posix_crontab_entry(tmp_path, monkeypatch, capsy
     out = capsys.readouterr().out
     assert "*/5 * * * *" in out
     assert " render " in out
-    assert str(source.resolve()) in out
-    assert f"--output {output.resolve()}" in out
+    escaped_source = shlex.quote(str(source.resolve())).replace("%", r"\%")
+    assert escaped_source in out
+    assert f"--output {shlex.quote(str(output.resolve()))}" in out
+    assert r"\%" in out
     assert "# perseus-render" in out
     assert "crontab -e" in out
+
+
+def test_cron_install_deduplicates_only_the_same_render_source(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(perseus.sys, "platform", "linux")
+    monkeypatch.setattr(perseus, "_perseus_launcher", lambda: (["/usr/bin/perseus"], True))
+    source_a = tmp_path / "context"
+    source_b = tmp_path / "context-old"
+    source_a.write_text("@perseus\n", encoding="utf-8")
+    source_b.write_text("@perseus\n", encoding="utf-8")
+    current = {"text": ""}
+
+    def fake_run(argv, **kwargs):
+        if argv == ["crontab", "-l"]:
+            return argparse.Namespace(returncode=0, stdout=current["text"], stderr="")
+        if argv == ["crontab", "-"]:
+            current["text"] = kwargs["input"]
+            return argparse.Namespace(returncode=0, stdout="", stderr="")
+        raise AssertionError(argv)
+
+    monkeypatch.setattr(perseus.subprocess, "run", fake_run)
+    for source in (source_a, source_b):
+        args = argparse.Namespace(
+            source=str(source), output=str(source.with_suffix(".out")), every="5", install=True
+        )
+        perseus.cmd_cron(args, cfg())
+
+    assert current["text"].count("# perseus-render source=") == 2
+    assert str(source_a.resolve()) in current["text"]
+    assert str(source_b.resolve()) in current["text"]
+
+    perseus.cmd_cron_uninstall(
+        argparse.Namespace(job="render", source=str(source_a)), cfg()
+    )
+    marker_a = f"# perseus-render source={perseus._scheduler_source_marker(source_a)}"
+    marker_b = f"# perseus-render source={perseus._scheduler_source_marker(source_b)}"
+    assert marker_a not in current["text"]
+    assert marker_b in current["text"]
 
 
 def test_cron_subcommand_prints_on_native_windows_for_wsl_or_remote_use(tmp_path, monkeypatch, capsys):
@@ -235,17 +281,21 @@ def test_cmd_systemd_macos_redirects(tmp_path, monkeypatch, capsys):
 
 def test_cmd_systemd_prints_units_on_linux(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(perseus.sys, "platform", "linux")
-    src = tmp_path / "ctx.md"
+    src = tmp_path / "project space" / "ctx file.md"
+    src.parent.mkdir(parents=True)
     src.write_text("@perseus\n", encoding="utf-8")
-    args = argparse.Namespace(source=str(src), output=str(tmp_path / "out.md"),
+    output = tmp_path / "out%n.md"
+    args = argparse.Namespace(source=str(src), output=str(output),
                               interval="10m", install=False, enable=False)
     perseus.cmd_systemd(args, cfg())
     out = capsys.readouterr().out
     assert "[Service]" in out
     assert "[Timer]" in out
     assert "10min" in out
-    assert "perseus-render.service" in out
-    assert "perseus-render.timer" in out
+    assert "perseus-render-ctx-file.service" in out
+    assert "perseus-render-ctx-file.timer" in out
+    assert shlex.quote(str(src.resolve())) in out
+    assert shlex.quote(str(output.resolve())).replace("%", "%%") in out
 
 
 def test_cmd_systemd_rejects_native_windows(tmp_path, monkeypatch, capsys):
@@ -263,6 +313,41 @@ def test_cmd_systemd_rejects_native_windows(tmp_path, monkeypatch, capsys):
     assert "only supported on Linux" in err
     assert "Task Scheduler" in err
     assert "deferred" in err
+
+
+@pytest.mark.parametrize(
+    ("job", "source", "label"),
+    [
+        ("render", "ctx file.md", "perseus-render-ctx-file"),
+        ("maintain", None, "perseus-hygiene"),
+    ],
+)
+def test_cmd_systemd_uninstall_removes_created_units(tmp_path, monkeypatch, capsys, job, source, label):
+    monkeypatch.setattr(perseus.sys, "platform", "linux")
+    monkeypatch.setattr(perseus.Path, "home", classmethod(lambda cls: tmp_path))
+    unit_dir = tmp_path / ".config" / "systemd" / "user"
+    unit_dir.mkdir(parents=True)
+    (unit_dir / f"{label}.service").write_text("service", encoding="utf-8")
+    (unit_dir / f"{label}.timer").write_text("timer", encoding="utf-8")
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return argparse.Namespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(perseus.subprocess, "run", fake_run)
+    args = argparse.Namespace(
+        source=str(tmp_path / source) if source else None,
+        job=job,
+    )
+
+    perseus.cmd_systemd_uninstall(args, cfg())
+
+    assert not (unit_dir / f"{label}.service").exists()
+    assert not (unit_dir / f"{label}.timer").exists()
+    assert ["systemctl", "--user", "stop", f"{label}.timer"] in calls
+    assert ["systemctl", "--user", "disable", f"{label}.timer"] in calls
+    assert f"stop {label}.timer" in capsys.readouterr().out
 # ── task-17: template gallery ────────────────────────────────────────────────
 
 def test_list_templates_returns_known_names():
@@ -562,3 +647,61 @@ def test_cron_command_invalid_every(tmp_path, capsys):
     except SystemExit:
         err = capsys.readouterr().err
         assert "must be an integer" in err
+
+    args.every = "90"
+    with pytest.raises(SystemExit):
+        perseus.cmd_cron(args, cfg())
+    assert "whole hours" in capsys.readouterr().err
+
+
+def test_cron_uninstall_matches_quoted_source_marker(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(perseus.sys, "platform", "linux")
+    source = tmp_path / "project space" / "ctx%file.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("@perseus\n", encoding="utf-8")
+    output = tmp_path / "output space" / "AGENTS.md"
+    state = {"crontab": ""}
+
+    def fake_run(argv, input=None, **kwargs):
+        if argv == ["crontab", "-l"]:
+            return argparse.Namespace(returncode=0, stdout=state["crontab"], stderr="")
+        if argv == ["crontab", "-"]:
+            state["crontab"] = input
+            return argparse.Namespace(returncode=0, stdout="", stderr="")
+        raise AssertionError(argv)
+
+    monkeypatch.setattr(perseus.subprocess, "run", fake_run)
+    args = argparse.Namespace(source=str(source), output=str(output), every="5", install=True)
+    perseus.cmd_cron(args, cfg())
+    assert "source=" in state["crontab"]
+
+    perseus.cmd_cron_uninstall(
+        argparse.Namespace(source=str(source), job="render"), cfg()
+    )
+    assert "# perseus-render" not in state["crontab"]
+    assert "Removed" in capsys.readouterr().out
+
+
+def test_cron_maintain_uninstall_preserves_prefixed_tags(monkeypatch, capsys):
+    monkeypatch.setattr(perseus.sys, "platform", "linux")
+    state = {
+        "crontab": (
+            "0 1 * * * cmd  # perseus-hygiene\n"
+            "0 3 * * 0 cmd  # perseus-hygiene-vacuum\n"
+            "0 5 * * * cmd  # perseus-hygiene-backup\n"
+        )
+    }
+
+    def fake_run(argv, input=None, **kwargs):
+        if argv == ["crontab", "-l"]:
+            return argparse.Namespace(returncode=0, stdout=state["crontab"], stderr="")
+        if argv == ["crontab", "-"]:
+            state["crontab"] = input
+            return argparse.Namespace(returncode=0, stdout="", stderr="")
+        raise AssertionError(argv)
+
+    monkeypatch.setattr(perseus.subprocess, "run", fake_run)
+    perseus.cmd_cron_uninstall(argparse.Namespace(job="maintain"), cfg())
+
+    assert state["crontab"].strip() == "0 5 * * * cmd  # perseus-hygiene-backup"
+    assert "Removed" in capsys.readouterr().out

@@ -1,5 +1,9 @@
 """#693 — scheduler job-spec generalization: `--job maintain` alongside render."""
 import argparse
+import shlex
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -66,6 +70,36 @@ def test_cron_render_requires_source_and_output(tmp_path, monkeypatch, capsys):
     assert "requires a source file and --output" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("bad_field", ["source", "output"])
+def test_cron_rejects_line_break_paths_before_install(tmp_path, monkeypatch, capsys, bad_field):
+    _fake_local_bin(tmp_path, monkeypatch)
+    source = tmp_path / "context.md"
+    output = tmp_path / "AGENTS.md"
+    if bad_field == "source":
+        source = tmp_path / "context\n-injected.md"
+    else:
+        output = tmp_path / "AGENTS\r-injected.md"
+    args = _ns(job="render", source=str(source), output=str(output), every="30", install=True)
+    calls = []
+
+    def fake_run(*run_args, **run_kwargs):
+        calls.append((run_args, run_kwargs))
+        return subprocess.CompletedProcess(run_args[0], 0, stdout="", stderr="")
+
+    monkeypatch.setattr(perseus.subprocess, "run", fake_run)
+    with pytest.raises(SystemExit):
+        perseus.cmd_cron(args, cfg())
+
+    assert "line break" in capsys.readouterr().err
+    assert calls == []
+
+
+@pytest.mark.parametrize("every_minutes", [1441, 1500, 2879])
+def test_schtasks_rejects_non_day_cadences(every_minutes):
+    with pytest.raises(ValueError, match="whole-day"):
+        perseus._schtasks_schedule(every_minutes)
+
+
 def test_cron_render_entry_unchanged(tmp_path, monkeypatch, capsys):
     # #693 must be a pure generalization: the default render entry keeps its
     # exact shape and `# perseus-render` tag so installed entries still match.
@@ -77,7 +111,7 @@ def test_cron_render_entry_unchanged(tmp_path, monkeypatch, capsys):
     args = _ns(job="render", source=str(source), output=str(output), every="30", install=False)
     perseus.cmd_cron(args, cfg())
     out = capsys.readouterr().out
-    assert f"*/30 * * * * {launcher} render" in out
+    assert f"*/30 * * * * {shlex.quote(str(launcher))} render" in out
     assert "--output" in out
     assert "# perseus-render" in out
     assert "vacuum" not in out
@@ -106,7 +140,7 @@ def test_systemd_maintain_units(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "perseus-hygiene.service" in out
     assert "perseus-hygiene.timer" in out
-    assert f"ExecStart={launcher} vault maintain" in out
+    assert f"ExecStart={shlex.quote(str(launcher))} vault maintain" in out
     assert "OnUnitActiveSec=1440min" in out
     assert "Unit=perseus-hygiene.service" in out
 
@@ -121,8 +155,76 @@ def test_systemd_render_units_unchanged(tmp_path, monkeypatch, capsys):
                interval=None, install=False, enable=False)
     perseus.cmd_systemd(args, cfg())
     out = capsys.readouterr().out
-    assert "perseus-render.service" in out
+    assert "perseus-render-ctx.service" in out
     assert "Description=Perseus context renderer" in out
-    assert f"ExecStart={launcher} render" in out
+    assert f"ExecStart={shlex.quote(str(launcher))} render" in out
     assert "OnUnitActiveSec=5min" in out
-    assert "Unit=perseus-render.service" in out
+    assert "Unit=perseus-render-ctx.service" in out
+
+
+def test_cron_tag_match_requires_exact_tag(tmp_path, monkeypatch):
+    assert perseus._scheduler_cron_tag_matches("0 3 * * 0 cmd  # perseus-hygiene", "perseus-hygiene")
+    assert perseus._scheduler_cron_tag_matches(
+        "0 3 * * 0 cmd  # perseus-hygiene-vacuum", "perseus-hygiene-vacuum"
+    )
+    assert not perseus._scheduler_cron_tag_matches(
+        "0 3 * * 0 cmd  # perseus-hygiene-backup", "perseus-hygiene"
+    )
+    assert not perseus._scheduler_cron_tag_matches(
+        "/usr/bin/echo '# perseus-hygiene'", "perseus-hygiene"
+    )
+    source = tmp_path / "context.md"
+    digest = perseus._scheduler_source_marker(source)
+    unrelated = (
+        f"/usr/local/bin/other render {shlex.quote(str(source))} --output /tmp/out "
+        f"# perseus-render source={digest}"
+    )
+    valid = (
+        f"{Path.home() / '.local' / 'bin' / 'perseus'} render {shlex.quote(str(source))} --output /tmp/out "
+        f"# perseus-render source={digest}"
+    )
+    fake_stable = (
+        f"/tmp/perseus render {shlex.quote(str(source))} --output /tmp/out "
+        f"# perseus-render source={digest}"
+    )
+    fake_python = (
+        f"/usr/bin/python /tmp/perseus.py render {shlex.quote(str(source))} "
+        f"--output /tmp/out # perseus-render source={digest}"
+    )
+    embedded = (
+        f"/usr/bin/echo perseus render {shlex.quote(str(source))} --output /tmp/out "
+        f"# perseus-render source={digest}"
+    )
+    embedded_python = (
+        f"/usr/bin/wrapper /usr/bin/python /opt/perseus.py render "
+        f"{shlex.quote(str(source))} --output /tmp/out # perseus-render source={digest}"
+    )
+    assert not perseus._scheduler_cron_source_matches(unrelated, source)
+    assert not perseus._scheduler_cron_source_matches(fake_stable, source)
+    assert not perseus._scheduler_cron_source_matches(fake_python, source)
+    monkeypatch.setattr(
+        perseus,
+        "_perseus_launcher",
+        lambda: ([sys.executable, str(Path(perseus.__file__).resolve())], False),
+    )
+    untagged_fallback = f"{sys.executable} render {shlex.quote(str(source))}"
+    assert not perseus._scheduler_cron_source_matches(untagged_fallback, source)
+    assert not perseus._scheduler_cron_source_matches(embedded, source)
+    assert not perseus._scheduler_cron_source_matches(embedded_python, source)
+    assert perseus._scheduler_cron_source_matches(valid, source)
+
+
+@pytest.mark.parametrize("every", ["7", "24", "40", "300", "2880"])
+def test_cron_rejects_cadences_not_representable_by_field_steps(
+    tmp_path, monkeypatch, capsys, every
+):
+    _fake_local_bin(tmp_path, monkeypatch)
+    source = tmp_path / "ctx.md"
+    output = tmp_path / "out.md"
+    source.write_text("@perseus\n", encoding="utf-8")
+    args = _ns(job="render", source=str(source), output=str(output), every=every, install=False)
+
+    with pytest.raises(SystemExit):
+        perseus.cmd_cron(args, cfg())
+
+    assert "cron" in capsys.readouterr().err

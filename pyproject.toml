@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools==83.0.0", "wheel==0.48.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -27,7 +27,7 @@ classifiers = [
     "Topic :: Utilities",
 ]
 requires-python = ">=3.10"
-dependencies = ["pyyaml>=6.0.1,<7"]
+dependencies = ["pyyaml>=6.0.1,<7", 'tomli==2.2.1; python_version < "3.11"']
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0.0", "coverage", "hypothesis", "jsonschema>=4.0"]
@@ -50,6 +50,7 @@ testpaths = ["tests"]
 addopts = "--strict-markers"
 markers = [
   "slow: tests that intentionally exercise slower end-to-end or benchmark paths",
+  "privileged_acceptance: tests that require the trusted cgroup broker and run only in the push-to-main acceptance workflow",
 ]
 
 [tool.setuptools]

@@ -1,136 +1,175 @@
-/* Perseus site shell — shared navigation, theme, and low-noise interactions. */
+/* Perseus public-site interactions. Content and navigation remain usable without JS. */
 (function () {
-  'use strict';
+  "use strict";
 
   var root = document.documentElement;
-  var nav = document.querySelector('[data-site-nav]');
-  var menu = document.querySelector('[data-mobile-menu]');
-  var menuButton = document.querySelector('[data-menu-button]');
-  var backdrop = document.querySelector('[data-menu-backdrop]');
+  var header = document.querySelector("[data-site-nav]");
+  var menu = document.querySelector("[data-mobile-menu]");
+  var menuButton = document.querySelector("[data-menu-button]");
+  var lastMenuFocus = null;
 
   function setMenu(open) {
     if (!menu || !menuButton) return;
     menu.hidden = !open;
-    menuButton.setAttribute('aria-expanded', open ? 'true' : 'false');
-    menuButton.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
-    if (backdrop) backdrop.hidden = !open;
-    root.classList.toggle('menu-open', open);
+    menuButton.setAttribute("aria-expanded", open ? "true" : "false");
+    menuButton.setAttribute("aria-label", open ? "Close navigation" : "Open navigation");
+    menuButton.querySelector("span").textContent = open ? "Close" : "Menu";
+    document.body.classList.toggle("menu-open", open);
+    if (open) {
+      lastMenuFocus = document.activeElement;
+      var first = menu.querySelector("a");
+      if (first) first.focus();
+    } else if (lastMenuFocus && document.contains(lastMenuFocus)) {
+      lastMenuFocus.focus();
+      lastMenuFocus = null;
+    }
   }
 
   if (menuButton) {
-    menuButton.addEventListener('click', function () {
-      setMenu(menuButton.getAttribute('aria-expanded') !== 'true');
+    menuButton.addEventListener("click", function () {
+      setMenu(menuButton.getAttribute("aria-expanded") !== "true");
     });
   }
-  if (backdrop) backdrop.addEventListener('click', function () { setMenu(false); });
-  if (menu) menu.querySelectorAll('a').forEach(function (link) {
-    link.addEventListener('click', function () { setMenu(false); });
-  });
-  document.addEventListener('keydown', function (event) {
-    if (event.key === 'Escape') setMenu(false);
-  });
-
-  if (nav) {
-    var onScroll = function () { nav.classList.toggle('is-scrolled', window.scrollY > 8); };
-    onScroll();
-    window.addEventListener('scroll', onScroll, { passive: true });
+  setMenu(false);
+  if (menu) {
+    menu.querySelectorAll("a").forEach(function (link) {
+      link.addEventListener("click", function () { setMenu(false); });
+    });
   }
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") {
+      setMenu(false);
+      return;
+    }
+    if (event.key !== "Tab" || !menu || !menuButton || menuButton.getAttribute("aria-expanded") !== "true") return;
+    var focusable = [menuButton].concat(Array.prototype.slice.call(menu.querySelectorAll("a[href], button:not([disabled])")));
+    if (!focusable.length) return;
+    var first = focusable[0];
+    var last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+  window.addEventListener("resize", function () {
+    if (window.innerWidth > 980) setMenu(false);
+  });
 
-  document.querySelectorAll('[data-theme-toggle]').forEach(function (button) {
-    button.addEventListener('click', function () {
-      var next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
-      root.setAttribute('data-theme', next);
-      try { localStorage.setItem('perseus-theme', next); } catch (e) {}
-      document.querySelectorAll('[data-theme-label]').forEach(function (el) {
-        el.textContent = next === 'light' ? 'Dark' : 'Light';
-      });
+  function applyTheme(theme) {
+    root.setAttribute("data-theme", theme);
+    document.querySelectorAll("[data-theme-toggle]").forEach(function (button) {
+      var next = theme === "light" ? "dark" : "light";
+      button.setAttribute("aria-label", "Use " + next + " theme");
+      button.setAttribute("title", "Use " + next + " theme");
+    });
+  }
+  applyTheme(root.getAttribute("data-theme") || "light");
+  document.querySelectorAll("[data-theme-toggle]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var next = root.getAttribute("data-theme") === "light" ? "dark" : "light";
+      applyTheme(next);
+      try { localStorage.setItem("perseus-theme", next); } catch (error) { /* storage is optional */ }
     });
   });
 
-  document.querySelectorAll('[data-copy]').forEach(function (button) {
+  function fallbackCopy(value) {
+    var field = document.createElement("textarea");
+    field.value = value;
+    field.setAttribute("readonly", "");
+    field.style.position = "fixed";
+    field.style.opacity = "0";
+    document.body.appendChild(field);
+    field.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (error) { ok = false; }
+    field.remove();
+    return Promise.resolve(ok);
+  }
+
+  function copyText(value) {
+    if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
+      return navigator.clipboard.writeText(value).then(function () { return true; }, function () { return fallbackCopy(value); });
+    }
+    return fallbackCopy(value);
+  }
+
+  document.querySelectorAll("[data-copy]").forEach(function (button) {
     var original = button.textContent;
-    button.setAttribute('aria-live', 'polite');
-    button.addEventListener('click', function () {
-      var value = button.getAttribute('data-copy');
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(value).catch(function () {});
-      }
-      button.textContent = 'Copied';
-      button.setAttribute('aria-label', 'Command copied to clipboard');
-      window.clearTimeout(button._copyTimer);
-      button._copyTimer = window.setTimeout(function () {
-        button.textContent = original;
-        button.removeAttribute('aria-label');
-      }, 1400);
-    });
-  });
-
-  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var reveals = document.querySelectorAll('.reveal');
-  if (reduce || !('IntersectionObserver' in window)) {
-    reveals.forEach(function (el) { el.classList.add('in'); });
-  } else {
-    var observer = new IntersectionObserver(function (entries) {
-      entries.forEach(function (entry) {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('in');
-          observer.unobserve(entry.target);
-        }
+    var status = button.parentElement.querySelector(".copy-status");
+    button.addEventListener("click", function () {
+      button.disabled = true;
+      copyText(button.getAttribute("data-copy") || "").then(function (ok) {
+        button.textContent = ok ? "Copied" : "Select text";
+        if (status) status.textContent = ok ? "Command copied." : "Clipboard unavailable. Select the command manually.";
+        window.setTimeout(function () {
+          button.textContent = original;
+          button.disabled = false;
+          if (status) status.textContent = "";
+        }, 1800);
       });
-    }, { threshold: 0.12 });
-    reveals.forEach(function (el) { observer.observe(el); });
-  }
-})();
-
-/* A tiny inline-style bootstrap is kept in each document head so the theme
-   chosen on a prior visit is applied before this script loads. */
-(function () {
-  var root = document.documentElement;
-  var isDark = root.getAttribute('data-theme') !== 'light';
-  document.querySelectorAll('[data-theme-label]').forEach(function (el) {
-    el.textContent = isDark ? 'Light' : 'Dark';
-  });
-})();
-
-/* calculator enhancement used by the homepage */
-(function () {
-  var form = document.querySelector('[data-calculator]');
-  if (!form) return;
-  var output = form.querySelector('[data-calc-output]');
-  var tokens = form.querySelector('[data-calc-tokens]');
-  var agents = form.querySelector('[data-calc-agents]');
-  var calls = form.querySelector('[data-calc-calls]');
-  var price = form.querySelector('[data-calc-price]');
-  var baseline = form.querySelector('[data-calc-baseline]');
-  var ratio = Number(form.getAttribute('data-calc-ratio')) || 0.244;
-  var money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
-  var number = new Intl.NumberFormat('en-US');
-  function render() {
-    var annualCalls = Math.max(Number(agents.value) || 0, 0) * Math.max(Number(calls.value) || 0, 0) * 365;
-    var full = Math.max(Number(baseline.value) || 0, 0);
-    var saved = annualCalls * Math.max(full - full * ratio, 0) / 1000000 * Math.max(Number(price.value) || 0, 0);
-    var savedTokens = annualCalls * Math.max(full - full * ratio, 0);
-    if (output) output.textContent = money.format(Math.round(saved));
-    if (tokens) tokens.textContent = number.format(Math.round(savedTokens));
-    form.querySelectorAll('[data-calc-value]').forEach(function (el) {
-      var field = el.getAttribute('data-calc-value');
-      var source = field === 'agents' ? agents : field === 'calls' ? calls : field === 'price' ? price : baseline;
-      el.textContent = Number(source.value).toLocaleString('en-US');
-    });
-  }
-  [agents, calls, price, baseline].forEach(function (el) { if (el) el.addEventListener('input', render); });
-  render();
-})();
-
-/* Progressive enhancement for the static benchmark page: keep the first
-   read useful, then let readers filter by measurement family. */
-(function () {
-  var filter = document.querySelector('[data-benchmark-filter]');
-  if (!filter) return;
-  filter.addEventListener('change', function () {
-    var selected = filter.value;
-    document.querySelectorAll('[data-benchmark-section]').forEach(function (section) {
-      section.hidden = selected !== 'all' && section.getAttribute('data-benchmark-section') !== selected;
     });
   });
-})();
+
+  if (header) {
+    function updateHeader() { header.classList.toggle("is-scrolled", window.scrollY > 8); }
+    updateHeader();
+    window.addEventListener("scroll", updateHeader, { passive: true });
+  }
+
+  var demo = document.querySelector("[data-demo]");
+  if (demo) {
+    var runButton = demo.querySelector("[data-demo-run]");
+    var resetButton = demo.querySelector("[data-demo-reset]");
+    var output = demo.querySelector("[data-demo-output]");
+    var status = demo.querySelector("[data-demo-status]");
+    var steps = demo.querySelectorAll("[data-demo-step]");
+    var idleText = "Run the replay to load the committed render artifact.";
+
+    function setStep(name) {
+      steps.forEach(function (step) {
+        step.classList.toggle("active", step.getAttribute("data-demo-step") === name);
+      });
+    }
+
+    function resetDemo() {
+      output.textContent = idleText;
+      status.textContent = "Idle. No network request has run.";
+      runButton.disabled = false;
+      resetButton.disabled = true;
+      setStep("source");
+    }
+
+    runButton.addEventListener("click", function () {
+      runButton.disabled = true;
+      resetButton.disabled = true;
+      status.textContent = "Loading the committed local-render artifact…";
+      setStep("resolve");
+      Promise.all([
+        fetch("/demo/sample-resolved.txt", { cache: "no-store" }).then(function (response) {
+          if (!response.ok) throw new Error("artifact HTTP " + response.status);
+          return response.text();
+        }),
+        fetch("/demo/sample-metadata.json", { cache: "no-store" }).then(function (response) {
+          if (!response.ok) throw new Error("metadata HTTP " + response.status);
+          return response.json();
+        })
+      ]).then(function (values) {
+        output.textContent = values[0];
+        var metadata = values[1];
+        status.textContent = "Loaded a real local render from " + metadata.source_revision.slice(0, 8) + "; SHA-256 " + metadata.output_sha256.slice(0, 12) + "….";
+        resetButton.disabled = false;
+        setStep("review");
+      }).catch(function (error) {
+        output.textContent = "The committed replay artifact could not be loaded.";
+        status.textContent = "Replay error: " + error.message;
+        runButton.disabled = false;
+        resetButton.disabled = false;
+        setStep("source");
+      });
+    });
+    resetButton.addEventListener("click", resetDemo);
+  }
+}());

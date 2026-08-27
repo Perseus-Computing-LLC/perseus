@@ -1,44 +1,22 @@
-# r/opensource — Reddit Post
+# r/opensource — Reddit draft
+
+**Status:** Internal, claims-safe draft. Do not add figures unless they are in
+the current claims registry with a reproducible method.
+
 ## Title
-Perseus — a live context engine for AI assistants: MIT, one dependency, and you can drop the single file anywhere
 
-## Body (text post)
-I just open-sourced **Perseus** — a pre-processor that resolves live workspace state (git status, running services, session checkpoints, team inboxes) into plain markdown before an AI assistant reads it. No plugin. No SDK. It writes to whatever file your assistant already opens.
+Perseus: an inspectable render-to-file context layer
 
-**The open-source angle:**
+## Body
 
-* MIT license — use it anywhere, modify freely
-* Single file drop-in: `perseus.py` (~12,750 lines, compiled from a modular `src/` tree)
-* One dependency: pyyaml
-* `pip install perseus-ctx` or `curl` the single file — your choice
-* 22 directives, nearly 600 tests, edge-case tests
-* MCP server façade included (`perseus mcp serve` — 13 directive tools)
+Perseus is a small Python-oriented tool that resolves selected project context
+into markdown before an AI assistant reads it. It supports assistant-specific
+output files, adapter fixtures, and a local MCP server for explicitly configured
+live checks.
 
-**What problem it solves:**
+The repository keeps source, generated output, contract tests, and trust-boundary
+documentation together. I would appreciate review of the adapter contract,
+portability, and failure-state handling. This is not a universal benchmark or
+production authorization claim; please test it with your own approved fixtures.
 
-Every AI coding session starts cold. The assistant burns turns checking what branch you're on, what services are running, where you left off. Static markdown files rot immediately. Perseus pre-renders live facts so the assistant starts already briefed.
-
-    Without Perseus                     With Perseus
-    ────────────────────────────────    ──────────────────────────────
-    "Port is 3001 (check .env)"    →   Port: 3001
-    "47 tests (may be stale)"      →   Tests: 597 passing (run 8s ago)
-    "Check docker ps first"        →   mongo-dev: Up 4h 12m
-
-**Benchmarks (reproducible, all in the repo):**
-
-* 450× cold→warm gap at 50,000 directives with `@cache ttl=300`
-* 10,000 directives in 0.36 seconds — 23,402× faster than LLM tool-calling
-* 120-agent swarm: 150 writes in 9.7s, zero collisions
-* All benchmark scripts in `benchmark/edge-bench/`
-
-**I'm looking for:**
-
-* Contributors — new directives, assistant integrations, docs
-* Feedback on the compile-before-context approach vs MCP tool calls
-* People who've felt the cold-start pain and want to try it
-
-**Site:** https://perseus.observer
-**Repo:** https://github.com/Perseus-Computing-LLC/perseus
-**PyPI:** https://pypi.org/project/perseus-ctx/
-
-Happy to answer questions about the architecture, the build system (Python source tree → single-file artifact), or anything else.
+Repository: https://github.com/Perseus-Computing-LLC/perseus

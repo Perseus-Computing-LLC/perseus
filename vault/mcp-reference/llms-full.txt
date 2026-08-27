@@ -1,6 +1,6 @@
 # Perseus Vault
 
-Persistent, encrypted, deterministic memory for AI agents. Local-first and MCP-native.
+Perseus Vault API reference. Default local MCP stdio; optional network transports. Encrypted entity bodies; plaintext FTS5 index and metadata.
 
 ## MCP tools
 
@@ -9,7 +9,7 @@ Persistent, encrypted, deterministic memory for AI agents. Local-first and MCP-n
 Path: `/vault/mcp-reference/mcp-tools.html`
 Version: 2.23.2
 
-Persistent, encrypted, deterministic memory for AI agents. Local-first and MCP-native.
+Perseus Vault API reference. Default local MCP stdio; optional network transports. Encrypted entity bodies; plaintext FTS5 index and metadata.
 
 #### Operations
 

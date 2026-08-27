@@ -13,7 +13,7 @@ coordination, and prove you're operational.
 ## Step 1 — Install Perseus
 
 ```bash
-pip install perseus
+pip install perseus-ctx==1.0.26
 # or from source:
 # git clone https://github.com/Perseus-Computing-LLC/perseus.git && cd perseus && pip install -e .
 ```
@@ -21,7 +21,7 @@ pip install perseus
 Verify:
 ```bash
 perseus --version
-# Should print: perseus v1.0.6 or later
+# Should print: perseus v1.0.26 or later
 ```
 
 ## Step 2 — Configure for shared coordination

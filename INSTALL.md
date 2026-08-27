@@ -1,86 +1,88 @@
-# Installing Perseus
+# Installing Perseus Context Engine
 
-## Quick install (recommended)
+## Reviewed package install
+
+The public package version reviewed by this repository is 1.0.26. Pin that version so installation does not silently move to a later release:
 
 ```bash
-# via uv (fastest, isolated)
-uv tool install perseus-ctx
+# isolated install with uv
+uv tool install perseus-ctx==1.0.26
 
-# or via pip
-pip install perseus-ctx
+# or install into the active Python environment
+python -m pip install perseus-ctx==1.0.26
 
-# verify
+# verify exact package identity
 perseus --version
+python -m pip show perseus-ctx
 ```
 
-> **Windows note:** `uv` may warn that `~/.local/bin` is not on your PATH. Add this to your shell rc:
-> ```bash
-> export PATH="$HOME/.local/bin:$PATH"
-> ```
+If `uv` reports that `~/.local/bin` is not on `PATH`, add the directory through your shell or operating-system path configuration before invoking `perseus`.
 
-## Install from source
+## Contributor source install
 
-For contributors, prefer an editable install from a checkout of this repo:
+A source checkout is contributor workflow, not the reviewed end-user installation path. Inspect the source and pin the exact full commit before executing or installing it:
 
 ```bash
 git clone https://github.com/Perseus-Computing-LLC/perseus.git
 cd perseus
-pip install -e .
-which perseus
+git checkout <full-commit-sha-you-reviewed>
+git status --short
+python -m pip install -e .
 perseus --version
 ```
 
-> **Legacy shim installer:** `./scripts/install.sh` still exists for compatibility, but it installs a shim at `~/.local/bin/perseus` and can conflict with the PyPI package if both are used on the same machine. If you previously used it, remove the old shim before switching to `perseus-ctx`:
-> ```bash
-> rm -f ~/.local/bin/perseus
-> rm -f ~/.local/share/perseus/perseus.py
-> ```
+Do not execute a mutable branch checkout, a workspace-controlled `perseus.py`, or a downloaded mutable installer as a substitute for release verification.
 
-## Prerequisites
+## Legacy shim cleanup
 
-- Python **3.10+** (pyyaml is installed automatically as a dependency)
-
-## Custom prefix (source install)
+The historical `scripts/install.sh` shim can conflict with the package entry point. If a machine previously used that installer, inspect the paths and remove only the known shim files before installing the pinned package:
 
 ```bash
-./scripts/install.sh --prefix /opt/perseus
-# installs to /opt/perseus/bin/perseus + /opt/perseus/share/perseus/perseus.py
+rm -f "$HOME/.local/bin/perseus"
+rm -f "$HOME/.local/share/perseus/perseus.py"
+uv tool install perseus-ctx==1.0.26
 ```
 
-Or set `PERSEUS_PREFIX=/opt/perseus` in the environment.
+Do not use `git pull && ./scripts/install.sh` as an upgrade path.
 
 ## Upgrading
 
-Re-run the installer from a fresh checkout. It overwrites the runtime in place
-and re-verifies with `perseus --version`.
+Choose and review the target release first, then install that exact version. For the currently reviewed release:
 
 ```bash
-git pull && ./scripts/install.sh
+uv tool install --reinstall perseus-ctx==1.0.26
+# or
+python -m pip install --upgrade --force-reinstall perseus-ctx==1.0.26
 ```
+
+Update public version pins only after the package registry, source tag, release notes, and verification evidence agree.
+
+## Optional extras
+
+Optional extras change the dependency graph and require a new environment-level dependency scan:
+
+```bash
+python -m pip install 'perseus-ctx[mcp]==1.0.26'
+python -m pip install 'perseus-ctx[adapters]==1.0.26'
+```
+
+The `[adapters]` extra installs LangChain and LlamaIndex SDK dependencies. See `SBOM.md` and resolve the exact transitive graph for the deployment environment.
 
 ## Uninstalling
 
-```bash
-./scripts/install.sh --uninstall                # default prefix
-./scripts/install.sh --prefix /opt --uninstall  # custom prefix
-```
-
-## Running from a source checkout
-
-Cloning the repo and invoking `python perseus.py …` directly still works and is
-the recommended workflow for contributors:
+Use the package manager that installed Perseus:
 
 ```bash
-git clone https://github.com/Perseus-Computing-LLC/perseus.git
-cd perseus
-python perseus.py --version
-python perseus.py render
+uv tool uninstall perseus-ctx
+# or
+python -m pip uninstall perseus-ctx
 ```
+
+After uninstalling, confirm that `command -v perseus` does not resolve an older shim before installing another version.
 
 ## Troubleshooting
 
-- **`python3 not found`** — install Python 3.10+ from your OS package manager.
-- **`Python 3.X required (found 3.Y)`** — Perseus needs 3.10+.
-- **`missing dependency: pyyaml`** — `python3 -m pip install --user pyyaml`.
-- **`<prefix>/bin is not on PATH`** — add it to your shell rc, e.g.
-  `export PATH="$HOME/.local/bin:$PATH"` in `~/.bashrc` or `~/.zshrc`.
+- Perseus requires Python 3.10 or newer.
+- `python -m pip show perseus-ctx` reports the installed package version and location.
+- `command -v perseus` identifies the executable selected by the current shell.
+- If the executable version differs from 1.0.26, stop and reconcile the environment rather than continuing with mixed package/shim state.
