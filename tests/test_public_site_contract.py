@@ -797,6 +797,16 @@ def test_publish_validator_rejects_duplicate_sbom_components(tmp_path):
     )
     extra_component["dependencies"].append({"ref": "extra", "dependsOn": []})
     malformed_cases.append(extra_component)
+    empty_application = json.loads(json.dumps(base_sbom))
+    empty_application["dependencies"][0]["dependsOn"] = []
+    malformed_cases.append(empty_application)
+    leaf_cycle = json.loads(json.dumps(base_sbom))
+    next(item for item in leaf_cycle["dependencies"] if item["ref"] == "pyyaml")["dependsOn"] = ["pyyaml"]
+    malformed_cases.append(leaf_cycle)
+    reassigned_edge = json.loads(json.dumps(base_sbom))
+    reassigned_edge["dependencies"][0]["dependsOn"] = ["python"]
+    next(item for item in reassigned_edge["dependencies"] if item["ref"] == "python")["dependsOn"] = ["pyyaml"]
+    malformed_cases.append(reassigned_edge)
     for malformed in malformed_cases:
         (tmp_path / "sbom.cdx.json").write_text(json.dumps(malformed), encoding="utf-8")
         malformed_result = subprocess.run(
