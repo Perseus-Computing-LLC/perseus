@@ -109,7 +109,9 @@ def test_schtasks_render_task_uses_minute_schedule(tmp_path, monkeypatch, capsys
     preview_args = _ns(job="render", source=str(source), output=str(output), every="30", install=False)
     perseus.cmd_schtasks(preview_args, cfg())
     preview = capsys.readouterr().out
-    assert f'\\"{source}\\"' in preview
+    escaped_source = str(source).replace("&", "^&")
+    assert f'^"{escaped_source}^"' in preview
+    assert f'\\"{source}\\"' not in preview
 
     calls.clear()
     perseus.cmd_schtasks_uninstall(_ns(job="render", source=str(source)), cfg())
