@@ -93,11 +93,40 @@ jobs:
           package_versions = {str(item.get("version")) for item in server.get("packages", [])}
           if package_versions != {expected}:
               mismatches["server.json packages"] = sorted(package_versions)
-          if str(sbom.get("dependencies", [{}])[0].get("ref", "")) != f"perseus-ctx@{expected}":
-              mismatches["sbom dependency ref"] = sbom.get("dependencies", [{}])[0].get("ref")
-          component_ref = sbom.get("metadata", {}).get("component", {}).get("bom-ref", "")
-          if str(component_ref) != f"perseus-ctx@{expected}":
+          component = sbom.get("metadata", {}).get("component", {})
+          component_ref = str(component.get("bom-ref", ""))
+          expected_ref = f"perseus-ctx@{expected}"
+          if component_ref != expected_ref:
               mismatches["sbom component bom-ref"] = component_ref
+          component_purl = str(component.get("purl", ""))
+          expected_purl = f"pkg:pypi/perseus-ctx@{expected}"
+          if component_purl != expected_purl:
+              mismatches["sbom component purl"] = component_purl
+          components = sbom.get("components", [])
+          component_refs = {
+              str(item.get("bom-ref", ""))
+              for item in components
+              if isinstance(item, dict)
+          }
+          if not isinstance(components, list) or not component_refs or "" in component_refs:
+              mismatches["sbom component refs"] = sorted(component_refs)
+          dependencies = sbom.get("dependencies", [])
+          if not isinstance(dependencies, list) or not dependencies or not all(isinstance(item, dict) for item in dependencies):
+              mismatches["sbom dependencies"] = "missing, empty, or malformed"
+          else:
+              dependency_refs = [str(item.get("ref", "")) for item in dependencies]
+              expected_dependency_refs = {expected_ref} | component_refs
+              if set(dependency_refs) != expected_dependency_refs or "" in dependency_refs or len(dependency_refs) != len(set(dependency_refs)):
+                  mismatches["sbom dependency refs"] = dependency_refs
+              dependency_targets = {
+                  str(target)
+                  for item in dependencies
+                  for target in item.get("dependsOn", [])
+              }
+              if any(not isinstance(item.get("dependsOn", []), list) for item in dependencies):
+                  mismatches["sbom dependency targets"] = "malformed"
+              elif not dependency_targets <= component_refs:
+                  mismatches["sbom dependency targets"] = sorted(dependency_targets - component_refs)
           if mismatches:
               raise SystemExit(f"release metadata does not match {expected!r}: {mismatches}")
           print(f"All release metadata surfaces match {expected}")

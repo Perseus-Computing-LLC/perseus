@@ -127,3 +127,29 @@ def test_systemd_render_units_unchanged(tmp_path, monkeypatch, capsys):
     assert f"ExecStart={shlex.quote(str(launcher))} render" in out
     assert "OnUnitActiveSec=5min" in out
     assert "Unit=perseus-render-ctx.service" in out
+
+
+def test_cron_tag_match_requires_exact_tag():
+    assert perseus._scheduler_cron_tag_matches("0 3 * * 0 cmd  # perseus-hygiene", "perseus-hygiene")
+    assert perseus._scheduler_cron_tag_matches(
+        "0 3 * * 0 cmd  # perseus-hygiene-vacuum", "perseus-hygiene-vacuum"
+    )
+    assert not perseus._scheduler_cron_tag_matches(
+        "0 3 * * 0 cmd  # perseus-hygiene-backup", "perseus-hygiene"
+    )
+
+
+@pytest.mark.parametrize("every", ["7", "24", "40", "300", "2880"])
+def test_cron_rejects_cadences_not_representable_by_field_steps(
+    tmp_path, monkeypatch, capsys, every
+):
+    _fake_local_bin(tmp_path, monkeypatch)
+    source = tmp_path / "ctx.md"
+    output = tmp_path / "out.md"
+    source.write_text("@perseus\n", encoding="utf-8")
+    args = _ns(job="render", source=str(source), output=str(output), every=every, install=False)
+
+    with pytest.raises(SystemExit):
+        perseus.cmd_cron(args, cfg())
+
+    assert "cron" in capsys.readouterr().err
