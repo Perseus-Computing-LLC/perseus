@@ -668,6 +668,10 @@ def test_current_release_and_active_guidance_are_consistent():
     for release_metadata in ("claims.json", "manifest.json", "server.json", "sbom.cdx.json"):
         assert release_metadata in build_job
     assert "sbom component bom-ref" in build_job
+    assert "component_purl" in build_job
+    assert "component_refs" in build_job
+    assert "dependency_refs" in build_job
+    assert "dependency_targets" in build_job
     assert "\n  attest:\n" in publish
     assert "attestations: write" in publish.split("\n  attest:\n", 1)[1].split("\n  publish:\n", 1)[0]
     action_refs = re.findall(r"uses:\s+[^@\s]+@([0-9a-f]+)", publish)
