@@ -38,9 +38,9 @@ This page provides practical examples of how Perseus is used today, plus scenari
 
 **How it works:**
 - `ROADMAP.md` includes `@query` blocks for git status and task counts.
-- Rendering produces a road map that always reflects current repo state.
+- Rendering evaluates the configured sources available at render time; it does not guarantee successful collection or continuous freshness.
 
-**Outcome:** “Docs rot” is minimized; the roadmap stays aligned with the codebase.
+**Outcome:** “Docs rot” is reduced when configured sources resolve; verify source state and freshness before relying on the rendered roadmap.
 
 ---
 

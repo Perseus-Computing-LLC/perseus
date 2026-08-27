@@ -141,6 +141,18 @@ jobs:
           print(f"All release metadata surfaces match {expected}")
           PY
 
+      - name: Verify generated server card
+        run: |
+          set -euo pipefail
+          generated_server_card="$(mktemp)"
+          trap 'rm -f "$generated_server_card"' EXIT
+          python scripts/generate_server_card.py --output "$generated_server_card"
+          if ! cmp --silent "$generated_server_card" .well-known/mcp/server-card.json; then
+            echo "::error::generated-server-card differs from the committed card"
+            diff -u .well-known/mcp/server-card.json "$generated_server_card"
+            exit 1
+          fi
+
       - name: Rebuild generated artifact for this release
         run: python scripts/build.py
 

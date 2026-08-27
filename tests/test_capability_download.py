@@ -61,6 +61,11 @@ def test_government_surface_is_neutral_and_bounded():
         "holds a facility clearance",
     ):
         assert forbidden.lower() not in public.lower()
+    generator = (ROOT / "scripts" / "build_capability_statement.py").read_text(encoding="utf-8")
+    assert "COMPATIBILITY_OUTS" in generator
+    assert "alias.write_bytes(payload)" in generator
+    maintenance = (ROOT / "docs" / "site" / "MAINTENANCE.md").read_text(encoding="utf-8")
+    assert "refreshes all three compatibility aliases" in maintenance
 
 
 def test_tailoring_profile_is_retired_from_public_source():

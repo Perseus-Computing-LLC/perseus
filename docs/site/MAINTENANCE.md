@@ -66,7 +66,7 @@ The public site publishes one generic two-page PDF:
 uv run --with 'reportlab>=4,<5' python3 scripts/build_capability_statement.py
 ```
 
-The generator reads `claims.json`. Pursuit-specific tailoring, partner matrices, internal opportunity assessments, named founder calls to action, and unsupported mission-domain claims do not belong in the public repository or GitHub Pages assets.
+The generator reads `claims.json`, writes the canonical two-page PDF, and refreshes all three compatibility aliases as byte-identical copies in the same command. Do not hand-tailor or manually copy pursuit-specific versions. Pursuit-specific tailoring, partner matrices, internal opportunity assessments, named founder calls to action, and unsupported mission-domain claims do not belong in the public repository or GitHub Pages assets.
 
 ## Release checklist
 
