@@ -448,9 +448,35 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
 
     test_workflow = text(".github/workflows/test.yml")
     assert test_workflow.count("persist-credentials: false") >= 2
-    assert "path: .trusted-base" in test_workflow
-    assert "github.event.pull_request.base.sha || github.sha" in test_workflow
-    assert '"${GITHUB_WORKSPACE}/.trusted-base/benchmark/disconnected_acceptance/cgroup_broker.py"' in test_workflow
+    assert "sudo " not in test_workflow
+    assert "--ignore=tests/test_disconnected_acceptance.py" in test_workflow
+
+    disconnected_workflow = text(".github/workflows/disconnected-acceptance.yml")
+    assert "pull_request" not in disconnected_workflow
+    assert "branches: [main, master]" in disconnected_workflow
+    assert "sudo" not in disconnected_workflow  # privilege lives in the trusted script
+    assert "scripts/ci/run_disconnected_acceptance.sh" in disconnected_workflow
+
+    broker_script = text("scripts/ci/run_disconnected_acceptance.sh")
+    assert "sudo " in broker_script
+    assert "benchmark/disconnected_acceptance/cgroup_broker.py" in broker_script
+    assert "PERSEUS_ACCEPTANCE_CGROUP_BROKER" in broker_script
+
+    pr_pilot = text(".github/workflows/pr-pilot.yml")
+    assert "pull-requests: read" in pr_pilot
+    assert "pull-requests: write" not in pr_pilot
+    assert "GEMINI_API_KEY" not in pr_pilot
+    assert "secrets." not in pr_pilot
+
+    workflow_checkout_count = 0
+    workflow_guard_count = 0
+    for workflow_path in (ROOT / ".github" / "workflows").glob("*.yml"):
+        workflow = workflow_path.read_text(encoding="utf-8")
+        workflow_checkout_count += workflow.count("actions/checkout@")
+        workflow_guard_count += workflow.count("persist-credentials: false")
+        if "pull_request" in workflow:
+            assert "sudo " not in workflow
+    assert workflow_checkout_count == workflow_guard_count
 
     hook = text("integrations/claude-code/on_session_start.sh")
     assert '"${PERSEUS[@]}" render' in hook
