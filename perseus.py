@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "db22cce"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "5b50595"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -31368,10 +31368,20 @@ def _scheduler_windows_quote(value) -> str:
 
 
 def _scheduler_windows_command(tokens) -> str:
-    """Render a Windows argv list with metacharacters kept inside quotes."""
-    import subprocess as _subprocess
+    """Render a Windows command line that is safe to paste into cmd.exe."""
+    import re as _re
 
-    return _subprocess.list2cmdline([str(token) for token in tokens])
+    def _cmd_quote(value):
+        text = str(value)
+        escaped = text.replace("^", "^^")
+        for character in "&|<>()":
+            escaped = escaped.replace(character, f"^{character}")
+        escaped = escaped.replace('"', '^"')
+        if not text or _re.search(r"[\s&|<>()^!\"]", text):
+            return f'"{escaped}"'
+        return escaped
+
+    return " ".join(_cmd_quote(token) for token in tokens)
 
 
 def _hygiene_schedule_minutes(cfg) -> int:
