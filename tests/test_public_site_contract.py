@@ -446,6 +446,12 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     for fixture in ("demo/sample-context.md", "demo/sample-resolved.txt", "demo/sample-metadata.json"):
         assert f"{fixture} text eol=lf" in attributes
 
+    test_workflow = text(".github/workflows/test.yml")
+    assert test_workflow.count("persist-credentials: false") >= 2
+    assert "path: .trusted-base" in test_workflow
+    assert "github.event.pull_request.base.sha || github.sha" in test_workflow
+    assert '"${GITHUB_WORKSPACE}/.trusted-base/benchmark/disconnected_acceptance/cgroup_broker.py"' in test_workflow
+
     hook = text("integrations/claude-code/on_session_start.sh")
     assert '"${PERSEUS[@]}" render' in hook
     assert "$PERSEUS render" not in hook
