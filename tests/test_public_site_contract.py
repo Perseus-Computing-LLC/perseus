@@ -730,6 +730,16 @@ def test_current_release_and_active_guidance_are_consistent():
     claude_example = text("examples/claude-code/README.md")
     for stale_claim in ("always current", "always\ncurrent", "always knows"):
         assert stale_claim not in claude_example
+    for active_doc in ("QUICKSTART.md", "WIRING.md", "ROADMAP.md"):
+        assert "perseus llm ping" not in text(active_doc)
+    onboarding = text("docs/agent-onboarding-prompt.md")
+    assert "pip install perseus-ctx==1.0.26" in onboarding
+    assert "pip install perseus\n" not in onboarding
+    assert "perseus v1.0.6" not in onboarding
+    assert "perseus v1.0.6" not in text("docs/CONTRIBUTING.md")
+    assert "v1.0.6" not in text("spec/overview.md").splitlines()[2]
+    assert "v1.0.6" not in text("spec/directives.md").splitlines()[0]
+    assert "v1.0.6" not in text("spec/data-model.md").splitlines()[0]
 
 
 def test_committed_html_matches_public_site_generator(tmp_path):

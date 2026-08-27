@@ -192,8 +192,8 @@ The `--strict` flag fails the build if any directive emits a warning.
 # Check everything
 perseus doctor
 
-# Verify LLM
-perseus llm ping
+# Verify the local setup
+perseus doctor
 
 # Check permission profile
 perseus trust

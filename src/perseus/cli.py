@@ -737,6 +737,12 @@ def _main_impl():
     guide_sub = p_guide.add_subparsers(dest="guide_command", required=True)
     _add_guide_subcommands(guide_sub)
 
+    # ``oracle`` was the public name before the internal Guide/Pythia rename;
+    # retain it as a parser-level compatibility alias for existing scripts.
+    p_oracle = sub.add_parser("oracle", help="Compatibility alias for guide")
+    oracle_sub = p_oracle.add_subparsers(dest="guide_command", required=True)
+    _add_guide_subcommands(oracle_sub)
+
     # quickstart (Track B — one-command bootstrap)
     p_quickstart = sub.add_parser("quickstart", help="One-command bootstrap: scaffold, configure, verify")
     p_quickstart.add_argument("--workspace", default=None, help="Workspace path (default: cwd)")
@@ -915,7 +921,7 @@ def _main_impl():
         if getattr(args, "speculate", False):
             return cmd_explain(args, cfg)
         return cmd_bandit_cli(args, cfg)
-    elif args.command == "guide":
+    elif args.command in ("guide", "oracle"):
         rc = cmd_guide(args, cfg)
         if isinstance(rc, int):
             return rc

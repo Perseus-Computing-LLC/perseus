@@ -1,7 +1,7 @@
 # Perseus — Specification Overview
 
-**Status:** v1.0.6 — All 26 phases shipped (Phases 1–26). See ROADMAP.md for full phase history.
-**Last updated:** 2026-06-06
+**Status:** v1.0.27 source candidate; the currently published package is v1.0.26. All 26 phases shipped (Phases 1–26). See ROADMAP.md for full phase history.
+**Last updated:** 2026-08-27
 
 ---
 
