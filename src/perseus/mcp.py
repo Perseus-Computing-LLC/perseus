@@ -947,7 +947,7 @@ _CONTEXT_CONTRACT_MCP_TOOLS: list[dict] = [
             "budget": {"type": "object"}, "integrations": {"type": "object"},
         },
         output_schema=_context_contract_output_schema(),
-        annotations={"readOnlyHint": True},
+        annotations={"readOnlyHint": False, "destructiveHint": True},
     ),
     _tool_schema(
         "perseus_agent_projection_revoke",

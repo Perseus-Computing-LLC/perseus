@@ -268,7 +268,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 
 ### Current MCP interface
 
-<!-- test-count: 2810 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
+<!-- test-count: 2811 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
 
 Perseus Context Engine exposes workspace-context operations over MCP. The current public interface centers on rendering and inspecting context, checking health, reading explicitly allowed workspace sources, and connecting to Perseus Vault for durable memory. Code-level compatibility identifiers are not separate Perseus products.
 
@@ -288,7 +288,7 @@ Every AI assistant session starts cold. Before useful work begins, the assistant
 
 ## The Fix: Resolve Before Context
 
-Perseus is a pre-processor. You write directives in a source document — `@query`, `@services`, `@waypoint` — and Perseus resolves them at render time, then outputs plain markdown. The assistant reads **verified facts**, not instructions to go find facts.
+Perseus is a pre-processor. You write directives in a source document — `@query`, `@services`, `@waypoint` — and Perseus resolves them at render time, then outputs plain markdown. The assistant receives the rendered values together with the source and configuration boundaries that produced them.
 
 ```
 Without Perseus                     With Perseus
@@ -300,7 +300,7 @@ Without Perseus                     With Perseus
                                               pending test run
 ```
 
-Perseus replaces your assistant's context file — `CLAUDE.md`, `.cursorrules`, `AGENTS.md`, `.hermes.md` — with rendered live context. **If you already have a hand-written context file, migrate its static content into `.perseus/context.md` first.** Perseus overwrites the output file on every render. Add `@perseus` to line 1 of your source and it becomes live. The assistant never sees directive syntax. It sees a document that was already true.
+Perseus replaces your assistant's context file — `CLAUDE.md`, `.cursorrules`, `AGENTS.md`, `.hermes.md` — with rendered live context. **If you already have a hand-written context file, migrate its static content into `.perseus/context.md` first.** Perseus overwrites the output file on every render. Add `@perseus` to line 1 of your source and it becomes live. The assistant never sees directive syntax. It sees a rendered snapshot whose freshness depends on the source, configuration, and runtime availability.
 
 ---
 
@@ -461,7 +461,7 @@ Next: run pytest tests/test_webhook.py
 - [Illustrative] Added plugin directives, macros, hooks, and pipes.
 ```
 
-The assistant never sees a directive. It sees a document that was already true — including which skills are available, which tasks are open, and what decisions were recently made.
+The assistant never sees a directive. It sees a rendered snapshot of which skills are available, which tasks are open, and what decisions were recently made; those values should be checked against their source and freshness limits.
 
 ### Extensibility in Practice
 

@@ -28,7 +28,7 @@ This page provides practical examples of how Perseus is used today, plus scenari
 - `@services` checks local URLs or docker containers for health.
 - `@health` and `@drift` provide quick health signals for context freshness.
 
-**Outcome:** The assistant’s first response is based on verified facts, not assumptions.
+**Outcome:** The assistant’s first response is based on the rendered context and its documented source boundaries, rather than an unexamined assumption.
 
 ---
 

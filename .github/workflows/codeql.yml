@@ -3,8 +3,8 @@ name: CodeQL
 # Static analysis (SAST) for the Python source. Complements audit.yml, which
 # only covers *dependency* CVEs — CodeQL scans our own code for injection,
 # path-traversal, and similar defects. Free for this public repo. Findings
-# surface in local job artifacts; PR analysis is deliberately read-only and does
-# not upload SARIF or request security-events write permission.
+# surface in a downloadable job artifact; PR analysis is deliberately read-only
+# and does not upload SARIF to code scanning or request security-events write.
 
 on:
   push:
@@ -35,3 +35,11 @@ jobs:
         with:
           category: "/language:python"
           upload: never
+          output: ${{ runner.temp }}/codeql-results
+      - name: Retain CodeQL SARIF
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4 (2025-03-19)
+        with:
+          name: codeql-sarif
+          path: ${{ runner.temp }}/codeql-results
+          if-no-files-found: warn
