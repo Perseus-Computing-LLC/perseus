@@ -105,7 +105,7 @@ Use `perseus mcp register` or inspect [the public server card](./.well-known/mcp
 ## 2. Editor Hooks — Context Before Every Session
 
 `perseus install` injects Perseus context rendering into your AI assistant's
-startup hook, so every new session starts with live context.
+startup hook, so every new session starts with a rendered context snapshot.
 
 ```bash
 # Claude Code

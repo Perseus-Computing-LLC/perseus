@@ -121,8 +121,8 @@ def test_systemd_render_units_unchanged(tmp_path, monkeypatch, capsys):
                interval=None, install=False, enable=False)
     perseus.cmd_systemd(args, cfg())
     out = capsys.readouterr().out
-    assert "perseus-render.service" in out
+    assert "perseus-render-ctx.service" in out
     assert "Description=Perseus context renderer" in out
     assert f"ExecStart={launcher} render" in out
     assert "OnUnitActiveSec=5min" in out
-    assert "Unit=perseus-render.service" in out
+    assert "Unit=perseus-render-ctx.service" in out

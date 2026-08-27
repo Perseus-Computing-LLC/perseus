@@ -150,7 +150,9 @@ Open `.perseus/context.md`. It's a standard `.md` file beginning with `@perseus`
 @perseus v0.4
 
 @prompt
-This document was rendered live by Perseus. All values below are current.
+This document is rendered from configured sources. Values are snapshots and
+may be stale; re-check source timestamps and critical records before relying on
+this context.
 @end
 
 # Context — @date format="YYYY-MM-DD HH:mm z"
