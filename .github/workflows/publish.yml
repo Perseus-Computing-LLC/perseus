@@ -95,6 +95,9 @@ jobs:
               mismatches["server.json packages"] = sorted(package_versions)
           if str(sbom.get("dependencies", [{}])[0].get("ref", "")) != f"perseus-ctx@{expected}":
               mismatches["sbom dependency ref"] = sbom.get("dependencies", [{}])[0].get("ref")
+          component_ref = sbom.get("metadata", {}).get("component", {}).get("bom-ref", "")
+          if str(component_ref) != f"perseus-ctx@{expected}":
+              mismatches["sbom component bom-ref"] = component_ref
           if mismatches:
               raise SystemExit(f"release metadata does not match {expected!r}: {mismatches}")
           print(f"All release metadata surfaces match {expected}")
