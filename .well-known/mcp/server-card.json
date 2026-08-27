@@ -7229,7 +7229,8 @@
         ]
       },
       "annotations": {
-        "readOnlyHint": true
+        "readOnlyHint": false,
+        "destructiveHint": true
       }
     }
   ],

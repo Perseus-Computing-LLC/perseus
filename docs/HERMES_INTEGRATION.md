@@ -74,8 +74,9 @@ server rather than routing it through a provider:
 ```
 
 The MCP server exposes the checked-in tool contract. Review the generated
-server card and the [MCP reference](https://perseus.observer/vault/mcp-reference/)
-for the published version and authentication boundary.
+server card and the [Context Engine MCP reference](https://github.com/Perseus-Computing-LLC/perseus/blob/main/docs/context-engine-mcp-tools.md)
+for the published version and authentication boundary. The [server card](https://github.com/Perseus-Computing-LLC/perseus/blob/main/.well-known/mcp/server-card.json)
+contains the machine-readable annotations.
 
 ## Trust and update boundary
 

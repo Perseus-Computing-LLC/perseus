@@ -34,11 +34,13 @@ jobs:
           release_version="${RELEASE_TAG#v}"
           manifest_version="$(python3 -c 'import json; print(json.load(open("manifest.json"))["version"])')"
           server_version="$(python3 -c 'import json; print(json.load(open("server.json"))["version"])')"
+          package_versions="$(python3 -c 'import json; print(",".join(sorted({str(item["version"]) for item in json.load(open("server.json"))["packages"]})))')"
           card_version="$(python3 -c 'import json; print(json.load(open(".well-known/mcp/server-card.json"))["serverInfo"]["version"])')"
           sbom_version="$(python3 -c 'import json; print(json.load(open("sbom.cdx.json"))["metadata"]["component"]["version"])')"
           if [ "${manifest_version}" != "${release_version}" ] || \
-             [ "${server_version}" != "${release_version}" ]; then
-            echo "::error::release ${release_version} does not match manifest=${manifest_version}, server=${server_version}" >&2
+             [ "${server_version}" != "${release_version}" ] || \
+             [ "${package_versions}" != "${release_version}" ]; then
+            echo "::error::release ${release_version} does not match manifest=${manifest_version}, server=${server_version}, packages=${package_versions}" >&2
             exit 1
           fi
           if [ "${card_version}" != "${release_version}" ] || \

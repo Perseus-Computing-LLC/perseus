@@ -1,6 +1,6 @@
-# Perseus Directives Reference — v1.0.6
+# Perseus Directives Reference — published package v1.0.26
 
-> Full directive system for Perseus context documents. All directives are resolved at render time — the assistant sees only verified facts, never directive syntax.
+> Full directive system for Perseus context documents. Directives are resolved at render time; the assistant sees rendered output, not directive syntax, subject to the source and runtime boundaries documented here.
 
 ## Directive Protocol Version
 

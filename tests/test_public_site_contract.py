@@ -374,7 +374,7 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     assert card["serverInfo"]["version"] == manifest["version"] == "1.0.26"
     assert card["authentication"] == {"required": True, "schemes": ["bearer"]}
     card_tools = {tool["name"]: tool for tool in card["tools"]}
-    for mutating_tool in ("perseus_capture", "perseus_context_diff"):
+    for mutating_tool in ("perseus_capture", "perseus_context_diff", "perseus_agent_projection_release"):
         assert card_tools[mutating_tool]["annotations"]["readOnlyHint"] is False
         assert card_tools[mutating_tool]["annotations"]["destructiveHint"] is True
     assert "_build_server_card" in text("scripts/generate_server_card.py")
@@ -471,6 +471,9 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
     codeql = text(".github/workflows/codeql.yml")
     assert "security-events: write" not in codeql
     assert "upload: never" in codeql
+    assert "output: ${{ runner.temp }}/codeql-results" in codeql
+    assert "actions/upload-artifact@" in codeql
+    assert "codeql-results" in codeql
 
     registry = text(".github/workflows/mcp-registry.yml")
     assert "workflow_dispatch" not in registry
@@ -479,6 +482,7 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries():
         "github.event.release.tag_name",
         "manifest.json",
         "server.json",
+        "package_versions",
         "MCP_REGISTRY_VERSION",
         "sha256sum --check",
         "PUBLISHER_SHA256",
@@ -596,8 +600,15 @@ def test_current_release_and_active_guidance_are_consistent():
         assert stale_hermes_surface not in hermes
     assert "file-based" in hermes.lower()
     assert "provider routing" in hermes.lower()
+    assert "docs/context-engine-mcp-tools.md" in hermes
+    assert "vault/mcp-reference" not in hermes
     assert "Wire Perseus to Hermes via LLM routing" not in text("README.md")
     assert "Full ecosystem deployment on Hermes" not in text("docs/index.md")
+    for bounded_doc in ("README.md", "docs/index.md", "docs/EXAMPLES.md", "docs/DIRECTIVES.md"):
+        bounded_text = text(bounded_doc)
+        assert "document that was already true" not in bounded_text
+        assert "finished, accurate document" not in bounded_text
+        assert "only verified facts" not in bounded_text
 
     for path in ("spec/integration.md", "docs/quickstart.md"):
         guidance = text(path)
@@ -616,6 +627,17 @@ def test_current_release_and_active_guidance_are_consistent():
     assert "manual review" in deployment
     assert "full ecosystem deployment on hermes" not in text("docs/index.md").lower()
     assert "| [**Deployment**](./docs/DEPLOYMENT.md) | Current deployment guidance" in text("README.md")
+
+    audit = text(".github/workflows/audit.yml")
+    osv_digest = re.search(r"OSV_SCANNER_SHA256:\s*([0-9a-f]+)", audit)
+    assert osv_digest and len(osv_digest.group(1)) == 64
+    assert "/usr/local/bin/osv-scanner" not in audit
+    assert "GITHUB_PATH" in audit
+
+    for public_path in ("index.html", "benchmarks/index.html"):
+        public_page = text(public_path)
+        assert "where the artifact lives" not in public_page
+    assert "internal-only" in text("benchmarks/index.html")
 
     for path in ("spec/components.md", "examples/assistant-profile/README.md"):
         guidance = text(path)
