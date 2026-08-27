@@ -576,6 +576,11 @@ def test_current_release_and_active_guidance_are_consistent():
     assert {item["version"] for item in server["packages"]} == {published_version}
     assert card["serverInfo"]["version"] == published_version
     assert sbom["metadata"]["component"]["version"] == published_version
+    components = {component["name"]: component for component in sbom["components"]}
+    assert components["python"]["version"] == "3.12"
+    assert components["python"]["purl"].endswith("@3.12")
+    assert components["PyYAML"]["version"] == "6.0.3"
+    assert components["PyYAML"]["purl"].endswith("@6.0.3")
 
     card_generator = text("scripts/generate_server_card.py")
     assert "manifest.json" in card_generator
@@ -755,6 +760,7 @@ def test_current_release_and_active_guidance_are_consistent():
     assert "hermes-agent==0.17.0" not in sbom
     assert "pillow==12.3.0" in sbom
     assert "pillow==12.2.0" not in sbom
+    assert "wheel==0.48.0" in sbom
 
 
 def test_committed_html_matches_public_site_generator(tmp_path):

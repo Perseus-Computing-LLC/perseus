@@ -30,8 +30,8 @@
       "type": "application",
       "bom-ref": "python",
       "name": "python",
-      "version": ">=3.10",
-      "description": "CPython interpreter. The distributed container image ships 3.12.",
+      "version": "3.12",
+      "description": "CPython interpreter used by the reference distributed runtime image. The package supports Python >=3.10.",
       "licenses": [{ "license": { "id": "Python-2.0" } }],
       "purl": "pkg:generic/python@3.12"
     },
@@ -39,8 +39,8 @@
       "type": "library",
       "bom-ref": "pyyaml",
       "name": "PyYAML",
-      "version": ">=6.0.1",
-      "description": "YAML parser/emitter. The single hard third-party runtime dependency (pyproject.toml: pyyaml>=6.0.1). Reference/tested pin: 6.0.3.",
+      "version": "6.0.3",
+      "description": "YAML parser/emitter. The single hard third-party runtime dependency; requirements-runtime.txt pins 6.0.3 and pyproject.toml permits >=6.0.1,<7.",
       "licenses": [{ "license": { "id": "MIT" } }],
       "purl": "pkg:pypi/pyyaml@6.0.3",
       "hashes": [
