@@ -3,25 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Perseus documentation · current releases and shortest setup paths</title>
-<meta name="description" content="Install Perseus Context Engine, Perseus Vault, or Perseus Ledger from current public package and release sources.">
+<title>Perseus documentation · install the software</title>
+<meta name="description" content="Install Perseus Context Engine, Perseus Vault, or Perseus Ledger from current public packages and releases.">
 <meta name="robots" content="index,follow">
 <link rel="canonical" href="https://perseus.observer/docs/">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="manifest" href="/site.webmanifest">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Perseus documentation · current releases and shortest setup paths">
-<meta property="og:description" content="Install Perseus Context Engine, Perseus Vault, or Perseus Ledger from current public package and release sources.">
+<meta property="og:title" content="Perseus documentation · install the software">
+<meta property="og:description" content="Install Perseus Context Engine, Perseus Vault, or Perseus Ledger from current public packages and releases.">
 <meta property="og:url" content="https://perseus.observer/docs/">
 <meta property="og:image" content="https://perseus.observer/assets/og/perseus-computing-hero.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Perseus documentation · current releases and shortest setup paths">
-<meta name="twitter:description" content="Install Perseus Context Engine, Perseus Vault, or Perseus Ledger from current public package and release sources.">
+<meta name="twitter:title" content="Perseus documentation · install the software">
+<meta name="twitter:description" content="Install Perseus Context Engine, Perseus Vault, or Perseus Ledger from current public packages and releases.">
 <meta name="twitter:image" content="https://perseus.observer/assets/og/perseus-computing-hero.png">
 <script>document.documentElement.classList.replace('no-js','js');try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 <link rel="stylesheet" href="/assets/fonts.css">
 <link rel="stylesheet" href="/assets/site-shell.css">
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"Perseus Computing LLC","url":"https://perseus.observer","email":"perseus@perseus.observer","sameAs":["https://github.com/Perseus-Computing-LLC"],"description":"Install Perseus Context Engine, Perseus Vault, or Perseus Ledger from current public package and release sources."}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"Perseus Computing LLC","url":"https://perseus.observer","email":"perseus@perseus.observer","sameAs":["https://github.com/Perseus-Computing-LLC"],"description":"Install Perseus Context Engine, Perseus Vault, or Perseus Ledger from current public packages and releases."}</script>
 <script src="/assets/site-shell.js" defer></script>
 </head>
 <body class="docs-page">
@@ -30,20 +30,20 @@
 <header class="site-header" data-site-nav>
   <div class="wrap nav-row">
     <a class="brand" href="/" aria-label="Perseus Computing home"><svg class="brand-mark" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M4 9h10M4 15h10M4 21h10M4 27h10"/><path d="m16 9 15 11M16 15l15 5M16 21l15-1M16 27l15-7"/><circle cx="32" cy="20" r="3"/></svg><span>Perseus</span><small>Computing</small></a>
-    <nav class="desktop-nav" aria-label="Primary"><a href="/#system">Platform</a><a href="/security/">Security</a><a href="/benchmarks/">Proof</a><a href="/government/">Defense</a><a href="/docs/" aria-current="page">Docs</a></nav>
+    <nav class="desktop-nav" aria-label="Primary"><a href="/#system">Platform</a><a href="/security/">Security</a><a href="/benchmarks/">Results</a><a href="/government/">Government</a><a href="/docs/" aria-current="page">Install</a></nav>
     <div class="nav-actions">
       <button class="icon-button theme-toggle" type="button" data-theme-toggle aria-label="Use dark theme"><span aria-hidden="true">◐</span></button>
       <a class="button button-primary nav-cta" href="#main">Choose a component</a>
       <button class="icon-button menu-button" type="button" data-menu-button aria-label="Open navigation" aria-expanded="false" aria-controls="mobile-navigation"><span aria-hidden="true">Menu</span></button>
     </div>
   </div>
-  <nav class="mobile-nav" id="mobile-navigation" data-mobile-menu aria-label="Mobile"><a href="/#system">Platform</a><a href="/security/">Security</a><a href="/benchmarks/">Proof</a><a href="/government/">Defense</a><a href="/docs/">Docs</a><a href="#main">Choose a component</a></nav>
+  <nav class="mobile-nav" id="mobile-navigation" data-mobile-menu aria-label="Mobile"><a href="/#system">Platform</a><a href="/security/">Security</a><a href="/benchmarks/">Results</a><a href="/government/">Government</a><a href="/docs/">Install</a><a href="#main">Choose a component</a></nav>
 </header>
 <main id="main">
-<section class="page-intro docs-intro"><div class="wrap intro-grid"><div><p class="kicker">Technical evaluator start</p><h1>Run one useful path before reading everything.</h1></div><p class="lead">Choose the component that owns your problem. These commands point to current public packages or release roots; the repositories remain authoritative for implementation detail.</p></div></section>
-<section class="section"><div class="wrap setup-list"><article><span>01 / current context</span><h2>Perseus Context Engine</h2><p>Current PyPI release: 1.0.26.</p><div class="command"><code>pip install perseus-ctx==1.0.26
+<section class="page-intro docs-intro"><div class="wrap intro-grid"><div><p class="kicker">Install the software</p><h1>Start with one useful path.</h1></div><p class="lead">Choose the component you need. These commands use current public packages and releases; the repositories contain the full implementation details.</p></div></section>
+<section class="section"><div class="wrap setup-list"><article><span>01 / context</span><h2>Perseus Context Engine</h2><p>Current PyPI release: 1.0.26.</p><div class="command"><code>pip install perseus-ctx==1.0.26
 perseus quickstart</code><button type="button" data-copy="pip install perseus-ctx==1.0.26
-perseus quickstart" aria-label="Copy command">Copy</button><span class="copy-status" aria-live="polite"></span></div><div class="inline-links"><a href="/context-engine/">Product boundary →</a><a href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/QUICKSTART.md">Full quickstart ↗</a></div></article><article><span>02 / governed memory</span><h2>Perseus Vault</h2><p>Current release: v2.23.2. The command below is for x86_64 Linux and verifies the release-bound SHA-256 before extraction.</p><div class="command"><code>set -euo pipefail
+perseus quickstart" aria-label="Copy command">Copy</button><span class="copy-status" aria-live="polite"></span></div><div class="inline-links"><a href="/context-engine/">See how it works →</a><a href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/QUICKSTART.md">Full quickstart ↗</a></div></article><article><span>02 / memory</span><h2>Perseus Vault</h2><p>Current release: v2.23.2. This x86_64 Linux command checks the SHA-256 before extraction.</p><div class="command"><code>set -euo pipefail
 workdir=&quot;$(mktemp -d)&quot;
 trap &#x27;rm -rf &quot;$workdir&quot;&#x27; EXIT
 archive=&quot;$workdir/perseus-vault-x86_64-unknown-linux-gnu.tar.gz&quot;
@@ -61,21 +61,20 @@ printf &#x27;%s  %s\n&#x27; &#x27;7143709aa6c9c29128e5daae47c13ddcc6ec56b35c7a60
 tar -xzf &quot;$archive&quot; -C &quot;$workdir&quot;
 test -f &quot;$workdir/perseus-vault&quot;
 mkdir -p &quot;$HOME/.local/bin&quot;
-install -m 0755 &quot;$workdir/perseus-vault&quot; &quot;$HOME/.local/bin/perseus-vault&quot;" aria-label="Copy command">Copy</button><span class="copy-status" aria-live="polite"></span></div><div class="inline-links"><a href="/vault/">Product boundary →</a><a href="https://github.com/Perseus-Computing-LLC/perseus-vault/releases/tag/v2.23.2">Other platforms and provenance ↗</a></div></article><article><span>03 / reviewable evidence</span><h2>Perseus Ledger</h2><p>Current PyPI release: 1.2.4.</p><div class="command"><code>pip install perseus-ledger==1.2.4
+install -m 0755 &quot;$workdir/perseus-vault&quot; &quot;$HOME/.local/bin/perseus-vault&quot;" aria-label="Copy command">Copy</button><span class="copy-status" aria-live="polite"></span></div><div class="inline-links"><a href="/vault/">See how it works →</a><a href="https://github.com/Perseus-Computing-LLC/perseus-vault/releases/tag/v2.23.2">Other platforms and provenance ↗</a></div></article><article><span>03 / records</span><h2>Perseus Ledger</h2><p>Current PyPI release: 1.2.4.</p><div class="command"><code>pip install perseus-ledger==1.2.4
 ledger demo</code><button type="button" data-copy="pip install perseus-ledger==1.2.4
-ledger demo" aria-label="Copy command">Copy</button><span class="copy-status" aria-live="polite"></span></div><div class="inline-links"><a href="/ledger/">Product boundary →</a><a href="https://github.com/Perseus-Computing-LLC/ledger">Source ↗</a></div></article></div></section>
-<section class="section" id="integrations"><div class="wrap"><div class="section-heading"><p class="kicker">Integration paths</p><h2>Connect through the interface your host already supports.</h2><p>Start with local stdio. Treat adapters as interfaces to the same components, not separate Perseus products.</p></div><div class="integration-table"><div><b>MCP host</b><p>Use the local stdio command for Claude Code, Cursor, Hermes Agent, or another compatible host.</p><code>perseus mcp serve</code></div><div><b>Perseus Vault MCP</b><p>Connect the local binary and use the release-bound API entry.</p><a href="/vault/mcp-reference/">API entry →</a></div><div><b>Framework adapters</b><p>Use maintained source adapters only after checking their current repository and package status.</p><a href="https://github.com/Perseus-Computing-LLC/perseus-vault/tree/main/integrations">Adapter source ↗</a></div></div></div></section>
-<section class="section"><div class="wrap source-register"><div><p class="kicker">Evaluation desk</p><h2>Follow the evidence you need.</h2></div><div><a href="/security/">Data, keys, transports, and limits →</a><a href="/benchmarks/">Methods and artifacts →</a><a href="/government/">Defense and procurement posture →</a><a href="/demo/">Replay a bounded product artifact →</a></div></div></section>
+ledger demo" aria-label="Copy command">Copy</button><span class="copy-status" aria-live="polite"></span></div><div class="inline-links"><a href="/ledger/">See how it works →</a><a href="https://github.com/Perseus-Computing-LLC/ledger">Source ↗</a></div></article></div></section>
+<section class="section" id="integrations"><div class="wrap"><div class="section-heading"><p class="kicker">Connections</p><h2>Connect the host you already use.</h2><p>Start with local stdio. Adapters connect to the same components; they are not separate Perseus products.</p></div><div class="integration-table"><div><b>MCP host</b><p>Use the local command with Claude Code, Cursor, Hermes Agent, or another compatible host.</p><code>perseus mcp serve</code></div><div><b>Perseus Vault MCP</b><p>Connect the local binary and use the release-bound API entry.</p><a href="/vault/mcp-reference/">API entry →</a></div><div><b>Framework adapters</b><p>Check the source repository and package status before using an adapter.</p><a href="https://github.com/Perseus-Computing-LLC/perseus-vault/tree/main/integrations">Adapter source ↗</a></div></div></div></section>
 </main>
 
 <footer class="site-footer">
   <div class="wrap footer-grid">
-    <div class="footer-brand"><a class="brand" href="/"><svg class="brand-mark" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M4 9h10M4 15h10M4 21h10M4 27h10"/><path d="m16 9 15 11M16 15l15 5M16 21l15-1M16 27l15-7"/><circle cx="32" cy="20" r="3"/></svg><span>Perseus</span><small>Computing</small></a><p>The system around the model: current context, governed memory, and reviewable evidence.</p></div>
+    <div class="footer-brand"><a class="brand" href="/"><svg class="brand-mark" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M4 9h10M4 15h10M4 21h10M4 27h10"/><path d="m16 9 15 11M16 15l15 5M16 21l15-1M16 27l15-7"/><circle cx="32" cy="20" r="3"/></svg><span>Perseus</span><small>Computing</small></a><p>Local tools for current context, memory, and reviewable records.</p></div>
     <div><h2>Components</h2><a href="/context-engine/">Perseus Context Engine</a><a href="/vault/">Perseus Vault</a><a href="/ledger/">Perseus Ledger</a></div>
-    <div><h2>Evaluate</h2><a href="/security/">Security boundary</a><a href="/benchmarks/">Methods and proof</a><a href="/docs/">Install and source</a></div>
-    <div><h2>Work with us</h2><a href="/government/">Defense and Government</a><a href="mailto:perseus@perseus.observer">perseus@perseus.observer</a><a href="https://github.com/Perseus-Computing-LLC/perseus" rel="noopener">GitHub source ↗</a></div>
+    <div><h2>Read more</h2><a href="/security/">Security boundary</a><a href="/benchmarks/">Results and methods</a><a href="/docs/">Install and source</a></div>
+    <div><h2>Work with us</h2><a href="/government/">Government work</a><a href="mailto:perseus@perseus.observer">perseus@perseus.observer</a><a href="https://github.com/Perseus-Computing-LLC/perseus" rel="noopener">GitHub source ↗</a></div>
   </div>
-  <div class="wrap footer-base"><span>© 2026 Perseus Computing LLC</span><span>MIT-licensed core. Claims are scoped to their evidence.</span></div>
+  <div class="wrap footer-base"><span>© 2026 Perseus Computing LLC</span></div>
 </footer>
 </body>
 </html>
