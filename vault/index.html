@@ -3,25 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Perseus Vault · governed local memory for agent work</title>
-<meta name="description" content="Store decisions, corrections, and time-valid facts in a local memory service with explicit storage, index, key, and transport boundaries.">
+<title>Perseus Vault · local memory for agent work</title>
+<meta name="description" content="Store decisions, corrections, and dated facts locally so later work can find what matters.">
 <meta name="robots" content="index,follow">
 <link rel="canonical" href="https://perseus.observer/vault/">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="manifest" href="/site.webmanifest">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Perseus Vault · governed local memory for agent work">
-<meta property="og:description" content="Store decisions, corrections, and time-valid facts in a local memory service with explicit storage, index, key, and transport boundaries.">
+<meta property="og:title" content="Perseus Vault · local memory for agent work">
+<meta property="og:description" content="Store decisions, corrections, and dated facts locally so later work can find what matters.">
 <meta property="og:url" content="https://perseus.observer/vault/">
 <meta property="og:image" content="https://perseus.observer/assets/og/perseus-vault.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Perseus Vault · governed local memory for agent work">
-<meta name="twitter:description" content="Store decisions, corrections, and time-valid facts in a local memory service with explicit storage, index, key, and transport boundaries.">
+<meta name="twitter:title" content="Perseus Vault · local memory for agent work">
+<meta name="twitter:description" content="Store decisions, corrections, and dated facts locally so later work can find what matters.">
 <meta name="twitter:image" content="https://perseus.observer/assets/og/perseus-vault.png">
 <script>document.documentElement.classList.replace('no-js','js');try{var t=localStorage.getItem('perseus-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 <link rel="stylesheet" href="/assets/fonts.css">
 <link rel="stylesheet" href="/assets/site-shell.css">
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Perseus Vault \u00b7 governed local memory for agent work","description":"Store decisions, corrections, and time-valid facts in a local memory service with explicit storage, index, key, and transport boundaries.","url":"https://perseus.observer/vault/","applicationCategory":"DeveloperApplication","operatingSystem":"Linux, macOS, Windows","license":"https://opensource.org/license/mit","codeRepository":"https://github.com/Perseus-Computing-LLC/perseus-vault","publisher":{"@type":"Organization","name":"Perseus Computing LLC","url":"https://perseus.observer"}}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Perseus Vault \u00b7 local memory for agent work","description":"Store decisions, corrections, and dated facts locally so later work can find what matters.","url":"https://perseus.observer/vault/","applicationCategory":"DeveloperApplication","operatingSystem":"Linux, macOS, Windows","license":"https://opensource.org/license/mit","codeRepository":"https://github.com/Perseus-Computing-LLC/perseus-vault","publisher":{"@type":"Organization","name":"Perseus Computing LLC","url":"https://perseus.observer"}}</script>
 <script src="/assets/site-shell.js" defer></script>
 </head>
 <body class="product-page vault-page">
@@ -30,19 +30,19 @@
 <header class="site-header" data-site-nav>
   <div class="wrap nav-row">
     <a class="brand" href="/" aria-label="Perseus Computing home"><svg class="brand-mark" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M4 9h10M4 15h10M4 21h10M4 27h10"/><path d="m16 9 15 11M16 15l15 5M16 21l15-1M16 27l15-7"/><circle cx="32" cy="20" r="3"/></svg><span>Perseus</span><small>Computing</small></a>
-    <nav class="desktop-nav" aria-label="Primary"><a href="/#system">Platform</a><a href="/security/">Security</a><a href="/benchmarks/">Proof</a><a href="/government/">Defense</a><a href="/docs/">Docs</a></nav>
+    <nav class="desktop-nav" aria-label="Primary"><a href="/#system">Platform</a><a href="/security/">Security</a><a href="/benchmarks/">Results</a><a href="/government/">Government</a><a href="/docs/">Install</a></nav>
     <div class="nav-actions">
       <button class="icon-button theme-toggle" type="button" data-theme-toggle aria-label="Use dark theme"><span aria-hidden="true">◐</span></button>
       <a class="button button-primary nav-cta" href="#install">Install Vault</a>
       <button class="icon-button menu-button" type="button" data-menu-button aria-label="Open navigation" aria-expanded="false" aria-controls="mobile-navigation"><span aria-hidden="true">Menu</span></button>
     </div>
   </div>
-  <nav class="mobile-nav" id="mobile-navigation" data-mobile-menu aria-label="Mobile"><a href="/#system">Platform</a><a href="/security/">Security</a><a href="/benchmarks/">Proof</a><a href="/government/">Defense</a><a href="/docs/">Docs</a><a href="#install">Install Vault</a></nav>
+  <nav class="mobile-nav" id="mobile-navigation" data-mobile-menu aria-label="Mobile"><a href="/#system">Platform</a><a href="/security/">Security</a><a href="/benchmarks/">Results</a><a href="/government/">Government</a><a href="/docs/">Install</a><a href="#install">Install Vault</a></nav>
 </header>
 <main id="main">
-<section class="product-hero vault-hero"><div class="wrap product-hero-grid"><div><p class="kicker">Continuity / durable memory</p><h1>Carry the useful past into the next task.</h1><p class="lead">Perseus Vault stores decisions, corrections, and time-valid facts in a local memory service. Later work can recall what matters without replaying every prior session.</p><div class="actions"><a class="button button-primary" href="#install">Install Perseus Vault</a><a class="text-link" href="https://github.com/Perseus-Computing-LLC/perseus-vault/releases/tag/v2.23.2" rel="noopener">Release v2.23.2 ↗</a></div></div><div class="memory-timeline" aria-label="Memory lifecycle"><div><span>Remember</span><p>Decision and valid time recorded</p></div><div><span>Recall</span><p>Relevant subset served to a later task</p></div><div><span>Supersede</span><p>New fact replaces current view without erasing history</p></div><div><span>Archive</span><p>Retention remains an operator choice</p></div></div></div></section>
-<section class="section"><div class="wrap product-job"><div><p class="kicker">What changes</p><h2>Memory becomes governed state, not a folder of old prompts.</h2></div><div class="principle-list"><div><b>Time matters</b><p>Separate what the system believed from when a fact was valid.</p></div><div><b>Selection matters</b><p>Serve a bounded relevant subset instead of dumping the whole history.</p></div><div><b>Deletion matters</b><p>Archive, soft-delete, and purge remain explicit lifecycle actions.</p></div></div></div></section>
-<section class="section" id="install"><div class="wrap install-layout"><div><p class="kicker">Local path</p><h2>Install the current x86_64 Linux release, then connect one MCP host.</h2><p>This command downloads the v2.23.2 release archive and verifies its release-bound SHA-256 before extraction. Use the release page for macOS, Windows, or another architecture. Start with local stdio before enabling a network transport.</p></div><div><div class="command"><code>set -euo pipefail
+<section class="product-hero vault-hero"><div class="wrap product-hero-grid"><div><p class="kicker">Local memory</p><h1>Keep useful decisions for later.</h1><p class="lead">Perseus Vault stores decisions, corrections, and dated facts in a local memory service. Later work can find what matters without replaying every old session.</p><div class="actions"><a class="button button-primary" href="#install">Install Perseus Vault</a><a class="text-link" href="https://github.com/Perseus-Computing-LLC/perseus-vault/releases/tag/v2.23.2" rel="noopener">Release v2.23.2 ↗</a></div></div><div class="memory-timeline" aria-label="Memory lifecycle"><div><span>Save</span><p>Store a decision and when it applies</p></div><div><span>Find</span><p>Return the useful part to a later task</p></div><div><span>Update</span><p>Replace an old fact without erasing its history</p></div><div><span>Archive</span><p>Keep or remove it as you decide</p></div></div></div></section>
+<section class="section"><div class="wrap product-job"><div><p class="kicker">How it works</p><h2>Memory that respects dates and choices.</h2></div><div class="principle-list"><div><b>Dates matter</b><p>Keep track of when a fact was true.</p></div><div><b>Selection matters</b><p>Return a useful subset instead of the whole history.</p></div><div><b>Deletion matters</b><p>Archive and remove entries as explicit actions.</p></div></div></div></section>
+<section class="section" id="install"><div class="wrap install-layout"><div><p class="kicker">Install locally</p><h2>Install it, then connect your host.</h2><p>This command downloads the current x86_64 Linux release and checks its SHA-256 before extraction. Use the release page for macOS, Windows, or another architecture. Start with local stdio before enabling a network connection.</p></div><div class="command"><code>set -euo pipefail
 workdir=&quot;$(mktemp -d)&quot;
 trap &#x27;rm -rf &quot;$workdir&quot;&#x27; EXIT
 archive=&quot;$workdir/perseus-vault-x86_64-unknown-linux-gnu.tar.gz&quot;
@@ -60,19 +60,19 @@ printf &#x27;%s  %s\n&#x27; &#x27;7143709aa6c9c29128e5daae47c13ddcc6ec56b35c7a60
 tar -xzf &quot;$archive&quot; -C &quot;$workdir&quot;
 test -f &quot;$workdir/perseus-vault&quot;
 mkdir -p &quot;$HOME/.local/bin&quot;
-install -m 0755 &quot;$workdir/perseus-vault&quot; &quot;$HOME/.local/bin/perseus-vault&quot;" aria-label="Copy command">Copy</button><span class="copy-status" aria-live="polite"></span></div><p class="source-note"><a href="https://github.com/Perseus-Computing-LLC/perseus-vault/releases/tag/v2.23.2">Inspect release assets and provenance before use in a controlled environment ↗</a></p></div></div></section>
-<section class="section"><div class="wrap boundary-layout"><div><p class="kicker">Storage and keys</p><h2>Body encryption is not whole-database encryption.</h2><p>Fresh installs encrypt entity bodies with AES-256-GCM. The FTS5 search index and metadata remain plaintext. The operator owns the key file, filesystem permissions, backups, and disk encryption.</p><a class="text-link" href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/SECURITY.md" rel="noopener">Read the full Vault security model ↗</a></div><dl class="boundary-table"><div><dt>Default transport</dt><dd>Local MCP stdio, with no required network and no telemetry.</dd></div><div><dt>Optional transport</dt><dd>HTTP/SSE is opt-in and must be authenticated and protected by the deployment.</dd></div><div><dt>Search posture</dt><dd>FTS5 content and metadata need OS-level disk protection when file opacity matters.</dd></div></dl></div></section>
-<section class="section next-section"><div class="wrap next-bar"><div><p class="kicker">Inspect the interface</p><h2>Use the compact release entry before opening the full generated reference.</h2></div><div class="actions"><a class="button button-primary" href="/vault/mcp-reference/">Open the API entry</a><a class="button button-secondary" href="/docs/#integrations">Connect a host</a></div></div></section>
+install -m 0755 &quot;$workdir/perseus-vault&quot; &quot;$HOME/.local/bin/perseus-vault&quot;" aria-label="Copy command">Copy</button><span class="copy-status" aria-live="polite"></span></div><p class="source-note"><a href="https://github.com/Perseus-Computing-LLC/perseus-vault/releases/tag/v2.23.2">See release assets and provenance ↗</a></p></div></div></section>
+<section class="section"><div class="wrap boundary-layout"><div><p class="kicker">Storage and keys</p><h2>Know what is encrypted.</h2><p>Fresh installs encrypt stored entity bodies with AES-256-GCM. The FTS5 search index and metadata stay in plaintext. You control the key file, file permissions, backups, and disk encryption.</p><a class="text-link" href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/SECURITY.md" rel="noopener">Read the Vault security model ↗</a></div><dl class="boundary-table"><div><dt>Default connection</dt><dd>Local MCP stdio. No network or telemetry is required.</dd></div><div><dt>Optional connection</dt><dd>HTTP/SSE is opt-in and must be authenticated and protected by the deployment.</dd></div><div><dt>Search index</dt><dd>FTS5 content and metadata need OS-level disk protection when file opacity matters.</dd></div></dl></div></section>
+<section class="section next-section"><div class="wrap next-bar"><div><p class="kicker">Next step</p><h2>See the interface or connect a host.</h2></div><div class="actions"><a class="button button-primary" href="/vault/mcp-reference/">Open the API entry</a><a class="button button-secondary" href="/docs/#integrations">Connect a host</a></div></div></section>
 </main>
 
 <footer class="site-footer">
   <div class="wrap footer-grid">
-    <div class="footer-brand"><a class="brand" href="/"><svg class="brand-mark" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M4 9h10M4 15h10M4 21h10M4 27h10"/><path d="m16 9 15 11M16 15l15 5M16 21l15-1M16 27l15-7"/><circle cx="32" cy="20" r="3"/></svg><span>Perseus</span><small>Computing</small></a><p>The system around the model: current context, governed memory, and reviewable evidence.</p></div>
+    <div class="footer-brand"><a class="brand" href="/"><svg class="brand-mark" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M4 9h10M4 15h10M4 21h10M4 27h10"/><path d="m16 9 15 11M16 15l15 5M16 21l15-1M16 27l15-7"/><circle cx="32" cy="20" r="3"/></svg><span>Perseus</span><small>Computing</small></a><p>Local tools for current context, memory, and reviewable records.</p></div>
     <div><h2>Components</h2><a href="/context-engine/">Perseus Context Engine</a><a href="/vault/">Perseus Vault</a><a href="/ledger/">Perseus Ledger</a></div>
-    <div><h2>Evaluate</h2><a href="/security/">Security boundary</a><a href="/benchmarks/">Methods and proof</a><a href="/docs/">Install and source</a></div>
-    <div><h2>Work with us</h2><a href="/government/">Defense and Government</a><a href="mailto:perseus@perseus.observer">perseus@perseus.observer</a><a href="https://github.com/Perseus-Computing-LLC/perseus" rel="noopener">GitHub source ↗</a></div>
+    <div><h2>Read more</h2><a href="/security/">Security boundary</a><a href="/benchmarks/">Results and methods</a><a href="/docs/">Install and source</a></div>
+    <div><h2>Work with us</h2><a href="/government/">Government work</a><a href="mailto:perseus@perseus.observer">perseus@perseus.observer</a><a href="https://github.com/Perseus-Computing-LLC/perseus" rel="noopener">GitHub source ↗</a></div>
   </div>
-  <div class="wrap footer-base"><span>© 2026 Perseus Computing LLC</span><span>MIT-licensed core. Claims are scoped to their evidence.</span></div>
+  <div class="wrap footer-base"><span>© 2026 Perseus Computing LLC</span></div>
 </footer>
 </body>
 </html>
