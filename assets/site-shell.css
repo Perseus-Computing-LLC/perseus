@@ -179,6 +179,48 @@ h3 { font-weight: 620; letter-spacing: -.03em; }
 .next-bar .actions { margin: 0; justify-content: flex-end; }
 .home-proof-note { max-width: 48ch; margin: 16px 0 0; color: var(--ink-soft); font-size: 13px; }
 
+/* Awareness and results surfaces */
+.proof-header { display: flex; justify-content: space-between; align-items: baseline; gap: 18px; padding-bottom: 12px; border-bottom: 2px solid var(--ink); }
+.proof-header span, .result-card > span, .role-grid article > span, .link-grid article > span, .link-grid a > span, .limit-grid article > span { color: var(--amber); font: 10px "IBM Plex Mono", monospace; letter-spacing: .1em; text-transform: uppercase; }
+.proof-header small { color: var(--ink-faint); font-size: 11px; }
+.hero-proof { min-width: 0; }
+.stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--line-strong); border-top: 0; background: var(--line-strong); }
+.stat-card { min-height: 166px; padding: 24px; border-top: 4px solid var(--teal); background: var(--paper-raised); }
+.stat-card.risk { border-top-color: var(--amber); }
+.stat-card.wide { grid-column: 1 / -1; min-height: 132px; }
+.stat-card strong, .result-card strong { display: block; color: var(--ink); font: 600 clamp(42px, 6vw, 70px)/.9 "Space Grotesk", sans-serif; letter-spacing: -.07em; }
+.stat-card > span { display: block; margin-top: 12px; font-family: "Space Grotesk", sans-serif; font-size: 17px; font-weight: 620; }
+.stat-card small, .result-card small { display: block; margin-top: 10px; color: var(--ink-soft); font-size: 12px; line-height: 1.45; }
+.stat-footnote { max-width: 54ch; margin: 13px 0 0; color: var(--ink-faint); font-size: 12px; }
+.link-grid, .role-grid, .step-grid, .limit-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--line-strong); background: var(--line-strong); }
+.link-grid > a, .role-grid article, .step-grid article, .limit-grid article { min-width: 0; padding: 26px; background: var(--paper-raised); text-decoration: none; }
+.link-grid > a:hover { background: var(--teal-soft); }
+.link-grid h3, .role-grid h3, .step-grid h3 { margin: 34px 0 10px; font-size: 22px; }
+.link-grid p, .role-grid p, .step-grid p, .limit-grid p { margin: 0; color: var(--ink-soft); }
+.link-grid b { display: block; margin-top: 24px; color: var(--teal-dark); font-size: 13px; }
+.role-grid article, .step-grid article { border-top: 4px solid var(--teal); }
+.role-grid article:nth-child(2), .step-grid article:nth-child(2) { border-top-color: var(--amber); }
+.role-grid article:nth-child(3), .step-grid article:nth-child(3) { border-top-color: var(--ink-strong, var(--line-strong)); }
+.step-grid article > span { color: var(--amber); font: 600 24px "Space Grotesk", sans-serif; }
+.report-card { padding: 30px; border: 1px solid var(--line-strong); border-top: 4px solid var(--teal); background: var(--teal-soft); }
+.report-card > span { color: var(--teal-dark); font: 10px "IBM Plex Mono", monospace; letter-spacing: .1em; text-transform: uppercase; }
+.report-card > strong { display: block; margin: 34px 0 14px; color: var(--ink); font: 600 clamp(44px, 6vw, 72px)/.9 "Space Grotesk", sans-serif; letter-spacing: -.07em; }
+.report-card p { margin: 0 0 14px; color: var(--ink-soft); }
+.report-card .card-note { padding-top: 14px; border-top: 1px solid color-mix(in srgb, var(--teal-dark) 35%, transparent); font-size: 13px; }
+.report-card a, .result-card a { display: inline-block; margin-top: 10px; color: var(--teal-dark); font-weight: 700; text-underline-offset: 4px; }
+.results-intro .lead { max-width: 52ch; }
+.results-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--line-strong); background: var(--line-strong); }
+.result-card { min-width: 0; padding: 30px; border-top: 4px solid var(--teal); background: var(--paper-raised); }
+.result-card.risk { border-top-color: var(--amber); }
+.result-card.featured { grid-column: 1 / -1; background: var(--teal-soft); }
+.result-card h2 { margin: 17px 0 13px; font-size: 24px; }
+.result-card p { margin: 0; color: var(--ink-soft); }
+.result-card small { max-width: 70ch; }
+.result-card a { margin-top: 21px; }
+.limit-grid article { border-top: 3px solid var(--amber); }
+.limit-grid article > span { color: var(--ink); }
+.limit-grid p { margin-top: 19px; font-size: 14px; }
+
 /* Product pages */
 .product-hero { padding: clamp(64px, 8vw, 104px) 0 clamp(58px, 7vw, 88px); }
 .product-hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(390px, 1fr); gap: clamp(55px, 8vw, 110px); align-items: center; }
@@ -387,6 +429,7 @@ h3 { font-weight: 620; letter-spacing: -.03em; }
   .route-list > a { grid-template-columns: 100px 230px 1fr; }
   .route-list b { grid-column: 2 / -1; }
   .section-heading, .split-heading, .product-job, .source-register { grid-template-columns: 1fr; gap: 34px; }
+  .link-grid, .role-grid, .step-grid, .limit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .measurement-list article { grid-template-columns: 100px 220px 1fr; }
   .measurement-list article a { grid-column: 2 / -1; }
   .setup-list article { grid-template-columns: 120px 1fr; }
@@ -418,7 +461,8 @@ h3 { font-weight: 620; letter-spacing: -.03em; }
   .flow-diagram { grid-template-columns: 1fr; }
   .flow-diagram > div { border-right: 0; border-bottom: 1px solid var(--line); }
   .flow-diagram > div::after { content: "↓"; top: auto; right: 50%; bottom: -13px; }
-  .posture-columns, .artifact-summary, .api-options, .demo-grid { grid-template-columns: 1fr; }
+  .posture-columns, .artifact-summary, .api-options, .demo-grid, .stat-grid, .results-grid, .link-grid, .role-grid, .step-grid, .limit-grid { grid-template-columns: 1fr; }
+  .stat-card.wide, .result-card.featured { grid-column: auto; }
   .posture-columns > div:first-child, .artifact-summary > div:first-child, .demo-grid section:first-child { border-right: 0; border-bottom: 1px solid var(--line); }
   .api-options a { border-right: 0; border-bottom: 1px solid var(--line); }
   .api-options a:nth-child(n+3) { border-bottom: 1px solid var(--line); }
