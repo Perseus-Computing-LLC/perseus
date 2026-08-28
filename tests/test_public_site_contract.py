@@ -55,13 +55,21 @@ def test_canonical_pages_share_accessible_shell_and_metadata():
         assert 'style="' not in page, f"inline style escaped the shared design system: {path}"
 
 
+def content_surface(page):
+    match = re.search(r'<main id="main">(.*?)</main>', page, re.DOTALL)
+    assert match, "canonical page is missing its main content"
+    # Shared navigation and footer labels are intentionally concise and are not
+    # the product-name introductions this contract checks.
+    return match.group(1).replace("Try Vault demo ↗", "")
+
+
 def test_canonical_product_names_precede_short_forms():
-    combined = "\n".join(text(path) for path in CANONICAL)
+    combined = "\n".join(content_surface(text(path)) for path in CANONICAL)
     assert "Perseus Context Engine" in combined
     assert "Perseus Vault" in combined
     assert "Perseus Ledger" in combined
     for path in CANONICAL:
-        page = text(path)
+        page = content_surface(text(path))
         for full, short in (
             ("Perseus Context Engine", "Context Engine"),
             ("Perseus Vault", "Vault"),

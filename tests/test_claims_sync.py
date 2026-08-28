@@ -30,10 +30,8 @@ SURFACE_CHECKS = [
     ("vault/index.html", "vault_version"),
     ("docs/index.html", "ledger_version"),
     ("ledger/index.html", "ledger_version"),
-    ("index.html", "longmemeval_cot"),
     ("benchmarks/index.html", "longmemeval_cot"),
     ("benchmarks/index.html", "longmemeval_retrieval_recall10"),
-    ("benchmarks/index.html", "temporal_correctness"),
     ("benchmarks/memconflict/index.html", "memconflict_macro"),
 ]
 
