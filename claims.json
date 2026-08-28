@@ -1,9 +1,9 @@
 {
   "_meta": {
     "description": "Canonical claim registry for Perseus Computing public surfaces. Every public figure derives from here. When a benchmark re-runs, update THIS file only; scripts/render_claims.py regenerates manifest strings and tests/test_claims_sync.py fails CI if any surface drifts.",
-    "updated": "2026-08-26",
+    "updated": "2026-09-03",
     "public_headline": "longmemeval_cot",
-    "public_headline_policy": "The latest completed 500-question paired confirmation is disclosed with its matched control and claim boundary. It is a company-run internal result, not an independent holdout or production-promotion claim. The provider-free attribution rerun remains provisional until its final report exists.",
+    "public_headline_policy": "The latest completed three-run frozen-default official-CoT baseline is disclosed with each run, its equal-weight mean, pooled count, matched controls, and claim boundary. The separate evidence-structured paired confirmation remains a distinct experimental result and is not blended into the frozen-default series.",
     "public_site_positioning": "Perseus is the system around the model: Perseus resolves live context, Vault persists memory, and Ledger records evidence."
   },
   "claims": {
@@ -108,14 +108,24 @@
       "publishable": true
     },
     "longmemeval_cot": {
-      "value": "82.0%",
+      "detail": "three accepted full 500-question frozen-default official-CoT runs: Run 1 80.2% (401/500), Run 2 80.6% (403/500), Run 3 81.8% (409/500); equal-weight mean and pooled result 80.9% (1213/1500); matched full-context controls 66.8% / 66.6% / 67.4% (66.9% pooled), gold-session oracle controls 90.2% / 91.6% / 90.6% (90.8% pooled); all runs used the named answerer and official per-type judge at temperature 0; correction attempts are disclosed in the public series report",
+      "evidence_access": "public-summary",
+      "label": "measured-three-run-mean",
+      "note": "This is a company-run benchmark result for one dataset, protocol, and model snapshot. It is not an independent holdout estimate, customer validation, production efficacy, or a claim about unrelated systems. The separate evidence-structured 82.0% paired confirmation is not blended into this series.",
+      "publishable": true,
+      "source": "https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_cot_frozen_default_series_20260828.json",
+      "status": "accepted-three-run-series",
+      "value": "80.9%"
+    },
+    "longmemeval_evidence_structured": {
       "detail": "latest completed full 500-question paired internal confirmation (410/500) using the official-CoT answer prompt, evidence-structured candidate context, and a matched full-context control at 83.2% (416/500); delta -1.2 percentage points; 38 gains vs 44 regressions; execution and custody accepted, preregistered success rule failed, no automatic promotion; official evaluator cross-check unavailable locally",
-      "source": "internal custody artifact; sanitized public report not yet published",
-      "status": "accepted-internal-confirmation",
       "evidence_access": "internal-only",
       "label": "measured-paired-confirmation",
+      "note": "This is not an independent holdout estimate, a product-superiority claim, or production authorization. A provider-free attribution rerun remains incomplete and is not used as a score. It is kept separate from the frozen-default three-run series.",
       "publishable": true,
-      "note": "This is not an independent holdout estimate, a product-superiority claim, or production authorization. A provider-free attribution rerun remains incomplete and is not used as a score."
+      "source": "internal custody artifact; sanitized public report not yet published",
+      "status": "accepted-internal-confirmation",
+      "value": "82.0%"
     },
     "longmemeval_retrieval_recall10": {
       "value": "99.2%",

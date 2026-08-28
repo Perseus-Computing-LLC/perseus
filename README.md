@@ -70,7 +70,9 @@ for assistant profiles, refresh options, and security settings.
 
 Perseus Context Engine resolves live workspace state before execution. Perseus Vault carries selected, time-valid memory across sessions. Perseus Ledger records supplied events and evidence references for later review. The operator still chooses the model, keys, data path, deployment, and execution authority.
 
-The latest company-run LongMemEval-S paired confirmation scored **410/500 (82.0%)** with the official-CoT answer prompt and evidence-structured candidate context, versus **416/500 (83.2%)** for the matched full-context control (**-1.2 points**). The preregistered success rule failed. This is not a superiority, independent-holdout, customer, deployment, or production-authorization claim. Read the [methods desk](https://perseus.observer/benchmarks/) and [canonical claim registry](claims.json) before reusing the number.
+The latest accepted company-run frozen-default official-CoT series scored **80.9% mean (1,213/1,500)** on LongMemEval-S across three runs (80.2%, 80.6%, and 81.8%). The matched full-context control scored **66.9%** and the gold-session oracle scored **90.8%**. The [public series report](https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_cot_frozen_default_series_20260828.json) contains the per-run scores, category breakdown, protocol, and hash commitments.
+
+A separate evidence-structured paired confirmation scored **410/500 (82.0%)** versus **416/500 (83.2%)** for its matched full-context control. The preregistered success rule failed, so that result is kept separate and is not a superiority, independent-holdout, customer, deployment, or production-authorization claim. Read the [methods desk](https://perseus.observer/benchmarks/) and [canonical claim registry](claims.json) before reusing either number.
 
 <!-- mcp-name: io.github.Perseus-Computing-LLC/perseus -->
 
