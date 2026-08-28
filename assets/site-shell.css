@@ -93,6 +93,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visib
 .nav-actions { display: flex; align-items: center; gap: 8px; }
 .icon-button { min-width: 44px; min-height: 44px; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
 .icon-button:hover { border-color: var(--teal); }
+.theme-toggle span { color: var(--teal-dark); font: 10px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
 .menu-button { display: none; min-width: 58px; font-size: 12px; font-weight: 700; }
 .mobile-nav { display: none; padding: 10px 32px 18px; border-top: 1px solid var(--line); background: var(--paper-raised); }
 .mobile-nav a { display: block; min-height: 44px; padding: 11px 8px; border-bottom: 1px solid var(--line); color: var(--ink-soft); font-weight: 600; text-decoration: none; }
@@ -182,7 +183,7 @@ h3 { font-weight: 620; letter-spacing: -.03em; }
 /* Awareness and results surfaces */
 .proof-header { display: flex; justify-content: space-between; align-items: baseline; gap: 18px; padding-bottom: 12px; border-bottom: 2px solid var(--ink); }
 .proof-header span, .result-card > span, .role-grid article > span, .link-grid article > span, .link-grid a > span, .limit-grid article > span { color: var(--amber); font: 10px "IBM Plex Mono", monospace; letter-spacing: .1em; text-transform: uppercase; }
-.proof-header small { color: var(--ink-faint); font-size: 11px; }
+.proof-header small { color: var(--ink-soft); font-size: 12px; }
 .hero-proof { min-width: 0; }
 .stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--line-strong); border-top: 0; background: var(--line-strong); }
 .stat-card { min-height: 166px; padding: 24px; border-top: 4px solid var(--teal); background: var(--paper-raised); }
@@ -190,8 +191,8 @@ h3 { font-weight: 620; letter-spacing: -.03em; }
 .stat-card.wide { grid-column: 1 / -1; min-height: 132px; }
 .stat-card strong, .result-card strong { display: block; color: var(--ink); font: 600 clamp(42px, 6vw, 70px)/.9 "Space Grotesk", sans-serif; letter-spacing: -.07em; }
 .stat-card > span { display: block; margin-top: 12px; font-family: "Space Grotesk", sans-serif; font-size: 17px; font-weight: 620; }
-.stat-card small, .result-card small { display: block; margin-top: 10px; color: var(--ink-soft); font-size: 12px; line-height: 1.45; }
-.stat-footnote { max-width: 54ch; margin: 13px 0 0; color: var(--ink-faint); font-size: 12px; }
+.stat-card small, .result-card small { display: block; margin-top: 10px; color: var(--ink-soft); font-size: 13px; line-height: 1.5; }
+.stat-footnote { max-width: 54ch; margin: 13px 0 0; color: var(--ink-soft); font-size: 13px; }
 .link-grid, .role-grid, .step-grid, .limit-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--line-strong); background: var(--line-strong); }
 .link-grid > a, .role-grid article, .step-grid article, .limit-grid article { min-width: 0; padding: 26px; background: var(--paper-raised); text-decoration: none; }
 .link-grid > a:hover { background: var(--teal-soft); }
