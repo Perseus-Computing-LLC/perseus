@@ -50,13 +50,13 @@
       <p class="boundary-note"><strong>Local by default.</strong> You choose the model, data path, deployment, and permissions.</p>
     </div>
     <div class="hero-proof">
-      <div class="proof-header"><span>Evidence from current runs</span><small>Company-run measurements</small></div>
+      <div class="proof-header"><span>Product measurements</span><small>Company-run A/B and scale tests</small></div>
       <div class="stat-grid">
-        <article class="stat-card"><strong>80.9%</strong><span>mean accuracy / 1,500 questions</span><small>LongMemEval-S · 3 company-run runs · 500 questions each</small></article>
-        <article class="stat-card risk"><strong>18</strong><span>wrong answers out of 3,750 questions</span><small>MemConflict · 1,378 / 3,750 blank or abstaining (36.7%); wrong counted separately</small></article>
-        <article class="stat-card wide"><strong>40 writes/s</strong><span>durable write throughput</span><small>Measured at 100K entities on named hardware · signed scale report · not an SLA</small></article>
+        <article class="stat-card"><strong>52.63%</strong><span>fewer full-request prompt tokens</span><small>Naive full-file assembly vs. shipped-default render · cold cache · context + 14 prompts · named repo corpus</small><a class="text-link" href="https://github.com/Perseus-Computing-LLC/perseus/blob/main/benchmark/tokenab/report.json" rel="noopener">Read the token report ↗</a></article>
+        <article class="stat-card"><strong>99.2%</strong><span>session recall@10</span><small>LongMemEval-S · retrieval only · 500 instances</small><a class="text-link" href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/report.json" rel="noopener">Read the retrieval report ↗</a></article>
+        <article class="stat-card wide"><strong>40 writes/s</strong><span>durable write throughput</span><small>Measured at 100K entities on named hardware · signed scale report · not an SLA</small><a class="text-link" href="https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/scale/report.json" rel="noopener">Read the scale report ↗</a></article>
       </div>
-      <p class="stat-footnote">These are company-run measurements. They are not customer outcomes, production validation, or Government authorization.</p>
+      <p class="stat-footnote">Token reduction measures content assembly, not provider billing or dollar savings. Retrieval is retrieval-only; throughput is not an SLA.</p>
     </div>
   </div>
 </section>
@@ -77,7 +77,7 @@
     <a href="/benchmarks/"><span>For technical evaluators</span><h3>Read the evidence</h3><p>Numbers, methods, controls, and limits in one place.</p><b>See the methods →</b></a>
   </div></div>
 </section>
-<section class="section evidence-section"><div class="wrap proof-layout"><div><p class="kicker">Open evidence</p><h2>See the result, then the method.</h2><p>MemConflict tests changing facts, planted contradictions, and conditional preferences across eight self-hosted configurations.</p><div class="actions"><a class="button button-secondary" href="/benchmarks/">All methods</a><a class="text-link" href="https://perseus-computing-llc.github.io/hermes-memconflict/report/" rel="noopener">Full comparison ↗</a></div></div><div class="report-card"><span>MemConflict / tested Vault configuration</span><strong>0.555</strong><p>Macro score in the self-run replication.</p><p class="card-note"><b>18 wrong</b> across 3,750 questions, with 36.7% of questions blank or abstaining.</p><a href="https://perseus-computing-llc.github.io/hermes-memconflict/report/" rel="noopener">Read the eight-provider report ↗</a></div></div></section>
+<section class="section evidence-section"><div class="wrap proof-layout"><div><p class="kicker">Open evidence</p><h2>See the result, then the method.</h2><p>MemConflict tests changing facts, planted contradictions, and conditional preferences across eight self-hosted configurations.</p><div class="actions"><a class="button button-secondary" href="/benchmarks/">All methods</a><a class="text-link" href="https://perseus-computing-llc.github.io/hermes-memconflict/report/" rel="noopener">Full comparison ↗</a></div></div><div class="report-card"><span>MemConflict / tested Vault configuration</span><strong>0.555</strong><p>Macro score in the self-run replication.</p><p class="card-note"><b>18 wrong</b> across 3,750 questions; 1,378 were blank or abstaining (36.7%). Wrong and blank outcomes are counted separately.</p><a href="https://perseus-computing-llc.github.io/hermes-memconflict/report/" rel="noopener">Read the eight-provider report ↗</a></div></div></section>
 <section class="section boundary-section">
   <div class="wrap boundary-layout">
     <div><p class="kicker">Deployment</p><h2>Run it where the work is.</h2><p>Local, on premises, private cloud, or disconnected. The program chooses the data, keys, network, and permissions.</p><a class="text-link" href="/security/">See the security boundary →</a></div>
