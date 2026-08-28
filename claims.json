@@ -128,10 +128,10 @@
       "value": "82.0%"
     },
     "longmemeval_retrieval_recall10": {
-      "value": "99.2%",
-      "detail": "session-level recall@10, retrieval-only",
-      "source": "perseus-vault/benchmark/longmemeval/report.json",
-      "status": "signed",
+      "value": "99.8%",
+      "detail": "session-level retrieval recall@k, retrieval-only; hybrid recall@1 83.2%, recall@3 96.6%, recall@5 98.8%, recall@10 99.8%, MRR 0.8949 on the current-main 500-instance report",
+      "source": "https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/report-currentmain-2026-08-16.json",
+      "status": "signed-current-main",
       "label": "measured",
       "publishable": true
     },
