@@ -104,6 +104,8 @@ MODULE_ORDER = [
     "src/perseus/retry_isolation.py",  # ← #972: clean-restart attempt isolation (CCRM retry contamination)
     "src/perseus/pooled_selection.py", # ← #970: pluggable submodular context-selection engine (PACMS)
     "src/perseus/context_inspector.py", # ← #1007: progressive-disclosure context budget and selection inspector
+    "src/perseus/context_vault.py", # ← #1016: gold-blind Context + Perseus Vault evidence compiler
+    "src/perseus/context_ablation.py", # ← #1022: route-on versus route-off selection ablation
 
 
     "src/perseus/code_graph.py",         # ← #921: optional symbol/dependency-aware context provider
