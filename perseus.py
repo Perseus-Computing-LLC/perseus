@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "de46733"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "e23c931"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -300,6 +300,16 @@ DEFAULT_CONFIG = {
             "min_steps": 2,            # fewer extracted steps = not procedural
             "max_steps": 25,
         },
+        # #1017 — receipt-backed procedural-memory trust. Disabled by default;
+        # runtime owners may opt in after selecting an explicit policy.
+        "receipts": {
+            "enabled": False,
+            "max_per_lesson": 256,
+            "policy_version": "trust-policy-v1",
+            "min_known_attempts": 5,
+            "min_known_win_rate": 0.7,
+            "min_coverage": 0.8,
+        },
     },
     "agora": {
         "tasks_dir": "tasks",
@@ -406,6 +416,21 @@ DEFAULT_CONFIG = {
             "on_memory_update": True, # capture pending checkpoints during `perseus memory update`
             "category": "session",   # vault category (matches the #670 Recent Activity recall)
             "limit": 5,              # default max checkpoints per @capture directive render
+        },
+        # #1016 — answer-facing Context + Vault compiler. The ordinary recall
+        # and on-demand profile remain unchanged until this is explicitly on.
+        "context_serving": {
+            "enabled": False,
+            "planner": "deterministic-v1",
+            "mode": "fused",
+            "max_candidate_sources": 20,
+            "max_packet_tokens": 2048,
+            "max_windows_per_source": 2,
+            "include_role_labels": True,
+            "include_temporal_metadata": True,
+            "include_update_cards": True,
+            "require_verified_provenance": False,
+            "allow_llm_query_expansion": False,
         },
     },
     "research": {                       # #513 — @research external paper-search MCP
@@ -5267,30 +5292,36 @@ class ArtifactActionStore:
         self._records = self._records[-self.max_records:]
         self._persist()
         return dict(record)
-"""Bounded evidence-linked tool-lesson lifecycle (#926)."""
+"""Bounded evidence-linked tool-lesson lifecycle (#926, #948, #1017)."""
 
+import copy
 import hashlib
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any, Mapping
 
 _TL_SCHEMA = "perseus-tool-lesson/v1"
+_TL_RECEIPT_SCHEMA = "perseus-procedural-attempt-receipt/v1"
+_TL_COVERAGE_SCHEMA = "perseus-procedural-coverage/v1"
+_TL_POLICY_SCHEMA = "perseus-procedural-trust-policy/v1"
 _TL_STATUSES = frozenset({"proposed", "injected", "correlated", "active", "decayed", "rejected", "superseded"})
 _TL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$")
+_TL_DIGEST = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
+_TL_RESULTS = frozenset({"confirmed", "failed", "unknown"})
+_TL_RECEIPT_MAX = 256
 
 # Outcome-verified trust (#948): attribution classes for failure batches.
 # Attribution peels the CAUSE of a failure batch before any retire decision so
 # healthy memory is never forgotten for a failure it did not cause (PROVE).
 _TL_OUTCOME_ATTRIBUTIONS = frozenset({"skill_defect", "routing_error", "rule_defect", "data_drift", "input_noise"})
-# Failures peeling to these classes are not the lesson's fault.
 _TL_EXCULPATORY_ATTRIBUTIONS = frozenset({"routing_error", "input_noise", "data_drift"})
-# Bounded rolling outcome window retained per lesson (bounded storage).
 _TL_OUTCOME_WINDOW = 64
 
 
 class ToolLessonError(ValueError):
-    """Raised when a lesson boundary cannot be represented safely."""
+    """Raised when a lesson or receipt boundary cannot be represented safely."""
 
 
 def _tl_json(value: Any) -> str:
@@ -5322,23 +5353,186 @@ def _tl_scope(scope: Any) -> dict[str, str]:
     allowed = ("workspace", "agent", "provider", "resource")
     if any(key not in allowed for key in scope):
         raise ToolLessonError("scope contains unsupported fields")
-    return {key: _tl_id(scope[key], f"scope.{key}") for key in allowed if scope.get(key) is not None and str(scope[key]).strip()}
+    return {
+        key: _tl_id(scope[key], f"scope.{key}")
+        for key in allowed
+        if scope.get(key) is not None and str(scope[key]).strip()
+    }
 
 
 def _tl_attribution(value: Any) -> str:
     """Validate a failure-attribution class; fail closed on anything unknown."""
-    if not isinstance(value, str) or value not in _TL_OUTCOME_ATTRIBUTIONS and value != "unknown":
+    if not isinstance(value, str) or (value not in _TL_OUTCOME_ATTRIBUTIONS and value != "unknown"):
         raise ToolLessonError(
             f"attribution must be one of {sorted(_TL_OUTCOME_ATTRIBUTIONS)} or 'unknown'"
         )
     return value
 
 
+def _tl_result(value: Any) -> str:
+    if not isinstance(value, str) or value.strip().lower() not in _TL_RESULTS:
+        raise ToolLessonError("result must be one of confirmed, failed, or unknown")
+    return value.strip().lower()
+
+
+def _tl_fingerprint(value: Any) -> str:
+    if value in (None, ""):
+        return "sha256:" + _tl_sha({"environment": "unknown"})
+    if not isinstance(value, str):
+        raise ToolLessonError("environment_fingerprint must be text")
+    text = value.strip()
+    if _TL_DIGEST.fullmatch(text):
+        return "sha256:" + text.removeprefix("sha256:").lower()
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def _tl_ledger(item: dict[str, Any]) -> dict[str, Any]:
-    return item.setdefault(
-        "outcomes",
-        {"attempts": 0, "successes": 0, "failures": 0, "by_attribution": {}, "recent": []},
-    )
+    """Derive the compatibility ledger projection from immutable receipts."""
+    receipts = item.get("receipts")
+    if not isinstance(receipts, list):
+        receipts = []
+    if not receipts:
+        # A pre-#1017 record may only have the old projection. Keep it readable
+        # until its next outcome is recorded; new writes always use receipts.
+        old = item.get("outcomes")
+        if isinstance(old, Mapping):
+            return {
+                "attempts": max(0, int(old.get("attempts", 0) or 0)),
+                "successes": max(0, int(old.get("successes", 0) or 0)),
+                "failures": max(0, int(old.get("failures", 0) or 0)),
+                "unknown": max(0, int(old.get("unknown", 0) or 0)),
+                "by_attribution": dict(old.get("by_attribution") or {}),
+                "recent": list(old.get("recent") or [])[-_TL_OUTCOME_WINDOW:],
+            }
+        return {"attempts": 0, "successes": 0, "failures": 0, "unknown": 0, "by_attribution": {}, "recent": []}
+
+    successes = sum(receipt.get("result") == "confirmed" for receipt in receipts)
+    failures = sum(receipt.get("result") == "failed" for receipt in receipts)
+    unknown = sum(receipt.get("result") == "unknown" for receipt in receipts)
+    by_attribution: dict[str, int] = {}
+    recent: list[dict[str, Any]] = []
+    for receipt in receipts:
+        result = receipt.get("result")
+        attribution = receipt.get("failure_attribution")
+        if result == "failed":
+            attribution = attribution or "unknown"
+            by_attribution[attribution] = by_attribution.get(attribution, 0) + 1
+        recent.append({
+            "s": result == "confirmed",
+            "a": attribution or "unknown",
+            "r": result,
+        })
+    return {
+        "attempts": len(receipts),
+        "successes": successes,
+        "failures": failures,
+        "unknown": unknown,
+        "by_attribution": dict(sorted(by_attribution.items())),
+        "recent": recent[-_TL_OUTCOME_WINDOW:],
+    }
+
+
+def _tl_refresh_ledger(item: dict[str, Any]) -> dict[str, Any]:
+    ledger = _tl_ledger(item)
+    item["outcomes"] = ledger
+    return ledger
+
+
+def _tl_validate_receipt(receipt: Any) -> dict[str, Any]:
+    if not isinstance(receipt, Mapping):
+        raise ToolLessonError("receipt must be an object")
+    required = {
+        "schema_version", "receipt_id", "lesson_id", "lesson_version", "step_id",
+        "step_version", "verifier_id", "verifier_version", "environment_fingerprint",
+        "environment_source", "environment_trust", "environment_measurement_ref", "result", "evidence_ref",
+        "failure_attribution", "scope_commitment", "attempt_id",
+    }
+    if set(receipt) != required:
+        raise ToolLessonError("receipt shape is invalid")
+    if receipt.get("schema_version") != _TL_RECEIPT_SCHEMA:
+        raise ToolLessonError("receipt schema version is unsupported")
+    for field in ("receipt_id", "lesson_id", "step_id", "verifier_id", "verifier_version", "evidence_ref", "attempt_id"):
+        _tl_id(receipt.get(field), f"receipt.{field}")
+    for field in ("lesson_version", "step_version"):
+        value = receipt.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1 or value > 10**9:
+            raise ToolLessonError(f"receipt.{field} must be a positive integer")
+    fingerprint = receipt.get("environment_fingerprint")
+    if not isinstance(fingerprint, str) or not _TL_DIGEST.fullmatch(fingerprint):
+        raise ToolLessonError("receipt.environment_fingerprint must be a SHA-256 commitment")
+    if receipt.get("environment_source") not in {"measured", "caller_declared"}:
+        raise ToolLessonError("receipt.environment_source is invalid")
+    if receipt.get("environment_trust") not in {"measured", "untrusted"}:
+        raise ToolLessonError("receipt.environment_trust is invalid")
+    if receipt.get("environment_trust") != ("measured" if receipt.get("environment_source") == "measured" else "untrusted"):
+        raise ToolLessonError("receipt environment trust does not match its source")
+    measurement_ref = receipt.get("environment_measurement_ref")
+    if measurement_ref is not None:
+        _tl_id(measurement_ref, "receipt.environment_measurement_ref")
+    if receipt.get("environment_source") == "measured" and not measurement_ref:
+        raise ToolLessonError("measured receipts require an environment measurement reference")
+    result = _tl_result(receipt.get("result"))
+    attribution = receipt.get("failure_attribution")
+    if result == "confirmed":
+        if attribution is not None:
+            raise ToolLessonError("confirmed receipts cannot carry failure attribution")
+    else:
+        _tl_attribution(attribution)
+    scope_commitment = receipt.get("scope_commitment")
+    if not isinstance(scope_commitment, str) or not _TL_DIGEST.fullmatch(scope_commitment):
+        raise ToolLessonError("receipt.scope_commitment must be a SHA-256 commitment")
+    unsigned = dict(receipt)
+    unsigned.pop("receipt_id", None)
+    expected = "sha256:" + _tl_sha(unsigned)
+    if receipt.get("receipt_id") != expected:
+        raise ToolLessonError("receipt_id does not match immutable receipt fields")
+    return dict(receipt)
+
+
+def procedural_attempt_receipt_schema() -> dict[str, Any]:
+    """Return the closed JSON schema for one procedural attempt receipt."""
+    digest = {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+    identifier = {"type": "string", "minLength": 1, "maxLength": 160, "pattern": r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$"}
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://perseus.observer/schemas/procedural-attempt-receipt/v1",
+        "title": "Perseus procedural attempt receipt",
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "schema_version", "receipt_id", "lesson_id", "lesson_version", "step_id",
+            "step_version", "verifier_id", "verifier_version", "environment_fingerprint",
+            "environment_source", "environment_trust", "environment_measurement_ref", "result", "evidence_ref",
+            "failure_attribution", "scope_commitment", "attempt_id",
+        ],
+        "properties": {
+            "schema_version": {"type": "string", "const": _TL_RECEIPT_SCHEMA},
+            "receipt_id": digest,
+            "lesson_id": identifier,
+            "lesson_version": {"type": "integer", "minimum": 1},
+            "step_id": identifier,
+            "step_version": {"type": "integer", "minimum": 1},
+            "verifier_id": identifier,
+            "verifier_version": identifier,
+            "environment_fingerprint": digest,
+            "environment_source": {"type": "string", "enum": ["measured", "caller_declared"]},
+            "environment_trust": {"type": "string", "enum": ["measured", "untrusted"]},
+            "environment_measurement_ref": {"type": ["string", "null"], "maxLength": 160},
+            "result": {"type": "string", "enum": ["confirmed", "failed", "unknown"]},
+            "evidence_ref": identifier,
+            "failure_attribution": {"type": ["string", "null"], "enum": [None, "skill_defect", "routing_error", "rule_defect", "data_drift", "input_noise", "unknown"]},
+            "scope_commitment": digest,
+            "attempt_id": identifier,
+        },
+    }
+
+
+def verify_attempt_receipt(receipt: Any) -> dict[str, Any]:
+    try:
+        checked = _tl_validate_receipt(receipt)
+    except (ToolLessonError, TypeError, ValueError):
+        return {"valid": False, "error": "invalid procedural attempt receipt"}
+    return {"valid": True, "receipt_id": checked["receipt_id"]}
 
 
 def tool_failure_signature(
@@ -5358,11 +5552,12 @@ def tool_failure_signature(
 
 
 class ToolLessonStore:
-    """Hash-only queue with explicit admission and causal-verification states."""
+    """Hash-only lesson queue with receipt-derived trust and causal states."""
 
-    def __init__(self, path: str | Path | None = None, *, max_proposals: int = 256) -> None:
+    def __init__(self, path: str | Path | None = None, *, max_proposals: int = 256, max_receipts: int = _TL_RECEIPT_MAX) -> None:
         self.path = Path(path) if path is not None else None
         self.max_proposals = max(1, min(10_000, int(max_proposals)))
+        self.max_receipts = max(1, min(_TL_RECEIPT_MAX, int(max_receipts)))
         self._records: dict[str, dict[str, Any]] = {}
         self._telemetry = {"observed_failures": 0, "deduplicated_failures": 0, "queued": 0, "dropped": 0}
         self._load()
@@ -5374,6 +5569,9 @@ class ToolLessonStore:
             for line in self.path.read_text(encoding="utf-8").splitlines()[-self.max_proposals:]:
                 item = json.loads(line)
                 if isinstance(item, dict) and item.get("schema_version") == _TL_SCHEMA and item.get("lesson_id"):
+                    receipts = item.get("receipts")
+                    if receipts is not None and not isinstance(receipts, list):
+                        continue
                     self._records[str(item["lesson_id"])] = item
         except (OSError, ValueError):
             self._records = {}
@@ -5382,29 +5580,32 @@ class ToolLessonStore:
         if self.path is None:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        for item in self._records.values():
+            _tl_refresh_ledger(item)
         self.path.write_text("".join(_tl_json(item) + "\n" for item in self._records.values()), encoding="utf-8")
 
     def telemetry(self) -> dict[str, int]:
         base = {**self._telemetry, "queued": sum(item.get("status") == "proposed" for item in self._records.values())}
-        base["outcomes_recorded"] = sum(
-            int((item.get("outcomes") or {}).get("attempts", 0)) for item in self._records.values()
-        )
+        base["outcomes_recorded"] = sum(int(_tl_ledger(item).get("attempts", 0)) for item in self._records.values())
         return base
 
     def get(self, lesson_id: str) -> dict[str, Any]:
         item = self._records.get(_tl_id(lesson_id, "lesson_id"))
         if item is None:
             raise ToolLessonError("unknown lesson")
-        return dict(item)
+        _tl_refresh_ledger(item)
+        return copy.deepcopy(item)
 
     def lookup(self, *, tool: str, operation: str, resource: str = "", scope: Any = None) -> dict[str, Any] | None:
         normalized_scope = _tl_scope(scope)
-        signature = tool_failure_signature(tool=tool, operation=operation, resource=resource, error_type="unknown")
-        # The exact error class is not known at lookup time; match identity fields.
         for item in self._records.values():
-            if item.get("tool") == tool and item.get("operation") == operation and item.get("resource", "") == resource and item.get("scope", {}) == normalized_scope:
-                if item.get("failure_signature") == signature or item.get("tool_identity") == {"tool": tool, "operation": operation, "resource": resource}:
-                    return dict(item)
+            if (
+                item.get("tool") == tool
+                and item.get("operation") == operation
+                and item.get("resource", "") == resource
+                and item.get("scope", {}) == normalized_scope
+            ):
+                return copy.deepcopy(item)
         return None
 
     def observe_failure(
@@ -5418,7 +5619,7 @@ class ToolLessonStore:
                 item["observed_count"] = int(item.get("observed_count", 1)) + 1
                 self._telemetry["deduplicated_failures"] += 1
                 self._persist()
-                return {**item, "deduplicated": True}
+                return {**copy.deepcopy(item), "deduplicated": True}
         if len(self._records) >= self.max_proposals:
             self._telemetry["dropped"] += 1
             return {"schema_version": _TL_SCHEMA, "status": "dropped", "reason": "queue_full", "failure_signature": signature, "deduplicated": False}
@@ -5436,13 +5637,14 @@ class ToolLessonStore:
             "schema_version": _TL_SCHEMA, "lesson_id": lesson_id, "status": "proposed",
             "tool": identity["tool"], "operation": identity["operation"], "resource": identity["resource"],
             "tool_identity": identity, "provider": _tl_id(provider or "local", "provider"), "tool_version": _tl_id(tool_version or "unknown", "tool_version"), "failure_signature": signature, "scope": normalized_scope,
-            "observed_count": 1, "injection_refs": [], "evidence_refs": [],
+            "lesson_version": 1, "step_id": identity["operation"], "step_version": 1,
+            "observed_count": 1, "injection_refs": [], "evidence_refs": [], "receipts": [],
         }
         if prior_lesson_id:
             item["prior_lesson_id"] = prior_lesson_id
         self._records[lesson_id] = item
         self._persist()
-        return {**item, "deduplicated": False}
+        return {**copy.deepcopy(item), "deduplicated": False}
 
     def expose_lesson(self, lesson_id: str, *, injection_ref: str) -> dict[str, Any]:
         item = self._records.get(_tl_id(lesson_id, "lesson_id"))
@@ -5454,7 +5656,103 @@ class ToolLessonStore:
         if ref not in item["injection_refs"]:
             item["injection_refs"].append(ref)
         self._persist()
-        return dict(item)
+        return copy.deepcopy(item)
+
+    def record_attempt(
+        self,
+        lesson_id: str,
+        *,
+        result: str,
+        lesson_version: int | None = None,
+        step_id: str | None = None,
+        step_version: int = 1,
+        verifier_id: str = "unknown",
+        verifier_version: str = "unknown",
+        environment_fingerprint: str = "",
+        environment_measured: bool = False,
+        environment_measurement_ref: str | None = None,
+        evidence_ref: str | None = None,
+        attribution: str = "unknown",
+        scope: Any = None,
+        attempt_id: str | None = None,
+        receipt_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Append one immutable verifier receipt and derive lesson aggregates."""
+        item = self._records.get(_tl_id(lesson_id, "lesson_id"))
+        if item is None:
+            raise ToolLessonError("unknown lesson")
+        if item.get("status") in {"decayed", "rejected", "superseded"}:
+            raise ToolLessonError("terminal lesson cannot record attempts")
+        result_value = _tl_result(result)
+        if not isinstance(environment_measured, bool):
+            raise ToolLessonError("environment_measured must be boolean")
+        if evidence_ref is None:
+            raise ToolLessonError("evidence_ref is required")
+        evidence = _tl_id(evidence_ref, "evidence_ref")
+        if environment_measured and not environment_measurement_ref:
+            raise ToolLessonError("measured environment requires environment_measurement_ref")
+        measured_ref = _tl_id(environment_measurement_ref, "environment_measurement_ref") if environment_measurement_ref else None
+        if not environment_measured and measured_ref:
+            raise ToolLessonError("caller-declared environment cannot carry a measurement reference")
+        safe_lesson_version = lesson_version if lesson_version is not None else item.get("lesson_version", 1)
+        if isinstance(safe_lesson_version, bool) or not isinstance(safe_lesson_version, int) or safe_lesson_version < 1:
+            raise ToolLessonError("lesson_version must be a positive integer")
+        safe_step = _tl_id(step_id or item.get("step_id") or item.get("operation") or "procedure", "step_id")
+        safe_step_version = step_version
+        if isinstance(safe_step_version, bool) or not isinstance(safe_step_version, int) or safe_step_version < 1:
+            raise ToolLessonError("step_version must be a positive integer")
+        safe_verifier = _tl_id(verifier_id or "unknown", "verifier_id")
+        safe_verifier_version = _tl_id(verifier_version or "unknown", "verifier_version")
+        safe_attempt = _tl_id(attempt_id or "attempt:" + _tl_sha({"lesson": lesson_id, "step": safe_step, "verifier": safe_verifier, "version": safe_verifier_version, "result": result_value})[:32], "attempt_id")
+        safe_attribution = _tl_attribution(attribution)
+        failure_attribution = None if result_value == "confirmed" else safe_attribution
+        normalized_scope = _tl_scope(scope) if scope is not None else dict(item.get("scope") or {})
+        if normalized_scope != dict(item.get("scope") or {}):
+            raise ToolLessonError("attempt scope does not match lesson scope")
+        unsigned = {
+            "schema_version": _TL_RECEIPT_SCHEMA,
+            "lesson_id": _tl_id(lesson_id, "lesson_id"),
+            "lesson_version": safe_lesson_version,
+            "step_id": safe_step,
+            "step_version": safe_step_version,
+            "verifier_id": safe_verifier,
+            "verifier_version": safe_verifier_version,
+            "environment_fingerprint": _tl_fingerprint(environment_fingerprint),
+            "environment_source": "measured" if environment_measured else "caller_declared",
+            "environment_trust": "measured" if environment_measured else "untrusted",
+            "environment_measurement_ref": measured_ref,
+            "result": result_value,
+            "evidence_ref": evidence,
+            "failure_attribution": failure_attribution,
+            "scope_commitment": "sha256:" + _tl_sha(normalized_scope),
+            "attempt_id": safe_attempt,
+        }
+        generated_id = "sha256:" + _tl_sha(unsigned)
+        if receipt_id is not None:
+            supplied = _tl_id(receipt_id, "receipt_id")
+            if supplied != generated_id:
+                raise ToolLessonError("receipt_id does not match immutable receipt fields")
+        receipt = {"receipt_id": generated_id, **unsigned}
+        _tl_validate_receipt(receipt)
+        receipts = item.setdefault("receipts", [])
+        if not isinstance(receipts, list):
+            raise ToolLessonError("lesson receipt store is invalid")
+        for existing in receipts:
+            if not isinstance(existing, Mapping):
+                raise ToolLessonError("lesson receipt store is invalid")
+            if existing.get("receipt_id") == generated_id:
+                if dict(existing) != receipt:
+                    raise ToolLessonError("receipt_id collision with different immutable fields")
+                return {**copy.deepcopy(receipt), "deduplicated": True}
+        if len(receipts) >= self.max_receipts:
+            raise ToolLessonError("receipt retention limit reached")
+        receipts.append(receipt)
+        if evidence not in item["evidence_refs"]:
+            item["evidence_refs"].append(evidence)
+        if result_value == "confirmed" and item.get("status") == "injected":
+            item["status"] = "correlated"
+        self._persist()
+        return copy.deepcopy(receipt)
 
     def record_follow_up(self, lesson_id: str, *, tool: str, operation: str, resource: str = "", error_type: str = "unknown", tool_version: str = "unknown", provider: str = "local", status: int | str | None = None, success: bool, evidence_ref: str | None = None, scope: Any = None) -> dict[str, Any]:
         item = self._records.get(_tl_id(lesson_id, "lesson_id"))
@@ -5474,71 +5772,152 @@ class ToolLessonStore:
     def record_outcome(
         self, lesson_id: str, *, success: bool, attribution: str = "unknown", evidence_ref: str | None = None,
     ) -> dict[str, Any]:
-        """Accumulate one outcome on a lesson's ledger (#948).
-
-        The ledger is the deterministic basis for win-rate gates: attempts,
-        successes, failures (by attribution class), and a bounded rolling
-        window. A success after injection records the same temporal
-        correlation transition as ``record_follow_up``; it is correlation,
-        not causal proof (governed admission still requires evidence).
-        Terminal lessons are frozen — record outcomes on a live lesson only.
-        """
-        item = self._records.get(_tl_id(lesson_id, "lesson_id"))
-        if item is None:
-            raise ToolLessonError("unknown lesson")
+        """Compatibility wrapper that records a receipt-backed boolean outcome."""
         if not isinstance(success, bool):
             raise ToolLessonError("success must be a boolean")
-        attribution = _tl_attribution(attribution)
-        if item.get("status") in {"decayed", "rejected", "superseded"}:
-            raise ToolLessonError("terminal lesson cannot record outcomes")
-        if evidence_ref:
-            ref = _tl_id(evidence_ref, "evidence_ref")
-            if ref not in item["evidence_refs"]:
-                item["evidence_refs"].append(ref)
-        ledger = _tl_ledger(item)
-        ledger["attempts"] += 1
-        if success:
-            ledger["successes"] += 1
-            if item["status"] == "injected":
-                item["status"] = "correlated"
-        else:
-            ledger["failures"] += 1
-            ledger["by_attribution"][attribution] = ledger["by_attribution"].get(attribution, 0) + 1
-        ledger["recent"].append({"s": success, "a": attribution})
-        del ledger["recent"][:-_TL_OUTCOME_WINDOW]
-        self._persist()
-        return {
-            "schema_version": _TL_SCHEMA, "lesson_id": lesson_id,
-            "attempts": ledger["attempts"], "successes": ledger["successes"],
-            "failures": ledger["failures"], "causal_confirmation": False,
-        }
-
-    def win_rate(self, lesson_id: str, *, window: int | None = None, min_attempts: int = 0) -> dict[str, Any]:
-        """Deterministic win-rate over the full ledger or the recent tail."""
         item = self._records.get(_tl_id(lesson_id, "lesson_id"))
         if item is None:
             raise ToolLessonError("unknown lesson")
-        ledger = _tl_ledger(item)
-        if window is None:
-            attempts = int(ledger["attempts"])
-            successes = int(ledger["successes"])
-            failures = int(ledger["failures"])
+        if evidence_ref is None:
+            evidence_ref = "artifact:legacy-outcome-" + str(len(item.get("receipts") or []) + 1)
+        result = "confirmed" if success else "failed"
+        receipt = self.record_attempt(
+            lesson_id,
+            result=result,
+            lesson_version=int(item.get("lesson_version", 1)),
+            step_id=str(item.get("step_id") or item.get("operation") or "procedure"),
+            step_version=int(item.get("step_version", 1)),
+            verifier_id="legacy-outcome",
+            verifier_version="boolean-v1",
+            environment_fingerprint="legacy-unknown",
+            environment_measured=False,
+            evidence_ref=evidence_ref,
+            attribution=attribution,
+            attempt_id="legacy-outcome:" + str(len(item.get("receipts") or []) + 1),
+        )
+        stats = self.win_rate(lesson_id)
+        return {
+            "schema_version": _TL_SCHEMA, "lesson_id": lesson_id,
+            "attempts": stats["all_attempts"], "successes": stats["confirmed"],
+            "failures": stats["failed"], "unknown": stats["unknown"],
+            "causal_confirmation": False, "receipt_id": receipt["receipt_id"],
+        }
+
+    def _metrics_for_receipts(self, receipts: list[Mapping[str, Any]], *, min_known_attempts: int = 0) -> dict[str, Any]:
+        confirmed = sum(r.get("result") == "confirmed" for r in receipts)
+        failed = sum(r.get("result") == "failed" for r in receipts)
+        unknown = sum(r.get("result") == "unknown" for r in receipts)
+        all_attempts = len(receipts)
+        known_attempts = confirmed + failed
+        known_rate = confirmed / known_attempts if known_attempts else None
+        coverage = known_attempts / all_attempts if all_attempts else None
+        return {
+            "all_attempts": all_attempts,
+            "known_attempts": known_attempts,
+            "confirmed": confirmed,
+            "failed": failed,
+            "unknown": unknown,
+            "known_win_rate": known_rate,
+            "coverage": coverage,
+            "win_rate": known_rate,
+            "sufficient_sample": known_attempts >= max(1, int(min_known_attempts)),
+        }
+
+    def _receipt_list(self, lesson_id: str) -> list[dict[str, Any]]:
+        item = self._records.get(_tl_id(lesson_id, "lesson_id"))
+        if item is None:
+            raise ToolLessonError("unknown lesson")
+        receipts = item.get("receipts") or []
+        if not isinstance(receipts, list):
+            raise ToolLessonError("lesson receipt store is invalid")
+        return [dict(_tl_validate_receipt(receipt)) for receipt in receipts]
+
+    def win_rate(self, lesson_id: str, *, window: int | None = None, min_attempts: int = 0) -> dict[str, Any]:
+        """Return receipt-derived known-outcome rate and verifier coverage."""
+        receipts = self._receipt_list(lesson_id)
+        if receipts:
+            if window is not None:
+                receipts = receipts[-max(1, min(10_000, int(window))):]
+            stats = self._metrics_for_receipts(receipts, min_known_attempts=min_attempts)
         else:
-            w = max(1, min(10_000, int(window)))
-            recent = ledger["recent"][-w:]
-            attempts = len(recent)
-            successes = sum(1 for entry in recent if entry["s"])
-            failures = attempts - successes
+            ledger = _tl_ledger(self._records[_tl_id(lesson_id, "lesson_id")])
+            all_attempts = int(ledger.get("attempts", 0))
+            confirmed = int(ledger.get("successes", 0))
+            failed = int(ledger.get("failures", 0))
+            unknown = int(ledger.get("unknown", 0))
+            known = confirmed + failed
+            stats = {
+                "all_attempts": all_attempts, "known_attempts": known,
+                "confirmed": confirmed, "failed": failed, "unknown": unknown,
+                "known_win_rate": confirmed / known if known else None,
+                "coverage": known / all_attempts if all_attempts else None,
+                "win_rate": confirmed / known if known else None,
+                "sufficient_sample": known >= max(1, int(min_attempts)),
+            }
+        # Preserve #948 field names for callers while exposing the new names.
         return {
             "lesson_id": lesson_id,
-            "attempts": attempts, "successes": successes, "failures": failures,
-            "win_rate": (successes / attempts) if attempts > 0 else None,
-            "sufficient_sample": attempts >= max(1, int(min_attempts)),
+            "attempts": stats["all_attempts"],
+            "successes": stats["confirmed"],
+            "failures": stats["failed"],
+            "unknown": stats["unknown"],
+            "all_attempts": stats["all_attempts"],
+            "known_attempts": stats["known_attempts"],
+            "confirmed": stats["confirmed"],
+            "failed": stats["failed"],
+            "known_win_rate": stats["known_win_rate"],
+            "coverage": stats["coverage"],
+            "win_rate": stats["win_rate"],
+            "sufficient_sample": stats["sufficient_sample"],
+        }
+
+    def evaluate_admission(
+        self,
+        lesson_id: str,
+        *,
+        min_known_attempts: int = 5,
+        min_known_win_rate: float = 0.7,
+        min_coverage: float = 1.0,
+        policy_version: str = "trust-policy-v1",
+    ) -> dict[str, Any]:
+        """Evaluate versioned sample, win-rate, and coverage gates without mutation."""
+        if isinstance(min_known_attempts, bool) or not isinstance(min_known_attempts, int) or min_known_attempts < 1:
+            raise ToolLessonError("min_known_attempts must be a positive integer")
+        for name, value in (("min_known_win_rate", min_known_win_rate), ("min_coverage", min_coverage)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) or not 0.0 <= float(value) <= 1.0:
+                raise ToolLessonError(f"{name} must be a number in [0, 1]")
+        policy = {
+            "schema_version": _TL_POLICY_SCHEMA,
+            "version": _tl_id(policy_version or "trust-policy-v1", "policy_version"),
+            "min_known_attempts": min_known_attempts,
+            "min_known_win_rate": round(float(min_known_win_rate), 6),
+            "min_coverage": round(float(min_coverage), 6),
+        }
+        metrics = self.win_rate(lesson_id, min_attempts=min_known_attempts)
+        reasons: list[str] = []
+        if metrics["known_attempts"] < min_known_attempts:
+            reasons.append("insufficient_known_sample")
+        if metrics["known_win_rate"] is None or metrics["known_win_rate"] < min_known_win_rate:
+            reasons.append("known_win_rate_below_floor")
+        if metrics["coverage"] is None or metrics["coverage"] < min_coverage:
+            reasons.append("coverage_below_floor")
+        rate = metrics["known_win_rate"] or 0.0
+        coverage = metrics["coverage"] or 0.0
+        return {
+            "schema_version": _TL_COVERAGE_SCHEMA,
+            "lesson_id": lesson_id,
+            "policy": policy,
+            "metrics": {key: metrics[key] for key in ("all_attempts", "known_attempts", "confirmed", "failed", "unknown", "known_win_rate", "coverage")},
+            "admissible": not reasons,
+            "reasons": reasons,
+            "trust_score": round(rate * coverage, 6),
         }
 
     def admit_lesson(
         self, lesson_id: str, *, evidence_refs: list[str],
         require_win_rate: bool = False, min_win_rate: float = 0.7, min_attempts: int = 5,
+        require_coverage: bool = False, min_coverage: float = 1.0,
+        policy_version: str = "trust-policy-v1",
     ) -> dict[str, Any]:
         item = self._records.get(_tl_id(lesson_id, "lesson_id"))
         if item is None:
@@ -5548,39 +5927,31 @@ class ToolLessonStore:
             raise ToolLessonError("governed admission requires evidence")
         if item.get("status") in {"decayed", "rejected", "superseded"}:
             raise ToolLessonError("terminal lesson cannot be admitted")
-        if require_win_rate:
-            # Outcome-verified admission (#948): the ledger is the held-out
-            # deterministic check — the reporter's claim is not enough.
-            if isinstance(min_win_rate, bool) or not isinstance(min_win_rate, (int, float)) or not 0.0 <= min_win_rate <= 1.0:
-                raise ToolLessonError("min_win_rate must be a number in [0, 1]")
-            try:
-                min_attempts_i = max(1, int(min_attempts))
-            except (TypeError, ValueError):
-                raise ToolLessonError("min_attempts must be a positive integer")
-            stats = self.win_rate(lesson_id, min_attempts=min_attempts_i)
-            if not stats["sufficient_sample"]:
-                raise ToolLessonError(f"outcome-verified admission requires at least {min_attempts_i} recorded attempts")
-            if stats["win_rate"] is None or stats["win_rate"] < min_win_rate:
-                raise ToolLessonError("outcome-verified admission requires win_rate >= min_win_rate")
+        if require_win_rate or require_coverage:
+            decision = self.evaluate_admission(
+                lesson_id,
+                min_known_attempts=max(1, int(min_attempts)),
+                min_known_win_rate=min_win_rate if require_win_rate else 0.0,
+                min_coverage=min_coverage if require_coverage or require_win_rate else 0.0,
+                policy_version=policy_version,
+            )
+            if not decision["admissible"]:
+                if "coverage_below_floor" in decision["reasons"]:
+                    raise ToolLessonError("outcome-verified admission requires coverage >= min_coverage")
+                if "known_win_rate_below_floor" in decision["reasons"]:
+                    raise ToolLessonError("outcome-verified admission requires known_win_rate >= min_known_win_rate")
+                raise ToolLessonError("outcome-verified admission requires at least the configured known-outcome sample")
+            item["admission_policy"] = decision["policy"]
+            item["admission_metrics"] = decision["metrics"]
         item["evidence_refs"] = sorted(set(item["evidence_refs"]) | set(refs))
         item["status"] = "active"
         self._persist()
-        return dict(item)
+        return copy.deepcopy(item)
 
     def triage_lesson(
         self, lesson_id: str, *, min_attempts: int = 8, collapse_win_rate: float = 0.5, exculpation_ratio: float = 0.6,
     ) -> dict[str, Any]:
-        """Outcome-gated retirement with attribution peeling (#948).
-
-        Verdicts (all deterministic):
-        - ``insufficient_sample`` — fewer than ``min_attempts`` outcomes; no mutation.
-        - ``healthy`` — win rate at or above ``collapse_win_rate``; no mutation.
-        - ``exonerated`` — win rate collapsed but failures peel predominantly to
-          routing/input/drift attribution (not the lesson's fault); no mutation.
-        - ``retire`` — win rate collapsed and failures peel to lesson-fault or
-          unattributed classes; the lesson is decayed with the attribution
-          breakdown recorded in ``decay_reason``.
-        """
+        """Outcome-gated retirement with attribution peeling and review states."""
         item = self._records.get(_tl_id(lesson_id, "lesson_id"))
         if item is None:
             raise ToolLessonError("unknown lesson")
@@ -5597,36 +5968,79 @@ class ToolLessonStore:
         stats = self.win_rate(lesson_id)
         ledger = _tl_ledger(item)
         by_attribution = dict(ledger.get("by_attribution", {}))
-        failures = stats["failures"]
+        failures = stats["failed"]
         lesson_fault = sum(by_attribution.get(name, 0) for name in ("skill_defect", "rule_defect"))
         exculpated = sum(by_attribution.get(name, 0) for name in _TL_EXCULPATORY_ATTRIBUTIONS)
         verdict: dict[str, Any] = {
             "lesson_id": lesson_id,
-            "attempts": stats["attempts"], "win_rate": stats["win_rate"],
-            "attribution": by_attribution, "lesson_fault": lesson_fault, "exculpated": exculpated,
+            "attempts": stats["all_attempts"], "known_attempts": stats["known_attempts"],
+            "unknown": stats["unknown"], "win_rate": stats["known_win_rate"],
+            "coverage": stats["coverage"], "attribution": by_attribution,
+            "lesson_fault": lesson_fault, "exculpated": exculpated,
         }
-        if stats["attempts"] < min_attempts_i:
+        if stats["known_attempts"] < min_attempts_i:
             verdict["verdict"] = "insufficient_sample"
-            verdict["reason"] = f"needs at least {min_attempts_i} recorded attempts"
+            verdict["reason"] = f"needs at least {min_attempts_i} known outcomes"
             return verdict
-        if stats["win_rate"] is None or stats["win_rate"] >= collapse_win_rate:
+        # Unknown verifier outcomes and unknown failure attribution are distinct
+        # from lesson failures. Neither may silently promote, retire, or exonerate.
+        if stats["unknown"] > 0 or by_attribution.get("unknown", 0) > 0:
+            verdict["verdict"] = "inconclusive"
+            verdict["reason"] = "unknown verifier result or failure attribution requires review"
+            return verdict
+        if stats["known_win_rate"] is None or stats["known_win_rate"] >= collapse_win_rate:
             verdict["verdict"] = "healthy"
             return verdict
-        # Collapsed. Peel the failure batch before any retire decision: a
-        # lesson whose failures are predominantly not its own fault is
-        # exonerated, never retired (PROVE).
         if failures > 0 and (exculpated / failures) >= exculpation_ratio:
             verdict["verdict"] = "exonerated"
             verdict["reason"] = "failures peel to routing/input/drift attribution; not the lesson's fault"
             return verdict
-        reason = (
-            f"win_rate_collapsed:{stats['win_rate']:.2f}:lesson_fault:{lesson_fault}:exculpated:{exculpated}"
-        )
+        reason = f"win_rate_collapsed:{stats['known_win_rate']:.2f}:lesson_fault:{lesson_fault}:exculpated:{exculpated}"
         item["status"] = "decayed"
         item["decay_reason"] = reason
         self._persist()
         verdict.update({"verdict": "retire", "reason": reason})
         return verdict
+
+    def coverage_report(self, lesson_id: str, *, min_known_attempts: int = 5) -> dict[str, Any]:
+        """Return deterministic overall and cohort-level receipt coverage."""
+        if isinstance(min_known_attempts, bool) or not isinstance(min_known_attempts, int) or min_known_attempts < 1:
+            raise ToolLessonError("min_known_attempts must be a positive integer")
+        receipts = self._receipt_list(lesson_id)
+        overall = self._metrics_for_receipts(receipts, min_known_attempts=min_known_attempts)
+        dimensions = {
+            "step": ("step_id", "step_version"),
+            "verifier": ("verifier_id", "verifier_version"),
+            "environment": ("environment_fingerprint", "environment_source"),
+        }
+        cohorts: dict[str, list[dict[str, Any]]] = {}
+        for dimension, fields in dimensions.items():
+            groups: dict[tuple[Any, ...], list[Mapping[str, Any]]] = {}
+            for receipt in receipts:
+                key = tuple(receipt.get(field) for field in fields)
+                groups.setdefault(key, []).append(receipt)
+            rows: list[dict[str, Any]] = []
+            for key, group in sorted(groups.items(), key=lambda pair: tuple(str(v) for v in pair[0])):
+                cohort_payload = {field: value for field, value in zip(fields, key)}
+                row: dict[str, Any] = {
+                    "cohort_id": "sha256:" + _tl_sha({"dimension": dimension, **cohort_payload}),
+                    "metrics": self._metrics_for_receipts(group, min_known_attempts=min_known_attempts),
+                }
+                if dimension == "step":
+                    row.update({"step_id": key[0], "step_version": key[1]})
+                elif dimension == "verifier":
+                    row.update({"verifier_id": key[0], "verifier_version": key[1]})
+                else:
+                    row.update({"environment_fingerprint": key[0], "environment_source": key[1]})
+                rows.append(row)
+            cohorts[dimension] = rows
+        return {
+            "schema_version": _TL_COVERAGE_SCHEMA,
+            "lesson_id": lesson_id,
+            "min_known_attempts": min_known_attempts,
+            "overall": overall,
+            "cohorts": cohorts,
+        }
 
     def decay_lesson(self, lesson_id: str, *, reason: str) -> dict[str, Any]:
         item = self._records.get(_tl_id(lesson_id, "lesson_id"))
@@ -5635,7 +6049,7 @@ class ToolLessonStore:
         item["status"] = "decayed"
         item["decay_reason"] = _tl_id(reason, "reason")
         self._persist()
-        return dict(item)
+        return copy.deepcopy(item)
 
     def supersede_lesson(self, lesson_id: str, *, replacement_id: str) -> dict[str, Any]:
         item = self._records.get(_tl_id(lesson_id, "lesson_id"))
@@ -5644,7 +6058,7 @@ class ToolLessonStore:
         item["status"] = "superseded"
         item["replacement_id"] = _tl_id(replacement_id, "replacement_id")
         self._persist()
-        return dict(item)
+        return copy.deepcopy(item)
 """Hash-only memory-injection efficiency telemetry (#929)."""
 
 import hashlib
@@ -12614,6 +13028,10 @@ def _build_output_schema(tool_name: str, spec) -> dict | None:
     if tool_name == "perseus_context_inspect":
         return _CONTEXT_INSPECTOR_MCP_OUTPUT_SCHEMA
     if tool_name in {
+        "perseus_context_compile", "perseus_context_route_ablation",
+    }:
+        return _CONTEXT_VAULT_MCP_OUTPUT_SCHEMA
+    if tool_name in {
         "perseus_context_rank", "perseus_context_ask",
         "perseus_agent_projection_preview", "perseus_agent_projection_consent",
         "perseus_agent_projection_release", "perseus_agent_projection_revoke",
@@ -12647,6 +13065,8 @@ def _build_annotations(tool_name: str, spec) -> dict | None:
     if tool_name in ("perseus_date", "perseus_drift", "perseus_env"):
         hints["readOnlyHint"] = True
     if tool_name == "perseus_context_inspect":
+        hints["readOnlyHint"] = True
+    if tool_name in _MCP_CONTEXT_VAULT_TOOLS:
         hints["readOnlyHint"] = True
     # Read-only tools that escape the reads_files / executes_shell checks
     if tool_name in ("perseus_auto_skill", "perseus_profile", "perseus_perseus", "perseus_vault", "perseus_mason",
@@ -12794,6 +13214,85 @@ _CONTEXT_INSPECTOR_MCP_OUTPUT_SCHEMA = {
     },
 }
 
+# ── Opt-in Context + Vault compiler tools (#1016/#1022) ──────────────────────
+# The compiler is deliberately absent from the default tool list. Enabling the
+# `perseus_vault.context_serving.enabled` configuration gate exposes these
+# read-only tools without changing ordinary context or recall behavior.
+_CONTEXT_VAULT_MCP_OUTPUT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["schema_version", "operation", "status", "gold_blind", "digest"],
+    "properties": {
+        "schema_version": {"type": "string", "enum": ["perseus-context-vault/v1", "perseus-context-route-ablation/v1"]},
+        "operation": {"type": "string", "enum": ["context_compile", "context_route_ablation"]},
+        "status": {"type": "string"},
+        "failure_state": {"type": ["string", "null"]},
+        "gold_blind": {"type": "boolean", "const": True},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "task_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "scope_commitment": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "query_plan": {"type": "object"},
+        "retrieval": {"type": "object"},
+        "packet": {"type": "array", "maxItems": 32, "items": {"type": "object"}},
+        "selection_trace": {"type": "object"},
+        "compiled_dag": {"type": "object"},
+        "evidence_projection": {"type": "object"},
+        "telemetry": {"type": "object"},
+        "policy": {"type": "object"},
+        "route": {"type": "object"},
+        "omissions": {"type": "array", "maxItems": 128, "items": {"type": "object"}},
+        "update_relations": {"type": "array", "items": {"type": "object"}},
+        "conflicts": {"type": "array", "items": {"type": "array"}},
+        "manifest": {"type": "object"},
+        "arms": {"type": "object"},
+        "comparison": {"type": "object"},
+        "claims_boundary": {"type": "string"},
+    },
+}
+
+_CONTEXT_VAULT_MCP_TOOLS: list[dict] = [
+    _tool_schema(
+        "perseus_context_compile",
+        "Opt-in deterministic, gold-blind Context + Perseus Vault evidence compiler. "
+        "Applies scope, authorization, validity, role, time, update, conflict, "
+        "budget, and redaction gates before returning a digest-sealed packet.",
+        {
+            "task": {"type": "string", "minLength": 1, "maxLength": 512},
+            "records": {"type": "array", "maxItems": 64, "items": {"type": "object"}},
+            "scope": {"type": "object"},
+            "query_time_unix_ms": {"type": "integer"},
+            "provider_states": {"type": "object"},
+            "policy": {"type": "object"},
+            "budget": {"type": ["integer", "object"]},
+            "route_mode": {"type": "string", "enum": ["off", "on"]},
+            "route_scores": {"type": "object"},
+        },
+        required=["task"],
+        output_schema=_CONTEXT_VAULT_MCP_OUTPUT_SCHEMA,
+        annotations={"readOnlyHint": True},
+    ),
+    _tool_schema(
+        "perseus_context_route_ablation",
+        "Opt-in provider-free or adapter-backed route-off versus route-on Context "
+        "ablation. Holds the evidence pool and budget fixed, keeps route scores "
+        "non-authoritative, and emits separate per-arm coverage and replay fields.",
+        {
+            "task": {"type": "string", "minLength": 1, "maxLength": 512},
+            "records": {"type": "array", "maxItems": 64, "items": {"type": "object"}},
+            "scope": {"type": "object"},
+            "query_time_unix_ms": {"type": "integer"},
+            "provider_states": {"type": "object"},
+            "manifest": {"type": "object"},
+            "route_scores": {"type": "object"},
+            "policy": {"type": "object"},
+            "budget": {"type": ["integer", "object"]},
+        },
+        required=["task", "records", "scope", "query_time_unix_ms", "provider_states", "manifest"],
+        output_schema=_CONTEXT_VAULT_MCP_OUTPUT_SCHEMA,
+        annotations={"readOnlyHint": True},
+    ),
+]
+
 # ── Versioned context contract tools (#916/#917) ─────────────────────────────
 # These operations are host-side, bounded, and read-only with respect to source
 # memory. Release/consent/revoke only manage the sanitized projection boundary;
@@ -12918,6 +13417,11 @@ _MCP_SENSITIVE_TOOLS = {
     "perseus_agent_projection_consent", "perseus_agent_projection_revoke",
 }
 
+_MCP_CONTEXT_VAULT_TOOLS = {
+    "perseus_context_compile",
+    "perseus_context_route_ablation",
+}
+
 # State-changing context operations require both explicit MCP exposure and an
 # authenticated authority. The authority is deliberately transport/config
 # data, never a caller-supplied identity field.
@@ -12947,6 +13451,11 @@ def _mcp_tool_allowed(tool_name: str, cfg: dict) -> tuple[bool, str]:
         return False, f"tool {tool_name} is not allowed by mcp.tool_allowlist"
     if tool_name in _MCP_SENSITIVE_TOOLS and tool_name not in allowlist:
         return False, f"tool {tool_name} requires explicit mcp.tool_allowlist opt-in"
+    if tool_name in _MCP_CONTEXT_VAULT_TOOLS:
+        vault_cfg = cfg.get("perseus_vault", {}) if isinstance(cfg, dict) else {}
+        serving_cfg = vault_cfg.get("context_serving", {}) if isinstance(vault_cfg, dict) else {}
+        if not isinstance(serving_cfg, dict) or serving_cfg.get("enabled") is not True:
+            return False, "Context + Vault serving is disabled by perseus_vault.context_serving.enabled"
     return True, ""
 
 
@@ -13008,6 +13517,10 @@ def _get_all_mcp_tools(cfg: dict) -> list[dict]:
                 "allow": sorted(mcp_cfg.get("tool_allowlist") or []),
                 "block": sorted(mcp_cfg.get("tool_blocklist") or []),
                 "registry": _directive_registry_signature(),
+                "context_serving": (
+                    (cfg.get("perseus_vault", {}) or {}).get("context_serving", {})
+                    if isinstance(cfg, dict) else {}
+                ),
             },
             sort_keys=True,
             default=str,
@@ -13039,6 +13552,14 @@ def _get_all_mcp_tools(cfg: dict) -> list[dict]:
     # Versioned context contracts (#916/#917). Authorization mutators are
     # opt-in via the same allowlist gate as shell/agent execution.
     for tool in _CONTEXT_CONTRACT_MCP_TOOLS:
+        name = tool["name"]
+        allowed, _reason = _mcp_tool_allowed(name, cfg)
+        if not allowed:
+            continue
+        tools.append(tool)
+
+    # Opt-in Context + Vault compiler and benchmark ablation (#1016/#1022).
+    for tool in _CONTEXT_VAULT_MCP_TOOLS:
         name = tool["name"]
         allowed, _reason = _mcp_tool_allowed(name, cfg)
         if not allowed:
@@ -13078,6 +13599,8 @@ def _build_server_card(cfg: dict) -> dict:
 # ── Tool dispatch ────────────────────────────────────────────────────────────
 
 _CONTEXT_CONTRACT_RESULT_META = {
+    "perseus_context_compile": ("perseus-context-vault/v1", "context_compile"),
+    "perseus_context_route_ablation": ("perseus-context-route-ablation/v1", "context_route_ablation"),
     "perseus_context_rank": ("perseus-context-rank/v1", "context_rank"),
     "perseus_context_ask": ("perseus-context-ask/v1", "context_ask"),
     "perseus_agent_projection_preview": ("perseus-agent-projection/v1", "agent_projection_preview"),
@@ -13232,6 +13755,7 @@ def _context_contract_dispatch(
     ``context_contract.py``; this small MCP adapter only shapes the transport.
     """
     names = {
+        "perseus_context_compile", "perseus_context_route_ablation",
         "perseus_context_inspect", "perseus_context_rank", "perseus_context_ask",
         "perseus_agent_projection_preview", "perseus_agent_projection_consent",
         "perseus_agent_projection_release", "perseus_agent_projection_revoke",
@@ -13240,7 +13764,17 @@ def _context_contract_dispatch(
         return None
     args = dict(arguments or {})
     try:
-        if tool_name == "perseus_context_inspect":
+        if tool_name == "perseus_context_compile":
+            result = context_compile(args, cfg=cfg)
+        elif tool_name == "perseus_context_route_ablation":
+            result = run_context_route_ablation(
+                args.get("task"), records=args.get("records", []),
+                scope=args.get("scope"), query_time_unix_ms=args.get("query_time_unix_ms"),
+                provider_states=args.get("provider_states"), manifest=args.get("manifest"),
+                route_scores=args.get("route_scores"), policy=args.get("policy"),
+                budget=args.get("budget"),
+            )
+        elif tool_name == "perseus_context_inspect":
             artifact = args.get("artifact") if isinstance(args.get("artifact"), dict) else args
             result = inspect_context(artifact)
         elif tool_name == "perseus_context_rank":
@@ -37608,7 +38142,7 @@ import hashlib
 import json
 import math
 import re
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 _CE_SCHEMA_VERSION = "perseus-context-evidence/v1"
 _CE_STATES = frozenset({
@@ -40430,7 +40964,7 @@ NODE_KINDS = frozenset({
     "policy_constraint", "tool_output", "decision",
 })
 EDGE_KINDS = frozenset({
-    "supports", "depends_on", "contradicts", "invalidates", "selected_for",
+    "supports", "depends_on", "contradicts", "invalidates", "selected_for", "updates",
 })
 VERDICTS = frozenset({"sufficient", "abstain", "escalate"})
 UNCERTAINTY_CLASSES = frozenset({"high", "medium", "stale", "inferred", "low", "tie"})
@@ -46051,6 +46585,1516 @@ def cmd_context_inspector(args: Any, cfg: Mapping[str, Any] | None = None) -> in
 
 inspect_context_artifact = inspect_context_run
 list_context_inspector_scenarios = context_inspector_scenarios
+"""Gold-blind Context + Perseus Vault evidence compiler (#1016).
+
+This module is an opt-in serving boundary. It does not create a memory store or
+make a model-generated claim authoritative. It plans a task from text alone,
+accepts an already-authorized Vault adapter, applies visibility and evidence gates
+before selection, and emits a bounded extractive packet with replay commitments.
+"""
+
+import hashlib
+import json
+import math
+import re
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any
+
+
+_CV_SCHEMA = "perseus-context-vault/v1"
+_CV_PLAN_SCHEMA = "perseus-context-query-plan/v1"
+_CV_SELECTION_SCHEMA = "perseus-context-selection/v1"
+_CV_PLANNER = "deterministic-v1"
+_CV_MAX_TASK = 512
+_CV_MAX_RECORDS = 64
+_CV_MAX_TEXT = 2048
+_CV_MAX_PACKET_ITEMS = 32
+_CV_MAX_PACKET_TOKENS = 8192
+_CV_MAX_PACKET_BYTES = 262144
+_CV_LABEL_ORDER = ("multi_session", "temporal", "preference", "update")
+_CV_ROLES = frozenset({"user", "assistant", "system", "tool", "unknown"})
+_CV_VALIDITY = frozenset({"observed", "derived", "inferred", "stale", "contradictory", "unavailable", "unknown"})
+_CV_PROVIDER_STATES = frozenset({"active", "partial", "degraded", "unavailable", "timeout", "not_configured"})
+_CV_GOLD_KEYS = frozenset({"answer_session_ids", "gold_answer", "gold_answers", "question_type", "ground_truth", "expected_answer"})
+_CV_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/#@+\-]{0,159}$")
+_CV_SOURCE_RE = re.compile(r"^(?:file|vault|ledger|artifact):[A-Za-z0-9][A-Za-z0-9_.:/#\-]{0,159}$")
+_CV_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})?)?$")
+_CV_SECRET_RE = re.compile(r"(?i)(\b(?:api[_-]?key|password|passwd|secret|token|authorization|bearer|credential)\s*[:=]\s*)([^\s,;]+)")
+_CV_URI_USERINFO_RE = re.compile(r"(?i)(\b[a-z][a-z0-9+.-]*://)([^\s/@:]+(?::[^\s/@]*)?@)")
+_CV_AGG_RE = re.compile(r"\b(?:how many|count|counts|total|all|each|every|across|between sessions|distinct|list|which)\b")
+_CV_TEMPORAL_RE = re.compile(r"\b(?:when|before|after|between|earlier|later|first|last|oldest|newest|date|dated|day|week|month|year|history|historical|as of|timeline|order|changed)\b|\b\d{4}-\d{2}-\d{2}\b")
+_CV_PREFERENCE_RE = re.compile(r"\b(?:prefer|preference|like|likes|dislike|recommend|recommendation|suggest|tailor|favorite|favourite|setup|experience|constraint|plan|choose)\b")
+_CV_UPDATE_RE = re.compile(r"\b(?:latest|current|updated?|newest|most recent|prior|previous|supersed|version|changed|change|again|from|to)\b")
+_CV_ROLE_ALIASES = {"human": "user", "user_message": "user", "assistant_message": "assistant", "model": "assistant"}
+_CV_VALIDITY_ALIASES = {"verified": "observed", "current": "observed", "fresh": "observed", "supported": "observed", "conflict": "contradictory", "stale_source": "stale"}
+_CV_POLICY_DEFAULTS = {
+    "evidence_required": True,
+    "max_candidate_records": _CV_MAX_RECORDS,
+    "max_packet_items": 16,
+    "max_packet_tokens": 2048,
+    "max_packet_bytes": 16384,
+    "max_sources": 20,
+    "max_windows_per_source": 2,
+    "structural_weight": 0.2,
+    "policy_version": "context-vault-policy-v1",
+    "allow_llm_query_expansion": False,
+}
+
+
+class ContextVaultError(ValueError):
+    """Raised when the Context+Vault boundary cannot be represented safely."""
+
+
+def _cv_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+
+
+def _cv_sha(value: Any) -> str:
+    return hashlib.sha256(_cv_json(value).encode("utf-8")).hexdigest()
+
+
+def _cv_text_sha(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _cv_commit(value: Any) -> str:
+    return "sha256:" + _cv_sha(value)
+
+
+def _cv_safe_id(value: Any, field: str, *, required: bool = True) -> str:
+    if not isinstance(value, str):
+        if required:
+            raise ContextVaultError(f"{field} must be text")
+        return ""
+    text = value.strip()
+    if not text:
+        if required:
+            raise ContextVaultError(f"{field} is required")
+        return ""
+    if len(text) > 160 or any(ord(char) < 32 for char in text) or not _CV_ID_RE.fullmatch(text):
+        return "sha256:" + _cv_text_sha(text)
+    return text
+
+
+def _cv_redact_text(value: Any) -> str:
+    if not isinstance(value, str):
+        raise ContextVaultError("record text must be text")
+    text = re.sub(r"[\x00-\x1f\x7f]", " ", value).strip()
+    text = _CV_SECRET_RE.sub(r"\1[REDACTED]", text)
+    text = re.sub(r"(?i)(\bbearer\s+)[^\s,;]+", r"\1[REDACTED]", text)
+    text = _CV_URI_USERINFO_RE.sub(r"\1[REDACTED]@", text)
+    return text[:_CV_MAX_TEXT].rstrip()
+
+
+def _cv_reject_gold(value: Any, path: str = "input") -> None:
+    if isinstance(value, Mapping):
+        for key, nested in value.items():
+            normalized = str(key).casefold().replace("-", "_").replace(" ", "_")
+            if normalized in _CV_GOLD_KEYS:
+                raise ContextVaultError("gold_field_present")
+            _cv_reject_gold(nested, f"{path}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for index, nested in enumerate(value):
+            _cv_reject_gold(nested, f"{path}[{index}]")
+
+
+def _cv_scope(value: Any) -> dict[str, str]:
+    if value is None:
+        return {}
+    if isinstance(value, str):
+        return {"workspace": _cv_safe_id(value, "scope.workspace")}
+    if not isinstance(value, Mapping):
+        raise ContextVaultError("scope must be an object or workspace text")
+    allowed = ("tenant", "workspace", "workspace_hash", "topic", "agent", "request_class")
+    unknown = sorted(str(key) for key in value if key not in allowed)
+    if unknown:
+        raise ContextVaultError("scope contains unsupported fields")
+    result = {
+        key: _cv_safe_id(value[key], f"scope.{key}")
+        for key in allowed
+        if value.get(key) is not None and str(value[key]).strip()
+    }
+    if result.get("workspace") and result.get("workspace_hash") and result["workspace"] != result["workspace_hash"]:
+        raise ContextVaultError("scope.workspace and scope.workspace_hash disagree")
+    if "workspace_hash" in result:
+        result["workspace"] = result.pop("workspace_hash")
+    return result
+
+
+def _cv_scope_match(record: Mapping[str, Any], requested: Mapping[str, str]) -> bool:
+    raw = record.get("scope")
+    candidate = _cv_scope(raw) if raw is not None else {}
+    if record.get("workspace_hash") and "workspace" not in candidate:
+        candidate["workspace"] = _cv_safe_id(record["workspace_hash"], "workspace_hash")
+    return not requested or all(candidate.get(key) == value for key, value in requested.items())
+
+
+def _cv_source_refs(record: Mapping[str, Any]) -> list[str]:
+    values: list[Any] = []
+    for key in ("source_id", "source_ref", "provenance_id", "session_ref"):
+        if record.get(key):
+            values.append(record[key])
+    for key in ("source_refs", "provenance_refs"):
+        raw = record.get(key)
+        if isinstance(raw, (list, tuple)):
+            values.extend(raw[:64])
+    for key in ("provenance", "evidence"):
+        nested = record.get(key)
+        if isinstance(nested, Mapping):
+            for child in ("source_id", "source_ref", "provenance_id", "receipt_id", "id"):
+                if nested.get(child):
+                    values.append(nested[child])
+    refs: set[str] = set()
+    for value in values:
+        if not isinstance(value, str) or not value.strip():
+            continue
+        text = value.strip()
+        if _CV_SOURCE_RE.fullmatch(text):
+            namespace, _, suffix = text.partition(":")
+            if re.search(r"(?i)(?:password|secret|token|credential|authorization|api[_-]?key|private|raw|prompt|body|content)", suffix):
+                text = f"{namespace}:sha256:{_cv_text_sha(text)}"
+        else:
+            text = "vault:sha256:" + _cv_text_sha(text)
+        refs.add(text)
+    return sorted(refs)
+
+
+def _cv_timestamp(record: Mapping[str, Any], keys: Sequence[str]) -> str | None:
+    for key in keys:
+        value = record.get(key)
+        if value is None or value == "":
+            continue
+        if not isinstance(value, str) or not _CV_ISO_RE.fullmatch(value.strip()):
+            raise ContextVaultError(f"{key} must be an ISO-8601 date or timestamp")
+        return value.strip()
+    return None
+
+
+def _cv_record_text(record: Mapping[str, Any]) -> str:
+    for key in ("agent_text", "summary", "answer", "text", "content", "body"):
+        value = record.get(key)
+        if isinstance(value, str) and value.strip():
+            return _cv_redact_text(value)
+    body = record.get("body_json")
+    if isinstance(body, Mapping):
+        for key in ("summary", "title", "content", "text", "description", "value"):
+            value = body.get(key)
+            if isinstance(value, str) and value.strip():
+                return _cv_redact_text(value)
+    if record.get("value") is not None:
+        return _cv_redact_text(str(record["value"]))
+    return ""
+
+
+def _cv_validity(record: Mapping[str, Any]) -> str:
+    raw = record.get("validity_state", record.get("epistemic_state", record.get("validity", record.get("state"))))
+    if raw is None:
+        return "observed" if record.get("verified") is True else "unknown"
+    if not isinstance(raw, str):
+        raise ContextVaultError("validity state must be text")
+    value = raw.strip().lower().replace("-", "_").replace(" ", "_")
+    value = _CV_VALIDITY_ALIASES.get(value, value)
+    if value not in _CV_VALIDITY:
+        raise ContextVaultError("unsupported validity state")
+    return value
+
+
+def _cv_role(record: Mapping[str, Any]) -> str:
+    raw = record.get("role", record.get("source_role", record.get("speaker", record.get("author_role", "unknown"))))
+    if not isinstance(raw, str):
+        return "unknown"
+    value = _CV_ROLE_ALIASES.get(raw.strip().lower(), raw.strip().lower())
+    return value if value in _CV_ROLES else "unknown"
+
+
+def _cv_bool(record: Mapping[str, Any], *keys: str) -> bool:
+    for key in keys:
+        if key in record:
+            if not isinstance(record[key], bool):
+                raise ContextVaultError(f"{key} must be boolean")
+            return record[key]
+    return False
+
+
+def _cv_number(record: Mapping[str, Any], key: str, default: float = 0.0) -> float:
+    value = record.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ContextVaultError(f"{key} must be numeric")
+    value = float(value)
+    if not math.isfinite(value):
+        raise ContextVaultError(f"{key} must be finite")
+    return value
+
+
+def _cv_ref_list(value: Any, field: str) -> list[str]:
+    if value is None:
+        return []
+    values = [value] if isinstance(value, str) else list(value) if isinstance(value, (list, tuple)) else None
+    if values is None:
+        raise ContextVaultError(f"{field} must be text or a list")
+    return sorted({_cv_safe_id(item, field) for item in values})
+
+
+def _cv_normalize_record(raw: Any, index: int, requested_scope: Mapping[str, str]) -> tuple[dict[str, Any] | None, str | None]:
+    if not isinstance(raw, Mapping):
+        raise ContextVaultError("records must contain objects")
+    _cv_reject_gold(raw, f"records[{index}]")
+    if not _cv_scope_match(raw, requested_scope):
+        return None, "scope_mismatch"
+    if _cv_bool(raw, "authorized", "allowed") is False and ("authorized" in raw or "allowed" in raw):
+        return None, "authorization_denied"
+    text = _cv_record_text(raw)
+    if not text:
+        return None, "empty_evidence"
+    refs = _cv_source_refs(raw)
+    if not refs:
+        return None, "source_reference_missing"
+    identifier_value = raw.get("candidate_id", raw.get("id", raw.get("key")))
+    if identifier_value is None:
+        identifier = "candidate:" + _cv_text_sha("\x1f".join([refs[0], text, str(index)]))[:32]
+    else:
+        identifier = _cv_safe_id(identifier_value, "candidate_id")
+    validity = _cv_validity(raw)
+    verified = raw.get("verified", validity == "observed")
+    if not isinstance(verified, bool):
+        raise ContextVaultError("verified must be boolean")
+    event_time = _cv_timestamp(raw, ("event_time", "event_at", "event_date"))
+    valid_time = _cv_timestamp(raw, ("valid_at", "valid_time", "world_time"))
+    transaction_time = _cv_timestamp(raw, ("transaction_time",))
+    recorded_time = _cv_timestamp(raw, ("recorded_at", "created_at"))
+    session_date = _cv_timestamp(raw, ("session_date", "source_date", "conversation_date"))
+    category = _cv_safe_id(raw.get("category"), "category", required=False)
+    stable_key = _cv_safe_id(raw.get("key"), "key", required=False)
+    session_id = _cv_safe_id(raw.get("session_id", raw.get("session")), "session_id", required=False)
+    version = raw.get("version", raw.get("version_number"))
+    if version is not None and (isinstance(version, bool) or not isinstance(version, int) or version < 1 or version > 10**9):
+        raise ContextVaultError("version must be a positive integer")
+    preference_class = _cv_safe_id(raw.get("preference_class", raw.get("evidence_class")), "preference_class", required=False)
+    direct = _cv_bool(raw, "direct_evidence", "is_direct")
+    lane = raw.get("lane", raw.get("evidence_lane"))
+    if isinstance(lane, bool):
+        direct = bool(direct or lane)
+    elif isinstance(lane, str):
+        direct = bool(direct or lane.strip().lower() in {"direct", "evidence"})
+    elif lane is not None:
+        raise ContextVaultError("evidence lane must be boolean or text")
+    route_score = max(0.0, min(1.0, _cv_number(raw, "route_score", 0.0)))
+    sequence = _cv_number(raw, "sequence", float(index))
+    supersedes = _cv_ref_list(raw.get("supersedes"), "supersedes")
+    superseded_by = _cv_ref_list(raw.get("superseded_by"), "superseded_by")
+    ambiguity = _cv_safe_id(raw.get("temporal_ambiguity", raw.get("time_ambiguity")), "temporal_ambiguity", required=False)
+    retention_state = _cv_safe_id(raw.get("retention_state", raw.get("compaction_state")), "retention_state", required=False)
+    return {
+        "_id": identifier,
+        "_text": text,
+        "_text_digest": _cv_text_sha(text),
+        "_source_refs": refs,
+        "_role": _cv_role(raw),
+        "_validity": validity,
+        "_verified": verified,
+        "_event_time": event_time,
+        "_valid_time": valid_time,
+        "_transaction_time": transaction_time,
+        "_recorded_time": recorded_time,
+        "_session_date": session_date,
+        "_temporal_ambiguity": ambiguity,
+        "_retention_state": retention_state,
+        "_session_id": session_id,
+        "_category": category,
+        "_key": stable_key,
+        "_version": version,
+        "_is_current": _cv_bool(raw, "is_current", "current"),
+        "_is_prior": _cv_bool(raw, "is_prior", "prior", "superseded"),
+        "_supersedes": supersedes,
+        "_superseded_by": superseded_by,
+        "_conflicted": _cv_bool(raw, "conflicted", "conflict"),
+        "_preference_class": preference_class,
+        "_direct": direct,
+        "_route_score": route_score,
+        "_sequence": sequence,
+        "_source_group": session_id or refs[0],
+        "_value_present": any(key in raw for key in ("value", "fact_value", "numeric_value", "date_value")),
+        "_duplicate_ids": [],
+    }, None
+
+
+def _cv_dedupe(records: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    groups: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for record in records:
+        key = (record["_text_digest"], record["_role"], record["_event_time"], record["_valid_time"], record["_transaction_time"], record["_session_date"])
+        current = groups.get(key)
+        if current is None or record["_id"] < current["_id"]:
+            if current is not None:
+                record = dict(record)
+                record["_duplicate_ids"] = list(current.get("_duplicate_ids", [])) + [current["_id"]]
+                record["_source_refs"] = sorted(set(record["_source_refs"]) | set(current["_source_refs"]))
+                record["_direct"] = bool(record["_direct"] or current["_direct"])
+            groups[key] = dict(record)
+        else:
+            current["_duplicate_ids"] = sorted(set(current.get("_duplicate_ids", [])) | {record["_id"]})
+            current["_source_refs"] = sorted(set(current["_source_refs"]) | set(record["_source_refs"]))
+            current["_direct"] = bool(current["_direct"] or record["_direct"])
+    return sorted(groups.values(), key=lambda item: item["_id"])
+
+
+def _cv_update_links(records: Sequence[Mapping[str, Any]]) -> tuple[list[dict[str, str]], list[list[str]]]:
+    by_id: dict[str, Mapping[str, Any]] = {}
+    for record in records:
+        by_id[record["_id"]] = record
+        for duplicate in record.get("_duplicate_ids", []):
+            by_id[duplicate] = record
+    links: set[tuple[str, str]] = set()
+    for record in records:
+        for target in record.get("_supersedes", []):
+            if target in by_id and by_id[target]["_id"] != record["_id"]:
+                links.add((by_id[target]["_id"], record["_id"]))
+        for target in record.get("_superseded_by", []):
+            if target in by_id and by_id[target]["_id"] != record["_id"]:
+                links.add((record["_id"], by_id[target]["_id"]))
+    groups: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
+    for record in records:
+        if record["_category"] and record["_key"]:
+            groups.setdefault((record["_category"], record["_key"]), []).append(record)
+    conflicts: list[list[str]] = []
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        digests = {record["_text_digest"] for record in group}
+        ids = sorted(record["_id"] for record in group)
+        explicit = any(a == left and b in ids for left, b in links for a in ids)
+        if len(digests) > 1 and not explicit:
+            conflicts.append(ids)
+        current = [record for record in group if record["_is_current"]]
+        prior = [record for record in group if record["_is_prior"]]
+        if len(current) == 1 and len(prior) == 1 and current[0]["_text_digest"] != prior[0]["_text_digest"]:
+            links.add((prior[0]["_id"], current[0]["_id"]))
+    return [
+        {"kind": "updates", "from": source, "to": target}
+        for source, target in sorted(links)
+    ], sorted(conflicts)
+
+
+def _cv_plan(task: str, scope: Mapping[str, str], query_time_unix_ms: int | None) -> dict[str, Any]:
+    if not isinstance(task, str) or not task.strip() or len(task) > _CV_MAX_TASK:
+        raise ContextVaultError("task must be bounded non-empty text")
+    text = task.strip()
+    lowered = text.casefold()
+    labels: list[str] = []
+    if _CV_AGG_RE.search(lowered):
+        labels.append("multi_session")
+    if _CV_TEMPORAL_RE.search(lowered):
+        labels.append("temporal")
+    if _CV_PREFERENCE_RE.search(lowered):
+        labels.append("preference")
+    if _CV_UPDATE_RE.search(lowered):
+        labels.append("update")
+    labels = [label for label in _CV_LABEL_ORDER if label in labels]
+    if isinstance(query_time_unix_ms, bool) or (query_time_unix_ms is not None and not isinstance(query_time_unix_ms, int)):
+        raise ContextVaultError("query_time_unix_ms must be an integer or null")
+    if query_time_unix_ms is not None and abs(query_time_unix_ms) > 10**15:
+        raise ContextVaultError("query_time_unix_ms is out of bounds")
+    needs_history = bool({"temporal", "update"} & set(labels))
+    unsigned = {
+        "schema_version": _CV_PLAN_SCHEMA,
+        "planner": _CV_PLANNER,
+        "task_sha256": _cv_text_sha(text),
+        "scope_commitment": _cv_commit(dict(scope)),
+        "labels": labels,
+        "aggregation": "multi_session" in labels,
+        "needs_history": needs_history,
+        "needs_user_evidence": "preference" in labels,
+        "query_time_unix_ms": query_time_unix_ms,
+        "query_time_source": "explicit" if query_time_unix_ms is not None else "not_provided",
+        "anchor_required": "temporal" in labels,
+        "retrieval_strategies": [
+            "fused",
+            *(["temporal", "history"] if needs_history else []),
+            *(["source_diverse"] if "multi_session" in labels else []),
+        ],
+    }
+    unsigned["plan_digest"] = _cv_commit(unsigned)
+    return unsigned
+
+
+def _cv_policy(value: Any, budget: Any) -> dict[str, Any]:
+    if value is not None and not isinstance(value, Mapping):
+        raise ContextVaultError("policy must be an object")
+    source = dict(value or {})
+    result = dict(_CV_POLICY_DEFAULTS)
+    for key in result:
+        if key in source:
+            result[key] = source[key]
+    if isinstance(budget, int) and not isinstance(budget, bool):
+        result["max_packet_tokens"] = budget
+    elif budget is not None:
+        if not isinstance(budget, Mapping):
+            raise ContextVaultError("budget must be an integer or object")
+        for key, target in (("max_items", "max_packet_items"), ("max_candidates", "max_candidate_records"), ("max_tokens", "max_packet_tokens"), ("max_bytes", "max_packet_bytes")):
+            if key in budget:
+                result[target] = budget[key]
+    for key in ("evidence_required", "allow_llm_query_expansion"):
+        if not isinstance(result[key], bool):
+            raise ContextVaultError(f"{key} must be boolean")
+    if result["allow_llm_query_expansion"]:
+        raise ContextVaultError("LLM query expansion is not part of the deterministic compiler")
+    for key in ("max_candidate_records", "max_packet_items", "max_packet_tokens", "max_packet_bytes", "max_sources", "max_windows_per_source"):
+        if isinstance(result[key], bool) or not isinstance(result[key], int) or result[key] < 1:
+            raise ContextVaultError(f"{key} must be a positive integer")
+    result["max_candidate_records"] = min(_CV_MAX_RECORDS, result["max_candidate_records"])
+    result["max_packet_items"] = min(_CV_MAX_PACKET_ITEMS, result["max_packet_items"])
+    result["max_packet_tokens"] = min(_CV_MAX_PACKET_TOKENS, result["max_packet_tokens"])
+    result["max_packet_bytes"] = min(_CV_MAX_PACKET_BYTES, result["max_packet_bytes"])
+    if isinstance(result["structural_weight"], bool) or not isinstance(result["structural_weight"], (int, float)) or not math.isfinite(float(result["structural_weight"])) or not 0 <= float(result["structural_weight"] ) <= 1:
+        raise ContextVaultError("structural_weight must be between 0 and 1")
+    result["structural_weight"] = round(float(result["structural_weight"]), 6)
+    result["policy_version"] = _cv_safe_id(result["policy_version"], "policy_version")
+    return result
+
+
+def _cv_provider_states(value: Any) -> dict[str, str]:
+    if value is None:
+        return {"vault": "not_configured", "ledger": "not_configured"}
+    if not isinstance(value, Mapping):
+        raise ContextVaultError("provider_states must be an object")
+    result: dict[str, str] = {}
+    for provider in ("vault", "ledger"):
+        raw = value.get(provider, "not_configured")
+        if not isinstance(raw, str) or raw not in _CV_PROVIDER_STATES:
+            raise ContextVaultError("provider state is invalid")
+        result[provider] = raw
+    return result
+
+
+def _cv_eligible(record: Mapping[str, Any]) -> tuple[bool, str | None]:
+    validity = record["_validity"]
+    if validity == "stale":
+        return False, "stale_evidence"
+    if validity in {"unavailable", "contradictory"}:
+        return False, "unavailable_evidence" if validity == "unavailable" else "conflicted_evidence"
+    if not record["_verified"] and validity not in {"observed", "derived"}:
+        return False, "unverified_evidence"
+    return True, None
+
+
+def _cv_select(
+    records: Sequence[Mapping[str, Any]],
+    task: str,
+    plan: Mapping[str, Any],
+    policy: Mapping[str, Any],
+    *,
+    route_mode: str,
+    route_scores: Mapping[str, Any] | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    if route_mode not in {"off", "on"}:
+        raise ContextVaultError("route_mode must be off or on")
+    scores = dict(route_scores or {})
+    max_items = int(policy["max_packet_items"])
+    max_tokens = int(policy["max_packet_tokens"])
+    selected: list[dict[str, Any]] = []
+    trace: list[dict[str, Any]] = []
+    omissions: list[dict[str, Any]] = []
+    spent = 0
+    spent_bytes = 0
+    used_sources: set[str] = set()
+    source_windows: dict[str, int] = {}
+    selected_ids: set[str] = set()
+
+    def add(record: Mapping[str, Any], score: float, route_score: float, reason: str) -> bool:
+        nonlocal spent, spent_bytes
+        if len(selected) >= max_items:
+            omissions.append({"candidate_id": record["_id"], "reason": "packet_item_cap"})
+            return False
+        if record["_source_group"] not in used_sources and len(used_sources) >= int(policy["max_sources"]):
+            omissions.append({"candidate_id": record["_id"], "reason": "source_cap"})
+            return False
+        if source_windows.get(record["_source_group"], 0) >= int(policy["max_windows_per_source"]):
+            omissions.append({"candidate_id": record["_id"], "reason": "source_window_cap"})
+            return False
+        cost = pool_tokens(record["_text"])
+        byte_cost = len(record["_text"].encode("utf-8"))
+        if spent + cost > max_tokens or spent_bytes + byte_cost > int(policy["max_packet_bytes"]):
+            omissions.append({"candidate_id": record["_id"], "reason": "packet_budget"})
+            return False
+        selected.append(dict(record))
+        selected_ids.add(record["_id"])
+        used_sources.add(record["_source_group"])
+        source_windows[record["_source_group"]] = source_windows.get(record["_source_group"], 0) + 1
+        spent += cost
+        spent_bytes += byte_cost
+        trace.append({
+            "rank": len(selected),
+            "candidate_id": record["_id"],
+            "score": round(score, 6),
+            "route_score": round(route_score, 6) if route_mode == "on" else 0.0,
+            "tokens": cost,
+            "source_group": _cv_commit(record["_source_group"]),
+            "reason": reason,
+        })
+        return True
+
+    eligible: list[dict[str, Any]] = []
+    for raw in records:
+        okay, reason = _cv_eligible(raw)
+        if not okay:
+            omissions.append({"candidate_id": raw["_id"], "reason": reason})
+            continue
+        eligible.append(dict(raw))
+    eligible.sort(key=lambda item: item["_id"])
+
+    # Direct evidence and one representative per source are reservations, not
+    # optional relevance wins. Structural scores cannot bypass either gate.
+    for record in [item for item in eligible if item["_direct"]]:
+        add(record, 1.0, 0.0, "direct_evidence_reservation")
+    if plan["aggregation"]:
+        representatives: dict[str, dict[str, Any]] = {}
+        for record in eligible:
+            representatives.setdefault(record["_source_group"], record)
+        for source_group in sorted(representatives):
+            record = representatives[source_group]
+            if record["_id"] not in selected_ids:
+                add(record, 1.0, 0.0, "source_diversity_reservation")
+    if "update" in plan["labels"]:
+        for record in eligible:
+            if record["_id"] in selected_ids:
+                continue
+            if record["_is_current"] or record["_is_prior"] or record["_supersedes"] or record["_superseded_by"]:
+                add(record, 1.0, 0.0, "update_chain_reservation")
+    if "temporal" in plan["labels"]:
+        for record in eligible:
+            if record["_id"] in selected_ids:
+                continue
+            if any(record[key] for key in ("_event_time", "_valid_time", "_transaction_time", "_recorded_time", "_session_date")):
+                add(record, 1.0, 0.0, "temporal_metadata_reservation")
+
+    ranked: list[tuple[float, float, dict[str, Any]]] = []
+    for record in eligible:
+        if record["_id"] in selected_ids:
+            continue
+        candidate = PooledCandidate(kind="memory_entry", content=record["_text"], candidate_id=record["_id"])
+        base = relevance_score(candidate, task)
+        requested_route = scores.get(record["_id"], record.get("_route_score", 0.0))
+        try:
+            route_score = max(0.0, min(1.0, float(requested_route)))
+        except (TypeError, ValueError, OverflowError):
+            route_score = 0.0
+        # A route score is a relevance hint only. It is deliberately ignored
+        # for non-observed/unverified records and can never create eligibility.
+        bonus = policy["structural_weight"] * route_score if route_mode == "on" and record["_validity"] in {"observed", "derived"} and record["_verified"] else 0.0
+        ranked.append((base + bonus, route_score, record))
+    ranked.sort(key=lambda item: (-item[0], item[2]["_id"]))
+    for score, route_score, record in ranked:
+        if score <= 0:
+            omissions.append({"candidate_id": record["_id"], "reason": "irrelevant_after_policy_gate"})
+            continue
+        add(record, score, route_score, "deterministic_relevance" if route_mode == "off" else "relevance_plus_bounded_route")
+    return selected, trace, sorted(omissions, key=lambda item: (item["candidate_id"], item["reason"]))
+
+
+def _cv_packet_item(record: Mapping[str, Any], relation_state: str = "none") -> dict[str, Any]:
+    role = record["_role"]
+    temporal = {
+        key: value
+        for key, value in (
+            ("event_time", record["_event_time"]),
+            ("valid_time", record["_valid_time"]),
+            ("transaction_time", record["_transaction_time"]),
+            ("recorded_time", record["_recorded_time"]),
+            ("session_date", record["_session_date"]),
+            ("ambiguity", record["_temporal_ambiguity"]),
+            ("retention_state", record["_retention_state"]),
+        ) if value
+    }
+    update = {
+        "version": record["_version"],
+        "is_current": record["_is_current"],
+        "is_prior": record["_is_prior"],
+        "supersedes": record["_supersedes"],
+        "superseded_by": record["_superseded_by"],
+        "relation_state": relation_state,
+    }
+    return {
+        "candidate_id": record["_id"],
+        "text": record["_text"],
+        "content_sha256": record["_text_digest"],
+        "source_refs": list(record["_source_refs"]),
+        "session_ids": [record["_session_id"]] if record["_session_id"] else [],
+        "role": role,
+        "role_provenance": "user_stated" if role == "user" else "assistant_context" if role == "assistant" else "other_context",
+        "validity_state": record["_validity"],
+        "uncertainty": {"class": "high" if record["_validity"] == "observed" and record["_verified"] else "medium" if record["_validity"] in {"observed", "derived"} else "inferred" if record["_validity"] == "inferred" else "stale" if record["_validity"] == "stale" else "tie" if record["_validity"] == "contradictory" else "low", "score": 0.9 if record["_validity"] == "observed" and record["_verified"] else 0.65 if record["_validity"] in {"observed", "derived"} else 0.35 if record["_validity"] in {"inferred", "stale"} else 0.5 if record["_validity"] == "contradictory" else 0.2},
+        "temporal": temporal,
+        "update": update,
+        "preference_class": record["_preference_class"] or None,
+        "direct_evidence": bool(record["_direct"]),
+        "exact_value_present": bool(record["_value_present"]),
+        "duplicate_candidate_ids": sorted(record.get("_duplicate_ids", [])),
+    }
+
+
+def _cv_dag(
+    task: str,
+    plan: Mapping[str, Any],
+    policy: Mapping[str, Any],
+    selected: Sequence[Mapping[str, Any]],
+    all_relation_records: Sequence[Mapping[str, Any]],
+    update_relations: Sequence[Mapping[str, str]],
+    conflicts: Sequence[Sequence[str]],
+) -> dict[str, Any]:
+    graph = ContextDAG(
+        task_id="context-compile:" + plan["task_sha256"][:32],
+        version=1,
+        created_by="context_vault_compile",
+        meta={"plan_ref": plan["plan_digest"], "policy_ref": _cv_commit(policy)},
+    )
+    root = ContextNode(
+        kind="requirement",
+        content="context compile task shape: " + ",".join(plan["labels"] or ["general"]),
+        evidence={"validity": "observed", "verified": True, "source_ids": ["artifact:task"]},
+        meta={"task_ref": plan["task_sha256"]},
+    )
+    policy_node = ContextNode(
+        kind="policy_constraint",
+        content="context compile policy: " + policy["policy_version"],
+        evidence={"validity": "observed", "verified": True, "source_ids": ["artifact:policy"], "policy_ref": "artifact:policy"},
+        meta={"policy_ref": _cv_commit(policy)},
+    )
+    root_id = graph.add_node(root)
+    policy_id = graph.add_node(policy_node)
+    graph.add_edge("depends_on", root_id, policy_id)
+    graph_records: dict[str, Mapping[str, Any]] = {record["_id"]: record for record in all_relation_records}
+    for record in selected:
+        graph_records[record["_id"]] = record
+    for relation in update_relations:
+        for identifier in (relation["from"], relation["to"]):
+            if identifier in graph_records:
+                continue
+    node_ids: dict[str, str] = {}
+    for identifier in sorted(graph_records):
+        record = graph_records[identifier]
+        node = ContextNode(
+            kind="retrieved_record",
+            # The answer-facing packet carries bounded text; the durable DAG
+            # remains digest-only so it cannot become a raw prompt/body store.
+            content="evidence record " + record["_text_digest"],
+            evidence={"validity": record["_validity"], "verified": record["_verified"], "source_ids": record["_source_refs"]},
+            meta={"record_ref": _cv_commit(record["_id"]), "role_ref": _cv_commit(record["_role"]), "text_ref": record["_text_digest"]},
+        )
+        node_ids[identifier] = graph.add_node(node)
+    for record in selected:
+        graph.add_edge("selected_for", root_id, node_ids[record["_id"]])
+    for identifier in sorted(node_ids):
+        graph.add_edge("supports", policy_id, node_ids[identifier])
+    for relation in update_relations:
+        if relation["from"] in node_ids and relation["to"] in node_ids:
+            graph.add_edge("updates", node_ids[relation["from"]], node_ids[relation["to"]])
+    for group_index, group in enumerate(conflicts):
+        members = [graph_records[identifier] for identifier in group if identifier in graph_records]
+        if not members:
+            continue
+        contradiction = ContextNode(
+            kind="contradiction",
+            content=f"unresolved competing evidence group {group_index + 1} ({len(members)} records)",
+            evidence={"validity": "contradictory", "verified": False, "source_ids": sorted({ref for member in members for ref in member["_source_refs"]})},
+            meta={"conflict_ref": _cv_commit(list(group))},
+        )
+        contradiction_id = graph.add_node(contradiction)
+        graph.add_edge("selected_for", root_id, contradiction_id)
+        member_ids = [node_ids[member["_id"]] for member in members if member["_id"] in node_ids]
+        for left, right in zip(member_ids, member_ids[1:]):
+            graph.add_edge("contradicts", left, right, meta={"resolved": False})
+    return graph.to_dict()
+
+
+def _cv_selection_trace(trace: Sequence[Mapping[str, Any]], omissions: Sequence[Mapping[str, Any]], *, route_mode: str, records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    unsigned = {
+        "schema_version": _CV_SELECTION_SCHEMA,
+        "route_mode": route_mode,
+        "candidate_count": len(records),
+        "selected_ids": [item["candidate_id"] for item in trace if "rank" in item],
+        "steps": [dict(item) for item in trace],
+        "omissions": [dict(item) for item in omissions],
+        "candidate_input_digest": _cv_commit(sorted((record["_id"], record["_text_digest"], tuple(record["_source_refs"])) for record in records)),
+    }
+    unsigned["selection_digest"] = _cv_commit(unsigned)
+    return unsigned
+
+
+def _cv_retrieval_record(hit: Any) -> dict[str, Any]:
+    if isinstance(hit, Mapping):
+        return dict(hit)
+    identifier = str(getattr(hit, "id", ""))
+    content = str(getattr(hit, "content", "") or getattr(hit, "summary", ""))
+    record: dict[str, Any] = {
+        "candidate_id": "vault:" + identifier,
+        "content": content,
+        "agent_text": content,
+        "source_id": "vault:" + identifier,
+        "provenance_id": "vault:" + identifier,
+        "verified": bool(getattr(hit, "verified", False)),
+        "validity_state": "observed" if bool(getattr(hit, "verified", False)) else "unknown",
+        "workspace_hash": str(getattr(hit, "workspace_hash", "")),
+        "category": str(getattr(hit, "category", "")),
+        "key": str(getattr(hit, "key", "")),
+        "recorded_at": None,
+    }
+    return record
+
+
+class ContextVaultAdapter:
+    """Thin adapter that converts Vault retrieval into compiler records.
+
+    Tests and hosts may inject ``fetcher``. The production fallback uses the
+    existing ``VaultConnector.recall`` method and never changes ordinary recall
+    behavior.
+    """
+
+    def __init__(self, cfg: Mapping[str, Any] | None = None, *, connector: Any = None, fetcher: Callable[..., Any] | None = None) -> None:
+        self.cfg = dict(cfg or {})
+        self.connector = connector
+        self.fetcher = fetcher
+
+    def retrieve(self, *, task: str, plan: Mapping[str, Any], scope: Mapping[str, str], records: Any = None, provider_states: Any = None, max_records: int = _CV_MAX_RECORDS) -> dict[str, Any]:
+        if records is not None:
+            if not isinstance(records, (list, tuple)):
+                raise ContextVaultError("records must be a list")
+            return {
+                "records": list(records)[:max_records],
+                "provider_states": _cv_provider_states(provider_states),
+                "calls": [],
+                "strategies": list(plan.get("retrieval_strategies", [])),
+                "outcomes": [{"state": "caller_supplied", "count": min(len(records), max_records)}],
+                "error": None,
+            }
+        if self.fetcher is not None:
+            try:
+                raw = self.fetcher(plan=dict(plan), surfaces=list(plan.get("retrieval_strategies", [])))
+            except TypeError:
+                raw = self.fetcher(dict(plan))
+            if isinstance(raw, Mapping):
+                raw_records = raw.get("records", raw.get("items", raw.get("results", [])))
+                states = raw.get("provider_states", provider_states)
+            else:
+                raw_records, states = raw, provider_states
+            if not isinstance(raw_records, (list, tuple)):
+                raise ContextVaultError("adapter fetcher must return a record list")
+            return {
+                "records": list(raw_records)[:max_records],
+                "provider_states": _cv_provider_states(states),
+                "calls": [{"strategy": "injected_fetcher", "state": "complete"}],
+                "strategies": list(plan.get("retrieval_strategies", [])),
+                "outcomes": [{"state": "adapter", "count": min(len(raw_records), max_records)}],
+                "error": None,
+            }
+        connector = self.connector
+        if connector is None:
+            vault_cfg = self.cfg.get("perseus_vault", {}) if isinstance(self.cfg.get("perseus_vault", {}), Mapping) else {}
+            connector = VaultConnector(self.cfg) if vault_cfg.get("enabled", False) else None
+        if connector is None or not bool(getattr(connector, "available", False)):
+            return {
+                "records": [],
+                "provider_states": {"vault": "unavailable", "ledger": "not_configured"},
+                "calls": [{"strategy": "fused", "state": "unavailable"}],
+                "strategies": list(plan.get("retrieval_strategies", [])),
+                "outcomes": [],
+                "error": "vault_unavailable",
+            }
+        segment = connector.recall(
+            query=task,
+            max_results=max_records,
+            workspace_hash=scope.get("workspace"),
+            topic_path=scope.get("topic"),
+        )
+        hits = list(getattr(segment, "items", []) or [])
+        return {
+            "records": [_cv_retrieval_record(hit) for hit in hits],
+            "provider_states": {"vault": "active", "ledger": "not_configured"},
+            "calls": [{"strategy": "fused", "state": "complete"}],
+            "strategies": list(plan.get("retrieval_strategies", [])),
+            "outcomes": [{"state": "complete", "count": len(hits)}],
+            "error": None,
+        }
+
+
+def _cv_empty_result(failure_state: str, status: str = "invalid_input", *, task: str = "", scope: Any = None, query_time_unix_ms: int | None = None, policy: Mapping[str, Any] | None = None, route_mode: str = "off") -> dict[str, Any]:
+    safe_scope = _cv_scope(scope)
+    safe_policy = _cv_policy(policy, None) if policy is not None else dict(_CV_POLICY_DEFAULTS)
+    plan = _cv_plan(task or "context compile", safe_scope, query_time_unix_ms)
+    selection = _cv_selection_trace([], [], route_mode=route_mode, records=[])
+    projection = project_context_evidence([], provider_states={"vault": "not_configured", "ledger": "not_configured"}, evidence_required=True)
+    result = {
+        "schema_version": _CV_SCHEMA,
+        "operation": "context_compile",
+        "status": status,
+        "failure_state": failure_state,
+        "task_sha256": plan["task_sha256"],
+        "scope_commitment": plan["scope_commitment"],
+        "query_plan": plan,
+        "retrieval": {"calls": [], "strategies": [], "outcomes": [], "candidate_count": 0},
+        "packet": [],
+        "selection_trace": selection,
+        "compiled_dag": {},
+        "evidence_projection": projection,
+        "telemetry": {"estimated_render_tokens": 0, "provider_billed_tokens": None, "source_count": 0, "omitted_count": 0},
+        "policy": safe_policy,
+        "route": {"mode": route_mode, "structural_weight": safe_policy["structural_weight"], "route_score_is_authority": False},
+        "omissions": [],
+        "update_relations": [],
+        "conflicts": [],
+        "gold_blind": True,
+    }
+    result["digest"] = _cv_commit(result)
+    return result
+
+
+def context_compile(
+    task: Any = "",
+    *,
+    records: Any = None,
+    scope: Any = None,
+    query_time_unix_ms: int | None = None,
+    provider_states: Any = None,
+    policy: Any = None,
+    budget: Any = None,
+    cfg: Mapping[str, Any] | None = None,
+    adapter: ContextVaultAdapter | None = None,
+    connector: Any = None,
+    fetcher: Callable[..., Any] | None = None,
+    route_mode: str = "off",
+    route_scores: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Compile an authorized, bounded, gold-blind Context+Vault packet."""
+    try:
+        request = dict(task) if isinstance(task, Mapping) else None
+        if request is not None:
+            _cv_reject_gold(request)
+            task_text = request.get("task", "")
+            records = request.get("records", request.get("items", records))
+            scope = request.get("scope", scope)
+            query_time_unix_ms = request.get("query_time_unix_ms", query_time_unix_ms)
+            provider_states = request.get("provider_states", provider_states)
+            policy = request.get("policy", policy)
+            budget = request.get("budget", budget)
+            route_mode = request.get("route_mode", route_mode)
+            route_scores = request.get("route_scores", route_scores)
+        else:
+            _cv_reject_gold({"task": task, "records": records, "scope": scope, "policy": policy})
+            task_text = task
+        if not isinstance(task_text, str):
+            raise ContextVaultError("task must be text")
+        requested_scope = _cv_scope(scope)
+        policy_map = _cv_policy(policy, budget)
+        plan = _cv_plan(task_text, requested_scope, query_time_unix_ms)
+        if plan["anchor_required"] and query_time_unix_ms is None:
+            return _cv_empty_result("query_time_anchor_required", "abstain", task=task_text, scope=requested_scope, query_time_unix_ms=query_time_unix_ms, policy=policy_map, route_mode=route_mode)
+        active_adapter = adapter or ContextVaultAdapter(cfg, connector=connector, fetcher=fetcher)
+        retrieval = active_adapter.retrieve(task=task_text, plan=plan, scope=requested_scope, records=records, provider_states=provider_states, max_records=policy_map["max_candidate_records"])
+        states = _cv_provider_states(retrieval.get("provider_states"))
+        raw_records = retrieval.get("records", [])
+        if retrieval.get("error") and not raw_records:
+            failure = str(retrieval["error"])
+            return _cv_empty_result(failure, "unavailable", task=task_text, scope=requested_scope, query_time_unix_ms=query_time_unix_ms, policy=policy_map, route_mode=route_mode)
+        if not isinstance(raw_records, (list, tuple)):
+            raise ContextVaultError("adapter records must be a list")
+        normalized: list[dict[str, Any]] = []
+        omissions: list[dict[str, Any]] = []
+        for index, raw in enumerate(raw_records):
+            record, reason = _cv_normalize_record(raw, index, requested_scope)
+            if record is not None:
+                normalized.append(record)
+            elif reason:
+                candidate = raw.get("candidate_id", raw.get("id", raw.get("key", f"record-{index + 1}"))) if isinstance(raw, Mapping) else f"record-{index + 1}"
+                omissions.append({"candidate_id": _cv_safe_id(candidate, "candidate_id"), "reason": reason})
+        if len(normalized) > policy_map["max_candidate_records"]:
+            raise ContextVaultError("candidate_limit_exceeded")
+        normalized = _cv_dedupe(normalized)
+        update_relations, conflicts = _cv_update_links(normalized)
+        selected, trace, select_omissions = _cv_select(normalized, task_text, plan, policy_map, route_mode=route_mode, route_scores=route_scores)
+        omissions.extend(select_omissions)
+        relation_by_id: dict[str, str] = {}
+        for relation in update_relations:
+            relation_by_id[relation["from"]] = "prior_version"
+            relation_by_id[relation["to"]] = "current_version"
+        packet = [_cv_packet_item(record, relation_by_id.get(record["_id"], "none")) for record in selected]
+        packet.sort(key=lambda item: (
+            0 if item["role_provenance"] == "user_stated" and plan["needs_user_evidence"] else 1,
+            0 if item["update"]["is_current"] and plan["needs_history"] else 1,
+            item["temporal"].get("event_time", item["temporal"].get("valid_time", "")),
+            item["candidate_id"],
+        ))
+        evidence_records = [
+            {
+                "candidate_id": record["_id"],
+                "content": record["_text"],
+                "source_refs": record["_source_refs"],
+                "evidence_digest": record["_text_digest"],
+                "validity_state": "evidence_backed" if record["_validity"] == "observed" else "partial" if record["_validity"] in {"derived", "inferred", "unknown"} else record["_validity"],
+                "verified": record["_verified"],
+                "valid_at": record["_valid_time"],
+                "transaction_time": record["_transaction_time"],
+                "recorded_at": record["_recorded_time"],
+                "observed_at": record["_event_time"],
+            }
+            for record in selected
+        ]
+        evidence_projection = project_context_evidence(
+            evidence_records,
+            provider_states=states,
+            excluded=omissions,
+            evidence_required=policy_map["evidence_required"],
+        )
+        dag = _cv_dag(task_text, plan, policy_map, selected, normalized, update_relations, conflicts)
+        packet_chars = sum(len(item["text"]) for item in packet)
+        packet_text = _cv_render_packet_body(plan, packet)
+        estimated_tokens = pool_tokens(packet_text)
+        if packet_chars > policy_map["max_packet_bytes"]:
+            raise ContextVaultError("packet_budget")
+        selection_trace = _cv_selection_trace(trace, omissions, route_mode=route_mode, records=normalized)
+        coverage = evidence_projection.get("coverage", {})
+        failure_state: str | None = None
+        status = "complete"
+        if conflicts:
+            status, failure_state = "review", "contradictory_evidence"
+        elif coverage.get("abstention_required"):
+            if states.get("vault") in {"unavailable", "not_configured", "timeout"}:
+                status, failure_state = "unavailable", "vault_unavailable"
+            elif states.get("ledger") in {"unavailable", "not_configured", "timeout"}:
+                status, failure_state = "unavailable", "ledger_unavailable"
+            else:
+                status, failure_state = "abstain", "insufficient_evidence"
+        elif not packet:
+            status, failure_state = "abstain", "no_eligible_context"
+        elif omissions:
+            status, failure_state = "degraded", "budget_exhausted"
+        result = {
+            "schema_version": _CV_SCHEMA,
+            "operation": "context_compile",
+            "status": status,
+            "failure_state": failure_state,
+            "task_sha256": plan["task_sha256"],
+            "scope_commitment": plan["scope_commitment"],
+            "query_plan": plan,
+            "retrieval": {
+                "calls": list(retrieval.get("calls", [])),
+                "strategies": list(retrieval.get("strategies", [])),
+                "outcomes": list(retrieval.get("outcomes", [])),
+                "candidate_count": len(normalized),
+            },
+            "packet": packet,
+            "selection_trace": selection_trace,
+            "compiled_dag": dag,
+            "evidence_projection": evidence_projection,
+            "telemetry": {
+                "estimated_render_tokens": estimated_tokens,
+                "provider_billed_tokens": None,
+                "source_count": len({ref for item in packet for ref in item["source_refs"]}),
+                "omitted_count": len(omissions),
+            },
+            "policy": policy_map,
+            "route": {"mode": route_mode, "structural_weight": policy_map["structural_weight"], "route_score_is_authority": False, "route_score_used": route_mode == "on"},
+            "omissions": sorted(omissions, key=lambda item: (item["candidate_id"], item["reason"])),
+            "update_relations": update_relations,
+            "conflicts": [list(group) for group in conflicts],
+            "gold_blind": True,
+        }
+        result["digest"] = _cv_commit(result)
+        return result
+    except ContextVaultError as exc:
+        message = str(exc)
+        failure = "invalid_input"
+        for candidate in ("gold_field_present", "candidate_limit_exceeded", "packet_budget", "source_reference_missing", "query_time_anchor_required"):
+            if candidate in message:
+                failure = candidate
+                break
+        try:
+            return _cv_empty_result(failure, "abstain" if failure in {"packet_budget", "query_time_anchor_required"} else "invalid_input", task=task.get("task", "") if isinstance(task, Mapping) else str(task or "context compile"), scope=scope, query_time_unix_ms=query_time_unix_ms, policy=policy if isinstance(policy, Mapping) else None, route_mode=route_mode)
+        except Exception:
+            return {"schema_version": _CV_SCHEMA, "operation": "context_compile", "status": "invalid_input", "failure_state": failure, "gold_blind": True, "digest": _cv_commit({"failure_state": failure})}
+    except (TypeError, ValueError, OverflowError, KeyError) as exc:
+        del exc
+        try:
+            return _cv_empty_result("invalid_input", "invalid_input", task=task.get("task", "") if isinstance(task, Mapping) else str(task or "context compile"), scope=scope, query_time_unix_ms=query_time_unix_ms, policy=policy if isinstance(policy, Mapping) else None, route_mode=route_mode)
+        except Exception:
+            return {"schema_version": _CV_SCHEMA, "operation": "context_compile", "status": "invalid_input", "failure_state": "invalid_input", "gold_blind": True, "digest": _cv_commit({"failure_state": "invalid_input"})}
+
+
+def _cv_render_packet_body(plan: Mapping[str, Any], packet: Sequence[Mapping[str, Any]]) -> str:
+    lines = [
+        "[Context evidence packet | deterministic | gold-blind]",
+        "Task shape: " + ", ".join(plan["labels"] or ["general"]),
+        "Query-time anchor: " + (str(plan["query_time_unix_ms"]) if plan["query_time_unix_ms"] is not None else "not provided"),
+        "",
+    ]
+    sections = (("user_stated", "User-stated evidence"), ("assistant_context", "Assistant context, not user evidence"), ("other_context", "Other evidence"))
+    for role, title in sections:
+        items = [item for item in packet if item["role_provenance"] == role]
+        if not items:
+            continue
+        lines.extend([title, "-"])
+        for item in items:
+            temporal = ", ".join(f"{key}={value}" for key, value in sorted(item["temporal"].items())) or "time=unknown"
+            lines.append(f"[{item['candidate_id']}] role={item['role']} validity={item['validity_state']} {temporal}")
+            lines.append(item["text"])
+            lines.append("sources=" + ",".join(item["source_refs"]))
+    if not packet:
+        lines.append("No eligible evidence was selected.")
+    lines.extend(["", "Answer contract: use only source-linked evidence; preserve role, time, version, and uncertainty labels; abstain when coverage is insufficient."])
+    return "\n".join(lines) + "\n"
+
+
+def render_context_packet(result: Mapping[str, Any]) -> str:
+    check = verify_context_compile(result)
+    if not check["valid"]:
+        raise ContextVaultError("refusing to render invalid context compile")
+    return _cv_render_packet_body(result["query_plan"], result["packet"])
+
+
+def verify_context_compile(result: Any) -> dict[str, Any]:
+    """Replay digest, graph, selection, and evidence commitments."""
+    if not isinstance(result, Mapping) or result.get("schema_version") != _CV_SCHEMA:
+        return {"valid": False, "errors": ["unsupported context-vault result"]}
+    errors: list[str] = []
+    try:
+        _cv_reject_gold(result)
+        digest = result.get("digest")
+        if not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+            errors.append("digest is invalid")
+        else:
+            unsigned = dict(result)
+            unsigned.pop("digest", None)
+            if _cv_commit(unsigned) != digest:
+                errors.append("digest mismatch")
+        plan = result.get("query_plan")
+        if not isinstance(plan, Mapping) or plan.get("schema_version") != _CV_PLAN_SCHEMA:
+            errors.append("query plan is invalid")
+        else:
+            plan_unsigned = dict(plan)
+            plan_digest = plan_unsigned.pop("plan_digest", None)
+            if not isinstance(plan_digest, str) or _cv_commit(plan_unsigned) != plan_digest:
+                errors.append("query plan digest mismatch")
+        trace = result.get("selection_trace")
+        if not isinstance(trace, Mapping) or trace.get("schema_version") != _CV_SELECTION_SCHEMA:
+            errors.append("selection trace is invalid")
+        else:
+            trace_unsigned = dict(trace)
+            trace_digest = trace_unsigned.pop("selection_digest", None)
+            if not isinstance(trace_digest, str) or _cv_commit(trace_unsigned) != trace_digest:
+                errors.append("selection digest mismatch")
+        graph = result.get("compiled_dag")
+        if graph:
+            try:
+                ContextDAG.from_dict(graph)
+            except Exception:
+                errors.append("compiled DAG is invalid")
+        projection = result.get("evidence_projection")
+        if not isinstance(projection, Mapping):
+            errors.append("evidence projection is invalid")
+        else:
+            source_records = []
+            for item in result.get("packet", []) or []:
+                if not isinstance(item, Mapping):
+                    errors.append("packet item is invalid")
+                    continue
+                source_records.append({
+                    "candidate_id": item.get("candidate_id"),
+                    "content": item.get("text"),
+                    "source_refs": item.get("source_refs"),
+                    "evidence_digest": item.get("content_sha256"),
+                    "validity_state": "evidence_backed" if item.get("validity_state") == "observed" else item.get("validity_state"),
+                    "verified": item.get("validity_state") == "observed",
+                })
+            evidence_check = verify_context_evidence(projection, source_records if projection.get("selected") else None)
+            if not evidence_check.get("valid"):
+                errors.append("evidence projection is invalid")
+        packet_ids = [item.get("candidate_id") for item in result.get("packet", []) if isinstance(item, Mapping)]
+        selected_ids = trace.get("selected_ids", []) if isinstance(trace, Mapping) else []
+        if sorted(packet_ids) != sorted(selected_ids):
+            errors.append("packet does not match selection trace")
+        if result.get("gold_blind") is not True:
+            errors.append("gold-blind boundary is not asserted")
+    except Exception:
+        errors.append("context-vault verification failed")
+    return {"valid": not errors, "errors": errors, "digest": result.get("digest")}
+
+
+def context_vault_schema() -> dict[str, Any]:
+    """Return the closed top-level JSON Schema for the compiler envelope."""
+    string_id = {"type": "string", "minLength": 1, "maxLength": 160}
+    digest = {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+    packet_item = {
+        "type": "object", "additionalProperties": False,
+        "required": ["candidate_id", "text", "content_sha256", "source_refs", "role", "role_provenance", "validity_state", "uncertainty", "temporal", "update", "direct_evidence", "exact_value_present", "duplicate_candidate_ids"],
+        "properties": {
+            "candidate_id": string_id, "text": {"type": "string", "maxLength": _CV_MAX_TEXT}, "content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "source_refs": {"type": "array", "maxItems": 64, "items": string_id}, "session_ids": {"type": "array", "maxItems": 16, "items": string_id},
+            "role": {"type": "string", "enum": sorted(_CV_ROLES)}, "role_provenance": {"type": "string"}, "validity_state": {"type": "string", "enum": sorted(_CV_VALIDITY)},
+            "uncertainty": {"type": "object", "additionalProperties": False, "required": ["class", "score"], "properties": {"class": {"type": "string"}, "score": {"type": "number", "minimum": 0, "maximum": 1}}},
+            "temporal": {"type": "object", "additionalProperties": False, "properties": {key: {"type": "string", "maxLength": 160} for key in ("event_time", "valid_time", "transaction_time", "recorded_time", "session_date", "ambiguity", "retention_state")}},
+            "update": {"type": "object", "additionalProperties": False, "required": ["version", "is_current", "is_prior", "supersedes", "superseded_by", "relation_state"], "properties": {"version": {"type": ["integer", "null"]}, "is_current": {"type": "boolean"}, "is_prior": {"type": "boolean"}, "supersedes": {"type": "array", "items": string_id}, "superseded_by": {"type": "array", "items": string_id}, "relation_state": {"type": "string"}}},
+            "preference_class": {"type": ["string", "null"], "maxLength": 160}, "direct_evidence": {"type": "boolean"}, "exact_value_present": {"type": "boolean"}, "duplicate_candidate_ids": {"type": "array", "items": string_id},
+        },
+    }
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://perseus.observer/schemas/context-vault/v1", "title": "Perseus Context + Vault compiler", "type": "object", "additionalProperties": False,
+        "required": ["schema_version", "operation", "status", "failure_state", "task_sha256", "scope_commitment", "query_plan", "retrieval", "packet", "selection_trace", "compiled_dag", "evidence_projection", "telemetry", "policy", "route", "omissions", "update_relations", "conflicts", "gold_blind", "digest"],
+        "properties": {
+            "schema_version": {"type": "string", "const": _CV_SCHEMA}, "operation": {"type": "string", "const": "context_compile"}, "status": {"type": "string", "enum": ["complete", "degraded", "abstain", "review", "unavailable", "invalid_input"]}, "failure_state": {"type": ["string", "null"]}, "task_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "scope_commitment": digest,
+            "query_plan": {"type": "object"}, "retrieval": {"type": "object"}, "packet": {"type": "array", "maxItems": _CV_MAX_PACKET_ITEMS, "items": packet_item}, "selection_trace": {"type": "object"}, "compiled_dag": {"type": "object"}, "evidence_projection": {"type": "object"},
+            "telemetry": {"type": "object"}, "policy": {"type": "object"}, "route": {"type": "object"}, "omissions": {"type": "array", "maxItems": 128, "items": {"type": "object"}}, "update_relations": {"type": "array", "items": {"type": "object"}}, "conflicts": {"type": "array", "items": {"type": "array", "items": string_id}}, "gold_blind": {"type": "boolean", "const": True}, "digest": digest,
+        },
+    }
+"""Gold-blind route-on versus route-off Context+Vault ablation (#1022)."""
+
+import hashlib
+import json
+import math
+import re
+from collections.abc import Mapping, Sequence
+from typing import Any
+
+
+_CAB_SCHEMA = "perseus-context-route-ablation/v1"
+_CAB_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_CAB_GOLD_KEYS = frozenset({"answer_session_ids", "gold_answer", "gold_answers", "question_type", "ground_truth", "expected_answer"})
+_CAB_REQUIRED_MANIFEST = ("dataset_revision", "corpus_revision", "context_revision", "vault_revision", "answerer", "judge", "retry_policy", "route_config")
+
+
+class RouteAblationError(ValueError):
+    """Raised when an ablation cannot be constructed without a hidden factor."""
+
+
+def _cab_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+
+
+def _cab_sha(value: Any) -> str:
+    return hashlib.sha256(_cab_json(value).encode("utf-8")).hexdigest()
+
+
+def _cab_commit(value: Any) -> str:
+    return "sha256:" + _cab_sha(value)
+
+
+def _cab_reject_gold(value: Any) -> None:
+    if isinstance(value, Mapping):
+        for key, nested in value.items():
+            normalized = str(key).casefold().replace("-", "_").replace(" ", "_")
+            if normalized in _CAB_GOLD_KEYS:
+                raise RouteAblationError("gold-dependent field is not permitted")
+            _cab_reject_gold(nested)
+    elif isinstance(value, (list, tuple)):
+        for nested in value:
+            _cab_reject_gold(nested)
+
+
+def _cab_id(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise RouteAblationError(f"{field} must be non-empty text")
+    text = value.strip()
+    if len(text) > 160 or any(ord(char) < 32 for char in text):
+        return _cab_commit(text)
+    return text
+
+
+def _cab_manifest(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise RouteAblationError("manifest must be an object")
+    _cab_reject_gold(value)
+    missing = [key for key in _CAB_REQUIRED_MANIFEST if key not in value]
+    if missing:
+        raise RouteAblationError("manifest is missing required revision/configuration fields")
+    result = {key: _cab_id(value[key], key) for key in ("dataset_revision", "corpus_revision", "context_revision", "vault_revision", "answerer", "judge")}
+    retry = value["retry_policy"]
+    if not isinstance(retry, Mapping) or isinstance(retry.get("max_attempts"), bool) or not isinstance(retry.get("max_attempts"), int) or retry["max_attempts"] < 1:
+        raise RouteAblationError("retry_policy.max_attempts must be a positive integer")
+    result["retry_policy"] = {"max_attempts": retry["max_attempts"]}
+    route = value["route_config"]
+    if not isinstance(route, Mapping):
+        raise RouteAblationError("route_config must be an object")
+    weight = route.get("structural_weight", 0.2)
+    if isinstance(weight, bool) or not isinstance(weight, (int, float)) or not math.isfinite(float(weight)) or not 0 <= float(weight) <= 1:
+        raise RouteAblationError("route_config.structural_weight must be between 0 and 1")
+    result["route_config"] = {"structural_weight": round(float(weight), 6), "feature": _cab_id(route.get("feature", "bounded_rank_signal"), "route_config.feature")}
+    if "query_plan" in value:
+        query_plan = value["query_plan"]
+        if not isinstance(query_plan, Mapping):
+            raise RouteAblationError("manifest.query_plan must be an object")
+        allowed_plan = {"plan_digest", "labels", "query_time_unix_ms", "scope_commitment"}
+        if any(key not in allowed_plan for key in query_plan):
+            raise RouteAblationError("manifest.query_plan contains unsupported fields")
+        if not _CAB_DIGEST_RE.fullmatch(str(query_plan.get("plan_digest", ""))):
+            raise RouteAblationError("manifest.query_plan.plan_digest is invalid")
+        labels = query_plan.get("labels")
+        if not isinstance(labels, list) or any(label not in {"multi_session", "temporal", "preference", "update"} for label in labels):
+            raise RouteAblationError("manifest.query_plan.labels is invalid")
+        if isinstance(query_plan.get("query_time_unix_ms"), bool) or not isinstance(query_plan.get("query_time_unix_ms"), int):
+            raise RouteAblationError("manifest.query_plan.query_time_unix_ms is invalid")
+        if not _CAB_DIGEST_RE.fullmatch(str(query_plan.get("scope_commitment", ""))):
+            raise RouteAblationError("manifest.query_plan.scope_commitment is invalid")
+        result["query_plan"] = dict(query_plan)
+    if "token_budget" in value:
+        token_budget = value["token_budget"]
+        if not isinstance(token_budget, Mapping):
+            raise RouteAblationError("manifest.token_budget must be an object")
+        result["token_budget"] = {}
+        for key in ("max_packet_items", "max_packet_tokens", "max_packet_bytes"):
+            if key in token_budget:
+                if isinstance(token_budget[key], bool) or not isinstance(token_budget[key], int) or token_budget[key] < 1:
+                    raise RouteAblationError(f"manifest.token_budget.{key} must be a positive integer")
+                result["token_budget"][key] = token_budget[key]
+    result["gold_blind"] = True
+    return result
+
+
+def _cab_route_scores(value: Any) -> dict[str, float]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise RouteAblationError("route_scores must be an object")
+    result: dict[str, float] = {}
+    for key, raw in value.items():
+        identifier = _cab_id(key, "route_score candidate")
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not math.isfinite(float(raw)) or not 0 <= float(raw) <= 1:
+            raise RouteAblationError("route scores must be finite numbers between 0 and 1")
+        result[identifier] = round(float(raw), 6)
+    return result
+
+
+def _cab_metrics(result: Mapping[str, Any], *, route_mode: str) -> dict[str, Any]:
+    packet = [item for item in result.get("packet", []) if isinstance(item, Mapping)]
+    source_refs = sorted({ref for item in packet for ref in item.get("source_refs", []) if isinstance(ref, str)})
+    session_ids = sorted({sid for item in packet for sid in item.get("session_ids", []) if isinstance(sid, str)})
+    temporal = sum(bool(item.get("temporal")) for item in packet)
+    updates = sum((item.get("update") or {}).get("relation_state") not in (None, "none") for item in packet)
+    preference_user = sum(item.get("role_provenance") == "user_stated" and bool(item.get("preference_class")) for item in packet)
+    contradictions = len(result.get("conflicts") or [])
+    exact_values = sum(bool(item.get("exact_value_present")) for item in packet)
+    omission_reasons: dict[str, int] = {}
+    for omission in result.get("omissions", []) or []:
+        reason = str(omission.get("reason", "unknown")) if isinstance(omission, Mapping) else "unknown"
+        omission_reasons[reason] = omission_reasons.get(reason, 0) + 1
+    telemetry = result.get("telemetry", {}) if isinstance(result.get("telemetry"), Mapping) else {}
+    return {
+        "required_evidence": {
+            "source_count": len(source_refs),
+            "session_count": len(session_ids),
+            "direct_evidence_count": sum(bool(item.get("direct_evidence")) for item in packet),
+        },
+        "source_diversity": len(source_refs),
+        "temporal_metadata_count": temporal,
+        "update_relation_count": updates,
+        "preference_user_evidence_count": preference_user,
+        "contradiction_count": contradictions,
+        "exact_value_preservation_count": exact_values,
+        "rendered_token_estimate": telemetry.get("estimated_render_tokens", 0),
+        "provider_billed_tokens": {"state": "not_measured", "value": None},
+        "latency_ms": {"state": "not_measured", "value": None},
+        "answer_facing_qa": {"state": "not_measured", "reason": "no accepted evaluator configured"},
+        "route_overhead": {"state": "measured_deterministically" if route_mode == "on" else "not_applicable", "candidate_scores_evaluated": len(result.get("packet", [])) if route_mode == "on" else 0},
+        "route_score_is_authority": False,
+        "omission_reasons": dict(sorted(omission_reasons.items())),
+    }
+
+
+def _cab_arm(result: Mapping[str, Any], replay: Mapping[str, Any], *, route_mode: str) -> dict[str, Any]:
+    replay_check = verify_context_compile(replay)
+    return {
+        "status": result.get("status"),
+        "failure_state": result.get("failure_state"),
+        "task_sha256": result.get("task_sha256"),
+        "scope_commitment": result.get("scope_commitment"),
+        "query_plan": result.get("query_plan"),
+        "packet": result.get("packet", []),
+        "omissions": result.get("omissions", []),
+        "selection_trace": result.get("selection_trace", {}),
+        "evidence_projection": result.get("evidence_projection", {}),
+        "metrics": _cab_metrics(result, route_mode=route_mode),
+        "route": result.get("route", {}),
+        "compiler_digest": result.get("digest"),
+        "compiler_result": result,
+        "replay": {"verified": bool(replay_check.get("valid")), "digest_equal": replay.get("digest") == result.get("digest"), "digest": replay.get("digest")},
+    }
+
+
+def run_context_route_ablation(
+    task: Any,
+    *,
+    records: Any,
+    scope: Any,
+    query_time_unix_ms: int,
+    provider_states: Any,
+    manifest: Any,
+    route_scores: Mapping[str, Any] | None = None,
+    policy: Mapping[str, Any] | None = None,
+    budget: Any = None,
+) -> dict[str, Any]:
+    """Run paired route-off/route-on selection with all other inputs fixed."""
+    _cab_reject_gold({"task": task, "records": records, "scope": scope, "manifest": manifest, "route_scores": route_scores, "policy": policy})
+    if not isinstance(task, str) or not task.strip():
+        raise RouteAblationError("task must be non-empty text")
+    if isinstance(query_time_unix_ms, bool) or not isinstance(query_time_unix_ms, int):
+        raise RouteAblationError("query_time_unix_ms must be an integer")
+    if not isinstance(records, (list, tuple)):
+        raise RouteAblationError("records must be a list")
+    manifest_value = _cab_manifest(manifest)
+    scores = _cab_route_scores(route_scores)
+    base_policy = dict(policy or {})
+    if "structural_weight" not in base_policy:
+        base_policy["structural_weight"] = manifest_value["route_config"]["structural_weight"]
+    base_policy["evidence_required"] = True
+    off = context_compile(
+        task,
+        records=list(records), scope=scope, query_time_unix_ms=query_time_unix_ms,
+        provider_states=provider_states, policy=base_policy, budget=budget,
+        route_mode="off", route_scores=scores,
+    )
+    on = context_compile(
+        task,
+        records=list(records), scope=scope, query_time_unix_ms=query_time_unix_ms,
+        provider_states=provider_states, policy=base_policy, budget=budget,
+        route_mode="on", route_scores=scores,
+    )
+    off_replay = context_compile(
+        task,
+        records=list(records), scope=scope, query_time_unix_ms=query_time_unix_ms,
+        provider_states=provider_states, policy=base_policy, budget=budget,
+        route_mode="off", route_scores=scores,
+    )
+    on_replay = context_compile(
+        task,
+        records=list(records), scope=scope, query_time_unix_ms=query_time_unix_ms,
+        provider_states=provider_states, policy=base_policy, budget=budget,
+        route_mode="on", route_scores=scores,
+    )
+    off_arm = _cab_arm(off, off_replay, route_mode="off")
+    on_arm = _cab_arm(on, on_replay, route_mode="on")
+    off_input = (off.get("selection_trace") or {}).get("candidate_input_digest")
+    on_input = (on.get("selection_trace") or {}).get("candidate_input_digest")
+    off_budget = (off.get("policy") or {}).get("max_packet_tokens")
+    on_budget = (on.get("policy") or {}).get("max_packet_tokens")
+    off_ids = sorted(item.get("candidate_id") for item in off.get("packet", []) if isinstance(item, Mapping))
+    on_ids = sorted(item.get("candidate_id") for item in on.get("packet", []) if isinstance(item, Mapping))
+    observed_plan = {
+        "plan_digest": (off.get("query_plan") or {}).get("plan_digest"),
+        "labels": list((off.get("query_plan") or {}).get("labels", [])),
+        "query_time_unix_ms": (off.get("query_plan") or {}).get("query_time_unix_ms"),
+        "scope_commitment": off.get("scope_commitment"),
+    }
+    supplied_plan = manifest_value.get("query_plan")
+    if supplied_plan is not None and supplied_plan != observed_plan:
+        raise RouteAblationError("manifest.query_plan does not match compiled plan")
+    observed_budget = {
+        "max_packet_items": (off.get("policy") or {}).get("max_packet_items"),
+        "max_packet_tokens": (off.get("policy") or {}).get("max_packet_tokens"),
+        "max_packet_bytes": (off.get("policy") or {}).get("max_packet_bytes"),
+    }
+    supplied_budget = manifest_value.get("token_budget")
+    if supplied_budget is not None and any(supplied_budget.get(key) != observed_budget[key] for key in supplied_budget):
+        raise RouteAblationError("manifest.token_budget does not match compiled budget")
+    manifest_value["query_plan"] = observed_plan
+    manifest_value["token_budget"] = observed_budget
+    unsigned = {
+        "schema_version": _CAB_SCHEMA,
+        "operation": "context_route_ablation",
+        "status": "complete" if off.get("status") not in {"invalid_input", "unavailable"} and on.get("status") not in {"invalid_input", "unavailable"} else "degraded",
+        "failure_state": None,
+        "manifest": manifest_value,
+        "scope_commitment": off.get("scope_commitment"),
+        "task_sha256": off.get("task_sha256"),
+        "arms": {"route_off": off_arm, "route_on": on_arm},
+        "comparison": {
+            "candidate_input_equal": bool(off_input and off_input == on_input),
+            "budget_equal": off_budget == on_budget,
+            "route_only_factor": bool(off_input and off_input == on_input and off_budget == on_budget),
+            "selected_ids_equal": off_ids == on_ids,
+            "route_off_only_ids": sorted(set(off_ids) - set(on_ids)),
+            "route_on_only_ids": sorted(set(on_ids) - set(off_ids)),
+            "route_off_digest": off.get("digest"),
+            "route_on_digest": on.get("digest"),
+        },
+        "gold_blind": True,
+        "claims_boundary": "route relevance, evidence authority, and answer correctness are separate fields; no blended platform score",
+    }
+    unsigned["digest"] = _cab_commit(unsigned)
+    return unsigned
+
+
+def verify_route_ablation(report: Any) -> dict[str, Any]:
+    if not isinstance(report, Mapping) or report.get("schema_version") != _CAB_SCHEMA:
+        return {"valid": False, "errors": ["unsupported route-ablation report"]}
+    errors: list[str] = []
+    try:
+        _cab_reject_gold(report)
+        if report.get("gold_blind") is not True:
+            errors.append("gold-blind boundary is not asserted")
+        digest = report.get("digest")
+        unsigned = dict(report)
+        unsigned.pop("digest", None)
+        if not isinstance(digest, str) or _cab_commit(unsigned) != digest:
+            errors.append("report digest mismatch")
+        arms = report.get("arms")
+        if not isinstance(arms, Mapping) or set(arms) != {"route_off", "route_on"}:
+            errors.append("route arms are incomplete")
+        else:
+            for name in ("route_off", "route_on"):
+                arm = arms[name]
+                if not isinstance(arm, Mapping):
+                    errors.append(f"{name} arm is invalid")
+                    continue
+                result = arm.get("compiler_result")
+                check = verify_context_compile(result)
+                if not check.get("valid"):
+                    errors.append(f"{name} compiler result is invalid")
+                if arm.get("compiler_digest") != (result or {}).get("digest"):
+                    errors.append(f"{name} compiler digest mismatch")
+                replay = arm.get("replay") or {}
+                if replay.get("verified") is not True or replay.get("digest_equal") is not True:
+                    errors.append(f"{name} replay is not verified")
+            off = arms["route_off"].get("selection_trace", {})
+            on = arms["route_on"].get("selection_trace", {})
+            comparison = report.get("comparison", {})
+            if comparison.get("candidate_input_equal") is not True or comparison.get("budget_equal") is not True:
+                errors.append("paired inputs or budgets differ")
+            if off.get("candidate_input_digest") != on.get("candidate_input_digest"):
+                errors.append("candidate input digests differ")
+            manifest = report.get("manifest", {})
+            manifest_plan = manifest.get("query_plan", {}) if isinstance(manifest, Mapping) else {}
+            off_plan = arms["route_off"].get("query_plan", {})
+            if any(manifest_plan.get(key) != off_plan.get(key) for key in ("plan_digest", "labels", "query_time_unix_ms", "scope_commitment")):
+                errors.append("manifest query-plan pin does not match arms")
+            manifest_budget = manifest.get("token_budget", {}) if isinstance(manifest, Mapping) else {}
+            off_result = arms["route_off"].get("compiler_result", {})
+            off_policy = off_result.get("policy", {}) if isinstance(off_result, Mapping) else {}
+            if any(manifest_budget.get(key) != off_policy.get(key) for key in ("max_packet_items", "max_packet_tokens", "max_packet_bytes")):
+                errors.append("manifest token-budget pin does not match arms")
+    except Exception:
+        errors.append("route-ablation verification failed")
+    return {"valid": not errors, "errors": errors, "digest": report.get("digest")}
+
+
+def route_ablation_schema() -> dict[str, Any]:
+    digest = {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://perseus.observer/schemas/context-route-ablation/v1",
+        "title": "Perseus Context route ablation",
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["schema_version", "operation", "status", "failure_state", "manifest", "scope_commitment", "task_sha256", "arms", "comparison", "gold_blind", "claims_boundary", "digest"],
+        "properties": {
+            "schema_version": {"type": "string", "const": _CAB_SCHEMA},
+            "operation": {"type": "string", "const": "context_route_ablation"},
+            "status": {"type": "string"},
+            "failure_state": {"type": ["string", "null"]},
+            "manifest": {"type": "object"},
+            "scope_commitment": digest,
+            "task_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "arms": {"type": "object", "required": ["route_off", "route_on"], "properties": {"route_off": {"type": "object"}, "route_on": {"type": "object"}}, "additionalProperties": False},
+            "comparison": {"type": "object"},
+            "gold_blind": {"type": "boolean", "const": True},
+            "claims_boundary": {"type": "string"},
+            "digest": digest,
+        },
+    }
 """Optional local symbol/dependency code graph provider (#921)."""
 
 import ast
