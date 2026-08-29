@@ -1,0 +1,89 @@
+{
+  "task": "What supported deployment value did the user prefer before the latest change?",
+  "scope": {
+    "workspace": "ws-canary"
+  },
+  "query_time_unix_ms": 1787911200000,
+  "provider_states": {
+    "vault": "active",
+    "ledger": "active"
+  },
+  "manifest": {
+    "dataset_revision": "fixture-route-v1",
+    "corpus_revision": "corpus-route-v1",
+    "context_revision": "perseus-context-vault-v1",
+    "vault_revision": "vault-adapter-v1",
+    "answerer": "not_measured",
+    "judge": "not_measured",
+    "retry_policy": {
+      "max_attempts": 1
+    },
+    "route_config": {
+      "feature": "bounded_rank_signal",
+      "structural_weight": 0.2
+    }
+  },
+  "route_scores": {
+    "canary-good": 0.02,
+    "canary-stale": 1.0,
+    "canary-unsupported": 1.0
+  },
+  "policy": {
+    "max_packet_items": 8,
+    "max_packet_tokens": 256,
+    "max_packet_bytes": 8192
+  },
+  "records": [
+    {
+      "candidate_id": "canary-good",
+      "content": "The supported deployment value is green.",
+      "source_id": "vault:canary-good",
+      "provenance_id": "ledger:canary-good",
+      "session_id": "canary-session-1",
+      "scope": {
+        "workspace": "ws-canary"
+      },
+      "role": "user",
+      "lane": "direct",
+      "validity_state": "observed",
+      "verified": true,
+      "event_time": "2026-08-28T10:00:00Z",
+      "transaction_time": "2026-08-28T10:01:00Z",
+      "recorded_at": "2026-08-28T10:02:00Z",
+      "valid_at": "2026-08-28T10:00:00Z",
+      "value": "green"
+    },
+    {
+      "candidate_id": "canary-stale",
+      "content": "The stale deployment value is red.",
+      "source_id": "vault:canary-stale",
+      "provenance_id": "ledger:canary-stale",
+      "session_id": "canary-session-2",
+      "scope": {
+        "workspace": "ws-canary"
+      },
+      "role": "user",
+      "validity_state": "stale",
+      "verified": false,
+      "event_time": "2026-08-27T10:00:00Z",
+      "transaction_time": "2026-08-27T10:01:00Z",
+      "recorded_at": "2026-08-27T10:02:00Z"
+    },
+    {
+      "candidate_id": "canary-unsupported",
+      "content": "The unverified deployment value is blue.",
+      "source_id": "vault:canary-unsupported",
+      "provenance_id": "ledger:canary-unsupported",
+      "session_id": "canary-session-3",
+      "scope": {
+        "workspace": "ws-canary"
+      },
+      "role": "assistant",
+      "validity_state": "inferred",
+      "verified": false,
+      "event_time": "2026-08-28T11:00:00Z",
+      "transaction_time": "2026-08-28T11:01:00Z",
+      "recorded_at": "2026-08-28T11:02:00Z"
+    }
+  ]
+}
