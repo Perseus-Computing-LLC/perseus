@@ -159,15 +159,15 @@ def test_triage_retires_collapsed_lesson_fault_and_exonerates_routing(tmp_path):
         store.record_outcome(lesson3["lesson_id"], success=True)
     assert store.triage_lesson(lesson3["lesson_id"])["verdict"] == "healthy"
 
-    # Mixed batch below the exculpation ratio, or unattributed failures, retire.
+    # Unknown failure attribution requires review rather than silently retiring
+    # a lesson whose causal fault was not established.
     lesson4 = store.observe_failure(tool="net", tool_version="1", operation="send", resource="queue", error_type="Refused")
     for _ in range(4):
         store.record_outcome(lesson4["lesson_id"], success=True)
     for _ in range(6):
         store.record_outcome(lesson4["lesson_id"], success=False, attribution="unknown")
     verdict = store.triage_lesson(lesson4["lesson_id"])
-    assert verdict["verdict"] == "retire"
-    assert verdict["exculpated"] == 0
+    assert verdict["verdict"] == "inconclusive"
 
 
 def test_outcome_validation_and_persistence(tmp_path):

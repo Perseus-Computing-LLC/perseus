@@ -153,6 +153,16 @@ DEFAULT_CONFIG = {
             "min_steps": 2,            # fewer extracted steps = not procedural
             "max_steps": 25,
         },
+        # #1017 — receipt-backed procedural-memory trust. Disabled by default;
+        # runtime owners may opt in after selecting an explicit policy.
+        "receipts": {
+            "enabled": False,
+            "max_per_lesson": 256,
+            "policy_version": "trust-policy-v1",
+            "min_known_attempts": 5,
+            "min_known_win_rate": 0.7,
+            "min_coverage": 0.8,
+        },
     },
     "agora": {
         "tasks_dir": "tasks",
@@ -259,6 +269,21 @@ DEFAULT_CONFIG = {
             "on_memory_update": True, # capture pending checkpoints during `perseus memory update`
             "category": "session",   # vault category (matches the #670 Recent Activity recall)
             "limit": 5,              # default max checkpoints per @capture directive render
+        },
+        # #1016 — answer-facing Context + Vault compiler. The ordinary recall
+        # and on-demand profile remain unchanged until this is explicitly on.
+        "context_serving": {
+            "enabled": False,
+            "planner": "deterministic-v1",
+            "mode": "fused",
+            "max_candidate_sources": 20,
+            "max_packet_tokens": 2048,
+            "max_windows_per_source": 2,
+            "include_role_labels": True,
+            "include_temporal_metadata": True,
+            "include_update_cards": True,
+            "require_verified_provenance": False,
+            "allow_llm_query_expansion": False,
         },
     },
     "research": {                       # #513 — @research external paper-search MCP

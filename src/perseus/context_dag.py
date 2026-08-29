@@ -57,7 +57,7 @@ NODE_KINDS = frozenset({
     "policy_constraint", "tool_output", "decision",
 })
 EDGE_KINDS = frozenset({
-    "supports", "depends_on", "contradicts", "invalidates", "selected_for",
+    "supports", "depends_on", "contradicts", "invalidates", "selected_for", "updates",
 })
 VERDICTS = frozenset({"sufficient", "abstain", "escalate"})
 UNCERTAINTY_CLASSES = frozenset({"high", "medium", "stale", "inferred", "low", "tie"})
