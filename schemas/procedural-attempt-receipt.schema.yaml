@@ -1,0 +1,25 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "https://perseus.observer/schemas/procedural-attempt-receipt/v1"
+title: Perseus procedural attempt receipt
+version: "perseus-procedural-attempt-receipt/v1"
+type: object
+additionalProperties: false
+required: [schema_version, receipt_id, lesson_id, lesson_version, step_id, step_version, verifier_id, verifier_version, environment_fingerprint, environment_source, environment_trust, environment_measurement_ref, result, evidence_ref, failure_attribution, scope_commitment, attempt_id]
+properties:
+  schema_version: {type: string, const: perseus-procedural-attempt-receipt/v1}
+  receipt_id: {type: string, pattern: "^sha256:[0-9a-f]{64}$"}
+  lesson_id: {type: string, minLength: 1, maxLength: 160}
+  lesson_version: {type: integer, minimum: 1}
+  step_id: {type: string, minLength: 1, maxLength: 160}
+  step_version: {type: integer, minimum: 1}
+  verifier_id: {type: string, minLength: 1, maxLength: 160}
+  verifier_version: {type: string, minLength: 1, maxLength: 160}
+  environment_fingerprint: {type: string, pattern: "^sha256:[0-9a-f]{64}$"}
+  environment_source: {type: string, enum: [measured, caller_declared]}
+  environment_trust: {type: string, enum: [measured, untrusted]}
+  environment_measurement_ref: {type: [string, "null"], maxLength: 160}
+  result: {type: string, enum: [confirmed, failed, unknown]}
+  evidence_ref: {type: string, minLength: 1, maxLength: 160}
+  failure_attribution: {type: [string, "null"], enum: [null, skill_defect, routing_error, rule_defect, data_drift, input_noise, unknown]}
+  scope_commitment: {type: string, pattern: "^sha256:[0-9a-f]{64}$"}
+  attempt_id: {type: string, minLength: 1, maxLength: 160}
