@@ -1,0 +1,79 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "https://perseus.observer/schemas/context-vault/v1"
+title: Perseus Context plus Vault compiler envelope
+version: "perseus-context-vault/v1"
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - operation
+  - status
+  - failure_state
+  - task_sha256
+  - scope_commitment
+  - query_plan
+  - retrieval
+  - packet
+  - selection_trace
+  - compiled_dag
+  - evidence_projection
+  - telemetry
+  - policy
+  - route
+  - omissions
+  - update_relations
+  - conflicts
+  - gold_blind
+  - digest
+properties:
+  schema_version: {type: string, const: perseus-context-vault/v1}
+  operation: {type: string, const: context_compile}
+  status: {type: string, enum: [complete, degraded, abstain, review, unavailable, invalid_input]}
+  failure_state: {type: [string, "null"], maxLength: 128}
+  task_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+  scope_commitment: {type: string, pattern: "^sha256:[0-9a-f]{64}$"}
+  query_plan: {type: object, additionalProperties: true}
+  retrieval: {type: object, additionalProperties: true}
+  packet:
+    type: array
+    maxItems: 32
+    items:
+      type: object
+      additionalProperties: false
+      required: [candidate_id, text, content_sha256, source_refs, session_ids, role, role_provenance, validity_state, uncertainty, temporal, update, preference_class, direct_evidence, exact_value_present, duplicate_candidate_ids]
+      properties:
+        candidate_id: {type: string, minLength: 1, maxLength: 160}
+        text: {type: string, maxLength: 2048}
+        content_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+        source_refs: {type: array, maxItems: 64, items: {type: string, minLength: 1, maxLength: 160}}
+        session_ids: {type: array, maxItems: 16, items: {type: string, minLength: 1, maxLength: 160}}
+        role: {type: string, enum: [assistant, system, tool, unknown, user]}
+        role_provenance: {type: string, maxLength: 64}
+        validity_state: {type: string, enum: [contradictory, derived, inferred, observed, stale, unavailable, unknown]}
+        uncertainty: {type: object, additionalProperties: true}
+        temporal: {type: object, additionalProperties: true}
+        update: {type: object, additionalProperties: true}
+        preference_class: {type: [string, "null"], maxLength: 160}
+        direct_evidence: {type: boolean}
+        exact_value_present: {type: boolean}
+        duplicate_candidate_ids: {type: array, maxItems: 64, items: {type: string, minLength: 1, maxLength: 160}}
+  selection_trace: {type: object, additionalProperties: true}
+  compiled_dag: {type: object, additionalProperties: true}
+  evidence_projection: {type: object, additionalProperties: true}
+  telemetry: {type: object, additionalProperties: true}
+  policy: {type: object, additionalProperties: true}
+  route: {type: object, additionalProperties: true}
+  omissions:
+    type: array
+    maxItems: 128
+    items: {type: object, additionalProperties: true}
+  update_relations:
+    type: array
+    maxItems: 64
+    items: {type: object, additionalProperties: true}
+  conflicts:
+    type: array
+    maxItems: 64
+    items: {type: array, maxItems: 64, items: {type: string, minLength: 1, maxLength: 160}}
+  gold_blind: {type: boolean, const: true}
+  digest: {type: string, pattern: "^sha256:[0-9a-f]{64}$"}

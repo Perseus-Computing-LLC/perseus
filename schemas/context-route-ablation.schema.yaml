@@ -1,0 +1,26 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "https://perseus.observer/schemas/context-route-ablation/v1"
+title: Perseus Context route ablation envelope
+version: "perseus-context-route-ablation/v1"
+type: object
+additionalProperties: false
+required: [schema_version, operation, status, failure_state, manifest, scope_commitment, task_sha256, arms, comparison, gold_blind, claims_boundary, digest]
+properties:
+  schema_version: {type: string, const: perseus-context-route-ablation/v1}
+  operation: {type: string, const: context_route_ablation}
+  status: {type: string, enum: [complete, degraded]}
+  failure_state: {type: [string, "null"]}
+  manifest: {type: object, additionalProperties: true}
+  scope_commitment: {type: string, pattern: "^sha256:[0-9a-f]{64}$"}
+  task_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+  arms:
+    type: object
+    additionalProperties: false
+    required: [route_off, route_on]
+    properties:
+      route_off: {type: object, additionalProperties: true}
+      route_on: {type: object, additionalProperties: true}
+  comparison: {type: object, additionalProperties: true}
+  gold_blind: {type: boolean, const: true}
+  claims_boundary: {type: string, maxLength: 512}
+  digest: {type: string, pattern: "^sha256:[0-9a-f]{64}$"}
