@@ -63,6 +63,7 @@ bench/scripts/compute_metrics.py
 bench/scripts/seed_corpus.py
 bench/tier2/
 benchmark/context-bench/
+benchmark/gauntlet/gauntlet_role_profiles/.perseus/
 benchmark/gauntlet/gauntlet_role_profiles/*/.perseus/
 docs/SECURITY-INDEX.md
 docs/SECURITY-MILESTONES.md
