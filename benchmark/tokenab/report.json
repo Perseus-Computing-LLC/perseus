@@ -10,7 +10,7 @@
     "tokenizer": "cl100k_base",
     "tiktoken_version": "0.13.0",
     "perseus_version": "1.0.23",
-    "repo_commit": "6bc8ddc1437b3c56ccca957950dd2df4163b6356",
+    "repo_commit": "e54cb6dc66dcdc2852c1dd35a06f8d0363edd0c6",
     "repo_dirty": false,
     "cold_runs_per_doc": 3,
     "warm_runs_per_doc": 3,
