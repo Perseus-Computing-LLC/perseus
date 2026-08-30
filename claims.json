@@ -9,7 +9,7 @@
   "claims": {
     "perseus_version": {
       "value": "1.0.27",
-      "source": "VERSION at repository SHA d2e857ba4ea96a7e5656d0e44bc5daab48e6cd36",
+      "source": "VERSION at repository SHA 6eeaf8c3348058e3834ff2719f2a2d91a357cdf9",
       "status": "source-release-candidate",
       "publishable": false,
       "note": "The source tree is prepared for 1.0.27, but the public package registry has not published it. Do not use this value as a package badge."
@@ -59,7 +59,7 @@
     },
     "token_ab_reduction": {
       "value": "52.63%",
-      "detail": "fewer prompt tokens, full request (context + 14 user prompts, identical 72-token system stub excluded), cold cache; context-only reduction 52.71% cold and warm; naive full-file assembly (arm A) vs shipped-default `perseus render` subprocess (arm B) on the Perseus repo corpus at commit 9a8dd3ddae422786aae87c16a9807f73285296b6; 5 fixture docs exercising @include last=/since= windows, mode=reference, and the recall-first memory pointer, plus a no-windowing control doc that measured -8.69% (rendered arm slightly larger, showing no hidden constant); arm A 63,188 context tokens vs arm B 29,883; tiktoken cl100k_base; render overhead p50 341.5 ms cold / 315.6 ms warm, full subprocess incl interpreter startup, timed inside the window",
+      "detail": "fewer prompt tokens, full request (context + 14 user prompts, identical 72-token system stub excluded), cold cache; context-only reduction 52.71% cold and warm; naive full-file assembly (arm A) vs shipped-default `perseus render` subprocess (arm B) on the Perseus repo corpus at commit 6bc8ddc1437b3c56ccca957950dd2df4163b6356; 5 fixture docs exercising @include last=/since= windows, mode=reference, and the recall-first memory pointer, plus a no-windowing control doc that measured -8.69% (rendered arm slightly larger, showing no hidden constant); arm A 63,188 context tokens vs arm B 29,883; tiktoken cl100k_base; render overhead p50 341.5 ms cold / 315.6 ms warm, full subprocess incl interpreter startup, timed inside the window",
       "source": "benchmark/tokenab/report.json",
       "signature_sha256": "f014830b4465bd9a2cda76e51f4d7feb4c95ac358bc9a2a940d0a569d24a0cf4",
       "status": "committed-content-hashed",

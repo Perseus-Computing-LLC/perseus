@@ -2,13 +2,17 @@
 
 **Publication date:** 2026-06-27
 **Project:** Perseus — resolve-before-context pipeline
-**Status:** Patent pending. This document is a defensive publication: it dates
-and discloses the differentiation between Perseus and the closest prior art, and
-maps each technical disclosure to the claim element(s) it supports.
+**Status:** Patent pending. This document is a public technical index: it dates
+the disclosures and records a candidate correspondence between their mechanisms
+and proposed claim concepts.
 
-This index exists to (a) narrow what others can later claim, (b) give an
-examiner a single map from disclosures to claim elements, and (c) record the
-language-hygiene discipline applied to the novel core.
+It is not the filed specification, a claim construction, a legal opinion, a
+priority determination, or evidence of novelty, validity, ownership, or support
+for any particular application claim.
+
+This index exists to (a) date the public technical material, (b) make the
+project's proposed mechanism boundaries inspectable, and (c) record the
+language-hygiene discipline applied to the described architecture.
 
 ## Disclosure → claim-element map
 
@@ -67,8 +71,8 @@ measured exhibit, not claimed as an abstract outcome.
 ## Defensive-publication note
 
 By publishing this differentiation and the disclosure↔claim map on the date
-above, this document establishes prior art against later third-party attempts to
-claim the resolve-before-context mechanism, while preserving Perseus's own
-priority (provisional filed; non-provisional conversion in progress). No
-application serial numbers, filing-receipt metadata, or privileged
-attorney/client material appear here.
+above, the project dates the public material for later technical and prior-art
+analysis. Publication does not establish patentability or preserve priority for
+subject matter that is not supported by the filed application. No application
+serial numbers or filing-receipt metadata are intended to appear here. Counsel
+must determine whether any other material requires correction or removal.
