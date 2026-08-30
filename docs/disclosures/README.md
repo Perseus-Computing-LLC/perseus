@@ -22,7 +22,13 @@ and §112(f)/§101 language-hygiene note. Published 2026-06-27.
 
 ## Purpose
 
-These disclosures establish prior art for Perseus's novel architectural concepts. A provisional patent application (filed May 2026) covers the resolve-before-context pipeline. These documents provide additional detail supporting the patent's claims and serve as independent defensive publications.
+These documents are public technical disclosures about selected Perseus
+implementation concepts. They may be relevant to later prior-art analysis, but
+they do not establish novelty, validity, ownership, patent scope, or support in
+any particular application. The filed provisional specification and prosecution
+records are not reproduced here. A provisional patent application (filed May
+2026) is referenced only as a project-status fact; the public disclosures are
+not a substitute for the application or advice from patent counsel.
 
 ## Related
 
