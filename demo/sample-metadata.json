@@ -2,7 +2,7 @@
   "artifact_type": "perseus-context-render-bounded-replay/v1",
   "generated_at": "2026-08-26T20:56:15Z",
   "generator": "bounded excerpt from a Perseus 1.0.27 source-checkout render",
-  "source_revision": "5cff6c9dfba84e1830519824dc0ff1120e344a8b",
+  "source_revision": "793791cb62020addb633ffa4104f8efb2e310ae2",
   "source_path": "demo/sample-context.md",
   "source_sha256": "bdf1ea9f63e8e1f962c5102f93b4614fea4134979f9364a8f7e80c3c8d21e6e4",
   "output_path": "demo/sample-resolved.txt",

@@ -9,7 +9,7 @@
   "claims": {
     "perseus_version": {
       "value": "1.0.27",
-      "source": "VERSION at repository SHA e8206c84cb76ff4db35a9ff16f1eb021bad632b4",
+      "source": "VERSION at repository SHA 793791cb62020addb633ffa4104f8efb2e310ae2",
       "status": "source-release-candidate",
       "publishable": false,
       "note": "The source tree is prepared for 1.0.27, but the public package registry has not published it. Do not use this value as a package badge."
