@@ -60,6 +60,7 @@ properties:
   selection_trace: {type: object, additionalProperties: true}
   compiled_dag: {type: object, additionalProperties: true}
   evidence_projection: {type: object, additionalProperties: true}
+  projections: {type: object, additionalProperties: true}
   telemetry: {type: object, additionalProperties: true}
   policy: {type: object, additionalProperties: true}
   route: {type: object, additionalProperties: true}

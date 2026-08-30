@@ -16,6 +16,7 @@ from typing import Any
 
 from perseus.context_dag import ContextDAG, ContextNode
 from perseus.context_evidence import project_context_evidence, verify_context_evidence
+from perseus.context_projections import project_context_projections, render_context_projections, verify_context_projections
 from perseus.pooled_selection import PooledCandidate, pool_tokens, relevance_score
 from perseus.vault_connector import VaultConnector
 
@@ -283,6 +284,9 @@ def _cv_normalize_record(raw: Any, index: int, requested_scope: Mapping[str, str
     session_date = _cv_timestamp(raw, ("session_date", "source_date", "conversation_date"))
     category = _cv_safe_id(raw.get("category"), "category", required=False)
     stable_key = _cv_safe_id(raw.get("key"), "key", required=False)
+    episode_id = _cv_safe_id(raw.get("episode_id", raw.get("event_id")), "episode_id", required=False)
+    topic = _cv_safe_id(raw.get("topic"), "topic", required=False)
+    preference_key = _cv_safe_id(raw.get("preference_key", raw.get("preference_group", raw.get("group_key"))), "preference_key", required=False)
     session_id = _cv_safe_id(raw.get("session_id", raw.get("session")), "session_id", required=False)
     version = raw.get("version", raw.get("version_number"))
     if version is not None and (isinstance(version, bool) or not isinstance(version, int) or version < 1 or version > 10**9):
@@ -320,6 +324,9 @@ def _cv_normalize_record(raw: Any, index: int, requested_scope: Mapping[str, str
         "_session_id": session_id,
         "_category": category,
         "_key": stable_key,
+        "_episode_id": episode_id,
+        "_topic": topic,
+        "_preference_key": preference_key,
         "_version": version,
         "_is_current": _cv_bool(raw, "is_current", "current"),
         "_is_prior": _cv_bool(raw, "is_prior", "prior", "superseded"),
@@ -649,6 +656,36 @@ def _cv_packet_item(record: Mapping[str, Any], relation_state: str = "none") -> 
     }
 
 
+def _cv_projection_record(record: Mapping[str, Any], scope: Mapping[str, str]) -> dict[str, Any]:
+    """Expose normalized records to the general projection boundary."""
+    return {
+        "candidate_id": record["_id"],
+        "summary": record["_text"],
+        "source_refs": list(record["_source_refs"]),
+        "role": record["_role"],
+        "session_id": record["_session_id"],
+        "scope": dict(scope),
+        "event_time": record["_event_time"],
+        "valid_at": record["_valid_time"],
+        "transaction_time": record["_transaction_time"],
+        "recorded_at": record["_recorded_time"],
+        "session_date": record["_session_date"],
+        "validity_state": record["_validity"],
+        "verified": record["_verified"],
+        "direct_evidence": record["_direct"],
+        "preference_kind": record["_preference_class"] or record["_category"],
+        "preference_key": record["_preference_key"] or record["_key"],
+        "episode_id": record["_episode_id"],
+        "topic": record["_topic"],
+        "is_current": record["_is_current"],
+        "is_prior": record["_is_prior"],
+        "supersedes": list(record["_supersedes"]),
+        "superseded_by": list(record["_superseded_by"]),
+        "conflicted": record["_conflicted"],
+        "duplicate_candidate_ids": list(record.get("_duplicate_ids", [])),
+    }
+
+
 def _cv_dag(
     task: str,
     plan: Mapping[str, Any],
@@ -879,6 +916,7 @@ def context_compile(
     fetcher: Callable[..., Any] | None = None,
     route_mode: str = "off",
     route_scores: Mapping[str, Any] | None = None,
+    projection_profile: str | None = None,
 ) -> dict[str, Any]:
     """Compile an authorized, bounded, gold-blind Context+Vault packet."""
     try:
@@ -894,6 +932,7 @@ def context_compile(
             budget = request.get("budget", budget)
             route_mode = request.get("route_mode", route_mode)
             route_scores = request.get("route_scores", route_scores)
+            projection_profile = request.get("projection_profile", projection_profile)
         else:
             _cv_reject_gold({"task": task, "records": records, "scope": scope, "policy": policy})
             task_text = task
@@ -926,6 +965,18 @@ def context_compile(
             raise ContextVaultError("candidate_limit_exceeded")
         normalized = _cv_dedupe(normalized)
         update_relations, conflicts = _cv_update_links(normalized)
+        projections = None
+        if projection_profile is not None:
+            if projection_profile != "general":
+                raise ContextVaultError("unsupported projection_profile")
+            projections = project_context_projections(
+                [_cv_projection_record(record, requested_scope) for record in normalized],
+                task=task_text,
+                scope=requested_scope,
+                max_tokens=policy_map["max_packet_tokens"],
+            )
+            if projections.get("status") == "invalid_input":
+                raise ContextVaultError(str(projections.get("failure_state") or "projection_invalid"))
         selected, trace, select_omissions = _cv_select(normalized, task_text, plan, policy_map, route_mode=route_mode, route_scores=route_scores)
         omissions.extend(select_omissions)
         relation_by_id: dict[str, str] = {}
@@ -1014,6 +1065,8 @@ def context_compile(
             "conflicts": [list(group) for group in conflicts],
             "gold_blind": True,
         }
+        if projections is not None:
+            result["projections"] = projections
         result["digest"] = _cv_commit(result)
         return result
     except ContextVaultError as exc:
@@ -1063,7 +1116,10 @@ def render_context_packet(result: Mapping[str, Any]) -> str:
     check = verify_context_compile(result)
     if not check["valid"]:
         raise ContextVaultError("refusing to render invalid context compile")
-    return _cv_render_packet_body(result["query_plan"], result["packet"])
+    body = _cv_render_packet_body(result["query_plan"], result["packet"])
+    if "projections" not in result:
+        return body
+    return body + "\n" + render_context_projections(result["projections"])
 
 
 def verify_context_compile(result: Any) -> dict[str, Any]:
@@ -1123,6 +1179,10 @@ def verify_context_compile(result: Any) -> dict[str, Any]:
             evidence_check = verify_context_evidence(projection, source_records if projection.get("selected") else None)
             if not evidence_check.get("valid"):
                 errors.append("evidence projection is invalid")
+        if "projections" in result:
+            projection_check = verify_context_projections(result.get("projections"))
+            if not projection_check.get("valid"):
+                errors.append("general Context projections are invalid")
         packet_ids = [item.get("candidate_id") for item in result.get("packet", []) if isinstance(item, Mapping)]
         selected_ids = trace.get("selected_ids", []) if isinstance(trace, Mapping) else []
         if sorted(packet_ids) != sorted(selected_ids):
@@ -1156,7 +1216,7 @@ def context_vault_schema() -> dict[str, Any]:
         "required": ["schema_version", "operation", "status", "failure_state", "task_sha256", "scope_commitment", "query_plan", "retrieval", "packet", "selection_trace", "compiled_dag", "evidence_projection", "telemetry", "policy", "route", "omissions", "update_relations", "conflicts", "gold_blind", "digest"],
         "properties": {
             "schema_version": {"type": "string", "const": _CV_SCHEMA}, "operation": {"type": "string", "const": "context_compile"}, "status": {"type": "string", "enum": ["complete", "degraded", "abstain", "review", "unavailable", "invalid_input"]}, "failure_state": {"type": ["string", "null"]}, "task_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "scope_commitment": digest,
-            "query_plan": {"type": "object"}, "retrieval": {"type": "object"}, "packet": {"type": "array", "maxItems": _CV_MAX_PACKET_ITEMS, "items": packet_item}, "selection_trace": {"type": "object"}, "compiled_dag": {"type": "object"}, "evidence_projection": {"type": "object"},
+            "query_plan": {"type": "object"}, "retrieval": {"type": "object"}, "packet": {"type": "array", "maxItems": _CV_MAX_PACKET_ITEMS, "items": packet_item}, "selection_trace": {"type": "object"}, "compiled_dag": {"type": "object"}, "evidence_projection": {"type": "object"}, "projections": {"type": "object"},
             "telemetry": {"type": "object"}, "policy": {"type": "object"}, "route": {"type": "object"}, "omissions": {"type": "array", "maxItems": 128, "items": {"type": "object"}}, "update_relations": {"type": "array", "items": {"type": "object"}}, "conflicts": {"type": "array", "items": {"type": "array", "items": string_id}}, "gold_blind": {"type": "boolean", "const": True}, "digest": digest,
         },
     }

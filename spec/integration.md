@@ -121,6 +121,25 @@ the checked-in server contract. They can change between releases. Use
 the current identifiers and opt-in requirements rather than copying names from
 an old integration document.
 
+### Opt-in general evidence projections
+
+`perseus_context_compile` keeps its existing default output. Callers that need a
+compact, answer-facing view of preference and cross-session evidence may add:
+
+```json
+{"projection_profile": "general"}
+```
+
+The response then contains an optional `projections` object conforming to
+`perseus-context-projections/v1`. It preserves actor provenance, scope, source
+references, chronology, supersession, conflict, and uncertainty status. The
+projection is deterministic and explicitly non-authoritative: Perseus does not
+write it to Vault, and it does not replace Vault's durable-memory authority or
+Ledger's evidence receipts. Unknown scopes, private-labelled records, gold/answer
+fields, and unsafe source references fail closed or become bounded omissions.
+The profile is provider-free and must not be enabled as a benchmark-specific
+answering shortcut.
+
 ### Example MCP configuration
 
 A stdio configuration should invoke the reviewed executable and pass an explicit

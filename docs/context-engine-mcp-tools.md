@@ -53,6 +53,19 @@ before relying on invocation-time state.
 | `perseus_get_context` | Return the full rendered Perseus context for the workspace. |
 | `perseus_get_health` | Run Daedalus context-maintenance heuristics — cache health, directive resolution stats, memory integrity check. mode=basic (default) returns the @health maintenance report; mode=doctor returns the same structured payload as `perseus doctor --json` (per-check status + summary), the MCP equivalent of the CLI doctor surface for restart/health verification. |
 
+## Opt-in general evidence projections
+
+`perseus_context_compile` preserves its existing default response. Add
+`"projection_profile": "general"` to request an optional `projections` object
+conforming to `perseus-context-projections/v1`. The deterministic projection
+contains compact preference items and cross-session episode chronologies with
+actor provenance, scope, source references, time, supersession, conflict, and
+uncertainty status. It is explicitly non-authoritative and provider-free: it does
+not write Vault state or replace Ledger receipts, and it must not be used as a
+benchmark-specific answering shortcut. Gold/answer fields, private-labelled
+records, unsafe references, and out-of-scope evidence fail closed or become
+bounded omissions.
+
 Opt-in only (excluded from the default set until added to `mcp.tool_allowlist`):
 
 | Tool | Description |
