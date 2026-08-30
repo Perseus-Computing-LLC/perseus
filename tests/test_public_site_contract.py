@@ -17,7 +17,7 @@ CANONICAL = {
     "ledger/index.html": "/ledger/",
     "security/index.html": "/security/",
     "benchmarks/index.html": "/benchmarks/",
-    "benchmarks/context-bench/index.html": "/benchmarks/context-bench/",
+
     "benchmarks/memconflict/index.html": "/benchmarks/memconflict/",
     "docs/index.html": "/docs/",
     "demo/index.html": "/demo/",
@@ -402,7 +402,7 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries(tmp_pat
     assert "Every MCP tool resolves live workspace state" not in wiring
     assert "tool-specific freshness" in wiring
 
-    assert "escaping its sandbox" not in text("docs/vuln-response.md")
+    assert not (ROOT / "docs" / "vuln-response.md").exists()
     assert "illustrative syntax sample" in root_readme
 
     manifest = json.loads(text("manifest.json"))
@@ -430,7 +430,7 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries(tmp_pat
     assert "workspace-controlled" in claude_hook
 
     for security_doc in ("docs/SECURITY-INDEX.md", "docs/SECURITY-MILESTONES.md"):
-        assert "2026-08-26" in text(security_doc)
+        assert not (ROOT / security_doc).exists()
 
     assert "sse_bearer_token" in root_readme
     assert "sse_bearer_token" in wiring
@@ -582,10 +582,7 @@ def test_ancillary_public_surfaces_share_current_identity_and_boundaries(tmp_pat
         "reddit-variants/r-programming.md",
         "reddit-variants/r-python.md",
     ):
-        outreach = text(outreach_path)
-        for retired_outreach_claim in ("23,402", "301×", "301x", "150 writes", "120-agent", "zero collisions", "$295K", "295K"):
-            assert retired_outreach_claim not in outreach, outreach_path
-        assert "claims-safe" in outreach
+        assert not (ROOT / outreach_path).exists()
 
     workflow_checkout_count = 0
     workflow_guard_count = 0

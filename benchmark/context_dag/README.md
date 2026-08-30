@@ -35,7 +35,7 @@ This benchmark establishes assembly-layer *shape* — budget enforcement,
 versioning, replay, verdict gating, and the token/coverage trade-off of
 selective compilation on pinned synthetic fixtures. It does **not** establish
 provider-run token efficiency, accuracy against a contamination-proof holdout,
-or any leaderboard comparison. That is the scope of the Context-Bench run
+or any leaderboard comparison. That is the scope of the retired public adapter.
 ([#961](https://github.com/Perseus-Computing-LLC/perseus/issues/961)), which
 uses this instrumented assembly path.
 
