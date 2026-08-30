@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from perseus.registry import DIRECTIVE_REGISTRY, _call_resolver
+from perseus.context_vault import context_compile
+from perseus.context_ablation import run_context_route_ablation
 
 # In the built artifact, render_source is top-level. In source, import it.
 # The build script strips internal imports; try/except scaffold is kept
@@ -666,6 +668,10 @@ def _build_output_schema(tool_name: str, spec) -> dict | None:
     if tool_name == "perseus_context_inspect":
         return _CONTEXT_INSPECTOR_MCP_OUTPUT_SCHEMA
     if tool_name in {
+        "perseus_context_compile", "perseus_context_route_ablation",
+    }:
+        return _CONTEXT_VAULT_MCP_OUTPUT_SCHEMA
+    if tool_name in {
         "perseus_context_rank", "perseus_context_ask",
         "perseus_agent_projection_preview", "perseus_agent_projection_consent",
         "perseus_agent_projection_release", "perseus_agent_projection_revoke",
@@ -699,6 +705,8 @@ def _build_annotations(tool_name: str, spec) -> dict | None:
     if tool_name in ("perseus_date", "perseus_drift", "perseus_env"):
         hints["readOnlyHint"] = True
     if tool_name == "perseus_context_inspect":
+        hints["readOnlyHint"] = True
+    if tool_name in _MCP_CONTEXT_VAULT_TOOLS:
         hints["readOnlyHint"] = True
     # Read-only tools that escape the reads_files / executes_shell checks
     if tool_name in ("perseus_auto_skill", "perseus_profile", "perseus_perseus", "perseus_vault", "perseus_mason",
@@ -846,6 +854,87 @@ _CONTEXT_INSPECTOR_MCP_OUTPUT_SCHEMA = {
     },
 }
 
+# ── Opt-in Context + Vault compiler tools (#1016/#1022) ──────────────────────
+# The compiler is deliberately absent from the default tool list. Enabling the
+# `perseus_vault.context_serving.enabled` configuration gate exposes these
+# read-only tools without changing ordinary context or recall behavior.
+_CONTEXT_VAULT_MCP_OUTPUT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["schema_version", "operation", "status", "gold_blind", "digest"],
+    "properties": {
+        "schema_version": {"type": "string", "enum": ["perseus-context-vault/v1", "perseus-context-route-ablation/v1"]},
+        "operation": {"type": "string", "enum": ["context_compile", "context_route_ablation"]},
+        "status": {"type": "string"},
+        "failure_state": {"type": ["string", "null"]},
+        "gold_blind": {"type": "boolean", "const": True},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "task_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "scope_commitment": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "query_plan": {"type": "object"},
+        "retrieval": {"type": "object"},
+        "packet": {"type": "array", "maxItems": 32, "items": {"type": "object"}},
+        "selection_trace": {"type": "object"},
+        "compiled_dag": {"type": "object"},
+        "evidence_projection": {"type": "object"},
+        "projections": {"type": "object"},
+        "telemetry": {"type": "object"},
+        "policy": {"type": "object"},
+        "route": {"type": "object"},
+        "omissions": {"type": "array", "maxItems": 128, "items": {"type": "object"}},
+        "update_relations": {"type": "array", "items": {"type": "object"}},
+        "conflicts": {"type": "array", "items": {"type": "array"}},
+        "manifest": {"type": "object"},
+        "arms": {"type": "object"},
+        "comparison": {"type": "object"},
+        "claims_boundary": {"type": "string"},
+    },
+}
+
+_CONTEXT_VAULT_MCP_TOOLS: list[dict] = [
+    _tool_schema(
+        "perseus_context_compile",
+        "Opt-in deterministic, gold-blind Context + Perseus Vault evidence compiler. "
+        "Applies scope, authorization, validity, role, time, update, conflict, "
+        "budget, and redaction gates before returning a digest-sealed packet.",
+        {
+            "task": {"type": "string", "minLength": 1, "maxLength": 512},
+            "records": {"type": "array", "maxItems": 64, "items": {"type": "object"}},
+            "scope": {"type": "object"},
+            "query_time_unix_ms": {"type": "integer"},
+            "provider_states": {"type": "object"},
+            "policy": {"type": "object"},
+            "budget": {"type": ["integer", "object"]},
+            "route_mode": {"type": "string", "enum": ["off", "on"]},
+            "route_scores": {"type": "object"},
+            "projection_profile": {"type": "string", "enum": ["general"]},
+        },
+        required=["task"],
+        output_schema=_CONTEXT_VAULT_MCP_OUTPUT_SCHEMA,
+        annotations={"readOnlyHint": True},
+    ),
+    _tool_schema(
+        "perseus_context_route_ablation",
+        "Opt-in provider-free or adapter-backed route-off versus route-on Context "
+        "ablation. Holds the evidence pool and budget fixed, keeps route scores "
+        "non-authoritative, and emits separate per-arm coverage and replay fields.",
+        {
+            "task": {"type": "string", "minLength": 1, "maxLength": 512},
+            "records": {"type": "array", "maxItems": 64, "items": {"type": "object"}},
+            "scope": {"type": "object"},
+            "query_time_unix_ms": {"type": "integer"},
+            "provider_states": {"type": "object"},
+            "manifest": {"type": "object"},
+            "route_scores": {"type": "object"},
+            "policy": {"type": "object"},
+            "budget": {"type": ["integer", "object"]},
+        },
+        required=["task", "records", "scope", "query_time_unix_ms", "provider_states", "manifest"],
+        output_schema=_CONTEXT_VAULT_MCP_OUTPUT_SCHEMA,
+        annotations={"readOnlyHint": True},
+    ),
+]
+
 # ── Versioned context contract tools (#916/#917) ─────────────────────────────
 # These operations are host-side, bounded, and read-only with respect to source
 # memory. Release/consent/revoke only manage the sanitized projection boundary;
@@ -970,6 +1059,11 @@ _MCP_SENSITIVE_TOOLS = {
     "perseus_agent_projection_consent", "perseus_agent_projection_revoke",
 }
 
+_MCP_CONTEXT_VAULT_TOOLS = {
+    "perseus_context_compile",
+    "perseus_context_route_ablation",
+}
+
 # State-changing context operations require both explicit MCP exposure and an
 # authenticated authority. The authority is deliberately transport/config
 # data, never a caller-supplied identity field.
@@ -999,6 +1093,11 @@ def _mcp_tool_allowed(tool_name: str, cfg: dict) -> tuple[bool, str]:
         return False, f"tool {tool_name} is not allowed by mcp.tool_allowlist"
     if tool_name in _MCP_SENSITIVE_TOOLS and tool_name not in allowlist:
         return False, f"tool {tool_name} requires explicit mcp.tool_allowlist opt-in"
+    if tool_name in _MCP_CONTEXT_VAULT_TOOLS:
+        vault_cfg = cfg.get("perseus_vault", {}) if isinstance(cfg, dict) else {}
+        serving_cfg = vault_cfg.get("context_serving", {}) if isinstance(vault_cfg, dict) else {}
+        if not isinstance(serving_cfg, dict) or serving_cfg.get("enabled") is not True:
+            return False, "Context + Vault serving is disabled by perseus_vault.context_serving.enabled"
     return True, ""
 
 
@@ -1060,6 +1159,10 @@ def _get_all_mcp_tools(cfg: dict) -> list[dict]:
                 "allow": sorted(mcp_cfg.get("tool_allowlist") or []),
                 "block": sorted(mcp_cfg.get("tool_blocklist") or []),
                 "registry": _directive_registry_signature(),
+                "context_serving": (
+                    (cfg.get("perseus_vault", {}) or {}).get("context_serving", {})
+                    if isinstance(cfg, dict) else {}
+                ),
             },
             sort_keys=True,
             default=str,
@@ -1091,6 +1194,14 @@ def _get_all_mcp_tools(cfg: dict) -> list[dict]:
     # Versioned context contracts (#916/#917). Authorization mutators are
     # opt-in via the same allowlist gate as shell/agent execution.
     for tool in _CONTEXT_CONTRACT_MCP_TOOLS:
+        name = tool["name"]
+        allowed, _reason = _mcp_tool_allowed(name, cfg)
+        if not allowed:
+            continue
+        tools.append(tool)
+
+    # Opt-in Context + Vault compiler and benchmark ablation (#1016/#1022).
+    for tool in _CONTEXT_VAULT_MCP_TOOLS:
         name = tool["name"]
         allowed, _reason = _mcp_tool_allowed(name, cfg)
         if not allowed:
@@ -1130,6 +1241,8 @@ def _build_server_card(cfg: dict) -> dict:
 # ── Tool dispatch ────────────────────────────────────────────────────────────
 
 _CONTEXT_CONTRACT_RESULT_META = {
+    "perseus_context_compile": ("perseus-context-vault/v1", "context_compile"),
+    "perseus_context_route_ablation": ("perseus-context-route-ablation/v1", "context_route_ablation"),
     "perseus_context_rank": ("perseus-context-rank/v1", "context_rank"),
     "perseus_context_ask": ("perseus-context-ask/v1", "context_ask"),
     "perseus_agent_projection_preview": ("perseus-agent-projection/v1", "agent_projection_preview"),
@@ -1285,6 +1398,7 @@ def _context_contract_dispatch(
     ``context_contract.py``; this small MCP adapter only shapes the transport.
     """
     names = {
+        "perseus_context_compile", "perseus_context_route_ablation",
         "perseus_context_inspect", "perseus_context_rank", "perseus_context_ask",
         "perseus_agent_projection_preview", "perseus_agent_projection_consent",
         "perseus_agent_projection_release", "perseus_agent_projection_revoke",
@@ -1293,7 +1407,17 @@ def _context_contract_dispatch(
         return None
     args = dict(arguments or {})
     try:
-        if tool_name == "perseus_context_inspect":
+        if tool_name == "perseus_context_compile":
+            result = context_compile(args, cfg=cfg)
+        elif tool_name == "perseus_context_route_ablation":
+            result = run_context_route_ablation(
+                args.get("task"), records=args.get("records", []),
+                scope=args.get("scope"), query_time_unix_ms=args.get("query_time_unix_ms"),
+                provider_states=args.get("provider_states"), manifest=args.get("manifest"),
+                route_scores=args.get("route_scores"), policy=args.get("policy"),
+                budget=args.get("budget"),
+            )
+        elif tool_name == "perseus_context_inspect":
             artifact = args.get("artifact") if isinstance(args.get("artifact"), dict) else args
             result = inspect_context(artifact)
         elif tool_name == "perseus_context_rank":

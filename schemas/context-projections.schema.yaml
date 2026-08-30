@@ -1,0 +1,116 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "https://perseus.observer/schemas/context-projections/v1"
+title: Perseus general Context projections
+version: "perseus-context-projections/v1"
+type: object
+additionalProperties: false
+required: [schema_version, profile, status, failure_state, scope, task_sha256, preferences, episodes, conflicts, omissions, rendered, telemetry, non_authoritative, gold_blind, digest]
+properties:
+  schema_version: {type: string, const: perseus-context-projections/v1}
+  profile: {type: string, const: general}
+  status: {type: string, enum: [complete, review, empty, invalid_input]}
+  failure_state: {type: [string, "null"], maxLength: 128}
+  scope:
+    type: object
+    additionalProperties: false
+    properties:
+      tenant: {type: string, minLength: 1, maxLength: 160}
+      workspace: {type: string, minLength: 1, maxLength: 160}
+      topic: {type: string, minLength: 1, maxLength: 160}
+      agent: {type: string, minLength: 1, maxLength: 160}
+  task_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+  preferences:
+    type: array
+    maxItems: 64
+    items:
+      type: object
+      additionalProperties: false
+      required: [candidate_id, kind, status, provenance, role, preference_key, snippet, snippet_sha256, source_refs, session_ids, scope, times, direct_evidence, verified, is_current, is_prior, supersedes, superseded_by, duplicate_candidate_ids]
+      properties:
+        candidate_id: {type: string, minLength: 1, maxLength: 160}
+        kind: {type: string, enum: [preference, constraint, plan, experience, one_off_request, evidence]}
+        status: {type: string, enum: [active, tentative, suggested, superseded, conflicted, unresolved, stale]}
+        provenance: {type: string, enum: [user_stated, assistant_suggestion, tool_context, other_context]}
+        role: {type: string, enum: [user, assistant, system, tool, unknown]}
+        preference_key: {type: [string, "null"], maxLength: 160}
+        snippet: {type: string, maxLength: 512}
+        snippet_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+        source_refs: {type: array, maxItems: 64, items: {type: string, minLength: 1, maxLength: 192}}
+        session_ids: {type: array, maxItems: 16, items: {type: string, minLength: 1, maxLength: 160}}
+        scope: {type: object, additionalProperties: true}
+        times: {type: object, additionalProperties: true}
+        direct_evidence: {type: boolean}
+        verified: {type: boolean}
+        is_current: {type: boolean}
+        is_prior: {type: boolean}
+        supersedes: {type: array, maxItems: 64, items: {type: string, minLength: 1, maxLength: 160}}
+        superseded_by: {type: array, maxItems: 64, items: {type: string, minLength: 1, maxLength: 160}}
+        duplicate_candidate_ids: {type: array, maxItems: 64, items: {type: string, minLength: 1, maxLength: 160}}
+  episodes:
+    type: array
+    maxItems: 64
+    items:
+      type: object
+      additionalProperties: false
+      required: [episode_id, topic, status, candidate_ids, session_ids, source_refs, source_diversity, chronology]
+      properties:
+        episode_id: {type: string, minLength: 1, maxLength: 160}
+        topic: {type: [string, "null"], maxLength: 160}
+        status: {type: string, enum: [active, tentative, suggested, superseded, conflicted, unresolved, stale]}
+        candidate_ids: {type: array, maxItems: 128, items: {type: string, minLength: 1, maxLength: 160}}
+        session_ids: {type: array, maxItems: 64, items: {type: string, minLength: 1, maxLength: 160}}
+        source_refs: {type: array, maxItems: 64, items: {type: string, minLength: 1, maxLength: 192}}
+        source_diversity: {type: integer, minimum: 0, maximum: 64}
+        chronology:
+          type: array
+          maxItems: 128
+          items:
+            type: object
+            additionalProperties: false
+            required: [candidate_id, snippet, snippet_sha256, provenance, source_refs, session_id, times, status]
+            properties:
+              candidate_id: {type: string, minLength: 1, maxLength: 160}
+              snippet: {type: string, maxLength: 512}
+              snippet_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+              provenance: {type: string, enum: [user_stated, assistant_suggestion, tool_context, other_context]}
+              source_refs: {type: array, maxItems: 64, items: {type: string, minLength: 1, maxLength: 192}}
+              session_id: {type: [string, "null"], maxLength: 160}
+              times: {type: object, additionalProperties: true}
+              status: {type: string, enum: [active, tentative, suggested, superseded, conflicted, unresolved, stale]}
+  conflicts:
+    type: array
+    maxItems: 64
+    items:
+      type: object
+      additionalProperties: false
+      required: [group, candidate_ids, reason]
+      properties:
+        group: {type: string, minLength: 1, maxLength: 160}
+        candidate_ids: {type: array, minItems: 2, maxItems: 64, items: {type: string, minLength: 1, maxLength: 160}}
+        reason: {type: string, const: competing_direct_user_evidence}
+  omissions:
+    type: array
+    maxItems: 64
+    items:
+      type: object
+      additionalProperties: false
+      required: [candidate_id, reason]
+      properties:
+        candidate_id: {type: string, minLength: 1, maxLength: 160}
+        reason: {type: string, enum: [scope_mismatch, empty_evidence, source_reference_missing, private_evidence, render_budget]}
+  rendered: {type: string, maxLength: 262144}
+  telemetry:
+    type: object
+    additionalProperties: false
+    required: [candidate_count, preference_count, episode_count, rendered_count, omitted_count, estimated_render_tokens, max_tokens]
+    properties:
+      candidate_count: {type: integer, minimum: 0, maximum: 128}
+      preference_count: {type: integer, minimum: 0, maximum: 64}
+      episode_count: {type: integer, minimum: 0, maximum: 64}
+      rendered_count: {type: integer, minimum: 0, maximum: 128}
+      omitted_count: {type: integer, minimum: 0, maximum: 128}
+      estimated_render_tokens: {type: integer, minimum: 0, maximum: 8192}
+      max_tokens: {type: integer, minimum: 1, maximum: 8192}
+  non_authoritative: {type: boolean, const: true}
+  gold_blind: {type: boolean, const: true}
+  digest: {type: string, pattern: "^sha256:[0-9a-f]{64}$"}

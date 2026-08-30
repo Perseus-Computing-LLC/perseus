@@ -11,7 +11,7 @@ import hashlib
 import json
 import math
 import re
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 _CE_SCHEMA_VERSION = "perseus-context-evidence/v1"
 _CE_STATES = frozenset({
