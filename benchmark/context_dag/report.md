@@ -2,7 +2,7 @@
 
 Evaluation for perseus#962 (auditable context-compilation DAG). Deterministic, provider-free run over a frozen synthetic task set.
 
-**Claim discipline:** coverage is a *synthetic reference* (fixture-derived fact presence, not model accuracy). Token numbers are *derived* estimates (``dag_tokens``, chars//4) — not provider billing. Generalization to provider runs is **not established** by this benchmark; that is the scope of the Context-Bench run (#961).
+**Claim discipline:** coverage is a *synthetic reference* (fixture-derived fact presence, not model accuracy). Token numbers are *derived* estimates (``dag_tokens``, chars//4) — not provider billing. Generalization to provider runs is **not established** by this benchmark; the retired adapter is not distributed here.
 
 ## Aggregate (excluding the budget-rejection task)
 

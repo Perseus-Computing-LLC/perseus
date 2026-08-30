@@ -49,12 +49,43 @@ docs/ip/CIIA-ANALYSIS.md
 docs/ip/DISCLOSURE-CODE-MAP.md
 docs/ip/2026-06-01-atlassian-legal-response.md
 
+# Maintainer-only and sensitive working material — not public source
+.claude/
+.hermes/
+CLAIMS-AUDIT.md
+OUTREACH_*.md
+bench/index.html
+bench/CNAME
+bench/bench_context.md
+bench/raw/
+bench/sibyl-perseus-benchmark.md
+bench/scripts/compute_metrics.py
+bench/scripts/seed_corpus.py
+bench/tier2/
+benchmark/context-bench/
+benchmark/gauntlet/gauntlet_role_profiles/*/.perseus/
+docs/SECURITY-INDEX.md
+docs/SECURITY-MILESTONES.md
+docs/review/
+docs/security-review-*.md
+docs/site/
+docs/strategy/
+docs/vuln-response.md
+benchmark/heavy/
+benchmark/gauntlet/v2/gauntlet_v2_results.json
+benchmark/gauntlet/v2/gauntlet_v2_intermediate.json
+benchmark/gauntlet/v2/gauntlet_v2_telemetry.ndjson
+benchmark/gauntlet/v2/gauntlet_v2_score.txt
+mcts_analysis/
+outreach/
+outreach_048/
+reddit-variants/
+tasks/task-47-audit-log-trust-report.md
+
 # Repo hygiene (P-6)
 .env
 engram.db
-outreach_048/
 *.local-pre-update
-mcts_analysis/
 
 # macOS
 .DS_Store

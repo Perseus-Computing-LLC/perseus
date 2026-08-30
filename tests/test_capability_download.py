@@ -64,8 +64,7 @@ def test_government_surface_is_neutral_and_bounded():
     generator = (ROOT / "scripts" / "build_capability_statement.py").read_text(encoding="utf-8")
     assert "COMPATIBILITY_OUTS" in generator
     assert "alias.write_bytes(payload)" in generator
-    maintenance = (ROOT / "docs" / "site" / "MAINTENANCE.md").read_text(encoding="utf-8")
-    assert "refreshes all three compatibility aliases" in maintenance
+    assert not (ROOT / "docs" / "site" / "MAINTENANCE.md").exists()
 
 
 def test_tailoring_profile_is_retired_from_public_source():

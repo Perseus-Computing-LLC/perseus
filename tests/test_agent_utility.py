@@ -409,8 +409,8 @@ def test_public_evidence_is_digest_sealed_and_sanitized():
     assert protocol.verify_public_evidence(tampered) is False
 
 
-def test_existing_context_bench_artifacts_remain_readable():
-    assert (REPO / "benchmark" / "context-bench" / "pilot.json").is_file()
-    assert (REPO / "benchmark" / "context-bench" / "README.md").is_file()
+def test_retired_context_bench_artifacts_are_not_distributed():
+    retired = REPO / "benchmark" / "context-bench"
+    assert not retired.exists() or not any(path.is_file() for path in retired.rglob("*"))
     assert (REPO / "benchmark" / "runtime_eval" / "protocol.py").is_file()
     assert (REPO / "benchmark" / "runtime_eval" / "runner.py").is_file()

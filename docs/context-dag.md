@@ -108,7 +108,7 @@ almost no savings; low-relevance needles can be dropped by relevance
 thresholding (production control = the evaluator's abstain path plus an
 external coverage signal); unresolved contradictions escalate; budgets fail
 closed. Coverage is a *synthetic reference* — provider-run efficacy belongs to
-the Context-Bench run (#961), which uses this instrumented path.
+the retired public adapter run, which used this instrumented path.
 
 ## API surface
 

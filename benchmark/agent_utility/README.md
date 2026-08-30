@@ -2,8 +2,7 @@
 
 This directory contains a provider-free preregistration, smoke, and result
 contract for downstream coding-agent utility experiments. It is deliberately
-separate from Context-Bench's context-assembly token measurements and from
-Vault's governed-memory correctness/security lanes.
+separate from Vault's governed-memory correctness and security lanes.
 
 ## Protocol boundary
 
@@ -37,9 +36,7 @@ The checked-in `fixtures/` are synthetic and safe to publish:
   identity fixture. A paid runner must provide a separately bound, hidden,
   immutable verifier before it can start.
 
-The existing `benchmark/context-bench/` and `benchmark/runtime_eval/` artifacts
-remain independent and readable; this protocol does not relabel or replace
-them.
+The protocol is independent of the other benchmark artifacts and does not relabel or replace them.
 
 ## Commands
 

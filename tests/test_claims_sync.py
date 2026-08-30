@@ -14,7 +14,7 @@ CANONICAL_PUBLIC = [
     "ledger/index.html",
     "security/index.html",
     "benchmarks/index.html",
-    "benchmarks/context-bench/index.html",
+
     "benchmarks/memconflict/index.html",
     "docs/index.html",
     "demo/index.html",

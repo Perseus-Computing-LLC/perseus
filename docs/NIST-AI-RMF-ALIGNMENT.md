@@ -73,4 +73,3 @@ This mapping should be updated when a product boundary, release process, benchma
 - [NIST AI RMF Playbook](https://airc.nist.gov/AI_RMF_Knowledge_Base/Playbook)
 - [`SECURITY.md`](../SECURITY.md)
 - [`docs/SBOM.md`](./SBOM.md)
-- [`docs/SECURITY-INDEX.md`](./SECURITY-INDEX.md)
