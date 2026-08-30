@@ -55,7 +55,12 @@ Public technical disclosures are in [`../disclosures/`](../disclosures/):
 - 2026-06-27 — Unified typed-directive grammar
 - 2026-06-27 — Recursive, dependency-ordered resolution
 
-## What NOT to commit (sensitivity policy)
+## Public-surface boundary
+
+This directory is limited to deliberately public technical evidence. It is not
+a copy of any provisional specification, filing receipt, application data
+sheet, invention-assignment agreement, attorney communication, or claim-drafting
+work product.
 
 Sensitive material must never be committed here. Specifically avoid:
 
@@ -65,7 +70,8 @@ Sensitive material must never be committed here. Specifically avoid:
 - Detailed claim scope or attorney/client material
 - Anything not intended for public release
 
-**Confirmed clean:** the exhibits in this directory are non-sensitive public
-evidence — rendered context outputs, directive manifests, timing/token/cost
-figures, reproducibility hashes, and registry structure. No application numbers
-or privileged claim text appear in any committed exhibit or test.
+The committed exhibits are intended to be non-sensitive public evidence:
+rendered context outputs, directive manifests, timing/token/cost figures,
+reproducibility hashes, and registry structure. This statement does not certify
+the contents of older Git commits, forks, pull requests, or cached views.
+Review the complete history before representing this directory as clean.
