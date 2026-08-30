@@ -73,6 +73,7 @@ docs/site/
 docs/strategy/
 docs/vuln-response.md
 benchmark/heavy/
+benchmark/real_vault_density/
 benchmark/gauntlet/v2/gauntlet_v2_results.json
 benchmark/gauntlet/v2/gauntlet_v2_intermediate.json
 benchmark/gauntlet/v2/gauntlet_v2_telemetry.ndjson

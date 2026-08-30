@@ -873,19 +873,10 @@ reference so an operator or downstream assistant can drill back to the source.
 The source hit is never mutated by serving-time shortening.
 
 **Status:** Initial serving slice shipped in `apply_recall_budget`; a bounded
-offline semantic-density gate now covers task resumption, load-bearing
-retention, and decoder recovery. Follow-up work is to expose structured decoder
-references through the served-memory API and replay a larger real-Vault corpus.
-
-The first real-Vault replay is now implemented as the bounded
-`benchmark/real_vault_density` harness. It uses a temporary database and the
-release binary over MCP stdio; it does not require Greg or AWS.
-
-The harness now also supports a reviewed, regex-sanitized 24-item corpus
-derived from a read-only local Vault scan. The committed replay artifact
-records 23 omitted items with 100% decoder-reference coverage at a 160-character
-serving budget. This is an integration/provenance result, not a semantic QA
-claim; the corpus has no gold task queries.
+offline semantic-density gate covers task resumption, load-bearing retention,
+and decoder recovery. Follow-up work is to expose structured decoder
+references through the served-memory API and broaden the approved synthetic
+fixture set.
 
 ## Phase 22 — v1 Release Candidate
 

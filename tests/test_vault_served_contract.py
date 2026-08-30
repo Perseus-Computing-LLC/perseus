@@ -14,7 +14,7 @@ REQUIRED_WHY_SERVED = {
 }
 
 
-def test_real_vault_recall_fixture_satisfies_served_memory_contract():
+def test_vault_recall_fixture_satisfies_served_memory_contract():
     """Fixture is captured from the Vault recall wire format, not a Perseus mock."""
     payload = json.loads(FIXTURE.read_text())
     item = payload["items"][0]

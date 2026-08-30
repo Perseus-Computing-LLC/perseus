@@ -17,7 +17,7 @@ Perseus is a live context engine for AI assistants. It solves the **cold-start p
 | Use context packs and profiles | [Context Packs](./CONTEXT_PACKS.md) |
 | Understand decoder-backed memory compression | [Decoder-backed compression](./DECODER_BACKED_COMPRESSION.md) |
 | Run the offline semantic-density gate | [Semantic-density benchmark](../benchmark/semantic_density/README.md) |
-| Replay the serving slice against real Vault | [Real Vault density replay](../benchmark/real_vault_density/README.md) |
+| Exercise bounded serving-density behavior | [Semantic-density benchmark](../benchmark/semantic_density/README.md) |
 | Measure whether startup memory is actually saving time | [Startup-Memory Benchmark](./startup-memory-benchmark.md) |
 | Deploy with Docker / run as a service | [Container deployment](./CONTAINER.md) |
 | Deploy the pinned package or a reviewed source checkout | [Deployment Guide](./DEPLOYMENT.md) |
