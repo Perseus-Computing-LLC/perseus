@@ -238,7 +238,7 @@ Merged via #684.
   `$PWD/perseus-vault/target/release/…` candidates (an untrusted-search-path / CWE-427
   vector) are now gated behind `PERSEUS_DEV_VAULT_BUILD=1` for dev use only.
 - Deferred: `/oracle/log` cross-workspace scoping needs a workspace field on Pythia log
-  entries (tracked separately). See `docs/security-review-2026-07-05.md`.
+  entries (tracked separately).
 
 ## [1.0.18] - 2026-07-05
 
@@ -270,7 +270,7 @@ Merged via #681 (code hardening) and #682 (deploy/supply-chain posture).
   now target the canonical org namespace. Adds an optional `PERSEUS_CTX_VERSION` pin
   for reproducible installs.
 - **`pyyaml` dependency capped `<7`** (LOW) so a future major can't be pulled unbounded.
-- See `docs/security-review-2026-07-05.md` for the full ranked review.
+
 
 ## [1.0.17] - 2026-07-03
 
@@ -1148,8 +1148,7 @@ for the full configuration reference.
 - Extreme scaling sweep on Linux: 10 → 10,000 `@query` directives, 4 modes each
   (sequential, cached, parallel, cached+parallel). Cache warm time stays flat at
   ~0.3–0.5s regardless of scale. 10,000 queries at 0.52s warm (25× vs 13.1s cold).
-- Integrated heavy benchmark suite (`benchmark/heavy/`) with 4 reports, setup harnesses,
-  machine-readable result JSONs from Claude Code Opus 4.7 and Codex 5.5 Extreme High runs.
+
 - Efficiency infographic on README showing cold→warm scaling curve and 40× warm speedup.
 
 **CI, docs, and tooling:**

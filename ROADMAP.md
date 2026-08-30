@@ -1135,7 +1135,8 @@ Full spec in the task file. Covers:
 ## Phase 26 — Security Hardening & Review Fixes
 
 **Source:** Claude Code Opus 4.7 Medium review of v1.0.5 (2026-05-27).
-All findings verified against `src/perseus/`. See `.claude/review-prompt.txt` for the full review prompt.
+All findings verified against `src/perseus/`. Maintainer review prompts are not
+part of the public repository.
 
 ### 26A — Fix MCP SSE authentication (task-91)
 

@@ -18,7 +18,7 @@ terminal verdict + replay digest determinism. The tight-budget task
 **Claim discipline.** Coverage is a *synthetic reference*: fixture-derived
 fact presence, not model accuracy. Token numbers are *derived* estimates.
 Nothing here establishes provider-run efficacy — that belongs to the
-Context-Bench run (#961), which uses this instrumented assembly path.
+The retired public adapter run used this instrumented assembly path.
 
 Run from the repo root:  python3 benchmark/context_dag/run.py
 """
@@ -261,7 +261,7 @@ def _write_report(results: dict) -> None:
         "(fixture-derived fact presence, not model accuracy). Token numbers "
         "are *derived* estimates (``dag_tokens``, chars//4) — not provider "
         "billing. Generalization to provider runs is **not established** by "
-        "this benchmark; that is the scope of the Context-Bench run (#961).",
+        "this benchmark; that is the scope of the retired public adapter.",
         "",
         "## Aggregate (excluding the budget-rejection task)",
         "",
