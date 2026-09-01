@@ -434,7 +434,7 @@ def test_report_commitment_binds_resource_observations(tmp_path, monkeypatch):
 
 def test_privileged_ci_broker_launcher_uses_valid_awk_quoting():
     script = (ROOT / "scripts" / "ci" / "run_disconnected_acceptance.sh").read_text(encoding="utf-8")
-    assert any("start_time=" in line and "{print \\\\$22}" in line for line in script.splitlines())
+    assert any("start_time=" in line and "cut -d" in line for line in script.splitlines())
     assert 'printf "%s %s\\\\n"' not in script
     assert 'printf "%s %s\\n"' in script
 
