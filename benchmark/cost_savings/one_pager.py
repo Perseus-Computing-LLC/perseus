@@ -133,8 +133,8 @@ def build_facts(report: dict, qa: dict) -> dict:
 
     _report_string(report.get("run_date"), "run_date")
     _report_string(report.get("price_table_as_of"), "price_table_as_of")
-    _report_number(report.get("savings_pct"), "savings_pct")
-    _report_number(report.get("accuracy_delta"), "accuracy_delta")
+    savings_pct = _report_number(report.get("savings_pct"), "savings_pct", minimum=0)
+    accuracy_delta = _report_number(report.get("accuracy_delta"), "accuracy_delta")
     arms = report.get("arms")
     if not isinstance(arms, dict):
         raise ValueError("one-pager report arms must be an object")
@@ -155,20 +155,32 @@ def build_facts(report: dict, qa: dict) -> dict:
 
     base = report["arms"]["fullcontext"]
     ours = report["arms"]["vault"]
+    if base["ledger_cost_usd"] <= 0:
+        raise ValueError("one-pager report baseline cost must be positive")
+    expected_savings_pct = round(
+        100 * (base["ledger_cost_usd"] - ours["ledger_cost_usd"])
+        / base["ledger_cost_usd"],
+        2,
+    )
+    expected_accuracy_delta = round(ours["accuracy"] - base["accuracy"], 4)
+    if savings_pct != expected_savings_pct:
+        raise ValueError("one-pager report savings_pct is inconsistent with arm costs")
+    if accuracy_delta != expected_accuracy_delta:
+        raise ValueError("one-pager report accuracy_delta is inconsistent with arm accuracy")
     by_type = {}
     for system, key in (("fullcontext", "base"), ("vault", "ours")):
         for t, row in qa["systems"][system]["by_question_type"].items():
             by_type.setdefault(t, {"n": row["n"]})[key] = row["accuracy"]
     return {
         "date": report.get("run_date") or report.get("_generated") or str(date.today()),
-        "savings_pct": report["savings_pct"],
+        "savings_pct": savings_pct,
         "base_usd": base["ledger_cost_usd"],
         "ours_usd": ours["ledger_cost_usd"],
         "base_tok": base["ledger_tokens"],
         "ours_tok": ours["ledger_tokens"],
         "base_acc": base["accuracy"] * 100,
         "ours_acc": ours["accuracy"] * 100,
-        "acc_delta": report["accuracy_delta"] * 100,
+        "acc_delta": accuracy_delta * 100,
         "n": report_n,
         "k": report_k,
         "model": _report_string(report["answerer_model"], "answerer_model"),

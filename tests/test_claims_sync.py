@@ -154,6 +154,9 @@ def test_cost_savings_reports_use_canonical_historical_metadata():
     assert "qa_display_content_hash_sha256" in harness
     assert "plutus_ledger" not in harness
     assert "signed LongMemEval" not in harness
+    cost_claim = json.dumps(CLAIMS["cost_savings_pct"]).lower()
+    assert "signed" not in cost_claim
+    assert CLAIMS["cost_savings_pct"]["status"] == "historical-content-hashed"
 
     reports = sorted(report_dir.glob("cost_savings_*.json"))
     assert reports, "dated cost-savings reports must be present"
@@ -232,6 +235,17 @@ def test_one_pager_rejects_nonfinite_qa_and_cross_artifact_metadata():
     qa["per_question"] = qa["per_question"][:-2]
     with pytest.raises(ValueError, match="question count"):
         module.build_facts(report, qa)
+
+    qa = json.loads(qa_path.read_text(encoding="utf-8"))
+    for field, delta in (("savings_pct", 1.0), ("accuracy_delta", 0.01)):
+        forged = json.loads(json.dumps(report))
+        forged[field] += delta
+        forged.pop("content_hash_sha256")
+        forged["content_hash_sha256"] = hashlib.sha256(
+            json.dumps(forged, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        with pytest.raises(ValueError, match="inconsistent"):
+            module.build_facts(forged, qa)
 
     qa = json.loads(qa_path.read_text(encoding="utf-8"))
     first_question_id = qa["per_question"][0]["question_id"]
@@ -323,6 +337,8 @@ def test_cost_savings_live_journal_errors_fail_closed(tmp_path):
 
     journal = tmp_path / "perseus-live-error-journal.jsonl"
     journal.write_text(json.dumps({
+        "_config": {},
+    }) + "\n" + json.dumps({
         "question_id": "q1",
         "question_type": "multi-session",
         "system": "vault",
@@ -359,7 +375,7 @@ def test_cost_savings_journal_identity_must_match_validated_qa(tmp_path):
     from benchmark.cost_savings import harness
 
     journal = tmp_path / "identity.jsonl"
-    journal.write_text(json.dumps({
+    journal.write_text(json.dumps({"_config": {}}) + "\n" + json.dumps({
         "question_id": "q1",
         "question_type": "multi-session",
         "system": "vault",
@@ -374,5 +390,25 @@ def test_cost_savings_journal_identity_must_match_validated_qa(tmp_path):
             "mock",
             "answer",
             "judge",
-            {("vault", "q2"): "multi-session"},
+            {("vault", "q2"): ("multi-session", None)},
         )
+
+
+def test_cost_savings_journal_rejects_unknown_and_duplicate_headers(tmp_path):
+    from benchmark.cost_savings import harness
+
+    unknown = tmp_path / "unknown.jsonl"
+    unknown.write_text(json.dumps({"_config": {}}) + "\n" + json.dumps({
+        "question_id": "q1",
+        "question_type": "multi-session",
+        "system": "other",
+        "tokens_est": 1,
+        "error": None,
+    }) + "\n")
+    with pytest.raises(ValueError, match="unsupported system"):
+        harness._prepare_journal(unknown, "mock")
+
+    duplicate = tmp_path / "duplicate.jsonl"
+    duplicate.write_text(json.dumps({"_config": {}}) + "\n" + json.dumps({"_config": {}}) + "\n")
+    with pytest.raises(ValueError, match="config header"):
+        harness._prepare_journal(duplicate, "mock")

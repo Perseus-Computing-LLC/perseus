@@ -127,14 +127,17 @@ def _prepare_journal(
 ) -> tuple[
     dict[str, dict[str, int]],
     list[tuple[str, list[tuple[str, dict[str, int], str]]]],
-    dict[tuple[str, str], str],
+    dict[tuple[str, str], tuple[str, str | None]],
+    dict,
 ]:
     """Parse and validate a journal before importing or writing to the Ledger."""
     if mode not in ("mock", "live"):
         raise ValueError("journal mode must be 'mock' or 'live'")
     counts = {arm: {"events": 0, "skipped": 0} for arm in ARM_WORKSPACE}
     prepared: list[tuple[str, list[tuple[str, dict[str, int], str]]]] = []
-    identities: dict[tuple[str, str], str] = {}
+    identities: dict[tuple[str, str], tuple[str, str | None]] = {}
+    config = None
+    data_seen = False
     with open(journal, encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
@@ -144,10 +147,16 @@ def _prepare_journal(
             if not isinstance(rec, dict):
                 raise ValueError("journal records must be JSON objects")
             if "_config" in rec:
+                if set(rec) != {"_config"} or config is not None or data_seen:
+                    raise ValueError("journal must contain exactly one config header first")
+                if not isinstance(rec["_config"], dict):
+                    raise ValueError("journal config header must be an object")
+                config = rec["_config"]
                 continue
+            data_seen = True
             system = rec.get("system")
             if system not in ARM_WORKSPACE:
-                continue
+                raise ValueError("journal contains an unsupported system")
             question_id = rec.get("question_id")
             question_type = rec.get("question_type")
             if (not isinstance(question_id, str) or not question_id
@@ -156,7 +165,10 @@ def _prepare_journal(
             identity = (system, question_id)
             if identity in identities:
                 raise ValueError("journal contains duplicate question/system rows")
-            identities[identity] = question_type
+            error = rec.get("error")
+            if error is not None and not isinstance(error, str):
+                raise ValueError("journal error must be string or null")
+            identities[identity] = (question_type, error)
             if rec.get("error") is not None:
                 if mode == "live":
                     raise ValueError(
@@ -177,12 +189,36 @@ def _prepare_journal(
                     }, "tokens_est"), "estimate")
                 ]
             prepared.append((system, calls))
-    return counts, prepared, identities
+    if config is None:
+        raise ValueError("journal is missing its config header")
+    return counts, prepared, identities, config
+
+
+def _validate_journal_config(config: dict, qa_projection: dict) -> None:
+    """Bind the producer's config header to the validated QA report metadata."""
+    expected_systems = sorted(ARM_WORKSPACE)
+    systems = config.get("systems")
+    if (not isinstance(systems, list) or not all(isinstance(item, str) for item in systems)
+            or sorted(systems) != expected_systems):
+        raise ValueError("journal config systems do not match validated QA")
+    expected_model = "mock" if qa_projection["mock_llm"] else qa_projection["answerer_model"]
+    expected_judge = "mock" if qa_projection["mock_llm"] else qa_projection["judge_model"]
+    expected = {
+        "split": qa_projection["split"],
+        "n": qa_projection["n_instances"],
+        "model": expected_model,
+        "judge": expected_judge,
+        "k": qa_projection["retrieval"]["k"],
+        "answer_prompt": qa_projection["answer_prompt"],
+    }
+    if any(config.get(key) != value for key, value in expected.items()):
+        raise ValueError("journal config does not match validated QA metadata")
 
 
 def meter_journal(conn, org_id: str, journal: Path, mode: str,
                   answer_model: str, judge_model: str,
-                  expected_questions: dict[tuple[str, str], str] | None = None) -> dict:
+                  expected_questions: dict[tuple[str, str], tuple[str, str | None]] | None = None,
+                  prepared_journal: tuple | None = None) -> dict:
     """Meter every graded qa.py journal record into the Perseus Ledger.
 
     live: provider-billed ans_usage/judge_usage per call (source='api').
@@ -191,7 +227,14 @@ def meter_journal(conn, org_id: str, journal: Path, mode: str,
           no API call and reports no usage).
     Returns counters for the report.
     """
-    counts, prepared, identities = _prepare_journal(journal, mode)
+    if prepared_journal is None:
+        preflight_counts, prepared, identities, _config = _prepare_journal(journal, mode)
+    else:
+        preflight_counts, prepared, identities, _config = prepared_journal
+    counts = {
+        arm: {"events": 0, "skipped": preflight_counts[arm]["skipped"]}
+        for arm in ARM_WORKSPACE
+    }
     if expected_questions is not None and identities != expected_questions:
         raise ValueError("journal question identities do not match validated QA")
     from ledger_agent import metering
@@ -233,12 +276,6 @@ def main() -> None:
                     help="reuse an existing journal in --outdir (re-meter only)")
     args = ap.parse_args()
 
-    try:
-        from ledger_agent import db as pdb
-        from ledger_agent import metering, pricing
-    except ImportError:
-        sys.exit("pip install perseus-ledger (the meter this harness reports from)")
-
     qa = find_qa()
     vault_repo = qa.parent.parent.parent
     binary = find_binary(args.bin, vault_repo)
@@ -249,7 +286,7 @@ def main() -> None:
     journal = outdir / f"qa_journal_{args.mode}.jsonl"
     qa_report = outdir / f"qa_report_{args.mode}.json"
 
-    # ── 1. produce both arms with the vault's signed harness ────────────────
+    # ── 1. produce both arms with the vault's content-hashed harness ────────
     if not args.skip_qa:
         if journal.exists():
             journal.unlink()
@@ -285,6 +322,35 @@ def main() -> None:
     answer_model = qa_projection["answerer_model"]
     judge_model = qa_projection["judge_model"]
 
+    expected_questions = {
+        (row["system"], row["question_id"]): (row["question_type"], row["error"])
+        for row in qa_projection["per_question"]
+    }
+    try:
+        prepared_journal = _prepare_journal(journal, args.mode)
+        preflight_counts, prepared_calls, identities, journal_config = prepared_journal
+        if identities != expected_questions:
+            raise ValueError("journal question identities do not match validated QA")
+        _validate_journal_config(journal_config, qa_projection)
+        preflight_totals = {
+            system: {
+                "events": sum(
+                    len(calls) for owner, calls in prepared_calls if owner == system
+                ),
+                "skipped": preflight_counts[system]["skipped"],
+            }
+            for system in ARM_WORKSPACE
+        }
+        _validate_journal_totals(preflight_totals, qa_projection, args.mode)
+    except (OSError, TypeError, ValueError) as exc:
+        sys.exit(f"journal preflight failed: {exc}")
+
+    try:
+        from ledger_agent import db as pdb
+        from ledger_agent import metering, pricing
+    except ImportError:
+        sys.exit("pip install perseus-ledger (the meter this harness reports from)")
+
     # ── 2. meter every call into a fresh Perseus Ledger ──────────────────────
     ledger_path = outdir / "ledger.db"
     if ledger_path.exists():
@@ -295,12 +361,9 @@ def main() -> None:
     org_id = org["id"]
     print(f"[2/3] metering journal into the Perseus Ledger ({ledger_path.name}) ...",
           flush=True)
-    expected_questions = {
-        (row["system"], row["question_id"]): row["question_type"]
-        for row in qa_projection["per_question"]
-    }
     counts = meter_journal(conn, org_id, journal, args.mode,
-                           answer_model, judge_model, expected_questions)
+                           answer_model, judge_model, expected_questions,
+                           prepared_journal)
 
     # ── 3. read the dollars BACK from the ledger and gate on accuracy ───────
     by_ws = {row["key"]: row for row in metering.spend_by(conn, org_id, "workspace")}

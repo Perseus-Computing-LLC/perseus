@@ -269,10 +269,10 @@
       "value": "75.14%",
       "detail": "fewer dollars at +11.7 pts accuracy; Baseline-A (full-context) UPPER BOUND, n=60 stratified, rate-invariant; per-type gate (knowledge-update regressed)",
       "source": "benchmark/cost_savings/results/cost_savings_stratified_2026-07-11.json",
-      "status": "signed",
+      "status": "historical-content-hashed",
       "label": "illustrative-baseline-A",
       "publishable": false,
-      "note": "Owner decision 2026-07-14: keep behind the illustrative calculator / signed cert context; do NOT publish as a marketing headline."
+      "note": "Owner decision 2026-07-14: keep behind the illustrative calculator / historical content-hash context; do NOT publish as a marketing headline."
     },
     "binary_size": {
       "value": null,
