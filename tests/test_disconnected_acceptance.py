@@ -432,6 +432,13 @@ def test_report_commitment_binds_resource_observations(tmp_path, monkeypatch):
     assert first["evidence_digest"] == second["evidence_digest"]
 
 
+def test_privileged_ci_broker_launcher_uses_valid_awk_quoting():
+    script = (ROOT / "scripts" / "ci" / "run_disconnected_acceptance.sh").read_text(encoding="utf-8")
+    assert "awk '{print $22}' \"/proc/$$/stat\"" in script
+    assert 'printf "%s %s\\\\n"' not in script
+    assert 'printf "%s %s\\n"' in script
+
+
 def test_process_group_kills_term_ignoring_descendants_after_leader_exits(tmp_path):
     if os.name != "posix":
         pytest.skip("process-group assertion is POSIX-specific")
