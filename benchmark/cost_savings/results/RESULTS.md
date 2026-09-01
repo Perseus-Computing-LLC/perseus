@@ -43,8 +43,8 @@ deterministically — first-N per type in dataset order, no cherry-picking
   (lost-in-the-middle) — while paying 4.1x the tokens for it. The one
   category it won (knowledge-update, 9 questions) is within small-n noise.
 - 120 metered events per arm (60 answer + 60 judge), 0 errors, 0 dropped.
-- Content hashes: cost-savings report `061b9f646d5084a4...`, QA content hash
-  `efee76f95ae0cc63...`. Artifacts:
+- Content hashes: cost-savings report `55fc3a90f7a9ccb1...`, QA content hash
+  `efee76f95ae0cc63...`, QA display projection `ec25c09864301fc9...`. Artifacts:
   [`cost_savings_stratified_2026-07-11.json`](cost_savings_stratified_2026-07-11.json),
   [`qa_report_stratified_2026-07-11.json`](qa_report_stratified_2026-07-11.json).
 
@@ -87,8 +87,8 @@ quota = {t: max(4, round(c * 60 / 500)) for t, c in type_counts.items()}
 - **Accuracy delta: +0.12** (the product arm scored higher, not lower, on this slice).
 - 50 metered events per arm (25 answer + 25 judge), 0 errors, 0 dropped events.
 
-Content hashes: cost-savings report `0411962af3947619...`, underlying QA content hash
-`1db193ec77f9f243...`.
+Content hashes: cost-savings report `00f89b473ccb630c...`, underlying QA content hash
+`1db193ec77f9f243...`, QA display projection `a92fa59c3fa47a73...`.
 
 ## Independent verification
 

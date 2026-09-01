@@ -51,9 +51,9 @@ import tempfile
 from pathlib import Path
 
 try:
-    from .contract import qa_display_content_hash
+    from .contract import qa_display_content_hash, qa_display_payload
 except ImportError:  # direct execution: python benchmark/cost_savings/harness.py
-    from contract import qa_display_content_hash
+    from contract import qa_display_content_hash, qa_display_payload
 
 HERE = Path(__file__).resolve().parent
 
@@ -91,6 +91,19 @@ def find_binary(explicit: str | None, vault_repo: Path) -> Path:
 ARM_WORKSPACE = {"fullcontext": "baseline-fullcontext", "vault": "perseus-vault"}
 
 
+def _validated_usage(usage: object, label: str) -> dict[str, int]:
+    """Validate provider/journal token counts without coercing malformed data."""
+    if not isinstance(usage, dict):
+        raise ValueError(f"{label} usage must be an object")
+    result: dict[str, int] = {}
+    for field in ("prompt_tokens", "completion_tokens"):
+        value = usage.get(field)
+        if type(value) is not int or value < 0:
+            raise ValueError(f"{label}.{field} must be a non-negative integer")
+        result[field] = value
+    return result
+
+
 def meter_journal(conn, org_id: str, journal: Path, mode: str,
                   answer_model: str, judge_model: str) -> dict:
     """Meter every graded qa.py journal record into the Perseus Ledger.
@@ -120,20 +133,18 @@ def meter_journal(conn, org_id: str, journal: Path, mode: str,
             ws = ARM_WORKSPACE[system]
             calls = []
             if mode == "live":
-                if rec.get("ans_usage"):
-                    calls.append((answer_model, rec["ans_usage"], "api"))
-                if rec.get("judge_usage"):
-                    calls.append((judge_model, rec["judge_usage"], "api"))
+                calls.append((answer_model, _validated_usage(rec.get("ans_usage"), "ans_usage"), "api"))
+                calls.append((judge_model, _validated_usage(rec.get("judge_usage"), "judge_usage"), "api"))
             else:
-                calls.append((answer_model,
-                              {"prompt_tokens": rec.get("tokens_est", 0),
-                               "completion_tokens": 0},
-                              "estimate"))
+                calls.append((answer_model, _validated_usage({
+                    "prompt_tokens": rec.get("tokens_est"),
+                    "completion_tokens": 0,
+                }, "tokens_est"), "estimate"))
             for model, usage, source in calls:
                 res = metering.record_usage(
                     conn, org_id, provider="openai",
-                    input_tokens=int(usage.get("prompt_tokens", 0)),
-                    output_tokens=int(usage.get("completion_tokens", 0)),
+                    input_tokens=usage["prompt_tokens"],
+                    output_tokens=usage["completion_tokens"],
                     model=model, task_type="longmemeval-qa",
                     workspace=ws, source=source,
                 )
@@ -204,8 +215,16 @@ def main() -> None:
             sys.exit(f"qa.py exited {rc}")
 
     report = json.loads(qa_report.read_text(encoding="utf-8"))
-    answer_model = report.get("answerer_model", "gpt-4o-2024-08-06")
-    judge_model = report.get("judge_model", answer_model)
+    try:
+        qa_projection = qa_display_payload(report)
+    except (TypeError, ValueError) as exc:
+        sys.exit(f"qa.py produced an invalid report: {exc}")
+    if qa_projection["mock_llm"] != (args.mode == "mock"):
+        sys.exit("qa.py report mode does not match the harness mode")
+    if qa_projection["retrieval"]["k"] != args.k:
+        sys.exit("qa.py report retrieval k does not match the harness --k")
+    answer_model = qa_projection["answerer_model"]
+    judge_model = qa_projection["judge_model"]
 
     # ── 2. meter every call into a fresh Perseus Ledger ──────────────────────
     ledger_path = outdir / "ledger.db"
@@ -256,19 +275,15 @@ def main() -> None:
         "price_table_as_of": pricing.PRICE_TABLE_AS_OF,
         "answerer_model": answer_model,
         "judge_model": judge_model,
-        "answer_prompt": report.get("answer_prompt", "plain"),
-        "k": args.k,
-        "n_questions": args.limit,
-        "dataset": Path(args.data).name,
+        "answer_prompt": qa_projection["answer_prompt"],
+        "k": qa_projection["retrieval"]["k"],
+        "n_questions": qa_projection["n_instances"],
+        "dataset": qa_projection["dataset"],
         "arms": arms,
         "savings_pct": None if savings_pct is None else round(savings_pct, 2),
         "accuracy_delta": acc_delta,
         "qa_report": qa_report.name,
-        # Current qa.py reports expose this as signature_sha256 for backward
-        # compatibility; the cost report records it under its truthful meaning.
-        "qa_content_hash_sha256": report.get(
-            "content_hash_sha256", report.get("signature_sha256")
-        ),
+        "qa_content_hash_sha256": qa_projection["producer_content_hash_sha256"],
         "qa_display_content_hash_sha256": qa_display_content_hash(report),
         "ledger_db": ledger_path.name,
         "ledger_db_retained": True,

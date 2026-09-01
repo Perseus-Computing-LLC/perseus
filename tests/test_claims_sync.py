@@ -209,3 +209,86 @@ def test_one_pager_rejects_tampered_companion_qa():
 
     with pytest.raises(ValueError, match="QA"):
         module.build_facts(report, qa)
+
+
+def test_one_pager_rejects_nonfinite_qa_and_cross_artifact_metadata():
+    from benchmark.cost_savings import one_pager as module
+
+    report_path = ROOT / "benchmark" / "cost_savings" / "results" / "cost_savings_stratified_2026-07-11.json"
+    qa_path = ROOT / "benchmark" / "cost_savings" / "results" / "qa_report_stratified_2026-07-11.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    qa = json.loads(qa_path.read_text(encoding="utf-8"))
+
+    qa["systems"]["vault"]["by_question_type"]["multi-session"]["accuracy"] = float("nan")
+    with pytest.raises(ValueError, match="finite"):
+        module.build_facts(report, qa)
+
+    qa = json.loads(qa_path.read_text(encoding="utf-8"))
+    del qa["per_question"][0]["error"]
+    with pytest.raises(ValueError, match="error"):
+        module.build_facts(report, qa)
+
+    qa = json.loads(qa_path.read_text(encoding="utf-8"))
+    qa["per_question"] = qa["per_question"][:-2]
+    with pytest.raises(ValueError, match="question count"):
+        module.build_facts(report, qa)
+
+    qa = json.loads(qa_path.read_text(encoding="utf-8"))
+    mismatched = json.loads(json.dumps(report))
+    mismatched["answerer_model"] = "different-model"
+    mismatched.pop("content_hash_sha256")
+    mismatched["content_hash_sha256"] = hashlib.sha256(
+        json.dumps(mismatched, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    with pytest.raises(ValueError, match="metadata"):
+        module.build_facts(mismatched, qa)
+
+
+def test_one_pager_escapes_derived_html_strings():
+    from benchmark.cost_savings import one_pager as module
+
+    report = json.loads(
+        (ROOT / "benchmark" / "cost_savings" / "results" / "cost_savings_stratified_2026-07-11.json")
+        .read_text(encoding="utf-8")
+    )
+    qa = json.loads(
+        (ROOT / "benchmark" / "cost_savings" / "results" / "qa_report_stratified_2026-07-11.json")
+        .read_text(encoding="utf-8")
+    )
+    facts = module.build_facts(report, qa)
+    facts["model"] = "</code><script>alert(1)</script>"
+    facts["answer_prompt"] = "<img src=x onerror=alert(1)>"
+    facts["date"] = "</footer><script>alert(1)</script>"
+    facts["price_table"] = "<b>untrusted</b>"
+    facts["by_type"] = {
+        "<img src=x onerror=alert(1)>": {"n": 1, "base": 0.0, "ours": 1.0}
+    }
+    rendered = module.render_html(facts)
+    assert "<script>" not in rendered
+    assert "<img src=x" not in rendered
+    assert "&lt;script&gt;" in rendered
+
+
+def test_results_markdown_hashes_match_committed_cost_reports():
+    report_dir = ROOT / "benchmark" / "cost_savings" / "results"
+    results = (report_dir / "RESULTS.md").read_text(encoding="utf-8")
+    for path in sorted(report_dir.glob("cost_savings_*.json")):
+        report = json.loads(path.read_text(encoding="utf-8"))
+        for field in ("content_hash_sha256", "qa_content_hash_sha256", "qa_display_content_hash_sha256"):
+            value = report.get(field)
+            assert isinstance(value, str) and len(value) == 64
+            assert f"`{value[:16]}...`" in results
+
+
+def test_cost_savings_usage_validation_rejects_implicit_coercion():
+    from benchmark.cost_savings import harness
+
+    for usage in (
+        None,
+        {},
+        {"prompt_tokens": 1.5, "completion_tokens": 0},
+        {"prompt_tokens": True, "completion_tokens": 0},
+        {"prompt_tokens": "1", "completion_tokens": 0},
+    ):
+        with pytest.raises(ValueError):
+            harness._validated_usage(usage, "test")
