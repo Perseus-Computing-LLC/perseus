@@ -34,11 +34,12 @@
   },
   "savings_pct": 78.72,
   "accuracy_delta": 0.12,
-  "qa_report": "qa_report_live.json",
+  "qa_report": "qa_report_live_2026-07-11.json",
   "ledger_db": null,
   "ledger_db_retained": false,
   "record_status": "historical",
   "run_date": "2026-07-11",
   "qa_content_hash_sha256": "1db193ec77f9f243dc1ea69d9761da9cc43c5b7165d8f5f7e4360dd51b75d483",
-  "content_hash_sha256": "0411962af3947619afe7e8d0365a847a50cf9ce0061e8e1fb3f550707775f08a"
+  "qa_display_content_hash_sha256": "d311b5b232a362ed033dfc9a8e9587ae6f5fd955e9eab50978dd26868c7f4038",
+  "content_hash_sha256": "07ee59f4534ba107d87d81d8bf9bf586f3ece6a08035cc1e0ae81a49a5858599"
 }

@@ -19,6 +19,11 @@ import json
 from datetime import date
 from pathlib import Path
 
+try:
+    from .contract import qa_display_content_hash
+except ImportError:  # direct execution: python benchmark/cost_savings/one_pager.py
+    from contract import qa_display_content_hash
+
 TYPE_LABELS = {
     "single-session-user": "Facts the user stated",
     "single-session-assistant": "Facts the assistant stated",
@@ -48,6 +53,21 @@ def build_facts(report: dict, qa: dict) -> dict:
     if declared_hash != expected_hash:
         raise ValueError("one-pager input content_hash_sha256 does not match its report")
 
+    qa_hash = qa.get("content_hash_sha256")
+    if not isinstance(qa_hash, str) or len(qa_hash) != 64:
+        raise ValueError("one-pager QA input is missing content_hash_sha256")
+    if report.get("qa_content_hash_sha256") != qa_hash:
+        raise ValueError("one-pager report and QA content hashes do not match")
+    display_hash = report.get("qa_display_content_hash_sha256")
+    if not isinstance(display_hash, str) or len(display_hash) != 64:
+        raise ValueError("one-pager report is missing qa_display_content_hash_sha256")
+    try:
+        expected_display_hash = qa_display_content_hash(qa)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"one-pager QA input is malformed: {exc}") from exc
+    if display_hash != expected_display_hash:
+        raise ValueError("one-pager QA display content hash does not match its input")
+
     base = report["arms"]["fullcontext"]
     ours = report["arms"]["vault"]
     by_type = {}
@@ -71,6 +91,7 @@ def build_facts(report: dict, qa: dict) -> dict:
         "price_table": report["price_table_as_of"],
         "sig": report["content_hash_sha256"][:16],
         "qa_sig": (report.get("qa_content_hash_sha256") or "")[:16],
+        "qa_display_sig": display_hash[:16],
         "by_type": by_type,
         "tok_ratio": base["ledger_tokens"] / max(1, ours["ledger_tokens"]),
     }
@@ -118,8 +139,8 @@ tokens). On this historical sample, the product arm used fewer tokens and scored
    `answer_prompt: {f['answer_prompt']}`.
 3. **The task sample is stratified, not cherry-picked**: {f['n']} questions drawn
    proportionally from all six LongMemEval question types, first-N per type in
-   dataset order. Full methodology, immutable report content hashes ({f['sig']}... /
-   {f['qa_sig']}...), and the harness that reproduces the run are public:
+   dataset order. Full methodology, immutable report and QA content hashes ({f['sig']}... /
+   {f['qa_sig']}... / {f['qa_display_sig']}...), and the harness that reproduces the run are public:
    `benchmark/cost_savings/` in the Perseus repo.
 
 ## Stated limits (we would rather you check than take our word)
@@ -236,6 +257,11 @@ def main() -> None:
     args = ap.parse_args()
 
     report, qa = load(args.report), load(args.qa)
+    expected_qa_name = report.get("qa_report")
+    if not isinstance(expected_qa_name, str) or Path(args.qa).name != expected_qa_name:
+        raise ValueError(
+            f"one-pager QA path does not match report qa_report: {expected_qa_name!r}"
+        )
     facts = build_facts(report, qa)
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)

@@ -50,6 +50,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+try:
+    from .contract import qa_display_content_hash
+except ImportError:  # direct execution: python benchmark/cost_savings/harness.py
+    from contract import qa_display_content_hash
+
 HERE = Path(__file__).resolve().parent
 
 
@@ -264,6 +269,7 @@ def main() -> None:
         "qa_content_hash_sha256": report.get(
             "content_hash_sha256", report.get("signature_sha256")
         ),
+        "qa_display_content_hash_sha256": qa_display_content_hash(report),
         "ledger_db": ledger_path.name,
         "ledger_db_retained": True,
     }

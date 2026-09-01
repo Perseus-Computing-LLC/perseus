@@ -38,8 +38,8 @@ tokens). On this historical sample, the product arm used fewer tokens and scored
    `answer_prompt: official-cot`.
 3. **The task sample is stratified, not cherry-picked**: 60 questions drawn
    proportionally from all six LongMemEval question types, first-N per type in
-   dataset order. Full methodology, immutable report content hashes (061b9f646d5084a4... /
-   efee76f95ae0cc63...), and the harness that reproduces the run are public:
+   dataset order. Full methodology, immutable report and QA content hashes (093e3d27aa78adf3... /
+   efee76f95ae0cc63... / 7b1b73460f10dfe0...), and the harness that reproduces the run are public:
    `benchmark/cost_savings/` in the Perseus repo.
 
 ## Stated limits (we would rather you check than take our word)
@@ -58,4 +58,4 @@ tokens). On this historical sample, the product arm used fewer tokens and scored
 
 ---
 *Perseus Computing LLC · perseus.observer · perseus@perseus.observer ·
-generated 2026-07-11 from content-hashed report 061b9f646d5084a4...*
+generated 2026-07-11 from content-hashed report 093e3d27aa78adf3...*

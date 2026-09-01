@@ -30,15 +30,31 @@ def test_posture_metering_reads_canonical_ledger_config(monkeypatch, tmp_path):
     assert observed == [config]
 
 
-def test_posture_metering_honors_legacy_plutus_with_default_ledger_present(tmp_path):
+def test_posture_metering_honors_legacy_plutus_without_canonical_block(tmp_path):
+    config = {
+        "plutus": {
+            "enabled": True,
+            "db_path": str(tmp_path / "legacy-ledger.db"),
+            "meter_memory_posture": True,
+        }
+    }
+
+    assert perseus.metering_enabled(config) is True
+
+
+def test_posture_metering_canonical_disable_wins_over_legacy_override(tmp_path):
     config = copy.deepcopy(perseus.DEFAULT_CONFIG)
+    config["ledger"].update({
+        "enabled": False,
+        "db_path": str(tmp_path / "canonical-ledger.db"),
+    })
     config["plutus"] = {
         "enabled": True,
         "db_path": str(tmp_path / "legacy-ledger.db"),
         "meter_memory_posture": True,
     }
 
-    assert perseus.metering_enabled(config) is True
+    assert perseus.metering_enabled(config) is False
 
 
 def test_load_config_normalizes_legacy_plutus_into_ledger(tmp_path):
