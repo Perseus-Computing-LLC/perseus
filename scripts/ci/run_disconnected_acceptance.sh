@@ -140,4 +140,4 @@ fi
 
 export PERSEUS_ALLOW_DANGEROUS=1
 export PERSEUS_ACCEPTANCE_CGROUP_BROKER="${broker_socket}"
-python -m pytest tests/test_disconnected_acceptance.py -q --durations=20
+python -m pytest tests/test_disconnected_acceptance.py -q --durations=20 -m "privileged_acceptance or not privileged_acceptance"

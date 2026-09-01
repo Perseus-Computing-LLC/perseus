@@ -72,7 +72,7 @@ When Vault entities carry `origin` and `external_refs` (Vault spec PR
   Injected context carries the same cue in compact form
   (`[inferred]`, `[extracted]`) so downstream prompts keep prompt hygiene.
 - **External refs**: rendered as the source cue in the explanation line
-  (`github:Perseus-Computing-LLC/plutus#176`), and filterable in search
+  (`github:Perseus-Computing-LLC/ledger (external reference)`), and filterable in search
   surfaces (`@memory search repo:perseus-vault …`).
 - **Opt-in richness**: `@memory mode=search render=rich` adds the full
   origin record (source_system, capture_method, observed_at/recorded_at)

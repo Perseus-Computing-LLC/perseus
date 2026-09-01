@@ -688,7 +688,7 @@ DEFAULT_CONFIG["speculate"] = {
 # #755 — runtime cost metering (observe model). DEFAULT OFF: with enabled=false
 # (or no db_path/endpoint) Perseus meters nothing, imports no metering deps, and
 # behaves exactly as before. When on, the deploying agent's provider responses
-# can be observed and recorded into a Plutus ledger (local sqlite via db_path,
+# can be observed and recorded into a Perseus Ledger (local sqlite via db_path,
 # or a remote Ledger via endpoint + LEDGER_API_KEY), tagged workspace/task_type,
 # so a production deployment yields a ledger a customer can re-derive by SQL —
 # the ledger the one-pager / savings-statement generators read. See metering.py.

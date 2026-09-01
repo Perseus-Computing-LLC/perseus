@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """Verifiable cost-savings benchmark: Perseus+Vault vs full-context stuffing,
-dollar-metered through the Plutus ledger, accuracy-gated (#749).
+dollar-metered through the Perseus Ledger, accuracy-gated (#749).
 
 Two arms, identical task set, identical pinned answerer+judge, both metered
-into a Plutus ledger via ``plutus_agent.metering.record_usage``:
+into a Perseus Ledger via ``ledger_agent.metering.record_usage``:
 
 - ``fullcontext``  — every question gets the whole haystack (baseline).
 - ``vault``        — Perseus Vault hybrid recall, top-k (the product arm).
 
-The arms are produced by the vault's signed LongMemEval QA harness
+The arms are produced by the vault's content-hashed LongMemEval QA harness
 (``perseus-vault/benchmark/longmemeval/qa.py --systems fullcontext vault``) —
 the same official-judge methodology behind the published accuracy numbers —
 so the savings figure and the accuracy gate come from ONE run under ONE
-config. Dollars come from the Plutus ledger (``spend_by(dimension=
+config. Dollars come from the Perseus Ledger (``spend_by(dimension=
 "workspace")``), not hand math: each answer/judge call is metered as a usage
 event tagged with its arm, and the report reads the ledger back.
 
 Modes:
   --mode mock   (default) free: qa.py --mock-llm — real ingest + retrieval +
                 real per-question prompt-token counts, stub LLM. Dollars are
-                estimates (token counts x the Plutus price table); accuracy
+                estimates (token counts x the Perseus Ledger price table); accuracy
                 is mock-graded. This is the plumbing smoke AND the free
                 savings estimator.
   --mode live   paid: provider-billed token usage (ans_usage/judge_usage from
@@ -33,10 +33,10 @@ PERSEUS_VAULT_REPO):
   python benchmark/cost_savings/harness.py \
       --data ~/lme-data/longmemeval_s_cleaned.json --limit 10 --mode mock
 
-Report: ``cost_savings_report.json`` — per-arm ledger dollars, tokens,
-events, accuracy, savings %, full config, and a sha256 signature over the
-result set. The Plutus ledger itself is left on disk next to the report
-(``plutus_ledger.db``) so the numbers can be independently re-queried.
+Report: ``cost_savings_report.json`` — per-arm Ledger dollars, tokens,
+events, accuracy, savings %, full config, and a content hash over the
+result set. The Perseus Ledger itself is left on disk next to the report
+(``ledger.db``) so the numbers can be independently re-queried.
 """
 
 from __future__ import annotations
@@ -49,6 +49,11 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+try:
+    from .contract import qa_display_content_hash, qa_display_payload
+except ImportError:  # direct execution: python benchmark/cost_savings/harness.py
+    from contract import qa_display_content_hash, qa_display_payload
 
 HERE = Path(__file__).resolve().parent
 
@@ -86,9 +91,135 @@ def find_binary(explicit: str | None, vault_repo: Path) -> Path:
 ARM_WORKSPACE = {"fullcontext": "baseline-fullcontext", "vault": "perseus-vault"}
 
 
+def _validated_usage(usage: object, label: str) -> dict[str, int]:
+    """Validate provider/journal token counts without coercing malformed data."""
+    if not isinstance(usage, dict):
+        raise ValueError(f"{label} usage must be an object")
+    result: dict[str, int] = {}
+    for field in ("prompt_tokens", "completion_tokens"):
+        value = usage.get(field)
+        if type(value) is not int or value < 0:
+            raise ValueError(f"{label}.{field} must be a non-negative integer")
+        result[field] = value
+    return result
+
+
+def _validate_journal_totals(
+    counts: dict[str, dict[str, int]], qa_projection: dict, mode: str
+) -> None:
+    """Require the journal's metered/skipped rows to cover validated QA exactly."""
+    events_per_graded_record = 2 if mode == "live" else 1
+    for system in ARM_WORKSPACE:
+        qa_system = qa_projection["systems"][system]
+        expected_events = qa_system["n_graded"] * events_per_graded_record
+        expected_skipped = qa_system["n_attempted"] - qa_system["n_graded"]
+        if (counts[system]["events"] != expected_events
+                or counts[system]["skipped"] != expected_skipped):
+            raise ValueError(
+                f"journal totals for {system} do not match validated QA counts "
+                f"(events {counts[system]['events']}/{expected_events}, "
+                f"skipped {counts[system]['skipped']}/{expected_skipped})"
+            )
+
+
+def _prepare_journal(
+    journal: Path, mode: str
+) -> tuple[
+    dict[str, dict[str, int]],
+    list[tuple[str, list[tuple[str, dict[str, int], str]]]],
+    dict[tuple[str, str], tuple[str, str | None]],
+    dict,
+]:
+    """Parse and validate a journal before importing or writing to the Ledger."""
+    if mode not in ("mock", "live"):
+        raise ValueError("journal mode must be 'mock' or 'live'")
+    counts = {arm: {"events": 0, "skipped": 0} for arm in ARM_WORKSPACE}
+    prepared: list[tuple[str, list[tuple[str, dict[str, int], str]]]] = []
+    identities: dict[tuple[str, str], tuple[str, str | None]] = {}
+    config = None
+    data_seen = False
+    with open(journal, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            rec = json.loads(line)
+            if not isinstance(rec, dict):
+                raise ValueError("journal records must be JSON objects")
+            if "_config" in rec:
+                if set(rec) != {"_config"} or config is not None or data_seen:
+                    raise ValueError("journal must contain exactly one config header first")
+                if not isinstance(rec["_config"], dict):
+                    raise ValueError("journal config header must be an object")
+                config = rec["_config"]
+                continue
+            data_seen = True
+            system = rec.get("system")
+            if system not in ARM_WORKSPACE:
+                raise ValueError("journal contains an unsupported system")
+            question_id = rec.get("question_id")
+            question_type = rec.get("question_type")
+            if (not isinstance(question_id, str) or not question_id
+                    or not isinstance(question_type, str) or not question_type):
+                raise ValueError("journal question identity is malformed")
+            identity = (system, question_id)
+            if identity in identities:
+                raise ValueError("journal contains duplicate question/system rows")
+            error = rec.get("error")
+            if error is not None and not isinstance(error, str):
+                raise ValueError("journal error must be string or null")
+            identities[identity] = (question_type, error)
+            if rec.get("error") is not None:
+                if mode == "live":
+                    raise ValueError(
+                        "live journal contains an errored record; refusing to under-meter"
+                    )
+                counts[system]["skipped"] += 1
+                continue
+            if mode == "live":
+                calls = [
+                    ("answer", _validated_usage(rec.get("ans_usage"), "ans_usage"), "api"),
+                    ("judge", _validated_usage(rec.get("judge_usage"), "judge_usage"), "api"),
+                ]
+            else:
+                calls = [
+                    ("answer", _validated_usage({
+                        "prompt_tokens": rec.get("tokens_est"),
+                        "completion_tokens": 0,
+                    }, "tokens_est"), "estimate")
+                ]
+            prepared.append((system, calls))
+    if config is None:
+        raise ValueError("journal is missing its config header")
+    return counts, prepared, identities, config
+
+
+def _validate_journal_config(config: dict, qa_projection: dict) -> None:
+    """Bind the producer's config header to the validated QA report metadata."""
+    expected_systems = sorted(ARM_WORKSPACE)
+    systems = config.get("systems")
+    if (not isinstance(systems, list) or not all(isinstance(item, str) for item in systems)
+            or sorted(systems) != expected_systems):
+        raise ValueError("journal config systems do not match validated QA")
+    expected_model = "mock" if qa_projection["mock_llm"] else qa_projection["answerer_model"]
+    expected_judge = "mock" if qa_projection["mock_llm"] else qa_projection["judge_model"]
+    expected = {
+        "split": qa_projection["split"],
+        "n": qa_projection["n_instances"],
+        "model": expected_model,
+        "judge": expected_judge,
+        "k": qa_projection["retrieval"]["k"],
+        "answer_prompt": qa_projection["answer_prompt"],
+    }
+    if any(config.get(key) != value for key, value in expected.items()):
+        raise ValueError("journal config does not match validated QA metadata")
+
+
 def meter_journal(conn, org_id: str, journal: Path, mode: str,
-                  answer_model: str, judge_model: str) -> dict:
-    """Meter every graded qa.py journal record into the Plutus ledger.
+                  answer_model: str, judge_model: str,
+                  expected_questions: dict[tuple[str, str], tuple[str, str | None]] | None = None,
+                  prepared_journal: tuple | None = None) -> dict:
+    """Meter every graded qa.py journal record into the Perseus Ledger.
 
     live: provider-billed ans_usage/judge_usage per call (source='api').
     mock: the journal's real prompt-token estimate per answer call
@@ -96,46 +227,33 @@ def meter_journal(conn, org_id: str, journal: Path, mode: str,
           no API call and reports no usage).
     Returns counters for the report.
     """
-    from plutus_agent import metering
+    if prepared_journal is None:
+        preflight_counts, prepared, identities, _config = _prepare_journal(journal, mode)
+    else:
+        preflight_counts, prepared, identities, _config = prepared_journal
+    counts = {
+        arm: {"events": 0, "skipped": preflight_counts[arm]["skipped"]}
+        for arm in ARM_WORKSPACE
+    }
+    if expected_questions is not None and identities != expected_questions:
+        raise ValueError("journal question identities do not match validated QA")
+    from ledger_agent import metering
 
-    counts = {arm: {"events": 0, "skipped": 0} for arm in ARM_WORKSPACE}
-    with open(journal, encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            rec = json.loads(line)
-            if "_config" in rec:
-                continue
-            system = rec.get("system")
-            if system not in ARM_WORKSPACE or rec.get("error") is not None:
-                if system in ARM_WORKSPACE:
-                    counts[system]["skipped"] += 1
-                continue
-            ws = ARM_WORKSPACE[system]
-            calls = []
-            if mode == "live":
-                if rec.get("ans_usage"):
-                    calls.append((answer_model, rec["ans_usage"], "api"))
-                if rec.get("judge_usage"):
-                    calls.append((judge_model, rec["judge_usage"], "api"))
-            else:
-                calls.append((answer_model,
-                              {"prompt_tokens": rec.get("tokens_est", 0),
-                               "completion_tokens": 0},
-                              "estimate"))
-            for model, usage, source in calls:
-                res = metering.record_usage(
-                    conn, org_id, provider="openai",
-                    input_tokens=int(usage.get("prompt_tokens", 0)),
-                    output_tokens=int(usage.get("completion_tokens", 0)),
-                    model=model, task_type="longmemeval-qa",
-                    workspace=ws, source=source,
-                )
-                if not res.recorded:
-                    sys.exit(f"plutus dropped a usage event ({res}); "
-                             "ledger would understate spend — aborting")
-                counts[system]["events"] += 1
+    for system, calls in prepared:
+        ws = ARM_WORKSPACE[system]
+        for call_kind, usage, source in calls:
+            model = answer_model if call_kind == "answer" else judge_model
+            res = metering.record_usage(
+                conn, org_id, provider="openai",
+                input_tokens=usage["prompt_tokens"],
+                output_tokens=usage["completion_tokens"],
+                model=model, task_type="longmemeval-qa",
+                workspace=ws, source=source,
+            )
+            if not res.recorded:
+                sys.exit(f"ledger_agent dropped a usage event ({res}); "
+                         "ledger would understate spend — aborting")
+            counts[system]["events"] += 1
     return counts
 
 
@@ -158,12 +276,6 @@ def main() -> None:
                     help="reuse an existing journal in --outdir (re-meter only)")
     args = ap.parse_args()
 
-    try:
-        from plutus_agent import db as pdb
-        from plutus_agent import metering, pricing
-    except ImportError:
-        sys.exit("pip install plutus-agent (the meter this harness reports from)")
-
     qa = find_qa()
     vault_repo = qa.parent.parent.parent
     binary = find_binary(args.bin, vault_repo)
@@ -174,7 +286,7 @@ def main() -> None:
     journal = outdir / f"qa_journal_{args.mode}.jsonl"
     qa_report = outdir / f"qa_report_{args.mode}.json"
 
-    # ── 1. produce both arms with the vault's signed harness ────────────────
+    # ── 1. produce both arms with the vault's content-hashed harness ────────
     if not args.skip_qa:
         if journal.exists():
             journal.unlink()
@@ -199,29 +311,77 @@ def main() -> None:
             sys.exit(f"qa.py exited {rc}")
 
     report = json.loads(qa_report.read_text(encoding="utf-8"))
-    answer_model = report.get("answerer_model", "gpt-4o-2024-08-06")
-    judge_model = report.get("judge_model", answer_model)
+    try:
+        qa_projection = qa_display_payload(report)
+    except (TypeError, ValueError) as exc:
+        sys.exit(f"qa.py produced an invalid report: {exc}")
+    if qa_projection["mock_llm"] != (args.mode == "mock"):
+        sys.exit("qa.py report mode does not match the harness mode")
+    if qa_projection["retrieval"]["k"] != args.k:
+        sys.exit("qa.py report retrieval k does not match the harness --k")
+    answer_model = qa_projection["answerer_model"]
+    judge_model = qa_projection["judge_model"]
 
-    # ── 2. meter every call into a fresh Plutus ledger ──────────────────────
-    ledger_path = outdir / "plutus_ledger.db"
+    expected_questions = {
+        (row["system"], row["question_id"]): (row["question_type"], row["error"])
+        for row in qa_projection["per_question"]
+    }
+    try:
+        prepared_journal = _prepare_journal(journal, args.mode)
+        preflight_counts, prepared_calls, identities, journal_config = prepared_journal
+        if identities != expected_questions:
+            raise ValueError("journal question identities do not match validated QA")
+        _validate_journal_config(journal_config, qa_projection)
+        preflight_totals = {
+            system: {
+                "events": sum(
+                    len(calls) for owner, calls in prepared_calls if owner == system
+                ),
+                "skipped": preflight_counts[system]["skipped"],
+            }
+            for system in ARM_WORKSPACE
+        }
+        _validate_journal_totals(preflight_totals, qa_projection, args.mode)
+    except (OSError, TypeError, ValueError) as exc:
+        sys.exit(f"journal preflight failed: {exc}")
+
+    try:
+        from ledger_agent import db as pdb
+        from ledger_agent import metering, pricing
+    except ImportError:
+        sys.exit("pip install perseus-ledger (the meter this harness reports from)")
+
+    # ── 2. meter every call into a fresh Perseus Ledger ──────────────────────
+    ledger_path = outdir / "ledger.db"
     if ledger_path.exists():
         ledger_path.unlink()
     conn = pdb.connect(ledger_path)
     pdb.init_schema(conn)
     org = pdb.create_org(conn, "costsave-bench", tier="enterprise")
     org_id = org["id"]
-    print(f"[2/3] metering journal into the Plutus ledger ({ledger_path.name}) ...",
+    print(f"[2/3] metering journal into the Perseus Ledger ({ledger_path.name}) ...",
           flush=True)
     counts = meter_journal(conn, org_id, journal, args.mode,
-                           answer_model, judge_model)
+                           answer_model, judge_model, expected_questions,
+                           prepared_journal)
 
     # ── 3. read the dollars BACK from the ledger and gate on accuracy ───────
     by_ws = {row["key"]: row for row in metering.spend_by(conn, org_id, "workspace")}
-    systems = report.get("systems", {})
+    events_per_graded_record = 2 if args.mode == "live" else 1
+    try:
+        _validate_journal_totals(counts, qa_projection, args.mode)
+    except ValueError as exc:
+        sys.exit(str(exc))
     arms = {}
     for system, ws in ARM_WORKSPACE.items():
         ledger = by_ws.get(ws, {"cost": 0.0, "tokens": 0, "events": 0})
-        sysrep = systems.get(system, {})
+        qa_system = qa_projection["systems"][system]
+        expected_events = qa_system["n_graded"] * events_per_graded_record
+        if ledger["events"] != expected_events:
+            sys.exit(
+                f"ledger totals for {system} do not match validated QA counts "
+                f"(events {ledger['events']}/{expected_events})"
+            )
         arms[system] = {
             "workspace": ws,
             "ledger_cost_usd": round(ledger["cost"], 6),
@@ -229,8 +389,8 @@ def main() -> None:
             "ledger_events": ledger["events"],
             "metered_records": counts[system]["events"],
             "errored_records_unmetered": counts[system]["skipped"],
-            "accuracy": sysrep.get("accuracy"),
-            "n_graded": sysrep.get("n_graded"),
+            "accuracy": qa_system["accuracy"],
+            "n_graded": qa_system["n_graded"],
         }
 
     base, ours = arms["fullcontext"], arms["vault"]
@@ -241,29 +401,32 @@ def main() -> None:
 
     result = {
         "benchmark": "perseus-vault-cost-savings (#749)",
+        "record_status": "run_record",
         "mode": args.mode,
         "accuracy_grading": ("official LongMemEval per-type judge" if args.mode == "live"
                               else "mock judge (plumbing/estimate mode — do NOT quote)"),
-        "dollars": ("provider-billed tokens x Plutus price table"
+        "dollars": ("provider-billed tokens x Perseus Ledger price table"
                      if args.mode == "live" else
-                     "estimated prompt tokens x Plutus price table (input side only)"),
+                     "estimated prompt tokens x Perseus Ledger price table (input side only)"),
         "price_table_as_of": pricing.PRICE_TABLE_AS_OF,
         "answerer_model": answer_model,
         "judge_model": judge_model,
-        "answer_prompt": report.get("answer_prompt", "plain"),
-        "k": args.k,
-        "n_questions": args.limit,
-        "dataset": Path(args.data).name,
+        "answer_prompt": qa_projection["answer_prompt"],
+        "k": qa_projection["retrieval"]["k"],
+        "n_questions": qa_projection["n_instances"],
+        "dataset": qa_projection["dataset"],
         "arms": arms,
         "savings_pct": None if savings_pct is None else round(savings_pct, 2),
         "accuracy_delta": acc_delta,
         "qa_report": qa_report.name,
-        "qa_signature_sha256": report.get("signature_sha256"),
-        "plutus_ledger": ledger_path.name,
+        "qa_content_hash_sha256": qa_projection["producer_content_hash_sha256"],
+        "qa_display_content_hash_sha256": qa_display_content_hash(report),
+        "ledger_db": ledger_path.name,
+        "ledger_db_retained": True,
     }
-    sig = hashlib.sha256(
+    content_hash = hashlib.sha256(
         json.dumps(result, sort_keys=True).encode("utf-8")).hexdigest()
-    result["signature_sha256"] = sig
+    result["content_hash_sha256"] = content_hash
 
     out = outdir / "cost_savings_report.json"
     out.write_text(json.dumps(result, indent=2), encoding="utf-8")
@@ -281,7 +444,7 @@ def main() -> None:
     if args.mode == "mock":
         print("  [mock mode: dollars are estimates, accuracy is stub-graded — "
               "run --mode live for quotable numbers]")
-    print(f"  signature: {sig[:16]}...")
+    print(f"  content hash: {content_hash[:16]}...")
 
 
 if __name__ == "__main__":

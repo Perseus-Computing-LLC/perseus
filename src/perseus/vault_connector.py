@@ -461,7 +461,7 @@ class MemorySegment:
         """Return the deterministic, hash-only #882 render-attestation projection.
 
         The trace carries enough served-memory provenance to bind a rendered
-        context to a Plutus evidence receipt, while deliberately excluding the
+        context to a Perseus Ledger evidence receipt, while deliberately excluding the
         context body and every recalled memory's content/summary.
         """
         memories = []
@@ -2946,8 +2946,7 @@ def _maybe_meter_posture_reduction(cfg: dict, actual_block: str | None,
     beyond the documented vault call.
     """
     try:
-        p = cfg.get("plutus") if isinstance(cfg, dict) else None
-        p = p if isinstance(p, dict) else {}
+        p = _mtr_cfg(cfg)
         if not p.get("meter_memory_posture"):
             return
         from perseus.metering import meter_context_reduction, metering_enabled

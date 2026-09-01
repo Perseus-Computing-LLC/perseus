@@ -30,7 +30,7 @@ MODULE_ORDER = [
     "src/perseus/redaction.py",
     "src/perseus/compress.py",
     "src/perseus/audit.py",
-    "src/perseus/metering.py",          # ← #755: observe-model runtime cost metering (config→Plutus Meter)
+    "src/perseus/metering.py",          # ← #755: observe-model runtime cost metering (config→Perseus Ledger Meter)
     "src/perseus/artifact_actions.py",  # ← #925: exact external-artifact prior-action projections
     "src/perseus/tool_lessons.py",      # ← #926: bounded evidence-linked tool lessons
     "src/perseus/memory_telemetry.py",  # ← #929: memory-injection efficiency accounting

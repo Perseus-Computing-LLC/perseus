@@ -25,7 +25,10 @@ CANONICAL = {
     "government/capability-statement.html": "/government/capability-statement.html",
     "vault/mcp-reference/index.html": "/vault/mcp-reference/",
 }
-SPECIAL_PUBLIC_HTML = {"vault/mcp-reference/mcp-tools.html"}
+SPECIAL_PUBLIC_HTML = {
+    "vault/mcp-reference/mcp-tools.html",
+    "benchmark/cost_savings/results/historical-one-pager.html",
+}
 
 
 def text(path):
@@ -108,7 +111,11 @@ def test_sitemap_contains_only_canonical_indexable_routes():
 def test_complete_html_inventory_is_canonical_redirect_404_or_declared_reference():
     module = load_generator()
     expected = set(CANONICAL) | set(module.REDIRECTS) | {"404.html"} | SPECIAL_PUBLIC_HTML
-    actual = {path.relative_to(ROOT).as_posix() for path in ROOT.rglob("*.html")}
+    actual = {
+        path.relative_to(ROOT).as_posix()
+        for path in ROOT.rglob("*.html")
+        if ".venv" not in path.parts and "legacy" not in path.parts
+    }
     assert actual == expected
 
 
@@ -154,13 +161,18 @@ def test_vault_install_is_release_pinned_and_digest_checked():
 
 
 def test_public_readme_keeps_current_claim_qualifiers_and_boundaries():
-    readme = text("README.md")
+    readme = " ".join(text("README.md").split())
     for required in (
-        "410/500 (82.0%)",
-        "416/500 (83.2%)",
-        "company-run",
-        "preregistered success rule failed",
-        "not a superiority",
+        "83.2% recall@1",
+        "96.6% recall@3",
+        "98.8% recall@5",
+        "99.8% recall@10",
+        "company-run retrieval measurement",
+        "not end-to-end QA accuracy",
+        "not a customer result",
+        "production validation",
+        "independent",
+        "cross-model comparison",
         "not independent assessments or C3PAO certification",
         "does not grant data access, classified access, facility clearance, an ATO, or cross-domain approval",
         "perseus@perseus.observer",

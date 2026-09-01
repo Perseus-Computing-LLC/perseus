@@ -2,7 +2,7 @@
   "benchmark": "perseus-vault-cost-savings (#749)",
   "mode": "live",
   "accuracy_grading": "official LongMemEval per-type judge",
-  "dollars": "provider-billed tokens x Plutus price table",
+  "dollars": "provider-billed tokens x Perseus Ledger price table",
   "price_table_as_of": "2026-06-26",
   "answerer_model": "gpt-4o-2024-08-06",
   "judge_model": "gpt-4o-2024-08-06",
@@ -34,8 +34,12 @@
   },
   "savings_pct": 75.14,
   "accuracy_delta": 0.1167,
-  "qa_report": "qa_report_live.json",
-  "qa_signature_sha256": "efee76f95ae0cc634d1ce74cdc90ca6177b5b43fd41818322f9b05868478d9c0",
-  "plutus_ledger": "plutus_ledger.db",
-  "signature_sha256": "aa6533853096dfbe4209345a59fb7c54bdaa357e2d2d2d9ae35969001211fffd"
+  "qa_report": "qa_report_stratified_2026-07-11.json",
+  "qa_content_hash_sha256": "efee76f95ae0cc634d1ce74cdc90ca6177b5b43fd41818322f9b05868478d9c0",
+  "ledger_db": null,
+  "ledger_db_retained": false,
+  "record_status": "historical",
+  "run_date": "2026-07-11",
+  "qa_display_content_hash_sha256": "ec25c09864301fc9cee17e054af5807c1ef5c79b2e37ee36c303cfb0623145e8",
+  "content_hash_sha256": "55fc3a90f7a9ccb1b9ba9aa574300af8411ded53b0c05d24cd671c1da41390f0"
 }

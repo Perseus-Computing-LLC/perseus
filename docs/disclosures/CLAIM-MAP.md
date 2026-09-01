@@ -33,7 +33,7 @@ language-hygiene discipline applied to the described architecture.
 | Claim element | Disclosure | Exhibit |
 |---|---|---|
 | Resolve at context-assembly time, zero inference-time tool calls | 1, 4, 7 | `docs/ip/exhibits/SAMPLE-E5-out-of-model-loop.*` |
-| One model round-trip instead of N (technical effect) | 1 | `docs/ip/exhibits/SAMPLE-E4-resolve-vs-agentic.*`; Plutus `SAMPLE-cost-attribution.*` |
+| One model round-trip instead of N (technical effect) | 1 | `docs/ip/exhibits/SAMPLE-E4-resolve-vs-agentic.*`; Perseus Ledger `SAMPLE-cost-attribution.*` |
 | Unified grammar over six source classes (a) | 8 | `docs/ip/exhibits/SAMPLE-A-unified-grammar.*` |
 | Recursive, dependency-ordered resolution + cycle detection | 5, 9 | `docs/ip/exhibits/SAMPLE-B-recursive-resolution.*` |
 | Byte-identical reproducibility | 1, 8, 9 | reproducibility hash in each manifest |

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Generate the customer-facing one-pager from a signed cost-savings report
+"""Generate a historical customer-facing one-pager from a content-hashed cost-savings report
 (#749). GENERATED, never hand-typed: every number renders from the committed
-report JSONs; if a figure cannot be traced to a signed artifact it does not
+report JSONs; if a figure cannot be traced to a committed artifact it does not
 appear. Emits markdown (repo/email) and a self-contained print-friendly HTML
 (print to PDF for handouts).
 
@@ -14,9 +14,17 @@ appear. Emits markdown (repo/email) and a self-contained print-friendly HTML
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 from datetime import date
+from html import escape as _html_escape
 from pathlib import Path
+
+try:
+    from .contract import qa_display_content_hash
+except ImportError:  # direct execution: python benchmark/cost_savings/one_pager.py
+    from contract import qa_display_content_hash
 
 TYPE_LABELS = {
     "single-session-user": "Facts the user stated",
@@ -27,56 +35,182 @@ TYPE_LABELS = {
     "temporal-reasoning": "Temporal reasoning",
 }
 
-VERIFY_SQL = ("SELECT w.name, SUM(u.cost_micros)/1e6 AS usd FROM usage_events u "
-              "JOIN workspaces w ON w.id=u.workspace_id GROUP BY w.id;")
 
 
 def load(p: str) -> dict:
     return json.loads(Path(p).read_text(encoding="utf-8"))
 
 
+def _report_string(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"one-pager report {label} must be a non-empty string")
+    return value
+
+
+def _report_int(value: object, label: str) -> int:
+    if type(value) is not int or value < 0:
+        raise ValueError(f"one-pager report {label} must be a non-negative integer")
+    return value
+
+
+def _report_number(value: object, label: str, *, minimum: float | None = None,
+                   maximum: float | None = None) -> int | float:
+    if type(value) is int:
+        numeric = float(value)
+    elif type(value) is float and math.isfinite(value):
+        numeric = value
+    else:
+        raise ValueError(f"one-pager report {label} must be a finite number")
+    if ((minimum is not None and numeric < minimum)
+            or (maximum is not None and numeric > maximum)):
+        raise ValueError(f"one-pager report {label} is outside its allowed range")
+    return value
+
+
+def _md_inline(value: object) -> str:
+    text = str(value).replace("\n", " ").replace("\\", "\\\\")
+    for character in "*_[]()~`>#+-=|{}.!":
+        text = text.replace(character, "\\" + character)
+    return _html_escape(text, quote=True)
+
+
+def _md_code(value: object) -> str:
+    """Escape a value placed inside a Markdown code span."""
+    return _html_escape(str(value).replace("\n", " "), quote=True).replace("`", "&#96;")
+
+
+def _html_text(value: object) -> str:
+    return _html_escape(str(value), quote=True)
+
+
 def build_facts(report: dict, qa: dict) -> dict:
+    if not isinstance(report, dict) or not isinstance(qa, dict):
+        raise ValueError("one-pager inputs must be JSON objects")
+    if report.get("record_status") != "historical":
+        raise ValueError("one-pager inputs must be marked record_status='historical'")
+    declared_hash = report.get("content_hash_sha256")
+    if (not isinstance(declared_hash, str) or len(declared_hash) != 64
+            or any(c not in "0123456789abcdef" for c in declared_hash)):
+        raise ValueError("one-pager input is missing content_hash_sha256")
+    payload = dict(report)
+    payload.pop("content_hash_sha256", None)
+    expected_hash = hashlib.sha256(
+        json.dumps(payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    if declared_hash != expected_hash:
+        raise ValueError("one-pager input content_hash_sha256 does not match its report")
+
+    qa_hash = qa.get("content_hash_sha256")
+    if not isinstance(qa_hash, str) or len(qa_hash) != 64 or any(c not in "0123456789abcdef" for c in qa_hash):
+        raise ValueError("one-pager QA input is missing content_hash_sha256")
+    if report.get("qa_content_hash_sha256") != qa_hash:
+        raise ValueError("one-pager report and QA content hashes do not match")
+    display_hash = report.get("qa_display_content_hash_sha256")
+    if (not isinstance(display_hash, str) or len(display_hash) != 64
+            or any(c not in "0123456789abcdef" for c in display_hash)):
+        raise ValueError("one-pager report is missing qa_display_content_hash_sha256")
+    try:
+        expected_display_hash = qa_display_content_hash(qa)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"one-pager QA input is malformed: {exc}") from exc
+    if display_hash != expected_display_hash:
+        raise ValueError("one-pager QA display content hash does not match its input")
+
+    for key in ("answerer_model", "judge_model", "answer_prompt", "dataset"):
+        report_value = _report_string(report.get(key), key)
+        qa_value = qa.get(key)
+        if report_value != qa_value:
+            raise ValueError(f"one-pager report and QA metadata disagree on {key}")
+    report_n = _report_int(report.get("n_questions"), "n_questions")
+    if report_n != qa["n_instances"]:
+        raise ValueError("one-pager report and QA metadata disagree on n_questions")
+    report_k = _report_int(report.get("k"), "k")
+    if report_k != qa["retrieval"]["k"]:
+        raise ValueError("one-pager report and QA metadata disagree on k")
+    expected_mode = "mock" if qa["mock_llm"] else "live"
+    if report.get("mode") != expected_mode:
+        raise ValueError("one-pager report and QA metadata disagree on mode")
+
+    _report_string(report.get("run_date"), "run_date")
+    _report_string(report.get("price_table_as_of"), "price_table_as_of")
+    savings_pct = _report_number(report.get("savings_pct"), "savings_pct", minimum=0)
+    accuracy_delta = _report_number(report.get("accuracy_delta"), "accuracy_delta")
+    arms = report.get("arms")
+    if not isinstance(arms, dict):
+        raise ValueError("one-pager report arms must be an object")
+    for system in ("fullcontext", "vault"):
+        arm = arms.get(system)
+        qa_system = qa["systems"][system]
+        if not isinstance(arm, dict):
+            raise ValueError(f"one-pager report is missing arms.{system}")
+        _report_number(arm.get("ledger_cost_usd"), f"arms.{system}.ledger_cost_usd", minimum=0)
+        _report_int(arm.get("ledger_tokens"), f"arms.{system}.ledger_tokens")
+        _report_int(arm.get("ledger_events"), f"arms.{system}.ledger_events")
+        _report_int(arm.get("metered_records"), f"arms.{system}.metered_records")
+        _report_int(arm.get("errored_records_unmetered"), f"arms.{system}.errored_records_unmetered")
+        _report_number(arm.get("accuracy"), f"arms.{system}.accuracy", minimum=0, maximum=1)
+        _report_int(arm.get("n_graded"), f"arms.{system}.n_graded")
+        if arm["accuracy"] != qa_system["accuracy"] or arm["n_graded"] != qa_system["n_graded"]:
+            raise ValueError(f"one-pager report and QA metrics disagree for {system}")
+
     base = report["arms"]["fullcontext"]
     ours = report["arms"]["vault"]
+    if base["ledger_cost_usd"] <= 0:
+        raise ValueError("one-pager report baseline cost must be positive")
+    expected_savings_pct = round(
+        100 * (base["ledger_cost_usd"] - ours["ledger_cost_usd"])
+        / base["ledger_cost_usd"],
+        2,
+    )
+    expected_accuracy_delta = round(ours["accuracy"] - base["accuracy"], 4)
+    if savings_pct != expected_savings_pct:
+        raise ValueError("one-pager report savings_pct is inconsistent with arm costs")
+    if accuracy_delta != expected_accuracy_delta:
+        raise ValueError("one-pager report accuracy_delta is inconsistent with arm accuracy")
     by_type = {}
     for system, key in (("fullcontext", "base"), ("vault", "ours")):
         for t, row in qa["systems"][system]["by_question_type"].items():
             by_type.setdefault(t, {"n": row["n"]})[key] = row["accuracy"]
     return {
-        "date": report.get("_generated") or str(date.today()),
-        "savings_pct": report["savings_pct"],
+        "date": report.get("run_date") or report.get("_generated") or str(date.today()),
+        "savings_pct": savings_pct,
         "base_usd": base["ledger_cost_usd"],
         "ours_usd": ours["ledger_cost_usd"],
         "base_tok": base["ledger_tokens"],
         "ours_tok": ours["ledger_tokens"],
         "base_acc": base["accuracy"] * 100,
         "ours_acc": ours["accuracy"] * 100,
-        "acc_delta": report["accuracy_delta"] * 100,
-        "n": report["n_questions"],
-        "k": report["k"],
-        "model": report["answerer_model"],
-        "answer_prompt": report.get("answer_prompt", "plain"),
+        "acc_delta": accuracy_delta * 100,
+        "n": report_n,
+        "k": report_k,
+        "model": _report_string(report["answerer_model"], "answerer_model"),
+        "answer_prompt": _report_string(report.get("answer_prompt", "plain"), "answer_prompt"),
         "price_table": report["price_table_as_of"],
-        "sig": report["signature_sha256"][:16],
-        "qa_sig": report.get("qa_signature_sha256", "")[:16],
+        "sig": report["content_hash_sha256"][:16],
+        "qa_sig": (report.get("qa_content_hash_sha256") or "")[:16],
+        "qa_display_sig": display_hash[:16],
         "by_type": by_type,
-        "tok_ratio": base["ledger_tokens"] / max(1, ours["ledger_tokens"]),
+        "tok_ratio": _report_number(
+            base["ledger_tokens"] / max(1, ours["ledger_tokens"]), "tok_ratio", minimum=0
+        ),
     }
 
 
 def render_md(f: dict) -> str:
     rows = "\n".join(
-        f"| {TYPE_LABELS.get(t, t)} | {v['n']} | {v['base'] * 100:.0f}% | "
+        f"| {_md_inline(TYPE_LABELS.get(t, t))} | {v['n']} | {v['base'] * 100:.0f}% | "
         f"**{v['ours'] * 100:.0f}%** |" if v["ours"] >= v["base"] else
-        f"| {TYPE_LABELS.get(t, t)} | {v['n']} | **{v['base'] * 100:.0f}%** | "
+        f"| {_md_inline(TYPE_LABELS.get(t, t))} | {v['n']} | **{v['base'] * 100:.0f}%** | "
         f"{v['ours'] * 100:.0f}% |"
         for t, v in sorted(f["by_type"].items(), key=lambda kv: -kv[1]["n"]))
-    return f"""# Perseus + Vault: verified LLM savings statement
+    return f"""# Historical Perseus + Vault: cost-savings measurement record
 
-**{f['savings_pct']:.1f}% fewer LLM dollars. {f['acc_delta']:+.1f} points MORE accurate. Read from the meter, not a marketing model.**
+> Historical run record. These dated results are preserved for reproducibility; they are not a current benchmark, product-quality, production, or customer-outcome claim.
+
+**{f['savings_pct']:.1f}% fewer LLM dollars and {f['acc_delta']:+.1f} points on this {f['n']}-question sample. Read from the meter, not a marketing model.**
 
 We ran the same {f['n']} memory-recall tasks two ways, with the same model
-(`{f['model']}`) answering and the same official benchmark judge grading both:
+(`{_md_code(f['model'])}`) answering and the same official benchmark judge grading both:
 
 | | LLM spend | tokens billed | accuracy |
 |---|---:|---:|---:|
@@ -84,8 +218,8 @@ We ran the same {f['n']} memory-recall tasks two ways, with the same model
 | **With Perseus + Vault** | **${f['ours_usd']:.2f}** | **{f['ours_tok']:,}** | **{f['ours_acc']:.1f}%** |
 
 Perseus + Vault loads only the context each task needs ({f['tok_ratio']:.1f}x fewer
-tokens), so the model reads less, costs less, and answers better: long stuffed
-prompts measurably LOSE accuracy on the tasks agents do most.
+tokens). On this historical sample, the product arm used fewer tokens and scored higher;
+ that observation is not a general accuracy or production guarantee.
 
 | task type | n | full context | Perseus + Vault |
 |---|---:|---:|---:|
@@ -93,47 +227,50 @@ prompts measurably LOSE accuracy on the tasks agents do most.
 
 ## Why you can trust this number
 
-1. **Dollars come from a meter, not a spreadsheet.** Every model call in both
-   arms was recorded as a usage event in a [Plutus](https://github.com/Perseus-Computing-LLC/plutus)
-   ledger; the totals above are sums over that ledger, reproducible with one
-   line of SQL against the shipped ledger file:
-   `{VERIFY_SQL}`
+1. **Dollars came from a meter, not a spreadsheet.** Every model call in both
+   arms was recorded as a usage event in a Perseus Ledger. The dated public
+   bundle preserves the integer report totals and content hash, but not the
+   companion Ledger database; re-querying this historical run from the bundle
+   is therefore unavailable. Verify savings against your own provider invoice,
+   which is the strongest baseline anyway.
 2. **Accuracy is graded by the benchmark's own judge**, not ours: LongMemEval's
-   official per-question-type prompts, pinned `{f['model']}`, temperature 0,
-   `answer_prompt: {f['answer_prompt']}`.
+   official per-question-type prompts, pinned `{_md_code(f['model'])}`, temperature 0,
+   `answer_prompt: {_md_code(f['answer_prompt'])}`.
 3. **The task sample is stratified, not cherry-picked**: {f['n']} questions drawn
    proportionally from all six LongMemEval question types, first-N per type in
-   dataset order. Full methodology, signed reports ({f['sig']}... /
-   {f['qa_sig']}...), and the harness that reproduces the run are public:
+   dataset order. Full methodology, immutable report and QA content hashes ({f['sig']}... /
+   {f['qa_sig']}... / {f['qa_display_sig']}...), and the harness that reproduces the run are public:
    `benchmark/cost_savings/` in the Perseus repo.
 
 ## Stated limits (we would rather you check than take our word)
 
-- Sample size is {f['n']} questions; per-task-type cells are small. The signed
-  full-500 accuracy distribution for the product arm is published separately
-  (historical 79.0% mean, official CoT prompt; latest paired confirmation is 82.0% on the benchmarks page).
-- The ledger is integer-exact and independently re-queryable, but not yet
-  cryptographically tamper-evident; that hardening is scheduled and tracked
-  publicly. Until then, we recommend verifying savings against your own
-  provider invoice, which is the strongest baseline anyway.
-- Prices from the public price table as of {f['price_table']}; the savings
+- Sample size is {f['n']} questions; per-task-type cells are small. Older full-500
+  QA reports are historical engineering evidence only; they are not current benchmark
+  claims and are not promoted by this record.
+- The dated report is content-hash verifiable, but its companion Ledger database was not
+  retained. The original run record therefore cannot be re-queried from this historical
+  bundle, and it did not establish tamper evidence for the Ledger events. That limitation
+  applies to this historical file only and must not be read as a statement about the current
+  Ledger implementation. Verify savings against your own provider invoice and a current
+  Ledger run with its database retained.
+- Prices from the public price table as of {_md_inline(f['price_table'])}; the savings
   PERCENTAGE is rate-invariant (same model both arms).
 
 ---
 *Perseus Computing LLC · perseus.observer · perseus@perseus.observer ·
-generated {f['date']} from signed report {f['sig']}...*
+generated {_md_inline(f['date'])} from content-hashed report {f['sig']}...*
 """
 
 
 def render_html(f: dict) -> str:
     type_rows = "".join(
-        f"<tr><td>{TYPE_LABELS.get(t, t)}</td><td>{v['n']}</td>"
+        f"<tr><td>{_html_text(TYPE_LABELS.get(t, t))}</td><td>{v['n']}</td>"
         f"<td{' class=win' if v['base'] > v['ours'] else ''}>{v['base'] * 100:.0f}%</td>"
         f"<td{' class=win' if v['ours'] >= v['base'] else ''}>{v['ours'] * 100:.0f}%</td></tr>"
         for t, v in sorted(f["by_type"].items(), key=lambda kv: -kv[1]["n"]))
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
-<title>Perseus + Vault: verified LLM savings statement</title>
+<title>Historical Perseus + Vault: cost-savings measurement record</title>
 <style>
   @page {{ size: letter; margin: 14mm; }}
   body {{ font: 10.5pt/1.45 'IBM Plex Sans', 'Segoe UI', sans-serif; color: #16181d;
@@ -154,12 +291,12 @@ def render_html(f: dict) -> str:
   footer {{ margin-top: 12px; font-size: 8.5pt; color: #666; border-top: 1px solid #d7d9df;
             padding-top: 6px; }}
 </style></head><body>
-<h1>Perseus + Vault: verified LLM savings statement</h1>
-<div class="headline">{f['savings_pct']:.1f}% fewer LLM dollars. {f['acc_delta']:+.1f} points MORE
-accurate. Read from the meter, not a marketing model.</div>
+<h1>Historical Perseus + Vault: cost-savings measurement record</h1>
+<p class="limits">Historical run record. These dated results are preserved for reproducibility; they are not a current benchmark, product-quality, production, or customer-outcome claim.</p>
+<div class="headline">{f['savings_pct']:.1f}% fewer LLM dollars and {f['acc_delta']:+.1f} points on this {f['n']}-question sample. Read from the meter, not a marketing model.</div>
 
 <p>We ran the same {f['n']} memory-recall tasks two ways, with the same model
-(<code>{f['model']}</code>) answering and the same official benchmark judge grading both:</p>
+(<code>{_html_text(f['model'])}</code>) answering and the same official benchmark judge grading both:</p>
 
 <table class="big"><thead><tr><th></th><th>LLM spend</th><th>tokens billed</th><th>accuracy</th></tr></thead>
 <tbody>
@@ -167,59 +304,69 @@ accurate. Read from the meter, not a marketing model.</div>
 <tr><td><b>With Perseus + Vault</b></td><td class="win">${f['ours_usd']:.2f}</td><td class="win">{f['ours_tok']:,}</td><td class="win">{f['ours_acc']:.1f}%</td></tr>
 </tbody></table>
 
-<p>Perseus + Vault loads only the context each task needs ({f['tok_ratio']:.1f}x fewer tokens), so
-the model reads less, costs less, and answers better: long stuffed prompts measurably
-<em>lose</em> accuracy on the tasks agents do most.</p>
+<p>Perseus + Vault loads only the context each task needs ({f['tok_ratio']:.1f}x fewer tokens). On
+this historical sample, the product arm used fewer tokens and scored higher; that observation is
+not a general accuracy or production guarantee.</p>
 
 <table><thead><tr><th>task type</th><th>n</th><th>full context</th><th>Perseus + Vault</th></tr></thead>
 <tbody>{type_rows}</tbody></table>
 
 <h2>Why you can trust this number</h2>
 <ol>
-<li><b>Dollars come from a meter, not a spreadsheet.</b> Every model call in both arms was
-recorded as a usage event in a Plutus ledger; the totals above are sums over that ledger,
-reproducible with one line of SQL against the shipped ledger file:<br>
-<code>{VERIFY_SQL}</code></li>
+<li><b>Dollars came from a meter, not a spreadsheet.</b> Every model call in both arms was
+recorded as a usage event in Perseus Ledger. The dated public bundle preserves the integer
+report totals and content hash, but not the companion Ledger database; re-querying this
+historical run from the bundle is therefore unavailable. Verify savings against your own
+provider invoice, which is the strongest baseline anyway.</li>
 <li><b>Accuracy is graded by the benchmark's own judge</b>, not ours: LongMemEval's official
-per-question-type prompts, pinned <code>{f['model']}</code>, temperature 0,
-<code>answer_prompt: {f['answer_prompt']}</code>.</li>
+per-question-type prompts, pinned <code>{_html_text(f['model'])}</code>, temperature 0,
+<code>answer_prompt: {_html_text(f['answer_prompt'])}</code>.</li>
 <li><b>The task sample is stratified, not cherry-picked</b>: {f['n']} questions drawn
 proportionally from all six LongMemEval question types, first-N per type in dataset order.
-Full methodology, signed reports ({f['sig']}&hellip; / {f['qa_sig']}&hellip;), and the harness that
+Immutable report content hashes ({f['sig']}&hellip; / {f['qa_sig']}&hellip; / {f['qa_display_sig']}&hellip;) and the harness that
 reproduces the run are public: <code>benchmark/cost_savings/</code> in the Perseus repo.</li>
 </ol>
 
 <h2>Stated limits (we would rather you check than take our word)</h2>
 <div class="limits"><ul>
-<li>Sample size is {f['n']} questions; per-task-type cells are small. The signed full-500
-accuracy distribution for the product arm is published separately (historical 79.0% mean, official CoT prompt; latest paired confirmation is 82.0% on the benchmarks page).</li>
-<li>The ledger is integer-exact and independently re-queryable, but not yet cryptographically
-tamper-evident; that hardening is scheduled and tracked publicly. Until then we recommend
-verifying savings against your own provider invoice, which is the strongest baseline anyway.</li>
-<li>Prices from the public price table as of {f['price_table']}; the savings percentage is
+<li>Sample size is {f['n']} questions; per-task-type cells are small. Older full-500
+accuracy reports are historical engineering evidence only; they are not current benchmark claims
+and are not promoted by this record.</li>
+<li>The dated report is content-hash verifiable, but its companion Ledger database was not
+retained. The original run record therefore cannot be re-queried from this historical bundle,
+and it did not establish tamper evidence for the Ledger events. That limitation applies to
+this historical file only and must not be read as a statement about the current Ledger
+implementation. Verify savings against your own provider invoice and a current Ledger run
+with its database retained.</li>
+<li>Prices from the public price table as of {_html_text(f['price_table'])}; the savings percentage is
 rate-invariant (same model both arms).</li>
 </ul></div>
 
 <footer>Perseus Computing LLC &middot; perseus.observer &middot; perseus@perseus.observer &middot;
-generated {f['date']} from signed report {f['sig']}&hellip;</footer>
+generated {_html_text(f['date'])} from content-hashed report {f['sig']}&hellip;</footer>
 </body></html>
 """
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--report", required=True, help="signed cost_savings report json")
-    ap.add_argument("--qa", required=True, help="the run's qa report json (per-type table)")
+    ap.add_argument("--report", required=True, help="content-hashed cost_savings report json")
+    ap.add_argument("--qa", required=True, help="the run's QA report json (per-type table)")
     ap.add_argument("--outdir", required=True)
     args = ap.parse_args()
 
     report, qa = load(args.report), load(args.qa)
+    expected_qa_name = report.get("qa_report")
+    if not isinstance(expected_qa_name, str) or Path(args.qa).name != expected_qa_name:
+        raise ValueError(
+            f"one-pager QA path does not match report qa_report: {expected_qa_name!r}"
+        )
     facts = build_facts(report, qa)
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     (outdir / "ONE-PAGER.md").write_text(render_md(facts), encoding="utf-8")
-    (outdir / "one-pager.html").write_text(render_html(facts), encoding="utf-8")
-    print(f"wrote {outdir / 'ONE-PAGER.md'} and {outdir / 'one-pager.html'} "
+    (outdir / "historical-one-pager.html").write_text(render_html(facts), encoding="utf-8")
+    print(f"wrote {outdir / 'ONE-PAGER.md'} and {outdir / 'historical-one-pager.html'} "
           f"(savings {facts['savings_pct']:.1f}%, accuracy {facts['acc_delta']:+.1f} pts)")
 
 

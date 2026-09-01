@@ -597,9 +597,7 @@ def _doctor_check_vault_bridge(cfg: dict, workspace: Path) -> DoctorResult:
 
 def _doctor_check_ledger_metering(cfg: dict, workspace: Path) -> DoctorResult:
     """Check supported Ledger runtime wiring without exposing secrets."""
-    p = cfg.get("ledger") if isinstance(cfg, dict) else None
-    if not isinstance(p, dict):
-        p = cfg.get("plutus")  # legacy pre-2026-08-09 key, still honored
+    p = _mtr_cfg(cfg)
     if not isinstance(p, dict) or not p.get("enabled"):
         return DoctorResult("ledger_metering", "ok", "Ledger metering", "disabled", "")
     if not (p.get("endpoint") or p.get("db_path")):

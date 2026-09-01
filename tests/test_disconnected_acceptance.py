@@ -91,6 +91,7 @@ def test_linux_broker_workflow_binds_pid_identity_and_fails_closed_on_cleanup():
     assert "cleanup_failed=1" in broker
     assert 'sudo rmdir "${broker_root}" 2>/dev/null || true' not in broker
     assert 'sudo rmdir "${broker_dir}" 2>/dev/null || true' not in broker
+    assert '-m "privileged_acceptance or not privileged_acceptance"' in broker
     for line in broker.splitlines():
         if any(command in line for command in ("sudo kill", "sudo rm", "sudo rmdir")):
             assert "|| true" not in line
