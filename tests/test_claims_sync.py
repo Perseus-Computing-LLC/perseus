@@ -234,6 +234,26 @@ def test_one_pager_rejects_nonfinite_qa_and_cross_artifact_metadata():
         module.build_facts(report, qa)
 
     qa = json.loads(qa_path.read_text(encoding="utf-8"))
+    first_question_id = qa["per_question"][0]["question_id"]
+    for row in qa["per_question"]:
+        if row["question_id"] == first_question_id and row["system"] == "vault":
+            row["question_type"] = "knowledge-update"
+            break
+    with pytest.raises(ValueError, match="different question types"):
+        module.build_facts(report, qa)
+
+    qa = json.loads(qa_path.read_text(encoding="utf-8"))
+    qa["n_instances"] = 0
+    qa["per_question"] = []
+    for source in qa["systems"].values():
+        source["n_attempted"] = 0
+        source["n_graded"] = 0
+        source["accuracy"] = 0.0
+        source["by_question_type"] = {}
+    with pytest.raises(ValueError, match="positive"):
+        module.build_facts(report, qa)
+
+    qa = json.loads(qa_path.read_text(encoding="utf-8"))
     mismatched = json.loads(json.dumps(report))
     mismatched["answerer_model"] = "different-model"
     mismatched.pop("content_hash_sha256")
@@ -256,7 +276,7 @@ def test_one_pager_escapes_derived_html_strings():
         .read_text(encoding="utf-8")
     )
     facts = module.build_facts(report, qa)
-    facts["model"] = "</code><script>alert(1)</script>"
+    facts["model"] = "bad`</code><script>alert(1)</script>"
     facts["answer_prompt"] = "<img src=x onerror=alert(1)>"
     facts["date"] = "</footer><script>alert(1)</script>"
     facts["price_table"] = "<b>untrusted</b>"
@@ -267,6 +287,10 @@ def test_one_pager_escapes_derived_html_strings():
     assert "<script>" not in rendered
     assert "<img src=x" not in rendered
     assert "&lt;script&gt;" in rendered
+    markdown = module.render_md(facts)
+    assert "<script>" not in markdown
+    assert "<img src=x" not in markdown
+    assert "&lt;script&gt;" in markdown
 
 
 def test_results_markdown_hashes_match_committed_cost_reports():
@@ -292,3 +316,63 @@ def test_cost_savings_usage_validation_rejects_implicit_coercion():
     ):
         with pytest.raises(ValueError):
             harness._validated_usage(usage, "test")
+
+
+def test_cost_savings_live_journal_errors_fail_closed(tmp_path):
+    from benchmark.cost_savings import harness
+
+    journal = tmp_path / "perseus-live-error-journal.jsonl"
+    journal.write_text(json.dumps({
+        "question_id": "q1",
+        "question_type": "multi-session",
+        "system": "vault",
+        "error": "provider failure",
+    }) + "\n")
+    try:
+        with pytest.raises(ValueError, match="errored record"):
+            harness.meter_journal(None, "org", journal, "live", "answer", "judge")
+    finally:
+        journal.unlink(missing_ok=True)
+
+
+def test_cost_savings_journal_totals_must_cover_validated_qa():
+    from benchmark.cost_savings import harness
+
+    projection = {
+        "systems": {
+            "fullcontext": {"n_attempted": 2, "n_graded": 2},
+            "vault": {"n_attempted": 2, "n_graded": 2},
+        }
+    }
+    complete = {
+        "fullcontext": {"events": 4, "skipped": 0},
+        "vault": {"events": 4, "skipped": 0},
+    }
+    harness._validate_journal_totals(complete, projection, "live")
+    truncated = json.loads(json.dumps(complete))
+    truncated["vault"]["events"] = 2
+    with pytest.raises(ValueError, match="journal totals"):
+        harness._validate_journal_totals(truncated, projection, "live")
+
+
+def test_cost_savings_journal_identity_must_match_validated_qa(tmp_path):
+    from benchmark.cost_savings import harness
+
+    journal = tmp_path / "identity.jsonl"
+    journal.write_text(json.dumps({
+        "question_id": "q1",
+        "question_type": "multi-session",
+        "system": "vault",
+        "tokens_est": 10,
+        "error": None,
+    }) + "\n")
+    with pytest.raises(ValueError, match="identities"):
+        harness.meter_journal(
+            None,
+            "org",
+            journal,
+            "mock",
+            "answer",
+            "judge",
+            {("vault", "q2"): "multi-session"},
+        )

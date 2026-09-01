@@ -69,6 +69,8 @@ def qa_display_payload(qa: dict[str, Any]) -> dict[str, Any]:
     dataset = _string(_required(qa, "dataset", "report"), "dataset")
     split = _string(_required(qa, "split", "report"), "split")
     n_instances = _nonnegative_int(_required(qa, "n_instances", "report"), "n_instances")
+    if n_instances == 0:
+        raise ValueError("QA report n_instances must be positive")
     answer_prompt = _string(_required(qa, "answer_prompt", "report"), "answer_prompt")
     answerer_model = _string(_required(qa, "answerer_model", "report"), "answerer_model")
     judge_model = _string(_required(qa, "judge_model", "report"), "judge_model")
@@ -128,11 +130,15 @@ def qa_display_payload(qa: dict[str, Any]) -> dict[str, Any]:
     if len(question_ids) != n_instances:
         raise ValueError("QA report question count does not match n_instances")
     for question_id in question_ids:
-        systems_for_question = {
-            row["system"] for row in projected_questions if row["question_id"] == question_id
-        }
+        rows_for_question = [
+            row for row in projected_questions if row["question_id"] == question_id
+        ]
+        systems_for_question = {row["system"] for row in rows_for_question}
         if systems_for_question != set(_SYSTEMS):
             raise ValueError("QA report does not contain both arms for every question")
+        question_types = {row["question_type"] for row in rows_for_question}
+        if len(question_types) != 1:
+            raise ValueError("QA report assigns different question types across arms")
 
     projected_systems: dict[str, Any] = {}
     for system in _SYSTEMS:

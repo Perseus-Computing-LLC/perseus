@@ -104,8 +104,85 @@ def _validated_usage(usage: object, label: str) -> dict[str, int]:
     return result
 
 
+def _validate_journal_totals(
+    counts: dict[str, dict[str, int]], qa_projection: dict, mode: str
+) -> None:
+    """Require the journal's metered/skipped rows to cover validated QA exactly."""
+    events_per_graded_record = 2 if mode == "live" else 1
+    for system in ARM_WORKSPACE:
+        qa_system = qa_projection["systems"][system]
+        expected_events = qa_system["n_graded"] * events_per_graded_record
+        expected_skipped = qa_system["n_attempted"] - qa_system["n_graded"]
+        if (counts[system]["events"] != expected_events
+                or counts[system]["skipped"] != expected_skipped):
+            raise ValueError(
+                f"journal totals for {system} do not match validated QA counts "
+                f"(events {counts[system]['events']}/{expected_events}, "
+                f"skipped {counts[system]['skipped']}/{expected_skipped})"
+            )
+
+
+def _prepare_journal(
+    journal: Path, mode: str
+) -> tuple[
+    dict[str, dict[str, int]],
+    list[tuple[str, list[tuple[str, dict[str, int], str]]]],
+    dict[tuple[str, str], str],
+]:
+    """Parse and validate a journal before importing or writing to the Ledger."""
+    if mode not in ("mock", "live"):
+        raise ValueError("journal mode must be 'mock' or 'live'")
+    counts = {arm: {"events": 0, "skipped": 0} for arm in ARM_WORKSPACE}
+    prepared: list[tuple[str, list[tuple[str, dict[str, int], str]]]] = []
+    identities: dict[tuple[str, str], str] = {}
+    with open(journal, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            rec = json.loads(line)
+            if not isinstance(rec, dict):
+                raise ValueError("journal records must be JSON objects")
+            if "_config" in rec:
+                continue
+            system = rec.get("system")
+            if system not in ARM_WORKSPACE:
+                continue
+            question_id = rec.get("question_id")
+            question_type = rec.get("question_type")
+            if (not isinstance(question_id, str) or not question_id
+                    or not isinstance(question_type, str) or not question_type):
+                raise ValueError("journal question identity is malformed")
+            identity = (system, question_id)
+            if identity in identities:
+                raise ValueError("journal contains duplicate question/system rows")
+            identities[identity] = question_type
+            if rec.get("error") is not None:
+                if mode == "live":
+                    raise ValueError(
+                        "live journal contains an errored record; refusing to under-meter"
+                    )
+                counts[system]["skipped"] += 1
+                continue
+            if mode == "live":
+                calls = [
+                    ("answer", _validated_usage(rec.get("ans_usage"), "ans_usage"), "api"),
+                    ("judge", _validated_usage(rec.get("judge_usage"), "judge_usage"), "api"),
+                ]
+            else:
+                calls = [
+                    ("answer", _validated_usage({
+                        "prompt_tokens": rec.get("tokens_est"),
+                        "completion_tokens": 0,
+                    }, "tokens_est"), "estimate")
+                ]
+            prepared.append((system, calls))
+    return counts, prepared, identities
+
+
 def meter_journal(conn, org_id: str, journal: Path, mode: str,
-                  answer_model: str, judge_model: str) -> dict:
+                  answer_model: str, judge_model: str,
+                  expected_questions: dict[tuple[str, str], str] | None = None) -> dict:
     """Meter every graded qa.py journal record into the Perseus Ledger.
 
     live: provider-billed ans_usage/judge_usage per call (source='api').
@@ -114,44 +191,26 @@ def meter_journal(conn, org_id: str, journal: Path, mode: str,
           no API call and reports no usage).
     Returns counters for the report.
     """
+    counts, prepared, identities = _prepare_journal(journal, mode)
+    if expected_questions is not None and identities != expected_questions:
+        raise ValueError("journal question identities do not match validated QA")
     from ledger_agent import metering
 
-    counts = {arm: {"events": 0, "skipped": 0} for arm in ARM_WORKSPACE}
-    with open(journal, encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            rec = json.loads(line)
-            if "_config" in rec:
-                continue
-            system = rec.get("system")
-            if system not in ARM_WORKSPACE or rec.get("error") is not None:
-                if system in ARM_WORKSPACE:
-                    counts[system]["skipped"] += 1
-                continue
-            ws = ARM_WORKSPACE[system]
-            calls = []
-            if mode == "live":
-                calls.append((answer_model, _validated_usage(rec.get("ans_usage"), "ans_usage"), "api"))
-                calls.append((judge_model, _validated_usage(rec.get("judge_usage"), "judge_usage"), "api"))
-            else:
-                calls.append((answer_model, _validated_usage({
-                    "prompt_tokens": rec.get("tokens_est"),
-                    "completion_tokens": 0,
-                }, "tokens_est"), "estimate"))
-            for model, usage, source in calls:
-                res = metering.record_usage(
-                    conn, org_id, provider="openai",
-                    input_tokens=usage["prompt_tokens"],
-                    output_tokens=usage["completion_tokens"],
-                    model=model, task_type="longmemeval-qa",
-                    workspace=ws, source=source,
-                )
-                if not res.recorded:
-                    sys.exit(f"ledger_agent dropped a usage event ({res}); "
-                             "ledger would understate spend — aborting")
-                counts[system]["events"] += 1
+    for system, calls in prepared:
+        ws = ARM_WORKSPACE[system]
+        for call_kind, usage, source in calls:
+            model = answer_model if call_kind == "answer" else judge_model
+            res = metering.record_usage(
+                conn, org_id, provider="openai",
+                input_tokens=usage["prompt_tokens"],
+                output_tokens=usage["completion_tokens"],
+                model=model, task_type="longmemeval-qa",
+                workspace=ws, source=source,
+            )
+            if not res.recorded:
+                sys.exit(f"ledger_agent dropped a usage event ({res}); "
+                         "ledger would understate spend — aborting")
+            counts[system]["events"] += 1
     return counts
 
 
@@ -236,16 +295,30 @@ def main() -> None:
     org_id = org["id"]
     print(f"[2/3] metering journal into the Perseus Ledger ({ledger_path.name}) ...",
           flush=True)
+    expected_questions = {
+        (row["system"], row["question_id"]): row["question_type"]
+        for row in qa_projection["per_question"]
+    }
     counts = meter_journal(conn, org_id, journal, args.mode,
-                           answer_model, judge_model)
+                           answer_model, judge_model, expected_questions)
 
     # ── 3. read the dollars BACK from the ledger and gate on accuracy ───────
     by_ws = {row["key"]: row for row in metering.spend_by(conn, org_id, "workspace")}
-    systems = report.get("systems", {})
+    events_per_graded_record = 2 if args.mode == "live" else 1
+    try:
+        _validate_journal_totals(counts, qa_projection, args.mode)
+    except ValueError as exc:
+        sys.exit(str(exc))
     arms = {}
     for system, ws in ARM_WORKSPACE.items():
         ledger = by_ws.get(ws, {"cost": 0.0, "tokens": 0, "events": 0})
-        sysrep = systems.get(system, {})
+        qa_system = qa_projection["systems"][system]
+        expected_events = qa_system["n_graded"] * events_per_graded_record
+        if ledger["events"] != expected_events:
+            sys.exit(
+                f"ledger totals for {system} do not match validated QA counts "
+                f"(events {ledger['events']}/{expected_events})"
+            )
         arms[system] = {
             "workspace": ws,
             "ledger_cost_usd": round(ledger["cost"], 6),
@@ -253,8 +326,8 @@ def main() -> None:
             "ledger_events": ledger["events"],
             "metered_records": counts[system]["events"],
             "errored_records_unmetered": counts[system]["skipped"],
-            "accuracy": sysrep.get("accuracy"),
-            "n_graded": sysrep.get("n_graded"),
+            "accuracy": qa_system["accuracy"],
+            "n_graded": qa_system["n_graded"],
         }
 
     base, ours = arms["fullcontext"], arms["vault"]

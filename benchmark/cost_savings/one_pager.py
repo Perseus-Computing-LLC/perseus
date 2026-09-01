@@ -68,7 +68,15 @@ def _report_number(value: object, label: str, *, minimum: float | None = None,
 
 
 def _md_inline(value: object) -> str:
-    return str(value).replace("\\", "\\\\").replace("`", "\\`").replace("|", "\\|").replace("\n", " ")
+    text = str(value).replace("\n", " ").replace("\\", "\\\\")
+    for character in "*_[]()~`>#+-=|{}.!":
+        text = text.replace(character, "\\" + character)
+    return _html_escape(text, quote=True)
+
+
+def _md_code(value: object) -> str:
+    """Escape a value placed inside a Markdown code span."""
+    return _html_escape(str(value).replace("\n", " "), quote=True).replace("`", "&#96;")
 
 
 def _html_text(value: object) -> str:
@@ -190,7 +198,7 @@ def render_md(f: dict) -> str:
 **{f['savings_pct']:.1f}% fewer LLM dollars and {f['acc_delta']:+.1f} points on this {f['n']}-question sample. Read from the meter, not a marketing model.**
 
 We ran the same {f['n']} memory-recall tasks two ways, with the same model
-(`{_md_inline(f['model'])}`) answering and the same official benchmark judge grading both:
+(`{_md_code(f['model'])}`) answering and the same official benchmark judge grading both:
 
 | | LLM spend | tokens billed | accuracy |
 |---|---:|---:|---:|
@@ -214,8 +222,8 @@ tokens). On this historical sample, the product arm used fewer tokens and scored
    is therefore unavailable. Verify savings against your own provider invoice,
    which is the strongest baseline anyway.
 2. **Accuracy is graded by the benchmark's own judge**, not ours: LongMemEval's
-   official per-question-type prompts, pinned `{_md_inline(f['model'])}`, temperature 0,
-   `answer_prompt: {_md_inline(f['answer_prompt'])}`.
+   official per-question-type prompts, pinned `{_md_code(f['model'])}`, temperature 0,
+   `answer_prompt: {_md_code(f['answer_prompt'])}`.
 3. **The task sample is stratified, not cherry-picked**: {f['n']} questions drawn
    proportionally from all six LongMemEval question types, first-N per type in
    dataset order. Full methodology, immutable report and QA content hashes ({f['sig']}... /

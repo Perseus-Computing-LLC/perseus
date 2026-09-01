@@ -18,9 +18,9 @@ tokens). On this historical sample, the product arm used fewer tokens and scored
 
 | task type | n | full context | Perseus + Vault |
 |---|---:|---:|---:|
-| Multi-session aggregation | 16 | 31% | **38%** |
+| Multi\-session aggregation | 16 | 31% | **38%** |
 | Temporal reasoning | 16 | 38% | **69%** |
-| Updated facts (latest wins) | 9 | **89%** | 67% |
+| Updated facts \(latest wins\) | 9 | **89%** | 67% |
 | Facts the user stated | 8 | 88% | **100%** |
 | Facts the assistant stated | 7 | 86% | **100%** |
 | User preferences | 4 | 25% | **50%** |
@@ -53,9 +53,9 @@ tokens). On this historical sample, the product arm used fewer tokens and scored
   applies to this historical file only and must not be read as a statement about the current
   Ledger implementation. Verify savings against your own provider invoice and a current
   Ledger run with its database retained.
-- Prices from the public price table as of 2026-06-26; the savings
+- Prices from the public price table as of 2026\-06\-26; the savings
   PERCENTAGE is rate-invariant (same model both arms).
 
 ---
 *Perseus Computing LLC · perseus.observer · perseus@perseus.observer ·
-generated 2026-07-11 from content-hashed report 55fc3a90f7a9ccb1...*
+generated 2026\-07\-11 from content-hashed report 55fc3a90f7a9ccb1...*
