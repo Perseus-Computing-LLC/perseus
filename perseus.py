@@ -86,7 +86,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "00dc8a7"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "367e169"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -4541,20 +4541,9 @@ def _mtr_cfg(cfg: dict) -> dict:
     canonical = cfg.get("ledger")
     legacy = cfg.get("plutus")
     if isinstance(canonical, dict):
-        if isinstance(legacy, dict):
-            # Direct callers may pass DEFAULT_CONFIG plus a legacy override
-            # without going through load_config(). Treat values identical to the
-            # baked-in defaults as inherited, while explicit canonical values
-            # still win over the legacy alias.
-            defaults = globals().get("DEFAULT_CONFIG", {}).get("ledger", {})
-            if isinstance(defaults, dict):
-                merged = dict(legacy)
-                merged.update({
-                    key: value
-                    for key, value in canonical.items()
-                    if key not in defaults or defaults[key] != value
-                })
-                return merged
+        # The canonical block always wins when both names are present. Legacy
+        # config files are normalized into this block by load_config(); direct
+        # callers that still use the alias must omit the canonical block.
         return canonical
     return legacy if isinstance(legacy, dict) else {}
 
