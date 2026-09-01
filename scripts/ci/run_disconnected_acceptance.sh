@@ -116,7 +116,7 @@ sudo bash -c '
     log_file="$2"
     python_bin="$3"
     shift 3
-    start_time="$(awk '{print $22}' "/proc/$$/stat")"
+    start_time="$(awk "{print \\$22}" "/proc/$$/stat")"
     printf "%s %s\n" "$$" "${start_time}" >"${pid_file}"
     exec "${python_bin}" "$@" >"${log_file}" 2>&1
 ' -- "${broker_pid_file}" "${broker_log}" "${python_bin}" "${broker_script}" \
