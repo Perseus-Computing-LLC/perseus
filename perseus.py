@@ -30716,6 +30716,14 @@ def _find_vault_binary(configured_command: list[str]) -> str | None:
     if resolved:
         return resolved
 
+    # An explicitly configured executable is an operator contract. Do not
+    # silently replace an unknown name with a different installed Vault binary:
+    # callers need a clear failure when their configured command is misspelled
+    # or unavailable. The known-path fallback exists only for the canonical
+    # default launcher, which may be absent from a service's minimal PATH.
+    if binary_name != "perseus-vault":
+        return None
+
     candidates = list(_KNOWN_VAULT_PATHS)
     # Development discovery is limited to the canonical project directory.
     if os.environ.get("PERSEUS_DEV_VAULT_BUILD") == "1":
