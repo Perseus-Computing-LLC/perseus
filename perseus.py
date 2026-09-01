@@ -79,7 +79,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "921214a"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "38f41fe6-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -30694,6 +30694,14 @@ def _find_vault_binary(configured_command: list[str]) -> str | None:
     resolved = _shutil.which(binary_name)
     if resolved:
         return resolved
+
+    # An explicitly configured executable is an operator contract. Do not
+    # silently replace an unknown name with a different installed Vault binary:
+    # callers need a clear failure when their configured command is misspelled
+    # or unavailable. The known-path fallback exists only for the canonical
+    # default launcher, which may be absent from a service's minimal PATH.
+    if binary_name != "perseus-vault":
+        return None
 
     candidates = list(_KNOWN_VAULT_PATHS)
     # Development discovery is limited to the canonical project directory.

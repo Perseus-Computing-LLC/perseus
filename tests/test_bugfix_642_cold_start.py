@@ -42,10 +42,18 @@ def _emitted_config(capsys) -> dict:
     return json.loads(json_text)
 
 
+def _hide_user_launcher(monkeypatch) -> None:
+    """Keep launcher-resolution tests independent of the developer machine."""
+    monkeypatch.setattr(
+        perseus.Path, "home", staticmethod(lambda: Path("/nonexistent-home"))
+    )
+
+
 # ── (b) perseus mcp config ──────────────────────────────────────────────────
 
 def test_mcp_config_prefers_entry_point(monkeypatch, capsys, tmp_path):
     """When `perseus` is on PATH, the emitted config uses the entry point."""
+    _hide_user_launcher(monkeypatch)
     fake = str(tmp_path / "Scripts" / "perseus.exe")
     monkeypatch.setattr(shutil, "which", lambda name, **kw: fake if name == "perseus" else None)
     perseus.print_mcp_config(cfg(), workspace=tmp_path)
@@ -61,6 +69,7 @@ def test_mcp_config_falls_back_to_script_invocation(monkeypatch, capsys, tmp_pat
     that name existed — a config that could never spawn for single-file
     (curl-install) users.
     """
+    _hide_user_launcher(monkeypatch)
     monkeypatch.setattr(shutil, "which", lambda name, **kw: None)
     perseus.print_mcp_config(cfg(), workspace=tmp_path)
     server = _emitted_config(capsys)["mcpServers"]["perseus"]
@@ -73,6 +82,7 @@ def test_mcp_config_fallback_survives_which_failure(monkeypatch, capsys, tmp_pat
     """shutil.which raising (seen off-platform) degrades to the script path."""
     def _boom(name, **kw):
         raise OSError("which exploded")
+    _hide_user_launcher(monkeypatch)
     monkeypatch.setattr(shutil, "which", _boom)
     perseus.print_mcp_config(cfg(), workspace=tmp_path)
     server = _emitted_config(capsys)["mcpServers"]["perseus"]
@@ -98,6 +108,7 @@ def test_command_string_entry_point_stays_bare(monkeypatch):
 
 def test_command_string_fallback_quotes_spaced_paths(monkeypatch):
     """Script fallback quotes tokens with spaces (C:\\Program Files pythons)."""
+    _hide_user_launcher(monkeypatch)
     monkeypatch.setattr(shutil, "which", lambda name, **kw: None)
     fake_python = str(Path("C:/Program Files/Python314/python.exe"))
     monkeypatch.setattr(sys, "executable", fake_python)
@@ -113,6 +124,7 @@ def test_installer_uses_resolved_command_by_default(monkeypatch, tmp_path, capsy
     Single-file install (nothing on PATH): the emitted hook command must be
     the interpreter + artifact, not a dead bare "perseus".
     """
+    _hide_user_launcher(monkeypatch)
     monkeypatch.setattr(shutil, "which", lambda name, **kw: None)
     (tmp_path / ".perseus").mkdir()  # pin _find_project_root to tmp_path
 

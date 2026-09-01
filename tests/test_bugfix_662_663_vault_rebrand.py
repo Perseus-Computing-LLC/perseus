@@ -72,6 +72,16 @@ def test_doctor_warns_when_binary_absent(monkeypatch, tmp_path):
     assert "perseus-vault" in result.remediation
 
 
+def test_binary_fallback_does_not_replace_explicit_configured_command(monkeypatch, tmp_path):
+    fallback = tmp_path / "perseus-vault"
+    fallback.write_text("#!/bin/sh\n", encoding="utf-8")
+    fallback.chmod(0o755)
+    monkeypatch.setattr(perseus.shutil, "which", lambda name: None)
+    monkeypatch.setattr(perseus, "_KNOWN_VAULT_PATHS", [str(fallback)])
+    assert perseus._find_vault_binary(["perseus-vault-typo", "serve"]) is None
+    assert perseus._find_vault_binary(["perseus-vault", "serve"]) == str(fallback)
+
+
 def test_doctor_no_binary_warning_when_present(monkeypatch, tmp_path):
     fake = str(tmp_path / "perseus-vault")
     monkeypatch.setattr(perseus, "_find_vault_binary", lambda cmd: fake)
