@@ -3397,7 +3397,7 @@ def _run_bounded_child(
 
         kwargs["preexec_fn"] = _child_setup
     subreaper_ready = _ensure_child_subreaper() if sys.platform.startswith("linux") else False
-    if sys.platform.startswith("linux") and not subreaper_ready:
+    if sys.platform.startswith("linux") and require_process_containment and not subreaper_ready:
         for fd in (token_fd, guard_read_fd, guard_write_fd, report_read_fd, report_write_fd):
             if fd >= 0:
                 try:

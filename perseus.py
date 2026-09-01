@@ -68,7 +68,14 @@ urllib.__getattr__ = _perseus_lazy_urllib_request
 
 from pathlib import Path
 
-import yaml  # pyyaml
+# PyYAML is required for configuration-backed commands, but importing the
+# generated module must remain safe for dependency-free entry points such as
+# `perseus --help` and `perseus --version`.
+try:
+    import yaml  # pyyaml
+except ImportError:  # pragma: no cover - exercised in a clean subprocess
+    yaml = None
+
 from typing import NamedTuple, Callable
 
 # ── Version (injected by scripts/build.py at build time) ──────────────────
@@ -79,7 +86,7 @@ _PERSEUS_VERSION = "1.0.27"  # replaced at build time by scripts/build.py — se
 # ── Build provenance (injected by scripts/build.py at build time) ───────────
 # Short git SHA of the source revision the artifact was built from (#853).
 # Empty when unknown (unbuilt source tree without git metadata).
-_PERSEUS_BUILD_SHA = "38f41fe6-dirty"  # replaced at build time by scripts/build.py — see #853
+_PERSEUS_BUILD_SHA = "38f41fe-dirty"  # replaced at build time by scripts/build.py — see #853
 
 
 def _perseus_build_sha() -> str:
@@ -835,7 +842,7 @@ DEFAULT_CONFIG["speculate"] = {
 # #755 — runtime cost metering (observe model). DEFAULT OFF: with enabled=false
 # (or no db_path/endpoint) Perseus meters nothing, imports no metering deps, and
 # behaves exactly as before. When on, the deploying agent's provider responses
-# can be observed and recorded into a Plutus ledger (local sqlite via db_path,
+# can be observed and recorded into a Perseus Ledger (local sqlite via db_path,
 # or a remote Ledger via endpoint + LEDGER_API_KEY), tagged workspace/task_type,
 # so a production deployment yields a ledger a customer can re-derive by SQL —
 # the ledger the one-pager / savings-statement generators read. See metering.py.
@@ -3384,8 +3391,21 @@ def _normalize_loaded_config(loaded: dict, warn_legacy: bool = False) -> dict:
     elif isinstance(loaded.get(GUIDE_CONFIG_KEY), dict):
         loaded[GUIDE_CONFIG_KEY] = _normalize_guide_section(loaded[GUIDE_CONFIG_KEY])
 
-    # Only the canonical Perseus Vault configuration block is active. Unknown
-    # top-level memory keys remain untouched and are not interpreted as aliases.
+    # Ledger config: canonical key is `ledger:`; the legacy `plutus:` block is
+    # merged in before defaults are applied. This matters because DEFAULT_CONFIG
+    # always contains a disabled `ledger` mapping. Canonical values win key by
+    # key when both names are present, while legacy-only deployments continue to
+    # resolve exactly as they did before the rename.
+    legacy_ledger = loaded.pop("plutus", None)
+    if isinstance(legacy_ledger, dict):
+        if warn_legacy:
+            sys.stderr.write("[perseus] config: 'plutus' key is deprecated, rename to 'ledger'\n")
+        merged = dict(legacy_ledger)
+        if isinstance(loaded.get("ledger"), dict):
+            _deep_merge_dicts(merged, loaded["ledger"])
+        loaded["ledger"] = merged
+    elif isinstance(loaded.get("ledger"), dict):
+        loaded["ledger"] = dict(loaded["ledger"])
 
     return loaded
 
@@ -4518,12 +4538,25 @@ _MTR_STATUS_PATH_CACHE: Path | None = None
 def _mtr_cfg(cfg: dict) -> dict:
     if not isinstance(cfg, dict):
         return {}
-    # Canonical key is "ledger"; the pre-2026-08-09 "plutus" key is honored as
-    # a legacy alias so existing deployments keep working unchanged.
-    p = cfg.get("ledger")
-    if not isinstance(p, dict):
-        p = cfg.get("plutus")
-    return p if isinstance(p, dict) else {}
+    canonical = cfg.get("ledger")
+    legacy = cfg.get("plutus")
+    if isinstance(canonical, dict):
+        if isinstance(legacy, dict):
+            # Direct callers may pass DEFAULT_CONFIG plus a legacy override
+            # without going through load_config(). Treat values identical to the
+            # baked-in defaults as inherited, while explicit canonical values
+            # still win over the legacy alias.
+            defaults = globals().get("DEFAULT_CONFIG", {}).get("ledger", {})
+            if isinstance(defaults, dict):
+                merged = dict(legacy)
+                merged.update({
+                    key: value
+                    for key, value in canonical.items()
+                    if key not in defaults or defaults[key] != value
+                })
+                return merged
+        return canonical
+    return legacy if isinstance(legacy, dict) else {}
 
 
 def metering_enabled(cfg: dict) -> bool:
@@ -4830,7 +4863,7 @@ def meter_response(cfg: dict, response: Any, *, provider: Optional[str] = None,
                    baseline_input_tokens: Optional[int] = None,
                    baseline_output_tokens: Optional[int] = None,
                    run_id: Optional[str] = None):
-    """Meter one provider response into the configured Plutus ledger.
+    """Meter one provider response into the configured Perseus Ledger.
 
     ``response`` is the object a provider SDK returned (or a dict with a
     ``usage`` block). The provider is auto-detected from the usage shape unless
@@ -4841,7 +4874,7 @@ def meter_response(cfg: dict, response: Any, *, provider: Optional[str] = None,
     Savings baselines (#805): pass what this call would have cost WITHOUT
     Perseus — ``baseline_input_tokens``/``baseline_output_tokens`` (the
     counterfactual token counts, e.g. the full-context prompt a recall
-    replaced; priced by Plutus from its published table), ``baseline_model``
+    replaced; priced by Perseus Ledger from its published table), ``baseline_model``
     (same tokens at another model = substitution savings), or an explicit
     ``baseline_cost_usd``. Requires ledger_agent with ledger#134; an older
     ledger_agent still meters spend and drops the baseline with one warning.
@@ -23924,7 +23957,7 @@ class MemorySegment:
         """Return the deterministic, hash-only #882 render-attestation projection.
 
         The trace carries enough served-memory provenance to bind a rendered
-        context to a Plutus evidence receipt, while deliberately excluding the
+        context to a Perseus Ledger evidence receipt, while deliberately excluding the
         context body and every recalled memory's content/summary.
         """
         memories = []
@@ -26406,8 +26439,7 @@ def _maybe_meter_posture_reduction(cfg: dict, actual_block: str | None,
     beyond the documented vault call.
     """
     try:
-        p = cfg.get("plutus") if isinstance(cfg, dict) else None
-        p = p if isinstance(p, dict) else {}
+        p = _mtr_cfg(cfg)
         if not p.get("meter_memory_posture"):
             return
         if not metering_enabled(cfg):
@@ -30695,14 +30727,6 @@ def _find_vault_binary(configured_command: list[str]) -> str | None:
     if resolved:
         return resolved
 
-    # An explicitly configured executable is an operator contract. Do not
-    # silently replace an unknown name with a different installed Vault binary:
-    # callers need a clear failure when their configured command is misspelled
-    # or unavailable. The known-path fallback exists only for the canonical
-    # default launcher, which may be absent from a service's minimal PATH.
-    if binary_name != "perseus-vault":
-        return None
-
     candidates = list(_KNOWN_VAULT_PATHS)
     # Development discovery is limited to the canonical project directory.
     if os.environ.get("PERSEUS_DEV_VAULT_BUILD") == "1":
@@ -30802,9 +30826,7 @@ def _doctor_check_vault_bridge(cfg: dict, workspace: Path) -> DoctorResult:
 
 def _doctor_check_ledger_metering(cfg: dict, workspace: Path) -> DoctorResult:
     """Check supported Ledger runtime wiring without exposing secrets."""
-    p = cfg.get("ledger") if isinstance(cfg, dict) else None
-    if not isinstance(p, dict):
-        p = cfg.get("plutus")  # legacy pre-2026-08-09 key, still honored
+    p = _mtr_cfg(cfg)
     if not isinstance(p, dict) or not p.get("enabled"):
         return DoctorResult("ledger_metering", "ok", "Ledger metering", "disabled", "")
     if not (p.get("endpoint") or p.get("db_path")):
@@ -52785,6 +52807,8 @@ def cmd_prompt_size(args, cfg):
     return _enforce_budgets(report, rows, getattr(args, "strict", False))
 # ──────────────────────────────── Main ────────────────────────────────────────
 
+import sys
+
 def _main_impl():
     parser = argparse.ArgumentParser(
         prog="perseus",
@@ -53577,6 +53601,19 @@ def _main_impl():
     p_explain.add_argument("--json", action="store_true", help="Machine-readable JSON output (always JSON currently)")
 
     args = parser.parse_args()
+
+    # Keep dependency-free entry points (`--help`/`--version`) usable on a
+    # stock Python installation. argparse exits before this point for those
+    # flags; every command that reaches configuration/runtime code gets one
+    # actionable diagnostic instead of a raw ModuleNotFoundError traceback.
+    if yaml is None:
+        print(
+            "Perseus requires PyYAML for CLI commands. Install it with "
+            "`pip install perseus-ctx` or `pip install pyyaml`.",
+            file=sys.stderr,
+        )
+        return 1
+
     if getattr(args, "offline", False):
         activate_offline_mode()
     cfg = load_config()

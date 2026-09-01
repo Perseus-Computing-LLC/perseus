@@ -36,6 +36,18 @@ mcp = ["mcp"]
 # CI runs a dedicated leg installing these so the adapter tests never skip.
 adapters = ["langchain-core>=0.3", "llama-index-core>=0.12"]
 
+# ``uv run`` installs the default ``dev`` group, so the documented local test
+# gate is self-provisioning. Keep this separate from runtime dependencies and
+# mirror the optional ``dev`` extra above for pip consumers.
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "coverage",
+    "hypothesis",
+    "jsonschema>=4.0",
+    "reportlab>=4.0,<5",
+]
+
 [project.urls]
 Homepage = "https://perseus.observer"
 Documentation = "https://perseus.observer/docs/"
@@ -47,7 +59,8 @@ Repository = "https://github.com/Perseus-Computing-LLC/perseus"
 perseus = "perseus:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--strict-markers"
+pythonpath = ["."]
+addopts = "--strict-markers -m \"not privileged_acceptance\""
 markers = [
   "slow: tests that intentionally exercise slower end-to-end or benchmark paths",
   "privileged_acceptance: tests that require the trusted cgroup broker and run only in the push-to-main acceptance workflow",

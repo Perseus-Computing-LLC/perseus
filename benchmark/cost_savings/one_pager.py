@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Generate the customer-facing one-pager from a signed cost-savings report
+"""Generate a historical customer-facing one-pager from a content-hashed cost-savings report
 (#749). GENERATED, never hand-typed: every number renders from the committed
-report JSONs; if a figure cannot be traced to a signed artifact it does not
+report JSONs; if a figure cannot be traced to a committed artifact it does not
 appear. Emits markdown (repo/email) and a self-contained print-friendly HTML
 (print to PDF for handouts).
 
@@ -14,6 +14,7 @@ appear. Emits markdown (repo/email) and a self-contained print-friendly HTML
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from datetime import date
 from pathlib import Path
@@ -27,8 +28,6 @@ TYPE_LABELS = {
     "temporal-reasoning": "Temporal reasoning",
 }
 
-VERIFY_SQL = ("SELECT w.name, SUM(u.cost_micros)/1e6 AS usd FROM usage_events u "
-              "JOIN workspaces w ON w.id=u.workspace_id GROUP BY w.id;")
 
 
 def load(p: str) -> dict:
@@ -36,6 +35,19 @@ def load(p: str) -> dict:
 
 
 def build_facts(report: dict, qa: dict) -> dict:
+    if report.get("record_status") != "historical":
+        raise ValueError("one-pager inputs must be marked record_status='historical'")
+    declared_hash = report.get("content_hash_sha256")
+    if not isinstance(declared_hash, str) or len(declared_hash) != 64:
+        raise ValueError("one-pager input is missing content_hash_sha256")
+    payload = dict(report)
+    payload.pop("content_hash_sha256", None)
+    expected_hash = hashlib.sha256(
+        json.dumps(payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    if declared_hash != expected_hash:
+        raise ValueError("one-pager input content_hash_sha256 does not match its report")
+
     base = report["arms"]["fullcontext"]
     ours = report["arms"]["vault"]
     by_type = {}
@@ -43,7 +55,7 @@ def build_facts(report: dict, qa: dict) -> dict:
         for t, row in qa["systems"][system]["by_question_type"].items():
             by_type.setdefault(t, {"n": row["n"]})[key] = row["accuracy"]
     return {
-        "date": report.get("_generated") or str(date.today()),
+        "date": report.get("run_date") or report.get("_generated") or str(date.today()),
         "savings_pct": report["savings_pct"],
         "base_usd": base["ledger_cost_usd"],
         "ours_usd": ours["ledger_cost_usd"],
@@ -57,8 +69,8 @@ def build_facts(report: dict, qa: dict) -> dict:
         "model": report["answerer_model"],
         "answer_prompt": report.get("answer_prompt", "plain"),
         "price_table": report["price_table_as_of"],
-        "sig": report["signature_sha256"][:16],
-        "qa_sig": report.get("qa_signature_sha256", "")[:16],
+        "sig": report["content_hash_sha256"][:16],
+        "qa_sig": (report.get("qa_content_hash_sha256") or "")[:16],
         "by_type": by_type,
         "tok_ratio": base["ledger_tokens"] / max(1, ours["ledger_tokens"]),
     }
@@ -71,9 +83,11 @@ def render_md(f: dict) -> str:
         f"| {TYPE_LABELS.get(t, t)} | {v['n']} | **{v['base'] * 100:.0f}%** | "
         f"{v['ours'] * 100:.0f}% |"
         for t, v in sorted(f["by_type"].items(), key=lambda kv: -kv[1]["n"]))
-    return f"""# Perseus + Vault: verified LLM savings statement
+    return f"""# Historical Perseus + Vault: cost-savings measurement record
 
-**{f['savings_pct']:.1f}% fewer LLM dollars. {f['acc_delta']:+.1f} points MORE accurate. Read from the meter, not a marketing model.**
+> Historical run record. These dated results are preserved for reproducibility; they are not a current benchmark, product-quality, production, or customer-outcome claim.
+
+**{f['savings_pct']:.1f}% fewer LLM dollars and {f['acc_delta']:+.1f} points on this {f['n']}-question sample. Read from the meter, not a marketing model.**
 
 We ran the same {f['n']} memory-recall tasks two ways, with the same model
 (`{f['model']}`) answering and the same official benchmark judge grading both:
@@ -84,8 +98,8 @@ We ran the same {f['n']} memory-recall tasks two ways, with the same model
 | **With Perseus + Vault** | **${f['ours_usd']:.2f}** | **{f['ours_tok']:,}** | **{f['ours_acc']:.1f}%** |
 
 Perseus + Vault loads only the context each task needs ({f['tok_ratio']:.1f}x fewer
-tokens), so the model reads less, costs less, and answers better: long stuffed
-prompts measurably LOSE accuracy on the tasks agents do most.
+tokens). On this historical sample, the product arm used fewer tokens and scored higher;
+ that observation is not a general accuracy or production guarantee.
 
 | task type | n | full context | Perseus + Vault |
 |---|---:|---:|---:|
@@ -93,35 +107,38 @@ prompts measurably LOSE accuracy on the tasks agents do most.
 
 ## Why you can trust this number
 
-1. **Dollars come from a meter, not a spreadsheet.** Every model call in both
-   arms was recorded as a usage event in a [Plutus](https://github.com/Perseus-Computing-LLC/plutus)
-   ledger; the totals above are sums over that ledger, reproducible with one
-   line of SQL against the shipped ledger file:
-   `{VERIFY_SQL}`
+1. **Dollars came from a meter, not a spreadsheet.** Every model call in both
+   arms was recorded as a usage event in a Perseus Ledger. The dated public
+   bundle preserves the integer report totals and content hash, but not the
+   companion Ledger database; re-querying this historical run from the bundle
+   is therefore unavailable. Verify savings against your own provider invoice,
+   which is the strongest baseline anyway.
 2. **Accuracy is graded by the benchmark's own judge**, not ours: LongMemEval's
    official per-question-type prompts, pinned `{f['model']}`, temperature 0,
    `answer_prompt: {f['answer_prompt']}`.
 3. **The task sample is stratified, not cherry-picked**: {f['n']} questions drawn
    proportionally from all six LongMemEval question types, first-N per type in
-   dataset order. Full methodology, signed reports ({f['sig']}... /
+   dataset order. Full methodology, immutable report content hashes ({f['sig']}... /
    {f['qa_sig']}...), and the harness that reproduces the run are public:
    `benchmark/cost_savings/` in the Perseus repo.
 
 ## Stated limits (we would rather you check than take our word)
 
-- Sample size is {f['n']} questions; per-task-type cells are small. The signed
-  full-500 accuracy distribution for the product arm is published separately
-  (historical 79.0% mean, official CoT prompt; latest paired confirmation is 82.0% on the benchmarks page).
-- The ledger is integer-exact and independently re-queryable, but not yet
-  cryptographically tamper-evident; that hardening is scheduled and tracked
-  publicly. Until then, we recommend verifying savings against your own
-  provider invoice, which is the strongest baseline anyway.
+- Sample size is {f['n']} questions; per-task-type cells are small. Older full-500
+  QA reports are historical engineering evidence only; they are not current benchmark
+  claims and are not promoted by this record.
+- The dated report is content-hash verifiable, but its companion Ledger database was not
+  retained. The original run record therefore cannot be re-queried from this historical
+  bundle, and it did not establish tamper evidence for the Ledger events. That limitation
+  applies to this historical file only and must not be read as a statement about the current
+  Ledger implementation. Verify savings against your own provider invoice and a current
+  Ledger run with its database retained.
 - Prices from the public price table as of {f['price_table']}; the savings
   PERCENTAGE is rate-invariant (same model both arms).
 
 ---
 *Perseus Computing LLC · perseus.observer · perseus@perseus.observer ·
-generated {f['date']} from signed report {f['sig']}...*
+generated {f['date']} from content-hashed report {f['sig']}...*
 """
 
 
@@ -133,7 +150,7 @@ def render_html(f: dict) -> str:
         for t, v in sorted(f["by_type"].items(), key=lambda kv: -kv[1]["n"]))
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
-<title>Perseus + Vault: verified LLM savings statement</title>
+<title>Historical Perseus + Vault: cost-savings measurement record</title>
 <style>
   @page {{ size: letter; margin: 14mm; }}
   body {{ font: 10.5pt/1.45 'IBM Plex Sans', 'Segoe UI', sans-serif; color: #16181d;
@@ -154,9 +171,9 @@ def render_html(f: dict) -> str:
   footer {{ margin-top: 12px; font-size: 8.5pt; color: #666; border-top: 1px solid #d7d9df;
             padding-top: 6px; }}
 </style></head><body>
-<h1>Perseus + Vault: verified LLM savings statement</h1>
-<div class="headline">{f['savings_pct']:.1f}% fewer LLM dollars. {f['acc_delta']:+.1f} points MORE
-accurate. Read from the meter, not a marketing model.</div>
+<h1>Historical Perseus + Vault: cost-savings measurement record</h1>
+<p class="limits">Historical run record. These dated results are preserved for reproducibility; they are not a current benchmark, product-quality, production, or customer-outcome claim.</p>
+<div class="headline">{f['savings_pct']:.1f}% fewer LLM dollars and {f['acc_delta']:+.1f} points on this {f['n']}-question sample. Read from the meter, not a marketing model.</div>
 
 <p>We ran the same {f['n']} memory-recall tasks two ways, with the same model
 (<code>{f['model']}</code>) answering and the same official benchmark judge grading both:</p>
@@ -167,49 +184,54 @@ accurate. Read from the meter, not a marketing model.</div>
 <tr><td><b>With Perseus + Vault</b></td><td class="win">${f['ours_usd']:.2f}</td><td class="win">{f['ours_tok']:,}</td><td class="win">{f['ours_acc']:.1f}%</td></tr>
 </tbody></table>
 
-<p>Perseus + Vault loads only the context each task needs ({f['tok_ratio']:.1f}x fewer tokens), so
-the model reads less, costs less, and answers better: long stuffed prompts measurably
-<em>lose</em> accuracy on the tasks agents do most.</p>
+<p>Perseus + Vault loads only the context each task needs ({f['tok_ratio']:.1f}x fewer tokens). On
+this historical sample, the product arm used fewer tokens and scored higher; that observation is
+not a general accuracy or production guarantee.</p>
 
 <table><thead><tr><th>task type</th><th>n</th><th>full context</th><th>Perseus + Vault</th></tr></thead>
 <tbody>{type_rows}</tbody></table>
 
 <h2>Why you can trust this number</h2>
 <ol>
-<li><b>Dollars come from a meter, not a spreadsheet.</b> Every model call in both arms was
-recorded as a usage event in a Plutus ledger; the totals above are sums over that ledger,
-reproducible with one line of SQL against the shipped ledger file:<br>
-<code>{VERIFY_SQL}</code></li>
+<li><b>Dollars came from a meter, not a spreadsheet.</b> Every model call in both arms was
+recorded as a usage event in Perseus Ledger. The dated public bundle preserves the integer
+report totals and content hash, but not the companion Ledger database; re-querying this
+historical run from the bundle is therefore unavailable. Verify savings against your own
+provider invoice, which is the strongest baseline anyway.</li>
 <li><b>Accuracy is graded by the benchmark's own judge</b>, not ours: LongMemEval's official
 per-question-type prompts, pinned <code>{f['model']}</code>, temperature 0,
 <code>answer_prompt: {f['answer_prompt']}</code>.</li>
 <li><b>The task sample is stratified, not cherry-picked</b>: {f['n']} questions drawn
 proportionally from all six LongMemEval question types, first-N per type in dataset order.
-Full methodology, signed reports ({f['sig']}&hellip; / {f['qa_sig']}&hellip;), and the harness that
+Immutable report content hashes ({f['sig']}&hellip; / {f['qa_sig']}&hellip;) and the harness that
 reproduces the run are public: <code>benchmark/cost_savings/</code> in the Perseus repo.</li>
 </ol>
 
 <h2>Stated limits (we would rather you check than take our word)</h2>
 <div class="limits"><ul>
-<li>Sample size is {f['n']} questions; per-task-type cells are small. The signed full-500
-accuracy distribution for the product arm is published separately (historical 79.0% mean, official CoT prompt; latest paired confirmation is 82.0% on the benchmarks page).</li>
-<li>The ledger is integer-exact and independently re-queryable, but not yet cryptographically
-tamper-evident; that hardening is scheduled and tracked publicly. Until then we recommend
-verifying savings against your own provider invoice, which is the strongest baseline anyway.</li>
+<li>Sample size is {f['n']} questions; per-task-type cells are small. Older full-500
+accuracy reports are historical engineering evidence only; they are not current benchmark claims
+and are not promoted by this record.</li>
+<li>The dated report is content-hash verifiable, but its companion Ledger database was not
+retained. The original run record therefore cannot be re-queried from this historical bundle,
+and it did not establish tamper evidence for the Ledger events. That limitation applies to
+this historical file only and must not be read as a statement about the current Ledger
+implementation. Verify savings against your own provider invoice and a current Ledger run
+with its database retained.</li>
 <li>Prices from the public price table as of {f['price_table']}; the savings percentage is
 rate-invariant (same model both arms).</li>
 </ul></div>
 
 <footer>Perseus Computing LLC &middot; perseus.observer &middot; perseus@perseus.observer &middot;
-generated {f['date']} from signed report {f['sig']}&hellip;</footer>
+generated {f['date']} from content-hashed report {f['sig']}&hellip;</footer>
 </body></html>
 """
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--report", required=True, help="signed cost_savings report json")
-    ap.add_argument("--qa", required=True, help="the run's qa report json (per-type table)")
+    ap.add_argument("--report", required=True, help="content-hashed cost_savings report json")
+    ap.add_argument("--qa", required=True, help="the run's QA report json (per-type table)")
     ap.add_argument("--outdir", required=True)
     args = ap.parse_args()
 
@@ -218,8 +240,8 @@ def main() -> None:
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     (outdir / "ONE-PAGER.md").write_text(render_md(facts), encoding="utf-8")
-    (outdir / "one-pager.html").write_text(render_html(facts), encoding="utf-8")
-    print(f"wrote {outdir / 'ONE-PAGER.md'} and {outdir / 'one-pager.html'} "
+    (outdir / "historical-one-pager.html").write_text(render_html(facts), encoding="utf-8")
+    print(f"wrote {outdir / 'ONE-PAGER.md'} and {outdir / 'historical-one-pager.html'} "
           f"(savings {facts['savings_pct']:.1f}%, accuracy {facts['acc_delta']:+.1f} pts)")
 
 

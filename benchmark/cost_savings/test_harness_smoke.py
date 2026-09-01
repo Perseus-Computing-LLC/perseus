@@ -1,8 +1,8 @@
 """Smoke test for the cost-savings harness (#749): mock mode end-to-end —
-qa.py two-arm run -> journal -> Plutus ledger -> report — asserting the
+qa.py two-arm run -> journal -> Perseus Ledger -> report — asserting the
 plumbing invariants (both arms metered, ledger dollars nonzero, savings
-computed, signature present). Skips when the local prerequisites (vault
-checkout + binary, LongMemEval dataset, plutus-agent) are absent, so CI
+computed, content hash present). Skips when the local prerequisites (vault
+checkout + binary, LongMemEval dataset, ledger_agent) are absent, so CI
 without the ~277 MB dataset stays green.
 """
 
@@ -27,9 +27,9 @@ def _data_path():
 
 def _prereqs():
     try:
-        import plutus_agent  # noqa: F401
+        import ledger_agent  # noqa: F401
     except ImportError:
-        return "plutus-agent not installed"
+        return "ledger_agent not installed"
     if _data_path() is None:
         return "LongMemEval dataset not present (set LME_DATA)"
     env = os.environ.get("PERSEUS_VAULT_REPO")
@@ -52,8 +52,9 @@ def test_mock_mode_meters_both_arms(tmp_path):
 
     report = json.loads((outdir / "cost_savings_report.json").read_text())
     assert report["mode"] == "mock"
-    assert report["signature_sha256"]
-    assert (outdir / "plutus_ledger.db").exists(), "ledger must ship with the report"
+    assert report["record_status"] == "run_record"
+    assert report["content_hash_sha256"]
+    assert (outdir / "ledger.db").exists(), "ledger must ship with the report"
 
     base = report["arms"]["fullcontext"]
     ours = report["arms"]["vault"]

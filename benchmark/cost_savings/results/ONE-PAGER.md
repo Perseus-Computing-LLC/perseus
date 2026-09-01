@@ -1,6 +1,8 @@
-# Perseus + Vault: verified LLM savings statement
+# Historical Perseus + Vault: cost-savings measurement record
 
-**75.1% fewer LLM dollars. +11.7 points MORE accurate. Read from the meter, not a marketing model.**
+> Historical run record. These dated results are preserved for reproducibility; they are not a current benchmark, product-quality, production, or customer-outcome claim.
+
+**75.1% fewer LLM dollars and +11.7 points on this 60-question sample. Read from the meter, not a marketing model.**
 
 We ran the same 60 memory-recall tasks two ways, with the same model
 (`gpt-4o-2024-08-06`) answering and the same official benchmark judge grading both:
@@ -11,8 +13,8 @@ We ran the same 60 memory-recall tasks two ways, with the same model
 | **With Perseus + Vault** | **$3.91** | **1,529,807** | **66.7%** |
 
 Perseus + Vault loads only the context each task needs (4.1x fewer
-tokens), so the model reads less, costs less, and answers better: long stuffed
-prompts measurably LOSE accuracy on the tasks agents do most.
+tokens). On this historical sample, the product arm used fewer tokens and scored higher;
+ that observation is not a general accuracy or production guarantee.
 
 | task type | n | full context | Perseus + Vault |
 |---|---:|---:|---:|
@@ -25,32 +27,35 @@ prompts measurably LOSE accuracy on the tasks agents do most.
 
 ## Why you can trust this number
 
-1. **Dollars come from a meter, not a spreadsheet.** Every model call in both
-   arms was recorded as a usage event in a [Plutus](https://github.com/Perseus-Computing-LLC/plutus)
-   ledger; the totals above are sums over that ledger, reproducible with one
-   line of SQL against the shipped ledger file:
-   `SELECT w.name, SUM(u.cost_micros)/1e6 AS usd FROM usage_events u JOIN workspaces w ON w.id=u.workspace_id GROUP BY w.id;`
+1. **Dollars came from a meter, not a spreadsheet.** Every model call in both
+   arms was recorded as a usage event in a Perseus Ledger. The dated public
+   bundle preserves the integer report totals and content hash, but not the
+   companion Ledger database; re-querying this historical run from the bundle
+   is therefore unavailable. Verify savings against your own provider invoice,
+   which is the strongest baseline anyway.
 2. **Accuracy is graded by the benchmark's own judge**, not ours: LongMemEval's
    official per-question-type prompts, pinned `gpt-4o-2024-08-06`, temperature 0,
    `answer_prompt: official-cot`.
 3. **The task sample is stratified, not cherry-picked**: 60 questions drawn
    proportionally from all six LongMemEval question types, first-N per type in
-   dataset order. Full methodology, signed reports (aa6533853096dfbe... /
+   dataset order. Full methodology, immutable report content hashes (061b9f646d5084a4... /
    efee76f95ae0cc63...), and the harness that reproduces the run are public:
    `benchmark/cost_savings/` in the Perseus repo.
 
 ## Stated limits (we would rather you check than take our word)
 
-- Sample size is 60 questions; per-task-type cells are small. The signed
-  full-500 accuracy distribution for the product arm is published separately
-  (historical 79.0% mean, official CoT prompt; latest paired confirmation is 82.0% on the benchmarks page).
-- The ledger is integer-exact and independently re-queryable, but not yet
-  cryptographically tamper-evident; that hardening is scheduled and tracked
-  publicly. Until then, we recommend verifying savings against your own
-  provider invoice, which is the strongest baseline anyway.
+- Sample size is 60 questions; per-task-type cells are small. Older full-500
+  QA reports are historical engineering evidence only; they are not current benchmark
+  claims and are not promoted by this record.
+- The dated report is content-hash verifiable, but its companion Ledger database was not
+  retained. The original run record therefore cannot be re-queried from this historical
+  bundle, and it did not establish tamper evidence for the Ledger events. That limitation
+  applies to this historical file only and must not be read as a statement about the current
+  Ledger implementation. Verify savings against your own provider invoice and a current
+  Ledger run with its database retained.
 - Prices from the public price table as of 2026-06-26; the savings
   PERCENTAGE is rate-invariant (same model both arms).
 
 ---
 *Perseus Computing LLC · perseus.observer · perseus@perseus.observer ·
-generated 2026-07-11 from signed report aa6533853096dfbe...*
+generated 2026-07-11 from content-hashed report 061b9f646d5084a4...*

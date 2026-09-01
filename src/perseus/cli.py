@@ -1,6 +1,8 @@
 # stdlib imports available from build artifact header
 # ──────────────────────────────── Main ────────────────────────────────────────
 
+import sys
+
 def _main_impl():
     parser = argparse.ArgumentParser(
         prog="perseus",
@@ -793,6 +795,19 @@ def _main_impl():
     p_explain.add_argument("--json", action="store_true", help="Machine-readable JSON output (always JSON currently)")
 
     args = parser.parse_args()
+
+    # Keep dependency-free entry points (`--help`/`--version`) usable on a
+    # stock Python installation. argparse exits before this point for those
+    # flags; every command that reaches configuration/runtime code gets one
+    # actionable diagnostic instead of a raw ModuleNotFoundError traceback.
+    if yaml is None:
+        print(
+            "Perseus requires PyYAML for CLI commands. Install it with "
+            "`pip install perseus-ctx` or `pip install pyyaml`.",
+            file=sys.stderr,
+        )
+        return 1
+
     if getattr(args, "offline", False):
         activate_offline_mode()
     cfg = load_config()

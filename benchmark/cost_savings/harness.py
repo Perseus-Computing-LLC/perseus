@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """Verifiable cost-savings benchmark: Perseus+Vault vs full-context stuffing,
-dollar-metered through the Plutus ledger, accuracy-gated (#749).
+dollar-metered through the Perseus Ledger, accuracy-gated (#749).
 
 Two arms, identical task set, identical pinned answerer+judge, both metered
-into a Plutus ledger via ``plutus_agent.metering.record_usage``:
+into a Perseus Ledger via ``ledger_agent.metering.record_usage``:
 
 - ``fullcontext``  — every question gets the whole haystack (baseline).
 - ``vault``        — Perseus Vault hybrid recall, top-k (the product arm).
 
-The arms are produced by the vault's signed LongMemEval QA harness
+The arms are produced by the vault's content-hashed LongMemEval QA harness
 (``perseus-vault/benchmark/longmemeval/qa.py --systems fullcontext vault``) —
 the same official-judge methodology behind the published accuracy numbers —
 so the savings figure and the accuracy gate come from ONE run under ONE
-config. Dollars come from the Plutus ledger (``spend_by(dimension=
+config. Dollars come from the Perseus Ledger (``spend_by(dimension=
 "workspace")``), not hand math: each answer/judge call is metered as a usage
 event tagged with its arm, and the report reads the ledger back.
 
 Modes:
   --mode mock   (default) free: qa.py --mock-llm — real ingest + retrieval +
                 real per-question prompt-token counts, stub LLM. Dollars are
-                estimates (token counts x the Plutus price table); accuracy
+                estimates (token counts x the Perseus Ledger price table); accuracy
                 is mock-graded. This is the plumbing smoke AND the free
                 savings estimator.
   --mode live   paid: provider-billed token usage (ans_usage/judge_usage from
@@ -33,10 +33,10 @@ PERSEUS_VAULT_REPO):
   python benchmark/cost_savings/harness.py \
       --data ~/lme-data/longmemeval_s_cleaned.json --limit 10 --mode mock
 
-Report: ``cost_savings_report.json`` — per-arm ledger dollars, tokens,
-events, accuracy, savings %, full config, and a sha256 signature over the
-result set. The Plutus ledger itself is left on disk next to the report
-(``plutus_ledger.db``) so the numbers can be independently re-queried.
+Report: ``cost_savings_report.json`` — per-arm Ledger dollars, tokens,
+events, accuracy, savings %, full config, and a content hash over the
+result set. The Perseus Ledger itself is left on disk next to the report
+(``ledger.db``) so the numbers can be independently re-queried.
 """
 
 from __future__ import annotations
@@ -88,7 +88,7 @@ ARM_WORKSPACE = {"fullcontext": "baseline-fullcontext", "vault": "perseus-vault"
 
 def meter_journal(conn, org_id: str, journal: Path, mode: str,
                   answer_model: str, judge_model: str) -> dict:
-    """Meter every graded qa.py journal record into the Plutus ledger.
+    """Meter every graded qa.py journal record into the Perseus Ledger.
 
     live: provider-billed ans_usage/judge_usage per call (source='api').
     mock: the journal's real prompt-token estimate per answer call
@@ -96,7 +96,7 @@ def meter_journal(conn, org_id: str, journal: Path, mode: str,
           no API call and reports no usage).
     Returns counters for the report.
     """
-    from plutus_agent import metering
+    from ledger_agent import metering
 
     counts = {arm: {"events": 0, "skipped": 0} for arm in ARM_WORKSPACE}
     with open(journal, encoding="utf-8") as fh:
@@ -133,7 +133,7 @@ def meter_journal(conn, org_id: str, journal: Path, mode: str,
                     workspace=ws, source=source,
                 )
                 if not res.recorded:
-                    sys.exit(f"plutus dropped a usage event ({res}); "
+                    sys.exit(f"ledger_agent dropped a usage event ({res}); "
                              "ledger would understate spend — aborting")
                 counts[system]["events"] += 1
     return counts
@@ -159,10 +159,10 @@ def main() -> None:
     args = ap.parse_args()
 
     try:
-        from plutus_agent import db as pdb
-        from plutus_agent import metering, pricing
+        from ledger_agent import db as pdb
+        from ledger_agent import metering, pricing
     except ImportError:
-        sys.exit("pip install plutus-agent (the meter this harness reports from)")
+        sys.exit("pip install perseus-ledger (the meter this harness reports from)")
 
     qa = find_qa()
     vault_repo = qa.parent.parent.parent
@@ -202,15 +202,15 @@ def main() -> None:
     answer_model = report.get("answerer_model", "gpt-4o-2024-08-06")
     judge_model = report.get("judge_model", answer_model)
 
-    # ── 2. meter every call into a fresh Plutus ledger ──────────────────────
-    ledger_path = outdir / "plutus_ledger.db"
+    # ── 2. meter every call into a fresh Perseus Ledger ──────────────────────
+    ledger_path = outdir / "ledger.db"
     if ledger_path.exists():
         ledger_path.unlink()
     conn = pdb.connect(ledger_path)
     pdb.init_schema(conn)
     org = pdb.create_org(conn, "costsave-bench", tier="enterprise")
     org_id = org["id"]
-    print(f"[2/3] metering journal into the Plutus ledger ({ledger_path.name}) ...",
+    print(f"[2/3] metering journal into the Perseus Ledger ({ledger_path.name}) ...",
           flush=True)
     counts = meter_journal(conn, org_id, journal, args.mode,
                            answer_model, judge_model)
@@ -241,12 +241,13 @@ def main() -> None:
 
     result = {
         "benchmark": "perseus-vault-cost-savings (#749)",
+        "record_status": "run_record",
         "mode": args.mode,
         "accuracy_grading": ("official LongMemEval per-type judge" if args.mode == "live"
                               else "mock judge (plumbing/estimate mode — do NOT quote)"),
-        "dollars": ("provider-billed tokens x Plutus price table"
+        "dollars": ("provider-billed tokens x Perseus Ledger price table"
                      if args.mode == "live" else
-                     "estimated prompt tokens x Plutus price table (input side only)"),
+                     "estimated prompt tokens x Perseus Ledger price table (input side only)"),
         "price_table_as_of": pricing.PRICE_TABLE_AS_OF,
         "answerer_model": answer_model,
         "judge_model": judge_model,
@@ -258,12 +259,17 @@ def main() -> None:
         "savings_pct": None if savings_pct is None else round(savings_pct, 2),
         "accuracy_delta": acc_delta,
         "qa_report": qa_report.name,
-        "qa_signature_sha256": report.get("signature_sha256"),
-        "plutus_ledger": ledger_path.name,
+        # Current qa.py reports expose this as signature_sha256 for backward
+        # compatibility; the cost report records it under its truthful meaning.
+        "qa_content_hash_sha256": report.get(
+            "content_hash_sha256", report.get("signature_sha256")
+        ),
+        "ledger_db": ledger_path.name,
+        "ledger_db_retained": True,
     }
-    sig = hashlib.sha256(
+    content_hash = hashlib.sha256(
         json.dumps(result, sort_keys=True).encode("utf-8")).hexdigest()
-    result["signature_sha256"] = sig
+    result["content_hash_sha256"] = content_hash
 
     out = outdir / "cost_savings_report.json"
     out.write_text(json.dumps(result, indent=2), encoding="utf-8")
@@ -281,7 +287,7 @@ def main() -> None:
     if args.mode == "mock":
         print("  [mock mode: dollars are estimates, accuracy is stub-graded — "
               "run --mode live for quotable numbers]")
-    print(f"  signature: {sig[:16]}...")
+    print(f"  content hash: {content_hash[:16]}...")
 
 
 if __name__ == "__main__":

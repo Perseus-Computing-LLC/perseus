@@ -315,8 +315,21 @@ def _normalize_loaded_config(loaded: dict, warn_legacy: bool = False) -> dict:
     elif isinstance(loaded.get(GUIDE_CONFIG_KEY), dict):
         loaded[GUIDE_CONFIG_KEY] = _normalize_guide_section(loaded[GUIDE_CONFIG_KEY])
 
-    # Only the canonical Perseus Vault configuration block is active. Unknown
-    # top-level memory keys remain untouched and are not interpreted as aliases.
+    # Ledger config: canonical key is `ledger:`; the legacy `plutus:` block is
+    # merged in before defaults are applied. This matters because DEFAULT_CONFIG
+    # always contains a disabled `ledger` mapping. Canonical values win key by
+    # key when both names are present, while legacy-only deployments continue to
+    # resolve exactly as they did before the rename.
+    legacy_ledger = loaded.pop("plutus", None)
+    if isinstance(legacy_ledger, dict):
+        if warn_legacy:
+            sys.stderr.write("[perseus] config: 'plutus' key is deprecated, rename to 'ledger'\n")
+        merged = dict(legacy_ledger)
+        if isinstance(loaded.get("ledger"), dict):
+            _deep_merge_dicts(merged, loaded["ledger"])
+        loaded["ledger"] = merged
+    elif isinstance(loaded.get("ledger"), dict):
+        loaded["ledger"] = dict(loaded["ledger"])
 
     return loaded
 

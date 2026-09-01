@@ -63,7 +63,14 @@ urllib.__getattr__ = _perseus_lazy_urllib_request
 
 from pathlib import Path
 
-import yaml  # pyyaml
+# PyYAML is required for configuration-backed commands, but importing the
+# generated module must remain safe for dependency-free entry points such as
+# `perseus --help` and `perseus --version`.
+try:
+    import yaml  # pyyaml
+except ImportError:  # pragma: no cover - exercised in a clean subprocess
+    yaml = None
+
 from typing import NamedTuple, Callable
 
 # ── Version (injected by scripts/build.py at build time) ──────────────────

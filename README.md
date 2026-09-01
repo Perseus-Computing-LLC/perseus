@@ -27,6 +27,8 @@ and verifies a render. Step 3 writes the file your assistant loads at session
 start (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, ...). Keep it live with
 `perseus watch` (or cron/systemd/launchd). Full walkthrough:
 [Quickstart](https://github.com/Perseus-Computing-LLC/perseus/blob/main/docs/quickstart.md).
+For the one-page product boundary and independent evaluation sequence, see the
+[Evaluator Guide](docs/EVALUATOR_GUIDE.md).
 
 ### What you get
 
@@ -70,9 +72,19 @@ for assistant profiles, refresh options, and security settings.
 
 Perseus Context Engine resolves live workspace state before execution. Perseus Vault carries selected, time-valid memory across sessions. Perseus Ledger records supplied events and evidence references for later review. The operator still chooses the model, keys, data path, deployment, and execution authority.
 
-The latest accepted company-run frozen-default official-CoT series scored **80.9% mean (1,213/1,500)** on LongMemEval-S across three runs (80.2%, 80.6%, and 81.8%). The matched full-context control scored **66.9%** and the gold-session oracle scored **90.8%**. The [public series report](https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_cot_frozen_default_series_20260828.json) contains the per-run scores, category breakdown, protocol, and hash commitments.
+The current source-checked LongMemEval measurement is the fully offline, judge-free
+**session-level recall** lane in the Perseus Vault repository. On the public `_s`
+split (500 questions, 23,867 ingested sessions), the committed hybrid path reaches
+**83.2% recall@1, 96.6% recall@3, 98.8% recall@5, 99.8% recall@10, and 0.8949 MRR**
+against `answer_session_ids`. This is a company-run retrieval measurement: it is
+retrieval-only, not end-to-end QA accuracy; not a customer result, production
+validation, independent holdout, or cross-model comparison; the [committed report](https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/report-currentmain-2026-08-16.json),
+[harness](https://github.com/Perseus-Computing-LLC/perseus-vault/tree/main/benchmark/longmemeval),
+and methodology boundaries are public.
 
-A separate evidence-structured paired confirmation scored **410/500 (82.0%)** versus **416/500 (83.2%)** for its matched full-context control. The preregistered success rule failed, so that result is kept separate and is not a superiority, independent-holdout, customer, deployment, or production-authorization claim. Read the [methods desk](https://perseus.observer/benchmarks/) and [canonical claim registry](claims.json) before reusing either number.
+Deprecated answerer/judge experiments are not current product claims. Read the
+[Evaluator Guide](docs/EVALUATOR_GUIDE.md) and [canonical claim registry](claims.json)
+before reusing a measurement.
 
 <!-- mcp-name: io.github.Perseus-Computing-LLC/perseus -->
 
@@ -270,7 +282,7 @@ Published as [`io.github.Perseus-Computing-LLC/perseus`](https://registry.modelc
 
 ### Current MCP interface
 
-<!-- test-count: 2802 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
+<!-- test-count: 2813 — recount with: grep -rE "^\s*def test_" tests/ | wc -l -->
 
 Perseus Context Engine exposes workspace-context operations over MCP. The current public interface centers on rendering and inspecting context, checking health, reading explicitly allowed workspace sources, and connecting to Perseus Vault for durable memory. Code-level compatibility identifiers are not separate Perseus products.
 

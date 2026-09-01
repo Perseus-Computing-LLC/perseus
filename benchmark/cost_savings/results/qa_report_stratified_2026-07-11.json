@@ -131,7 +131,6 @@
   },
   "elapsed_secs": 1036.3,
   "tpm_budget": 600000,
-  "signature_sha256": "efee76f95ae0cc634d1ce74cdc90ca6177b5b43fd41818322f9b05868478d9c0",
   "per_question": [
     {
       "question_id": "e47becba",
@@ -1933,5 +1932,6 @@
         "completion_tokens": 1
       }
     }
-  ]
+  ],
+  "content_hash_sha256": "efee76f95ae0cc634d1ce74cdc90ca6177b5b43fd41818322f9b05868478d9c0"
 }

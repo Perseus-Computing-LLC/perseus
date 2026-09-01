@@ -68,12 +68,25 @@ _MTR_STATUS_PATH_CACHE: Path | None = None
 def _mtr_cfg(cfg: dict) -> dict:
     if not isinstance(cfg, dict):
         return {}
-    # Canonical key is "ledger"; the pre-2026-08-09 "plutus" key is honored as
-    # a legacy alias so existing deployments keep working unchanged.
-    p = cfg.get("ledger")
-    if not isinstance(p, dict):
-        p = cfg.get("plutus")
-    return p if isinstance(p, dict) else {}
+    canonical = cfg.get("ledger")
+    legacy = cfg.get("plutus")
+    if isinstance(canonical, dict):
+        if isinstance(legacy, dict):
+            # Direct callers may pass DEFAULT_CONFIG plus a legacy override
+            # without going through load_config(). Treat values identical to the
+            # baked-in defaults as inherited, while explicit canonical values
+            # still win over the legacy alias.
+            defaults = globals().get("DEFAULT_CONFIG", {}).get("ledger", {})
+            if isinstance(defaults, dict):
+                merged = dict(legacy)
+                merged.update({
+                    key: value
+                    for key, value in canonical.items()
+                    if key not in defaults or defaults[key] != value
+                })
+                return merged
+        return canonical
+    return legacy if isinstance(legacy, dict) else {}
 
 
 def metering_enabled(cfg: dict) -> bool:
@@ -380,7 +393,7 @@ def meter_response(cfg: dict, response: Any, *, provider: Optional[str] = None,
                    baseline_input_tokens: Optional[int] = None,
                    baseline_output_tokens: Optional[int] = None,
                    run_id: Optional[str] = None):
-    """Meter one provider response into the configured Plutus ledger.
+    """Meter one provider response into the configured Perseus Ledger.
 
     ``response`` is the object a provider SDK returned (or a dict with a
     ``usage`` block). The provider is auto-detected from the usage shape unless
@@ -391,7 +404,7 @@ def meter_response(cfg: dict, response: Any, *, provider: Optional[str] = None,
     Savings baselines (#805): pass what this call would have cost WITHOUT
     Perseus — ``baseline_input_tokens``/``baseline_output_tokens`` (the
     counterfactual token counts, e.g. the full-context prompt a recall
-    replaced; priced by Plutus from its published table), ``baseline_model``
+    replaced; priced by Perseus Ledger from its published table), ``baseline_model``
     (same tokens at another model = substitution savings), or an explicit
     ``baseline_cost_usd``. Requires ledger_agent with ledger#134; an older
     ledger_agent still meters spend and drops the baseline with one warning.

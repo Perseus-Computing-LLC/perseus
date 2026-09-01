@@ -1,15 +1,17 @@
-# Cost-savings certification results (#749)
+# Historical cost-savings measurement results (#749)
 
-Live runs of the Perseus+Vault vs full-context cost-savings harness, with
-dollars read back from a Plutus ledger and accuracy graded by the official
-LongMemEval per-type judge. All numbers below are reproduced from the signed
+> **Historical run record.** These dated artifacts preserve reproducible measurements from 2026-07-11. They are not current benchmark, product-quality, production, or customer-outcome claims; current public performance claims live in the canonical claims registry and retrieval report.
+
+Historical live runs of the Perseus+Vault vs full-context cost-savings harness, with
+dollars read back from a Perseus Ledger and accuracy graded by the official
+LongMemEval per-type judge. All numbers below are reproduced from the content-hashed
 artifacts in this directory.
 
 **Headline (stratified run, the representative number): Perseus+Vault spent
 75.1% fewer dollars AND scored 11.7 points higher than full-context stuffing
 on a proportional sample of all six LongMemEval question types.**
 
-## The stratified run (2026-07-11) — quote this one
+## The stratified run (2026-07-11) — representative historical run
 
 The pilot below was flagged "re-run stratified before quoting accuracy next to
 dollars"; this is that run. Sample: 60 questions, proportional to the full-500
@@ -41,17 +43,17 @@ deterministically — first-N per type in dataset order, no cherry-picking
   (lost-in-the-middle) — while paying 4.1x the tokens for it. The one
   category it won (knowledge-update, 9 questions) is within small-n noise.
 - 120 metered events per arm (60 answer + 60 judge), 0 errors, 0 dropped.
-- Signatures: cost-savings report `aa6533853096dfbe...`, qa report
+- Content hashes: cost-savings report `061b9f646d5084a4...`, QA content hash
   `efee76f95ae0cc63...`. Artifacts:
   [`cost_savings_stratified_2026-07-11.json`](cost_savings_stratified_2026-07-11.json),
   [`qa_report_stratified_2026-07-11.json`](qa_report_stratified_2026-07-11.json).
 
 Caveats that remain (stated so nobody overquotes): n=60 means per-type cells
 are noisy (4–16 questions each); the deterministic first-N-per-type subset
-skews slightly harder than the full mix (product arm 66.7% here vs the signed
-historical 79.0% full-500 CoT mean — both arms face the same questions, so the DELTA is
-the robust stat); and the ledger tamper-evidence gap below applies to every
-run.
+skews slightly harder than the full mix (product arm 66.7% here vs the older
+content-hashed historical full-500 QA evidence — both arms face the same
+questions, so the DELTA is the robust stat); and the dated ledger-integrity
+boundary below applies to this historical run.
 
 Subset construction (deterministic, reproducible):
 
@@ -71,8 +73,8 @@ quota = {t: max(4, round(c * 60 / 500)) for t, c in type_counts.items()}
 | judge model | `gpt-4o-2024-08-06`, official LongMemEval per-type prompt |
 | answer prompt | `official-cot` |
 | vault binary | `perseus-vault 2.20.2` (commit `eb8bc17`) |
-| Plutus price table | as of `2026-06-26` |
-| metering | every answer and judge call recorded via `plutus_agent.metering.record_usage`, one workspace per arm |
+| Perseus Ledger price table | as of `2026-06-26` |
+| metering | every answer and judge call recorded via `ledger_agent.metering.record_usage`, one workspace per arm |
 
 ## Result
 
@@ -85,23 +87,23 @@ quota = {t: max(4, round(c * 60 / 500)) for t, c in type_counts.items()}
 - **Accuracy delta: +0.12** (the product arm scored higher, not lower, on this slice).
 - 50 metered events per arm (25 answer + 25 judge), 0 errors, 0 dropped events.
 
-Signatures: cost-savings report `d217876646fb814a...`, underlying qa report
+Content hashes: cost-savings report `0411962af3947619...`, underlying QA content hash
 `1db193ec77f9f243...`.
 
 ## Independent verification
 
-The dollars are not hand-computed. They are summed from the per-event
-`cost_micros` written to the ledger at ingest, and the same figure reproduces
-three independent ways:
+The dollars were read back from per-event `cost_micros` in Perseus Ledger at run
+time, rather than hand-computed. The checked-in historical bundle preserves the
+report JSON, its content hash, and the QA report, but it does **not** include the
+companion Ledger database. Consequently, a raw SQL re-query of the historical
+Ledger events is not available from this repository. The token-count calculation
+below is a consistency check only, not a substitute for the original Ledger
+readback or for a provider invoice:
 
-1. The signed `cost_savings_report.json` (`spend_by(dimension="workspace")`).
-2. A raw SQL sum over `usage_events` grouped by workspace in `plutus_ledger.db`.
-3. A recomputation from token counts at the gpt-4o rate ($2.50 / 1M input,
-   $10.00 / 1M output): $6.527300 and $1.389085, matching the ledger to the
-   micro-dollar.
-
-Anyone with the ledger file can re-run step 2 and confirm the number without
-trusting this report.
+- Recompute the listed totals from the recorded token counts at the gpt-4o rate
+  ($2.50 / 1M input, $10.00 / 1M output): $6.527300 and $1.389085 for the pilot.
+- For a savings figure that both a customer and Perseus must trust, verify against
+  the provider invoice and a current Ledger run with its `ledger.db` retained.
 
 ## What is trustworthy here, and what is not
 
@@ -115,28 +117,25 @@ Trustworthy and robust:
 - **The accuracy gate passed.** Under the official judge, the product arm did
   not lose accuracy on this task set; it gained.
 
-Not yet trustworthy as a headline, and stated plainly so it is never overquoted:
+Not yet trustworthy as a general product headline, and stated plainly so it is never overquoted:
 
-- **n = 25 is a small sample.** The signed full-500 reference for the product
-  arm is the historical 79.0% CoT mean (see the vault repo `benchmark/longmemeval/COMPARISON.md`).
-  The 96.0% here is real for this subset but is not the benchmark-wide number.
-- **All 25 questions are the `single-session-user` type.** That is the easiest
-  LongMemEval category. This subset is a favorable, non-stratified slice. The
-  accuracy half of the claim should be re-run stratified across all five
-  question types, and ideally on the full 500, before any accuracy figure is
-  published next to a dollar figure. **(Done — see the stratified run above,
-  which is now the quotable one.)**
-- **The dollars are re-queryable but not tamper-evident.** The Plutus ledger is
-  append-only by convention and integer-exact, but it has no hash chain, MAC, or
-  signature over its rows, so an operator with database access could rewrite
-  history undetectably. For a savings figure that both a customer and Perseus
-  must trust, that gap has to be closed. See the methodology and architecture
-  decision record in the strategy docs.
+- **The pilot's n = 25 is a small, favorable slice.** It is retained as historical
+  provenance; the stratified n = 60 run above is the representative record, but its
+  per-type cells are still noisy and neither run is benchmark-wide.
+- **The accuracy comparison is sample-specific.** The product arm did not lose accuracy
+  on these task sets under the recorded judge, but this does not establish general model
+  quality, production performance, or a customer outcome.
+- **The dated report is content-hash verifiable, but its companion Ledger database was not
+  retained.** The original run record therefore cannot be re-queried from this repository,
+  and it did not establish tamper evidence for the Ledger events. That limitation applies
+  to this historical file only and must not be read as a statement about the current Ledger
+  implementation. For a savings figure that both a customer and Perseus must trust, verify
+  against the provider invoice and a current Ledger run with its database retained.
 
 ## Reproduce
 
 ```
-pip install plutus-agent
+pip install perseus-ledger
 # perseus-vault checked out as a sibling dir (or set PERSEUS_VAULT_REPO),
 # with a release binary at target/release/
 python benchmark/cost_savings/harness.py \
@@ -149,5 +148,5 @@ Free plumbing check (no API spend): drop `--mode live --cot --yes` for
 mock numbers are never quotable.
 
 To re-verify the dollars from the ledger without spending anything, open the
-`plutus_ledger.db` produced by the run and sum `cost_micros` grouped by
+`ledger.db` produced by the run and sum `cost_micros` grouped by
 workspace.

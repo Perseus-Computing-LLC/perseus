@@ -2,8 +2,8 @@
   "_meta": {
     "description": "Canonical claim registry for Perseus Computing public surfaces. Every public figure derives from here. When a benchmark re-runs, update THIS file only; scripts/render_claims.py regenerates manifest strings and tests/test_claims_sync.py fails CI if any surface drifts.",
     "updated": "2026-09-03",
-    "public_headline": "longmemeval_cot",
-    "public_headline_policy": "The latest completed three-run frozen-default official-CoT baseline is disclosed with each run, its equal-weight mean, pooled count, matched controls, and claim boundary. The separate evidence-structured paired confirmation remains a distinct experimental result and is not blended into the frozen-default series.",
+    "public_headline": "longmemeval_retrieval_recall10",
+    "public_headline_policy": "The current public LongMemEval measurement is the committed fully offline, judge-free session-level retrieval report: the hybrid path's recall@k and MRR against answer_session_ids on the public split. Deprecated answerer/judge experiments remain isolated as non-publishable historical records.",
     "public_site_positioning": "Perseus is the system around the model: Perseus resolves live context, Vault persists memory, and Ledger records evidence."
   },
   "claims": {
@@ -101,20 +101,21 @@
     },
     "longmemeval_qa": {
       "value": "73.8%",
-      "detail": "historical plain-prompt mean of 3 runs (72.8/73.6/75.0); longmemeval_s 500, gpt-4o-2024-08-06 answerer + official per-type judge; retained as a separate methodology result, not the current paired-confirmation headline",
-      "source": "perseus-vault/benchmark/longmemeval/qa_report*.json + COMPARISON.md",
-      "status": "historical-reference",
-      "label": "measured-plain-prompt",
-      "publishable": true
+      "detail": "historical plain-prompt mean retained only for audit traceability; the answerer, judge, and methodology are not reproducible from the committed current harness",
+      "source": "historical benchmark notes; see perseus-vault/benchmarks/LONG_MEM_EVAL.md",
+      "status": "retired-non-reproducible",
+      "label": "historical",
+      "publishable": false,
+      "note": "Removed from all current public surfaces. Do not cite as a current Perseus or Perseus Vault result."
     },
     "longmemeval_cot": {
-      "detail": "three accepted full 500-question frozen-default official-CoT runs: Run 1 80.2% (401/500), Run 2 80.6% (403/500), Run 3 81.8% (409/500); equal-weight mean and pooled result 80.9% (1213/1500); matched full-context controls 66.8% / 66.6% / 67.4% (66.9% pooled), gold-session oracle controls 90.2% / 91.6% / 90.6% (90.8% pooled); all runs used the named answerer and official per-type judge at temperature 0; correction attempts are disclosed in the public series report",
-      "evidence_access": "public-summary",
-      "label": "measured-three-run-mean",
-      "note": "This is a company-run benchmark result for one dataset, protocol, and model snapshot. It is not an independent holdout estimate, customer validation, production efficacy, or a claim about unrelated systems. The separate evidence-structured 82.0% paired confirmation is not blended into this series.",
-      "publishable": true,
-      "source": "https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/qa_report_cot_frozen_default_series_20260828.json",
-      "status": "accepted-three-run-series",
+      "detail": "historical answerer/judge series retained only for audit traceability; it is not the current reproducible benchmark lane",
+      "evidence_access": "historical",
+      "label": "historical",
+      "note": "Removed from all current public surfaces because the former methodology is not reproducible from the committed current harness. See the deprecated benchmark note for the boundary.",
+      "publishable": false,
+      "source": "historical benchmark notes; see perseus-vault/benchmarks/LONG_MEM_EVAL.md",
+      "status": "retired-non-reproducible",
       "value": "80.9%"
     },
     "longmemeval_evidence_structured": {
@@ -122,17 +123,18 @@
       "evidence_access": "internal-only",
       "label": "measured-paired-confirmation",
       "note": "This is not an independent holdout estimate, a product-superiority claim, or production authorization. A provider-free attribution rerun remains incomplete and is not used as a score. It is kept separate from the frozen-default three-run series.",
-      "publishable": true,
-      "source": "internal custody artifact; sanitized public report not yet published",
-      "status": "accepted-internal-confirmation",
+      "publishable": false,
+      "source": "internal custody artifact; sanitized public report not published",
+      "status": "internal-non-publishable",
       "value": "82.0%"
     },
     "longmemeval_retrieval_recall10": {
       "value": "99.8%",
-      "detail": "session-level retrieval recall@k, retrieval-only; hybrid recall@1 83.2%, recall@3 96.6%, recall@5 98.8%, recall@10 99.8%, MRR 0.8949 on the current-main 500-instance report",
+      "detail": "fully offline, judge-free session-level retrieval recall@k against answer_session_ids on the public LongMemEval _s split: 500 questions, 23,867 ingested sessions; hybrid recall@1 83.2%, recall@3 96.6%, recall@5 98.8%, recall@10 99.8%, MRR 0.8949",
       "source": "https://github.com/Perseus-Computing-LLC/perseus-vault/blob/main/benchmark/longmemeval/report-currentmain-2026-08-16.json",
-      "status": "signed-current-main",
-      "label": "measured",
+      "signature_sha256": "cb94b4f89dc0da830dc628daa7aa58a70ca257da946b56f37db6c24622cdcc09",
+      "status": "committed-source-checked",
+      "label": "measured-retrieval-only",
       "publishable": true
     },
     "competitor_zep": {
