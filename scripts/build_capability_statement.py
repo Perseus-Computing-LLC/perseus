@@ -10,11 +10,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import reportlab
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     KeepTogether,
     PageBreak,
@@ -43,15 +46,38 @@ LINE = colors.HexColor("#C9C5BA")
 TEAL_SOFT = colors.HexColor("#D7E5E1")
 AMBER_SOFT = colors.HexColor("#F0DFC2")
 
+FONT_REGULAR = "PerseusSans"
+FONT_BOLD = "PerseusSans-Bold"
+
+
+def register_embedded_fonts():
+    """Register ReportLab's bundled TrueType fonts for portable embedding."""
+    font_dir = Path(reportlab.__file__).resolve().parent / "fonts"
+    regular = font_dir / "Vera.ttf"
+    bold = font_dir / "VeraBd.ttf"
+    if not regular.is_file() or not bold.is_file():
+        raise RuntimeError(f"ReportLab bundled fonts missing under {font_dir}")
+    pdfmetrics.registerFont(TTFont(FONT_REGULAR, str(regular)))
+    pdfmetrics.registerFont(TTFont(FONT_BOLD, str(bold)))
+    # ReportLab's Canvas starts with Helvetica before the page callback runs.
+    # Register the same embedded faces under those names so the unused default
+    # cannot leave a non-embedded Type1 font in the resource dictionary.
+    pdfmetrics.registerFont(TTFont("Helvetica", str(regular)))
+    pdfmetrics.registerFont(TTFont("Helvetica-Bold", str(bold)))
+    pdfmetrics.registerFontFamily(FONT_REGULAR, normal=FONT_REGULAR, bold=FONT_BOLD)
+    pdfmetrics.registerFontFamily("Helvetica", normal="Helvetica", bold="Helvetica-Bold")
+
+
+register_embedded_fonts()
 styles = getSampleStyleSheet()
-TITLE = ParagraphStyle("Title", parent=styles["Title"], fontName="Helvetica-Bold", fontSize=27, leading=29, textColor=INK, alignment=TA_LEFT, spaceAfter=11)
-DECK = ParagraphStyle("Deck", parent=styles["BodyText"], fontName="Helvetica", fontSize=10.4, leading=14.2, textColor=SOFT, spaceAfter=10)
-KICKER = ParagraphStyle("Kicker", parent=styles["BodyText"], fontName="Helvetica-Bold", fontSize=7.5, leading=9, textColor=TEAL, tracking=1.1, spaceAfter=6)
-H2 = ParagraphStyle("H2", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=16, leading=18, textColor=INK, spaceAfter=8, spaceBefore=3)
-H3 = ParagraphStyle("H3", parent=styles["Heading3"], fontName="Helvetica-Bold", fontSize=10.5, leading=12.5, textColor=INK, spaceAfter=4)
-BODY = ParagraphStyle("Body", parent=styles["BodyText"], fontName="Helvetica", fontSize=8.5, leading=12, textColor=SOFT, spaceAfter=7)
+TITLE = ParagraphStyle("Title", parent=styles["Title"], fontName=FONT_BOLD, fontSize=27, leading=29, textColor=INK, alignment=TA_LEFT, spaceAfter=11)
+DECK = ParagraphStyle("Deck", parent=styles["BodyText"], fontName=FONT_REGULAR, fontSize=10.4, leading=14.2, textColor=SOFT, spaceAfter=10)
+KICKER = ParagraphStyle("Kicker", parent=styles["BodyText"], fontName=FONT_BOLD, fontSize=7.5, leading=9, textColor=TEAL, tracking=1.1, spaceAfter=6)
+H2 = ParagraphStyle("H2", parent=styles["Heading2"], fontName=FONT_BOLD, fontSize=16, leading=18, textColor=INK, spaceAfter=8, spaceBefore=3)
+H3 = ParagraphStyle("H3", parent=styles["Heading3"], fontName=FONT_BOLD, fontSize=10.5, leading=12.5, textColor=INK, spaceAfter=4)
+BODY = ParagraphStyle("Body", parent=styles["BodyText"], fontName=FONT_REGULAR, fontSize=8.5, leading=12, textColor=SOFT, spaceAfter=7)
 SMALL = ParagraphStyle("Small", parent=BODY, fontSize=7.2, leading=9.3, spaceAfter=3)
-WHITE = ParagraphStyle("White", parent=BODY, textColor=colors.white, fontName="Helvetica-Bold", fontSize=8.2, leading=10)
+WHITE = ParagraphStyle("White", parent=BODY, textColor=colors.white, fontName=FONT_BOLD, fontSize=8.2, leading=10)
 
 
 def p(text: str, style=BODY) -> Paragraph:
@@ -65,7 +91,7 @@ def on_page(canvas, doc):
     canvas.setStrokeColor(LINE)
     canvas.line(0.65 * inch, 0.52 * inch, 7.85 * inch, 0.52 * inch)
     canvas.setFillColor(SOFT)
-    canvas.setFont("Helvetica", 7)
+    canvas.setFont(FONT_REGULAR, 7)
     canvas.drawString(0.65 * inch, 0.31 * inch, "Perseus Computing LLC · perseus.observer · perseus@perseus.observer")
     canvas.drawRightString(7.85 * inch, 0.31 * inch, f"{doc.page} / 2")
     canvas.restoreState()
@@ -162,7 +188,7 @@ def build_story():
             ("JCP / DD2345", "Certificate 0092893", "Approved 2026-08-18 through 2031-08-18 for requesting unclassified export-controlled military technical data. It does not grant data access, a facility clearance, an ATO, or cross-domain approval."),
         ]),
         Spacer(1, 12),
-        callout("Discuss a bounded workshare · Perseus Computing LLC · perseus@perseus.observer", AMBER_SOFT),
+        callout("Discuss a bounded workshare · Perseus Computing LLC<br/>perseus@perseus.observer", AMBER_SOFT),
         Spacer(1, 8),
         p("Review the current security boundary, methods, source, and web version at perseus.observer. Confirm volatile package, registry, assessment, and procurement facts from their authoritative source before proposal or award use.", SMALL),
     ]

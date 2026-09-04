@@ -53,6 +53,23 @@ def fail(errors: list[str], checks: dict[str, dict]) -> int:
     return 1
 
 
+def validate_html_contract(relative: str, text: str, tool_count: int | None) -> list[str]:
+    """Validate the compact entry and full reference by their own contracts."""
+    errors: list[str] = []
+    if "404 / unresolved route" in text or "This page didn" in text:
+        errors.append(f"{relative}: deployed body is the site 404 page")
+    if relative == "index.html":
+        marker_present = "Perseus Vault" in text and "API entry" in text
+    else:
+        marker_present = "Perseus Vault" in text and "API Reference" in text
+    if not marker_present:
+        errors.append(f"{relative}: missing distinctive API-reference marker")
+    if relative == "mcp-tools.html" and tool_count:
+        if len(re.findall(r'id="operation-[^"]+"', text)) != tool_count:
+            errors.append(f"{relative}: operation count does not match metadata tool_count")
+    return errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -130,12 +147,7 @@ def main() -> int:
 
     for relative in ("index.html", "mcp-tools.html"):
         text = bodies.get(relative, b"").decode("utf-8", "replace")
-        if "404 / unresolved route" in text or "This page didn" in text:
-            errors.append(f"{relative}: deployed body is the site 404 page")
-        if "Perseus Vault" not in text or "API Reference" not in text:
-            errors.append(f"{relative}: missing distinctive API-reference marker")
-        if tool_count and len(re.findall(r'id="operation-[^"]+"', text)) != tool_count:
-            errors.append(f"{relative}: operation count does not match metadata tool_count")
+        errors.extend(validate_html_contract(relative, text, tool_count))
 
     search = bodies.get("search-index.json")
     if search:

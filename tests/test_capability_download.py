@@ -1,4 +1,5 @@
 import hashlib
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +23,13 @@ def test_capability_download_artifact_exists_and_is_linked():
     assert len(payload) > 1000
     for rel in ("government/index.html", "government/capability-statement.html"):
         assert PDF_HREF in (ROOT / rel).read_text(encoding="utf-8")
+
+
+def test_capability_download_embeds_true_type_fonts():
+    payload = PDF.read_bytes()
+    assert b"/FontFile2" in payload
+    assert not re.search(rb"/BaseFont /Helvetica(?:\s|/)", payload)
+    assert not re.search(rb"/BaseFont /Helvetica-Bold(?:\s|/)", payload)
 
 
 def test_old_tailored_urls_are_safe_byte_identical_compatibility_aliases():
