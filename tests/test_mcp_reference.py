@@ -35,3 +35,12 @@ def test_live_checker_covers_the_published_contract():
         'sourcey.js',
         '_og/mcp-tools.png',
     }
+
+
+def test_live_checker_allows_compact_index_without_operation_sections():
+    compact_index = '<title>Perseus Vault API entry</title><p>release-bound reference</p>'
+    operations = ''.join(f'<section id="operation-tool-{n}"></section>' for n in range(173))
+    full_reference = f'<title>Perseus Vault - API Reference</title>{operations}'
+
+    assert _LIVE_CHECKER.validate_html_contract('index.html', compact_index, 173) == []
+    assert _LIVE_CHECKER.validate_html_contract('mcp-tools.html', full_reference, 173) == []
